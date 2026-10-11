@@ -32,12 +32,17 @@ export interface BuildStep {
   /** Member: the unit direction it grows along. Shell: its unit normal (it grows in its plane). */
   dir: P3;
   kind: 'member' | 'shell';
+  /** Height of the piece's highest point. */
+  top: number;
 }
 
 export interface BuildSchedule {
   steps: BuildStep[];
   /** Seconds until the last piece is in place. */
   total: number;
+  /** Lowest and highest points of the whole structure. */
+  zMin: number;
+  zMax: number;
 }
 
 export interface ScheduleOptions {
@@ -151,7 +156,9 @@ export function buildOrder(pieces: readonly BuildPiece[], order: BuildOrder, sup
 export function buildSchedule(pieces: readonly BuildPiece[], order: BuildOrder, opts: ScheduleOptions): BuildSchedule {
   const seq = buildOrder(pieces, order, opts.supportedNodes);
   const n = seq.length;
-  if (n === 0) return { steps: [], total: 0 };
+  if (n === 0) return { steps: [], total: 0, zMin: 0, zMax: 0 };
+  let zMin = Infinity, zMax = -Infinity;
+  for (const p of pieces) for (const q of piecePoints(p)) { zMin = Math.min(zMin, q.z); zMax = Math.max(zMax, q.z); }
   const duration = Math.max(1, opts.duration);
   const grow = Math.min(0.9, Math.max(0.18, (duration / n) * 6), duration * 0.5);
   const spacing = n > 1 ? (duration - grow) / (n - 1) : 0;
@@ -162,13 +169,13 @@ export function buildSchedule(pieces: readonly BuildPiece[], order: BuildOrder, 
       // From the lower end, so a column rises and a beam runs from where it starts.
       const fromA = p.a.z <= p.b.z + 1e-9;
       const o = fromA ? p.a : p.b, e = fromA ? p.b : p.a;
-      return { key: p.key, start, end: start + grow, origin: o, dir: unit(sub(e, o)), kind: 'member' };
+      return { key: p.key, start, end: start + grow, origin: o, dir: unit(sub(e, o)), kind: 'member', top: Math.max(p.a.z, p.b.z) };
     }
     const c = centroid(p.pts);
     const nrm = p.pts.length >= 3 ? unit(cross(sub(p.pts[1]!, p.pts[0]!), sub(p.pts[2]!, p.pts[0]!))) : { x: 0, y: 0, z: 1 };
-    return { key: p.key, start, end: start + grow, origin: c, dir: nrm, kind: 'shell' };
+    return { key: p.key, start, end: start + grow, origin: c, dir: nrm, kind: 'shell', top: Math.max(...p.pts.map((q) => q.z)) };
   });
-  return { steps, total: duration };
+  return { steps, total: duration, zMin, zMax };
 }
 
 /** How far a piece has grown at time `t`, 0 to 1, eased so it settles into place. */
@@ -204,4 +211,32 @@ export function growMatrix(step: BuildStep, s: number, out: number[] = new Array
   out[3] = 0; out[7] = 0; out[11] = 0;
   out[12] = t[0]!; out[13] = t[1]!; out[14] = t[2]!; out[15] = 1;
   return out;
+}
+
+/**
+ * The transform that draws a piece being lowered into place: its final shape, `dist` above
+ * where it goes at s = 0, settling onto it at s = 1.
+ */
+export function dropMatrix(dist: number, s: number, out: number[] = new Array(16)): number[] {
+  out.fill(0);
+  out[0] = 1; out[5] = 1; out[10] = 1; out[15] = 1;
+  out[14] = dist * (1 - s);
+  return out;
+}
+
+/**
+ * How high the build has got at time `t`: the top of the highest piece that has started. The
+ * rising camera follows it; before anything starts it is the foot of the structure.
+ */
+export function buildFront(schedule: BuildSchedule, t: number): number {
+  let front = schedule.zMin;
+  for (const s of schedule.steps) if (s.start <= t && s.top > front) front = s.top;
+  return front;
+}
+
+/** How many pieces have started appearing by time `t`. */
+export function piecesStarted(schedule: BuildSchedule, t: number): number {
+  let n = 0;
+  for (const s of schedule.steps) if (s.start < t) n++;
+  return n;
 }

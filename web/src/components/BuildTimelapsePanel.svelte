@@ -1,15 +1,16 @@
 <script lang="ts">
   /**
-   * The build timelapse's controls: play, scrub, order, length, camera turn, and a video of the
-   * canvas. The video is what the WebGL canvas draws, so the panel and the rest of the page stay
-   * out of it.
+   * The build timelapse's controls: play, scrub, order and length up front; the look, the
+   * format, the camera and the texts folded under a summary; and a video of the picture. The
+   * video is the picture the stage shows (the render plus its texts), so the panel and the rest
+   * of the page stay out of it.
    */
-  import { buildTimelapse } from '../lib/store/build-timelapse.svelte';
+  import { buildTimelapse, type TimelapseCamera, type TimelapseEntry, type TimelapseFormat, type TimelapseStyle } from '../lib/store/build-timelapse.svelte';
   import { modelStore, uiStore } from '../lib/store';
   import { t, tp } from '../lib/i18n';
   import type { BuildOrder } from '../lib/viewport3d/build-timelapse';
 
-  let { canvas }: { canvas: HTMLCanvasElement | null } = $props();
+  let { picture, stage }: { picture: HTMLCanvasElement | null; stage: HTMLElement | null } = $props();
 
   const ORDERS: Array<{ id: BuildOrder; key: string }> = [
     { id: 'construction', key: 'timelapse.orderConstruction' },
@@ -18,12 +19,40 @@
     { id: 'list', key: 'timelapse.orderList' },
   ];
   const DURATIONS = [6, 10, 12, 15, 20, 30, 45];
+  const STYLES: Array<{ id: TimelapseStyle; key: string }> = [
+    { id: 'night', key: 'timelapse.styleNight' },
+    { id: 'studio', key: 'timelapse.styleStudio' },
+    { id: 'model', key: 'timelapse.styleModel' },
+  ];
+  const FORMATS: Array<{ id: TimelapseFormat; label: string }> = [
+    { id: 'screen', label: '' },
+    { id: '16:9', label: '16:9 · 1920×1080' },
+    { id: '1:1', label: '1:1 · 1080×1080' },
+    { id: '9:16', label: '9:16 · 1080×1920' },
+  ];
+  const ENTRIES: Array<{ id: TimelapseEntry; key: string }> = [
+    { id: 'grow', key: 'timelapse.entryGrow' },
+    { id: 'drop', key: 'timelapse.entryDrop' },
+  ];
+  const CAMERAS: Array<{ id: TimelapseCamera; key: string }> = [
+    { id: 'orbit', key: 'timelapse.cameraOrbit' },
+    { id: 'rise', key: 'timelapse.cameraRise' },
+    { id: 'fixed', key: 'timelapse.cameraFixed' },
+  ];
 
   const empty = $derived(modelStore.elements.size + modelStore.plates.size + modelStore.quads.size === 0);
+  const formatLabel = (f: TimelapseFormat) => (f === 'screen' ? t('timelapse.formatScreen') : FORMATS.find((x) => x.id === f)!.label);
+  const summary = $derived([
+    t(STYLES.find((s) => s.id === buildTimelapse.style)!.key),
+    buildTimelapse.format === 'screen' ? t('timelapse.formatScreen') : buildTimelapse.format,
+    t(CAMERAS.find((c) => c.id === buildTimelapse.camera)!.key),
+    buildTimelapse.texts ? t('timelapse.texts') : null,
+  ].filter(Boolean).join(' · '));
 
   let recorder: MediaRecorder | null = null;
   let chunks: Blob[] = [];
   let keep = true;
+  let fullscreen = $state(false);
 
   function pickType(): { mime: string; ext: string } | null {
     if (typeof MediaRecorder === 'undefined') return null;
@@ -36,21 +65,34 @@
     return null;
   }
 
+  /** "stabileo-industrial-building-9x16.mp4": the model and the format in the name. */
+  function fileName(ext: string): string {
+    const slug = (buildTimelapse.title.trim() || modelStore.model.name || 'armado')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'armado';
+    const fmt = buildTimelapse.format === 'screen' ? '' : `-${buildTimelapse.format.replace(':', 'x')}`;
+    return `stabileo-${slug}${fmt}.${ext}`;
+  }
+
   function record() {
     const type = pickType();
-    if (!canvas || !type || typeof canvas.captureStream !== 'function') {
+    if (!picture || !type || typeof picture.captureStream !== 'function') {
       uiStore.toast(t('timelapse.noRecorder'), 'error');
       return;
     }
     chunks = [];
     keep = true;
-    const rec = new MediaRecorder(canvas.captureStream(60), { mimeType: type.mime, videoBitsPerSecond: 16_000_000 });
+    const pixels = picture.width * picture.height;
+    const rec = new MediaRecorder(picture.captureStream(60), {
+      mimeType: type.mime,
+      // About 6 bits a pixel a second at 60 fps: crisp edges on thin members without huge files.
+      videoBitsPerSecond: Math.round(Math.min(20e6, Math.max(6e6, pixels * 6))),
+    });
     rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
     rec.onstop = () => {
       recorder = null;
       buildTimelapse.recording = false;
       if (!keep || chunks.length === 0) return;
-      const file = `stabileo-armado.${type.ext}`;
+      const file = fileName(type.ext);
       const url = URL.createObjectURL(new Blob(chunks, { type: type.mime }));
       const a = document.createElement('a');
       a.href = url; a.download = file; a.click();
@@ -69,19 +111,42 @@
     else buildTimelapse.recording = false;
   }
 
-  // The recording ends with the build (and the hold after it).
+  function toggleFullscreen() {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void stage?.requestFullscreen?.();
+  }
+
+  // The recording ends with the build (and the closing card after it).
   $effect(() => {
     if (buildTimelapse.recording && !buildTimelapse.playing) stopRecording(true);
   });
   // Closing the panel drops a recording in progress.
   $effect(() => () => { if (recorder) stopRecording(false); });
 
+  function onKey(e: KeyboardEvent) {
+    const el = e.target as HTMLElement | null;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+    if (e.key === ' ' && !buildTimelapse.recording) {
+      e.preventDefault();
+      if (buildTimelapse.playing) buildTimelapse.pause(); else buildTimelapse.play();
+    } else if (e.key === 'Escape' && !document.fullscreenElement) {
+      if (buildTimelapse.recording) stopRecording(false);
+      buildTimelapse.close();
+    } else if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey && !buildTimelapse.recording) {
+      buildTimelapse.restart();
+    }
+  }
+
   const fmt = (s: number) => `${s.toFixed(1)} s`;
 </script>
+
+<svelte:window onkeydown={onKey} />
+<svelte:document onfullscreenchange={() => { fullscreen = !!document.fullscreenElement; }} />
 
 <div class="tl-panel" data-testid="build-timelapse-panel">
   <div class="tl-row">
     <span class="tl-title">{t('timelapse.title')}</span>
+    <button class="tl-x" title={t('timelapse.fullscreen')} aria-label={t('timelapse.fullscreen')} onclick={toggleFullscreen}>{fullscreen ? '⤡' : '⤢'}</button>
     <button class="tl-x" title={t('timelapse.close')} aria-label={t('timelapse.close')} onclick={() => buildTimelapse.close()}>✕</button>
   </div>
 
@@ -105,6 +170,7 @@
         step="0.01"
         value={buildTimelapse.shownTime}
         disabled={buildTimelapse.recording}
+        aria-label={t('timelapse.title')}
         oninput={(e) => { buildTimelapse.pause(); buildTimelapse.seek(+e.currentTarget.value); }}
       />
       <span class="tl-time">{fmt(buildTimelapse.shownTime)} / {fmt(buildTimelapse.total)}</span>
@@ -123,10 +189,49 @@
           {#each DURATIONS as d (d)}<option value={d}>{d} s</option>{/each}
         </select>
       </label>
-      <label class="tl-check"><input type="checkbox" bind:checked={buildTimelapse.orbit} />{t('timelapse.orbit')}</label>
       <label class="tl-check"><input type="checkbox" bind:checked={buildTimelapse.loop} />{t('timelapse.loop')}</label>
-      <label class="tl-check"><input type="checkbox" bind:checked={buildTimelapse.cleanBackground} />{t('timelapse.clean')}</label>
     </div>
+
+    <details class="tl-more">
+      <summary><span class="tl-more-h">{t('timelapse.lookAndVideo')}</span><span class="tl-more-s">{summary}</span></summary>
+      <div class="tl-grid">
+        <label class="tl-field">
+          <span>{t('timelapse.style')}</span>
+          <select value={buildTimelapse.style} onchange={(e) => { buildTimelapse.style = e.currentTarget.value as TimelapseStyle; }}>
+            {#each STYLES as s (s.id)}<option value={s.id}>{t(s.key)}</option>{/each}
+          </select>
+        </label>
+        <label class="tl-field">
+          <span>{t('timelapse.format')}</span>
+          <select value={buildTimelapse.format} disabled={buildTimelapse.recording} onchange={(e) => { buildTimelapse.format = e.currentTarget.value as TimelapseFormat; }}>
+            {#each FORMATS as f (f.id)}<option value={f.id}>{formatLabel(f.id)}</option>{/each}
+          </select>
+        </label>
+        <label class="tl-field">
+          <span>{t('timelapse.entry')}</span>
+          <select value={buildTimelapse.entry} onchange={(e) => { buildTimelapse.entry = e.currentTarget.value as TimelapseEntry; }}>
+            {#each ENTRIES as en (en.id)}<option value={en.id}>{t(en.key)}</option>{/each}
+          </select>
+        </label>
+        <label class="tl-field">
+          <span>{t('timelapse.camera')}</span>
+          <select value={buildTimelapse.camera} onchange={(e) => { buildTimelapse.camera = e.currentTarget.value as TimelapseCamera; }}>
+            {#each CAMERAS as c (c.id)}<option value={c.id}>{t(c.key)}</option>{/each}
+          </select>
+        </label>
+      </div>
+      <div class="tl-row tl-opts">
+        <label class="tl-check"><input type="checkbox" bind:checked={buildTimelapse.highlight} />{t('timelapse.highlight')}</label>
+        <label class="tl-check"><input type="checkbox" bind:checked={buildTimelapse.cleanBackground} disabled={buildTimelapse.style === 'studio'} />{t('timelapse.clean')}</label>
+        <label class="tl-check"><input type="checkbox" bind:checked={buildTimelapse.texts} />{t('timelapse.texts')}</label>
+      </div>
+      {#if buildTimelapse.texts}
+        <label class="tl-field tl-title-field">
+          <span>{t('timelapse.videoTitle')}</span>
+          <input type="text" value={buildTimelapse.title} placeholder={modelStore.model.name || t('timelapse.title')} oninput={(e) => { buildTimelapse.title = e.currentTarget.value; }} />
+        </label>
+      {/if}
+    </details>
 
     <div class="tl-row">
       {#if buildTimelapse.recording}
@@ -136,6 +241,7 @@
         <button class="tl-btn tl-wide tl-record" data-testid="timelapse-record" onclick={record}>● {t('timelapse.record')}</button>
       {/if}
     </div>
+    <p class="tl-keys">{t('timelapse.keys')}</p>
   {/if}
 </div>
 
@@ -146,6 +252,8 @@
     bottom: 16px;
     z-index: 22;
     width: min(400px, calc(100% - 32px));
+    max-height: calc(100% - 32px);
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -180,8 +288,9 @@
   .tl-record { color: var(--st-danger); }
   .tl-scrub { flex: 1; min-width: 0; accent-color: var(--st-accent); }
   .tl-time { flex: none; font-variant-numeric: tabular-nums; color: var(--st-text-2); font-size: 0.72rem; }
-  .tl-field { display: flex; align-items: center; gap: 4px; color: var(--st-text-2); }
-  .tl-field select {
+  .tl-field { display: flex; align-items: center; gap: 4px; color: var(--st-text-2); min-width: 0; }
+  .tl-field select, .tl-field input[type='text'] {
+    min-width: 0;
     background: var(--st-surface-2);
     color: var(--st-text);
     border: 1px solid var(--st-hair-strong);
@@ -190,7 +299,20 @@
     font-size: 0.74rem;
   }
   .tl-check { display: flex; align-items: center; gap: 4px; color: var(--st-text-2); cursor: pointer; }
+  .tl-more { border-top: 1px solid var(--st-hair-strong); padding-top: 6px; }
+  .tl-more summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; }
+  .tl-more summary::-webkit-details-marker { display: none; }
+  .tl-more summary::before { content: '▸'; color: var(--st-text-3); font-size: 0.7rem; }
+  .tl-more[open] summary::before { content: '▾'; }
+  .tl-more-h { color: var(--st-text); font-weight: 500; flex: none; }
+  .tl-more-s { color: var(--st-text-3); font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .tl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin: 8px 0 6px; }
+  .tl-grid .tl-field { justify-content: space-between; }
+  .tl-grid select { flex: 1; max-width: 62%; }
+  .tl-title-field { margin-top: 6px; }
+  .tl-title-field input { flex: 1; }
   .tl-empty { margin: 0; color: var(--st-text-2); }
+  .tl-keys { margin: 0; color: var(--st-text-3); font-size: 0.68rem; }
   .tl-rec { color: var(--st-danger); }
   .tl-rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--st-danger); animation: tl-blink 1s infinite; }
   @keyframes tl-blink { 50% { opacity: 0.25; } }

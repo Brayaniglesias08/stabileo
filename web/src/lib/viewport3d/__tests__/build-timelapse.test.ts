@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildOrder, buildSchedule, growthAt, growMatrix, type BuildPiece, type P3 } from '../build-timelapse';
+import { buildOrder, buildSchedule, buildFront, dropMatrix, growthAt, growMatrix, piecesStarted, type BuildPiece, type P3 } from '../build-timelapse';
 
 const P = (x: number, y: number, z: number): P3 => ({ x, y, z });
 const member = (key: string, a: P3, b: P3, nodes: [number, number]): BuildPiece => ({ key, kind: 'member', a, b, nodes });
@@ -95,5 +95,23 @@ describe('grow matrix', () => {
     expect(corner.x).toBeCloseTo(3);
     expect(corner.y).toBeCloseTo(3);
     expect(corner.z).toBeCloseTo(3.1);
+  });
+});
+
+describe('drop, front and count', () => {
+  it('a dropped piece starts above its place and lands on it', () => {
+    expect(dropMatrix(5, 0)[14]).toBe(5);
+    expect(dropMatrix(5, 1)[14]).toBe(0);
+    expect(dropMatrix(5, 0.5)[0]).toBe(1);
+  });
+
+  it('the front rises with the pieces that have started, and so does the count', () => {
+    const sch = buildSchedule(frame, 'construction', { duration: 10, supportedNodes: new Set([1, 4]) });
+    expect(buildFront(sch, -1)).toBe(0);
+    expect(piecesStarted(sch, -1)).toBe(0);
+    expect(buildFront(sch, sch.steps[2]!.start + 0.01)).toBe(3);
+    expect(buildFront(sch, 100)).toBe(6);
+    expect(piecesStarted(sch, 100)).toBe(frame.length);
+    expect([sch.zMin, sch.zMax]).toEqual([0, 6]);
   });
 });

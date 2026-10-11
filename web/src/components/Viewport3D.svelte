@@ -10,7 +10,7 @@
   import { contourOptions } from '../lib/store/contour-options.svelte';
   import { nextMember } from '../lib/store/next-member.svelte';
   import { onMount, onDestroy, untrack } from 'svelte';
-  import { t } from '../lib/i18n';
+  import { t, tp } from '../lib/i18n';
   import * as THREE from 'three';
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   import { modelStore, uiStore, resultsStore, historyStore, dsmStepsStore, verificationStore } from '../lib/store';
@@ -63,8 +63,10 @@
   import { syncNodes as _syncNodes, syncElements as _syncElements, syncSupports as _syncSupports, syncLoads as _syncLoads, syncShells as _syncShells, syncSelection as _syncSelection, syncLocalAxes as _syncLocalAxes, syncMemberOffsets as _syncMemberOffsets, syncShellOffsets as _syncShellOffsets, applyElementVisibility, type SceneSyncContext } from '../lib/viewport3d/scene-sync';
   import { syncDeformed as _syncDeformed, syncDiagrams3D as _syncDiagrams3D, syncColorMap3D as _syncColorMap3D, syncVerificationLabels as _syncVerificationLabels, syncReactions as _syncReactions, syncConstraintForces as _syncConstraintForces, syncLabels3D as _syncLabels3D, syncDespiece3D as _syncDespiece3D, DIAGRAM_3D_TYPES, type ResultsSyncContext } from '../lib/viewport3d/results-sync';
   import { applyLowDetail, isHeavyModel } from '../lib/viewport3d/lod';
-  import { buildTimelapse } from '../lib/store/build-timelapse.svelte';
+  import { buildTimelapse, FORMAT_SIZE } from '../lib/store/build-timelapse.svelte';
   import { createTimelapseView } from '../lib/viewport3d/build-timelapse-view';
+  import { createTimelapseCompositor } from '../lib/viewport3d/timelapse-compositor';
+  import { setLineResolution } from '../lib/three/create-element-mesh';
   import BuildTimelapsePanel from './BuildTimelapsePanel.svelte';
 
   let container: HTMLDivElement;
@@ -158,6 +160,11 @@
   const timelapseView = createTimelapseView();
   let timelapseProjectKey = '';
   let timelapseProject = false;
+  // The picture the timelapse shows and records: the render plus its texts (see the compositor).
+  let timelapseFrame = $state<ReturnType<typeof createTimelapseCompositor> | null>(null);
+  /** The render's aspect while the timelapse draws at its own size; null otherwise. */
+  let timelapseAspect: number | null = null;
+  let toolBeforeTimelapse: typeof uiStore.currentTool | null = null;
   let renderModeBeforeSections: 'wireframe' | 'solid' = 'wireframe';
   let boxSelect3D = $state<{ startX: number; startY: number; endX: number; endY: number; additive: boolean } | null>(null);
   /** The lasso's outline while one is being drawn (`viewState.lasso`). */
@@ -685,7 +692,7 @@
     addAxisLabels();
 
     // Handle resize
-    const ro = new ResizeObserver(() => { handleResize(); invalidate(); });
+    const ro = new ResizeObserver(() => { if (buildTimelapse.active) applyTimelapseSize(); else handleResize(); invalidate(); });
     ro.observe(container);
     handleResize();
 
@@ -810,10 +817,11 @@
       // Keyboard camera movement
       handleKeyboardCamera();
 
+      let timelapseInfo: ReturnType<typeof timelapseView.frame> = null;
       if (buildTimelapse.active) {
         const key = `${modelStore.modelVersion}|${uiStore.analysisMode}|${uiStore.viewportPresentation3D}`;
         if (key !== timelapseProjectKey) { timelapseProjectKey = key; timelapseProject = shouldProject2DModel(); }
-        timelapseView.frame({
+        timelapseInfo = timelapseView.frame({
           scene, elementGroups, shellGroups: sceneCtx.shellGroups, supportGizmos,
           keep: new Set<THREE.Object3D>([elementsParent, shellsParent, supportsParent]),
           background: new Set<THREE.Object3D>([gridGroup, structuralGridGroup].filter((o): o is THREE.Object3D => !!o)),
@@ -863,7 +871,7 @@
       if (dampingFrames > 0) {
         dampingFrames--;
         if (dampingFrames === 0 && !isOrbiting) {
-          renderer.setPixelRatio(idlePixelRatio);
+          if (!buildTimelapse.active) renderer.setPixelRatio(idlePixelRatio);
           setLowDetail(false);
         }
       }
@@ -913,7 +921,8 @@
       const _perfT0 = perfHud.on ? performance.now() : 0;
       nodesInstanced.setPixelRatio(renderer.getPixelRatio());
       renderer.render(scene, camera);
-      renderInset();
+      if (timelapseInfo && timelapseFrame) composeTimelapse(timelapseInfo);
+      else renderInset();
       drawAxisGizmo();
       if (perfHud.on) {
         // GPU side: draw calls + triangles (renderer.info auto-resets per render,
@@ -1007,7 +1016,7 @@
     }
     exitOrbitLOD = () => {
       isOrbiting = false;
-      renderer.setPixelRatio(idlePixelRatio);
+      if (!buildTimelapse.active) renderer.setPixelRatio(idlePixelRatio);
       setLowDetail(false);
       invalidate();
     };
@@ -1047,7 +1056,7 @@
     controls.addEventListener('start', () => {
       isOrbiting = true;
       dampingFrames = 0;
-      renderer.setPixelRatio(1);
+      if (!buildTimelapse.active) renderer.setPixelRatio(1);
       setLowDetail(true);
     });
     controls.addEventListener('end', () => {
@@ -1483,29 +1492,121 @@
   });
 
   /*
-   * The build timelapse opens on the sections, from an isometric view, with nothing selected;
-   * closing it puts the render mode and every mesh back. The camera is left where the turn
-   * ended, as after any other view change.
+   * The build timelapse opens on the sections, from an isometric view, with nothing selected
+   * and the pan tool armed (a click on the picture must not edit the model). It draws at its
+   * format's size into its own picture; closing it puts the render mode, the tool, the size and
+   * every mesh back. The camera is left where the turn ended, as after any other view change.
    */
   let renderModeBeforeTimelapse: typeof uiStore.renderMode3D | null = null;
+
+  /** The size the timelapse renders at: the viewport's, or the video format's. */
+  function timelapseSize(): { w: number; h: number } {
+    const f = buildTimelapse.format;
+    if (f !== 'screen') return FORMAT_SIZE[f];
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    return { w: Math.round(container.clientWidth * dpr), h: Math.round(container.clientHeight * dpr) };
+  }
+
+  function applyTimelapseSize(): void {
+    if (!renderer || !container || !timelapseFrame) return;
+    const { w, h } = timelapseSize();
+    if (!w || !h) return;
+    renderer.setPixelRatio(1);
+    renderer.setSize(w, h, false);
+    timelapseAspect = w / h;
+    perspCamera.aspect = timelapseAspect;
+    perspCamera.updateProjectionMatrix();
+    syncOrthoFrustum();
+    setLineResolution(w, h);
+    timelapseFrame.resize(w, h);
+    // Shown whole inside the viewport, at its own proportions (letterboxed).
+    const k = Math.min(container.clientWidth / w, container.clientHeight / h);
+    timelapseFrame.canvas.style.width = `${Math.floor(w * k)}px`;
+    timelapseFrame.canvas.style.height = `${Math.floor(h * k)}px`;
+  }
+
+  /**
+   * Iso view, framed for the timelapse's picture: the structure's bounding sphere fits the
+   * narrower of the two angles, so a tall 9:16 frame takes the model whole and a wide one is not
+   * left with the margin the fit keeps for labels and loads, which the timelapse does not draw.
+   */
+  function frameTimelapse(): void {
+    setView('iso');
+    const project = shouldProject2DModel();
+    const box = new THREE.Box3();
+    const add = (id: number) => {
+      const n = modelStore.nodes.get(id);
+      if (n) { const p = projectNodeToScene(n, project); box.expandByPoint(new THREE.Vector3(p.x, p.y, p.z)); }
+    };
+    for (const e of modelStore.elements.values()) { add(e.nodeI); add(e.nodeJ); }
+    for (const s of [...modelStore.plates.values(), ...modelStore.quads.values()]) for (const id of s.nodes) add(id);
+    if (box.isEmpty()) { controls.update(); return; }
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    const vfov = (perspCamera.fov * Math.PI) / 180;
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * (timelapseAspect ?? perspCamera.aspect));
+    // A sphere is generous upright (models are lower than they are long), so a wide frame can
+    // come in closer; a tall frame is limited across, where a long model is as wide as its sphere.
+    const dist = (Math.max(sphere.radius, 0.5) / Math.sin(Math.min(vfov, hfov) / 2)) * (hfov < vfov ? 1.02 : 0.88);
+    controls.target.copy(sphere.center);
+    camera.position.copy(sphere.center).addScaledVector(dir, dist);
+    if (camera === orthoCamera) syncOrthoFrustum();
+    controls.update();
+  }
+
+  function composeTimelapse(info: NonNullable<ReturnType<typeof timelapseView.frame>>): void {
+    timelapseFrame!.draw(renderer.domElement, {
+      title: buildTimelapse.title.trim() || modelStore.model.name || t('timelapse.title'),
+      stats: tp('timelapse.stats', { nodes: modelStore.nodes.size, members: modelStore.elements.size, supports: modelStore.supports.size }),
+      counter: tp('timelapse.counter', { n: info.started, total: info.pieces }),
+      progress: info.progress,
+      closing: info.closing,
+      style: buildTimelapse.style,
+      texts: buildTimelapse.texts,
+    });
+  }
+
+  /** Puts the picture's canvas in the stage. */
+  function mountTimelapseFrame(node: HTMLElement) {
+    timelapseFrame ??= createTimelapseCompositor();
+    node.appendChild(timelapseFrame.canvas);
+    applyTimelapseSize();
+    return { destroy() { timelapseFrame?.canvas.remove(); } };
+  }
+
   $effect(() => {
     const on = buildTimelapse.active;
     untrack(() => {
       if (on && renderModeBeforeTimelapse === null) {
         renderModeBeforeTimelapse = uiStore.renderMode3D;
+        toolBeforeTimelapse = uiStore.currentTool;
         uiStore.renderMode3D = 'sections';
+        uiStore.currentTool = 'pan';
         uiStore.clearSelection();
-        setView('iso');
-        // The fit leaves room for labels and loads, which the timelapse does not draw: closer in.
-        if (camera === orthoCamera) { orthoCamera.zoom *= 1.25; orthoCamera.updateProjectionMatrix(); }
-        else camera.position.lerp(controls.target, 0.2);
-        controls.update();
+        timelapseFrame ??= createTimelapseCompositor();
+        applyTimelapseSize();
+        frameTimelapse();
       } else if (!on && renderModeBeforeTimelapse !== null) {
-        timelapseView.restore();
+        timelapseView.restore(scene);
         uiStore.renderMode3D = renderModeBeforeTimelapse;
+        if (toolBeforeTimelapse) uiStore.currentTool = toolBeforeTimelapse;
         renderModeBeforeTimelapse = null;
+        toolBeforeTimelapse = null;
+        timelapseAspect = null;
+        renderer.setPixelRatio(window.devicePixelRatio);
+        handleResize();
         applyElementVisibility(elementGroups, elementsBatched?.mesh, elementsParent, resultsStore.diagramType === 'despiece', uiStore.renderMode3D === 'wireframe');
       }
+    });
+    invalidate();
+  });
+  // A new format changes the picture's shape: render at its size and frame the model again.
+  $effect(() => {
+    buildTimelapse.format;
+    untrack(() => {
+      if (!buildTimelapse.active || renderModeBeforeTimelapse === null) return;
+      applyTimelapseSize();
+      frameTimelapse();
     });
     invalidate();
   });
@@ -1513,6 +1614,7 @@
   // is already drawing every frame, and an invalidate then starts a second frame chain.
   $effect(() => {
     buildTimelapse.shownTime; buildTimelapse.order; buildTimelapse.duration; buildTimelapse.cleanBackground;
+    buildTimelapse.style; buildTimelapse.texts; buildTimelapse.title; buildTimelapse.highlight; buildTimelapse.entry;
     if (!buildTimelapse.playing) invalidate();
   });
   onDestroy(() => { if (buildTimelapse.active) buildTimelapse.close(); });
@@ -3637,8 +3739,8 @@
 
   function syncOrthoFrustum(aspect?: number) {
     if (!orthoCamera || !controls) return;
-    const containerAspect = container ? container.clientWidth / container.clientHeight : 1;
-    _syncOrthoFrustum(orthoCamera, camera.position, controls.target, containerAspect, aspect);
+    const containerAspect = timelapseAspect ?? (container ? container.clientWidth / container.clientHeight : 1);
+    _syncOrthoFrustum(orthoCamera, camera.position, controls.target, containerAspect, aspect ?? timelapseAspect ?? undefined);
   }
 
   /** Where the camera is looking, in the working plane, and how wide the view is. */
@@ -3887,7 +3989,9 @@
   {/if}
 
   {#if buildTimelapse.active}
-    <BuildTimelapsePanel canvas={renderer?.domElement ?? null} />
+    <!-- What the timelapse records, shown as it will be: the picture, fitted and letterboxed. -->
+    <div class="tl-stage" class:studio={buildTimelapse.style === 'studio'} use:mountTimelapseFrame></div>
+    <BuildTimelapsePanel picture={timelapseFrame?.canvas ?? null} stage={container} />
   {/if}
 
   <!-- Clipping plane controls -->
@@ -4087,7 +4191,8 @@
   }
   .perf-hud b { color: #fff; }
 
-  .viewport3d-wrapper :global(canvas:not(.axis-gizmo)) {
+  /* The scene's canvas fills the viewport; the timelapse picture sizes itself (letterboxed). */
+  .viewport3d-wrapper :global(canvas:not(.axis-gizmo):not(.tl-frame)) {
     display: block;
     width: 100% !important;
     height: 100% !important;
@@ -4501,5 +4606,22 @@
   .box-select-rect.crossing-mode {
     border: 1px dashed #44bb44;
     background: rgba(68, 187, 68, 0.06);
+  }
+  .tl-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 21;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #04070b;
+    /* Drags pass through to the camera beneath. */
+    pointer-events: none;
+  }
+  .tl-stage.studio { background: #2a323c; }
+  .tl-stage :global(canvas.tl-frame) {
+    display: block;
+    flex: none;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
   }
 </style>
