@@ -9,7 +9,7 @@
   import { timeHistoryView } from '../lib/store/time-history-view.svelte';
   import { contourOptions } from '../lib/store/contour-options.svelte';
   import { nextMember } from '../lib/store/next-member.svelte';
-  import { onMount, untrack } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { t } from '../lib/i18n';
   import * as THREE from 'three';
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -63,6 +63,9 @@
   import { syncNodes as _syncNodes, syncElements as _syncElements, syncSupports as _syncSupports, syncLoads as _syncLoads, syncShells as _syncShells, syncSelection as _syncSelection, syncLocalAxes as _syncLocalAxes, syncMemberOffsets as _syncMemberOffsets, syncShellOffsets as _syncShellOffsets, applyElementVisibility, type SceneSyncContext } from '../lib/viewport3d/scene-sync';
   import { syncDeformed as _syncDeformed, syncDiagrams3D as _syncDiagrams3D, syncColorMap3D as _syncColorMap3D, syncVerificationLabels as _syncVerificationLabels, syncReactions as _syncReactions, syncConstraintForces as _syncConstraintForces, syncLabels3D as _syncLabels3D, syncDespiece3D as _syncDespiece3D, DIAGRAM_3D_TYPES, type ResultsSyncContext } from '../lib/viewport3d/results-sync';
   import { applyLowDetail, isHeavyModel } from '../lib/viewport3d/lod';
+  import { buildTimelapse } from '../lib/store/build-timelapse.svelte';
+  import { createTimelapseView } from '../lib/viewport3d/build-timelapse-view';
+  import BuildTimelapsePanel from './BuildTimelapsePanel.svelte';
 
   let container: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -151,6 +154,10 @@
   // a 'solid' preference from Settings instead of always landing on wireframe.
   /** Whether the view-options menu is open. Closed on every mount. */
   let camMenuOpen = $state(false);
+  // The build timelapse (camera menu): draws the model going up piece by piece.
+  const timelapseView = createTimelapseView();
+  let timelapseProjectKey = '';
+  let timelapseProject = false;
   let renderModeBeforeSections: 'wireframe' | 'solid' = 'wireframe';
   let boxSelect3D = $state<{ startX: number; startY: number; endX: number; endY: number; additive: boolean } | null>(null);
   /** The lasso's outline while one is being drawn (`viewState.lasso`). */
@@ -714,7 +721,8 @@
       // Despiece is a one-shot pull-apart; keep rendering only while it plays.
       const animDespiece = dt === 'despiece' && !!resultsStore.results3D
         && (performance.now() - despieceStart) < DESPIECE_ANIM_MS + 80;
-      return animDeformed || animMode || animBuckling || animDespiece;
+      const animBuild = buildTimelapse.active && buildTimelapse.playing;
+      return animDeformed || animMode || animBuckling || animDespiece || animBuild;
     }
 
     /** Whether we need to keep the render loop running continuously */
@@ -722,11 +730,24 @@
       return uiStore.continuousRendering || keysPressed.size > 0 || isAnimating() || dampingFrames > 0;
     }
 
+    /*
+     * One frame pending at most. While the loop renders continuously it reschedules itself, and
+     * `needsRender` is false between frames, so an invalidate then used to start a second chain
+     * beside it: every effect that fired during an animation added one, and the scene was drawn
+     * that many times per frame.
+     */
+    let framePending = false;
+    function scheduleFrame() {
+      if (framePending) return;
+      framePending = true;
+      animFrameId = requestAnimationFrame(renderOnce);
+    }
+
     /** Mark the scene as needing a re-render. Schedules a frame if one isn't pending. */
     function _invalidate() {
       if (!needsRender) {
         needsRender = true;
-        animFrameId = requestAnimationFrame(renderOnce);
+        scheduleFrame();
       }
     }
     // Expose invalidate to the outer scope for use in $effect blocks
@@ -782,11 +803,23 @@
     }
 
     function renderOnce() {
+      framePending = false;
       if (!needsRender && !needsContinuous()) return;
       needsRender = false;
 
       // Keyboard camera movement
       handleKeyboardCamera();
+
+      if (buildTimelapse.active) {
+        const key = `${modelStore.modelVersion}|${uiStore.analysisMode}|${uiStore.viewportPresentation3D}`;
+        if (key !== timelapseProjectKey) { timelapseProjectKey = key; timelapseProject = shouldProject2DModel(); }
+        timelapseView.frame({
+          scene, elementGroups, shellGroups: sceneCtx.shellGroups, supportGizmos,
+          keep: new Set<THREE.Object3D>([elementsParent, shellsParent, supportsParent]),
+          background: new Set<THREE.Object3D>([gridGroup, structuralGridGroup].filter((o): o is THREE.Object3D => !!o)),
+          project2D: timelapseProject,
+        }, camera, controls.target, performance.now());
+      }
 
       controls.update();
       /* Markers follow the camera: see `applyNodeRadius`. Throttled on a
@@ -914,7 +947,7 @@
 
       // Keep looping if continuous rendering is needed
       if (needsContinuous() || needsRender) {
-        animFrameId = requestAnimationFrame(renderOnce);
+        scheduleFrame();
       } else if (perfHud.on) {
         // The loop is about to STOP. This viewport renders on demand, so the next
         // frame may be seconds away — and without this, that idle gap would be
@@ -931,7 +964,7 @@
       }
     }
     // Kick off the first frame
-    animFrameId = requestAnimationFrame(renderOnce);
+    scheduleFrame();
 
     // When OrbitControls interaction ends, allow damping frames to settle
     // During camera manipulation, drop to pixelRatio=1 so the GPU pushes ~4× fewer
@@ -1448,6 +1481,41 @@
     applyElementVisibility(elementGroups, elementsBatched?.mesh, elementsParent, hide, uiStore.renderMode3D === 'wireframe');
     invalidate();
   });
+
+  /*
+   * The build timelapse opens on the sections, from an isometric view, with nothing selected;
+   * closing it puts the render mode and every mesh back. The camera is left where the turn
+   * ended, as after any other view change.
+   */
+  let renderModeBeforeTimelapse: typeof uiStore.renderMode3D | null = null;
+  $effect(() => {
+    const on = buildTimelapse.active;
+    untrack(() => {
+      if (on && renderModeBeforeTimelapse === null) {
+        renderModeBeforeTimelapse = uiStore.renderMode3D;
+        uiStore.renderMode3D = 'sections';
+        uiStore.clearSelection();
+        setView('iso');
+        // The fit leaves room for labels and loads, which the timelapse does not draw: closer in.
+        if (camera === orthoCamera) { orthoCamera.zoom *= 1.25; orthoCamera.updateProjectionMatrix(); }
+        else camera.position.lerp(controls.target, 0.2);
+        controls.update();
+      } else if (!on && renderModeBeforeTimelapse !== null) {
+        timelapseView.restore();
+        uiStore.renderMode3D = renderModeBeforeTimelapse;
+        renderModeBeforeTimelapse = null;
+        applyElementVisibility(elementGroups, elementsBatched?.mesh, elementsParent, resultsStore.diagramType === 'despiece', uiStore.renderMode3D === 'wireframe');
+      }
+    });
+    invalidate();
+  });
+  // A scrub or an option change while paused redraws the frame. Not while it plays: the loop
+  // is already drawing every frame, and an invalidate then starts a second frame chain.
+  $effect(() => {
+    buildTimelapse.shownTime; buildTimelapse.order; buildTimelapse.duration; buildTimelapse.cleanBackground;
+    if (!buildTimelapse.playing) invalidate();
+  });
+  onDestroy(() => { if (buildTimelapse.active) buildTimelapse.close(); });
 
   // Despiece option changes (vector mode / basis / sizes / reactions) must redraw
   // immediately — the render loop's despiece pass rebuilds when the signature
@@ -3804,10 +3872,22 @@
             <span>{uiStore.renderMode3D === 'sections'
               ? t('config.wireframe') : t('config.sections')}</span>
           </button>
+          <div class="cam-sep"></div>
+          <button
+            class="cam-item" class:on={buildTimelapse.active} data-testid="cam-build-timelapse"
+            onclick={() => { if (buildTimelapse.active) buildTimelapse.close(); else buildTimelapse.open(); camMenuOpen = false; }}
+          >
+            <span class="cam-glyph">▶</span>
+            <span>{t('timelapse.menu')}</span>
+          </button>
         </div>
       {/if}
     </div>
   </div>
+  {/if}
+
+  {#if buildTimelapse.active}
+    <BuildTimelapsePanel canvas={renderer?.domElement ?? null} />
   {/if}
 
   <!-- Clipping plane controls -->
