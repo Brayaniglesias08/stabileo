@@ -66,6 +66,7 @@
   import { buildTimelapse, FORMAT_SIZE } from '../lib/store/build-timelapse.svelte';
   import { createTimelapseView } from '../lib/viewport3d/build-timelapse-view';
   import { createTimelapseCompositor } from '../lib/viewport3d/timelapse-compositor';
+  import { timelapseSound } from '../lib/viewport3d/timelapse-sound';
   import { setLineResolution } from '../lib/three/create-element-mesh';
   import BuildTimelapsePanel from './BuildTimelapsePanel.svelte';
 
@@ -1557,7 +1558,8 @@
   function composeTimelapse(info: NonNullable<ReturnType<typeof timelapseView.frame>>): void {
     timelapseFrame!.draw(renderer.domElement, {
       title: buildTimelapse.title.trim() || modelStore.model.name || t('timelapse.title'),
-      stats: tp('timelapse.stats', { nodes: modelStore.nodes.size, members: modelStore.elements.size, supports: modelStore.supports.size }),
+      subtitle: buildTimelapse.subtitle,
+      phase: info.phase,
       counter: tp('timelapse.counter', { n: info.started, total: info.pieces }),
       progress: info.progress,
       closing: info.closing,
@@ -1614,7 +1616,7 @@
   // is already drawing every frame, and an invalidate then starts a second frame chain.
   $effect(() => {
     buildTimelapse.shownTime; buildTimelapse.order; buildTimelapse.duration; buildTimelapse.cleanBackground;
-    buildTimelapse.style; buildTimelapse.texts; buildTimelapse.title; buildTimelapse.highlight; buildTimelapse.entry;
+    buildTimelapse.style; buildTimelapse.texts; buildTimelapse.title; buildTimelapse.subtitle; buildTimelapse.highlight; buildTimelapse.entry;
     if (!buildTimelapse.playing) invalidate();
   });
   onDestroy(() => { if (buildTimelapse.active) buildTimelapse.close(); });
@@ -3977,7 +3979,7 @@
           <div class="cam-sep"></div>
           <button
             class="cam-item" class:on={buildTimelapse.active} data-testid="cam-build-timelapse"
-            onclick={() => { if (buildTimelapse.active) buildTimelapse.close(); else buildTimelapse.open(); camMenuOpen = false; }}
+            onclick={() => { if (buildTimelapse.active) buildTimelapse.close(); else { timelapseSound.unlock(); buildTimelapse.open(); } camMenuOpen = false; }}
           >
             <span class="cam-glyph">▶</span>
             <span>{t('timelapse.menu')}</span>

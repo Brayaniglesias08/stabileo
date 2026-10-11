@@ -9,6 +9,8 @@
   import { modelStore, uiStore } from '../lib/store';
   import { t, tp } from '../lib/i18n';
   import type { BuildOrder } from '../lib/viewport3d/build-timelapse';
+  import { effectiveOrder, orderAvailable } from '../lib/viewport3d/timelapse-phases';
+  import { timelapseSound, type TimelapseSound } from '../lib/viewport3d/timelapse-sound';
 
   let { picture, stage }: { picture: HTMLCanvasElement | null; stage: HTMLElement | null } = $props();
 
@@ -16,7 +18,12 @@
     { id: 'construction', key: 'timelapse.orderConstruction' },
     { id: 'bottomUp', key: 'timelapse.orderBottomUp' },
     { id: 'along', key: 'timelapse.orderAlong' },
+    { id: 'byType', key: 'timelapse.orderByType' },
+    { id: 'radial', key: 'timelapse.orderRadial' },
     { id: 'list', key: 'timelapse.orderList' },
+    // PRO's: offered only there, and only when the model has stages or groups.
+    { id: 'stages', key: 'timelapse.orderStages' },
+    { id: 'groups', key: 'timelapse.orderGroups' },
   ];
   const DURATIONS = [6, 10, 12, 15, 20, 30, 45];
   const STYLES: Array<{ id: TimelapseStyle; key: string }> = [
@@ -34,18 +41,27 @@
     { id: 'grow', key: 'timelapse.entryGrow' },
     { id: 'drop', key: 'timelapse.entryDrop' },
   ];
+  const SOUNDS: Array<{ id: TimelapseSound; key: string }> = [
+    { id: 'off', key: 'timelapse.soundOff' },
+    { id: 'blocks', key: 'timelapse.soundBlocks' },
+    { id: 'metal', key: 'timelapse.soundMetal' },
+    { id: 'soft', key: 'timelapse.soundSoft' },
+  ];
   const CAMERAS: Array<{ id: TimelapseCamera; key: string }> = [
     { id: 'orbit', key: 'timelapse.cameraOrbit' },
     { id: 'rise', key: 'timelapse.cameraRise' },
     { id: 'fixed', key: 'timelapse.cameraFixed' },
   ];
 
+  const orders = $derived(ORDERS.filter((o) => orderAvailable(o.id)));
+  const order = $derived(effectiveOrder(buildTimelapse.order));
   const empty = $derived(modelStore.elements.size + modelStore.plates.size + modelStore.quads.size === 0);
   const formatLabel = (f: TimelapseFormat) => (f === 'screen' ? t('timelapse.formatScreen') : FORMATS.find((x) => x.id === f)!.label);
   const summary = $derived([
     t(STYLES.find((s) => s.id === buildTimelapse.style)!.key),
     buildTimelapse.format === 'screen' ? t('timelapse.formatScreen') : buildTimelapse.format,
     t(CAMERAS.find((c) => c.id === buildTimelapse.camera)!.key),
+    buildTimelapse.sound !== 'off' ? t(SOUNDS.find((x) => x.id === buildTimelapse.sound)!.key) : null,
     buildTimelapse.texts ? t('timelapse.texts') : null,
   ].filter(Boolean).join(' · '));
 
@@ -56,10 +72,15 @@
 
   function pickType(): { mime: string; ext: string } | null {
     if (typeof MediaRecorder === 'undefined') return null;
-    for (const [mime, ext] of [
+    // With sound the container has to take an audio track too.
+    const audio = buildTimelapse.sound !== 'off';
+    for (const [mime, ext] of (audio ? [
+      ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'mp4'], ['video/mp4;codecs=avc1,mp4a.40.2', 'mp4'],
+      ['video/webm;codecs=vp9,opus', 'webm'], ['video/webm;codecs=vp8,opus', 'webm'], ['video/webm', 'webm'],
+    ] : [
       ['video/mp4;codecs=avc1.640028', 'mp4'], ['video/mp4', 'mp4'],
       ['video/webm;codecs=vp9', 'webm'], ['video/webm', 'webm'],
-    ] as const) {
+    ]) as Array<readonly [string, string]>) {
       if (MediaRecorder.isTypeSupported(mime)) return { mime, ext };
     }
     return null;
@@ -82,10 +103,17 @@
     chunks = [];
     keep = true;
     const pixels = picture.width * picture.height;
-    const rec = new MediaRecorder(picture.captureStream(60), {
+    const stream = picture.captureStream(60);
+    if (buildTimelapse.sound !== 'off') {
+      timelapseSound.unlock();
+      const track = timelapseSound.track();
+      if (track) stream.addTrack(track);
+    }
+    const rec = new MediaRecorder(stream, {
       mimeType: type.mime,
       // About 6 bits a pixel a second at 60 fps: crisp edges on thin members without huge files.
       videoBitsPerSecond: Math.round(Math.min(20e6, Math.max(6e6, pixels * 6))),
+      audioBitsPerSecond: 128_000,
     });
     rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
     rec.onstop = () => {
@@ -128,6 +156,7 @@
     if (el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
     if (e.key === ' ' && !buildTimelapse.recording) {
       e.preventDefault();
+      timelapseSound.unlock();
       if (buildTimelapse.playing) buildTimelapse.pause(); else buildTimelapse.play();
     } else if (e.key === 'Escape' && !document.fullscreenElement) {
       if (buildTimelapse.recording) stopRecording(false);
@@ -159,9 +188,9 @@
         data-testid="timelapse-play"
         disabled={buildTimelapse.recording}
         title={buildTimelapse.playing ? t('timelapse.pause') : t('timelapse.play')}
-        onclick={() => (buildTimelapse.playing ? buildTimelapse.pause() : buildTimelapse.play())}
+        onclick={() => { timelapseSound.unlock(); if (buildTimelapse.playing) buildTimelapse.pause(); else buildTimelapse.play(); }}
       >{buildTimelapse.playing ? '❚❚' : '▶'}</button>
-      <button class="tl-btn" title={t('timelapse.restart')} disabled={buildTimelapse.recording} onclick={() => buildTimelapse.restart()}>⟲</button>
+      <button class="tl-btn" title={t('timelapse.restart')} disabled={buildTimelapse.recording} onclick={() => { timelapseSound.unlock(); buildTimelapse.restart(); }}>⟲</button>
       <input
         class="tl-scrub"
         type="range"
@@ -179,8 +208,8 @@
     <div class="tl-row tl-opts">
       <label class="tl-field">
         <span>{t('timelapse.order')}</span>
-        <select value={buildTimelapse.order} disabled={buildTimelapse.recording} onchange={(e) => { buildTimelapse.order = e.currentTarget.value as BuildOrder; buildTimelapse.restart(); }}>
-          {#each ORDERS as o (o.id)}<option value={o.id}>{t(o.key)}</option>{/each}
+        <select value={order} data-testid="timelapse-order" disabled={buildTimelapse.recording} onchange={(e) => { buildTimelapse.order = e.currentTarget.value as BuildOrder; buildTimelapse.restart(); }}>
+          {#each orders as o (o.id)}<option value={o.id}>{t(o.key)}</option>{/each}
         </select>
       </label>
       <label class="tl-field">
@@ -219,6 +248,12 @@
             {#each CAMERAS as c (c.id)}<option value={c.id}>{t(c.key)}</option>{/each}
           </select>
         </label>
+        <label class="tl-field">
+          <span>{t('timelapse.sound')}</span>
+          <select value={buildTimelapse.sound} data-testid="timelapse-sound" onchange={(e) => { timelapseSound.unlock(); buildTimelapse.sound = e.currentTarget.value as TimelapseSound; }}>
+            {#each SOUNDS as x (x.id)}<option value={x.id}>{t(x.key)}</option>{/each}
+          </select>
+        </label>
       </div>
       <div class="tl-row tl-opts">
         <label class="tl-check"><input type="checkbox" bind:checked={buildTimelapse.highlight} />{t('timelapse.highlight')}</label>
@@ -229,6 +264,10 @@
         <label class="tl-field tl-title-field">
           <span>{t('timelapse.videoTitle')}</span>
           <input type="text" value={buildTimelapse.title} placeholder={modelStore.model.name || t('timelapse.title')} oninput={(e) => { buildTimelapse.title = e.currentTarget.value; }} />
+        </label>
+        <label class="tl-field tl-title-field">
+          <span>{t('timelapse.videoSubtitle')}</span>
+          <input type="text" data-testid="timelapse-subtitle" value={buildTimelapse.subtitle} placeholder={t('timelapse.optional')} oninput={(e) => { buildTimelapse.subtitle = e.currentTarget.value; }} />
         </label>
       {/if}
     </details>
@@ -310,6 +349,7 @@
   .tl-grid .tl-field { justify-content: space-between; }
   .tl-grid select { flex: 1; max-width: 62%; }
   .tl-title-field { margin-top: 6px; }
+  .tl-title-field span { flex: none; width: 4.6em; }
   .tl-title-field input { flex: 1; }
   .tl-empty { margin: 0; color: var(--st-text-2); }
   .tl-keys { margin: 0; color: var(--st-text-3); font-size: 0.68rem; }

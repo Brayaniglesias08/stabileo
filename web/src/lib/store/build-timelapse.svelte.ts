@@ -3,9 +3,10 @@
  *
  * The 3D viewport reads it every frame (`tick`) and draws the structure as far as `time` has
  * got; the panel sets the options and plays, pauses, scrubs and records. The options are
- * remembered between sessions; the clock and the title are not.
+ * remembered between sessions; the clock and the texts are not.
  */
 import type { BuildOrder } from '../viewport3d/build-timelapse';
+import type { TimelapseSound } from '../viewport3d/timelapse-sound';
 
 /** Seconds the finished structure is held before a loop starts again. */
 export const HOLD_S = 3;
@@ -31,10 +32,11 @@ export const FORMAT_SIZE: Record<Exclude<TimelapseFormat, 'screen'>, { w: number
 interface Prefs {
   order: BuildOrder; duration: number; camera: TimelapseCamera; loop: boolean; clean: boolean;
   style: TimelapseStyle; format: TimelapseFormat; entry: TimelapseEntry; texts: boolean; highlight: boolean;
+  sound: TimelapseSound;
 }
 const DEFAULTS: Prefs = {
   order: 'construction', duration: 12, camera: 'orbit', loop: true, clean: false,
-  style: 'night', format: 'screen', entry: 'grow', texts: true, highlight: true,
+  style: 'night', format: 'screen', entry: 'grow', texts: true, highlight: true, sound: 'off',
 };
 const KEY = 'stabileo-build-timelapse';
 
@@ -61,8 +63,11 @@ function createBuildTimelapse() {
   let entry = $state<TimelapseEntry>(p.entry);
   let texts = $state(p.texts);
   let highlight = $state(p.highlight);
+  let sound = $state<TimelapseSound>(p.sound);
   /** The heading drawn on the video; empty takes the model's name. */
   let title = $state('');
+  /** An optional line under the title. */
+  let subtitle = $state('');
   let recording = $state(false);
   /** Shown on the scrubber; written a few times a second, not every frame. */
   let shownTime = $state(0);
@@ -75,7 +80,7 @@ function createBuildTimelapse() {
 
   function save() {
     try {
-      const prefs: Prefs = { order, duration, camera, loop, clean: cleanBackground, style, format, entry, texts, highlight };
+      const prefs: Prefs = { order, duration, camera, loop, clean: cleanBackground, style, format, entry, texts, highlight, sound };
       localStorage.setItem(KEY, JSON.stringify(prefs));
     } catch { /* private window or blocked storage: the options last this session */ }
   }
@@ -93,7 +98,9 @@ function createBuildTimelapse() {
     get entry() { return entry; }, set entry(v: TimelapseEntry) { entry = v; save(); },
     get texts() { return texts; }, set texts(v: boolean) { texts = v; save(); },
     get highlight() { return highlight; }, set highlight(v: boolean) { highlight = v; save(); },
+    get sound() { return sound; }, set sound(v: TimelapseSound) { sound = v; save(); },
     get title() { return title; }, set title(v: string) { title = v; },
+    get subtitle() { return subtitle; }, set subtitle(v: string) { subtitle = v; },
     get recording() { return recording; }, set recording(v: boolean) { recording = v; },
     get shownTime() { return shownTime; },
     get total() { return total; }, set total(v: number) { total = v; },

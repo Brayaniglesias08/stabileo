@@ -13,9 +13,11 @@ import { modelStore } from '../store';
 import { buildTimelapse, HOLD_S, LEAD_S, type TimelapseStyle } from '../store/build-timelapse.svelte';
 import { projectNodeToScene } from '../geometry/coordinate-system';
 import {
-  buildFront, buildSchedule, dropMatrix, growMatrix, growthAt, piecesStarted,
+  buildFront, buildSchedule, dropMatrix, growMatrix, growthAt, landedBetween, phaseAt, piecesStarted,
   type BuildPiece, type BuildSchedule, type BuildStep, type P3,
 } from './build-timelapse';
+import { effectiveOrder, phasesFor } from './timelapse-phases';
+import { timelapseSound } from './timelapse-sound';
 
 export interface TimelapseRefs {
   scene: THREE.Scene;
@@ -37,6 +39,8 @@ export interface TimelapseFrameInfo {
   progress: number;
   /** 0 to 1 during the hold at the end, for the closing card. */
   closing: number;
+  /** The stage or group going up, in a phased order. */
+  phase: string | null;
 }
 
 /** Radians per second while the camera turns: a full turn in a minute. */
@@ -94,6 +98,8 @@ export function createTimelapseView() {
   const back = new THREE.Matrix4();
   const offset = new THREE.Vector3();
   let lastNow = -1;
+  /** The build time of the frame before, to hear what landed in between; NaN after a jump. */
+  let lastT = NaN;
 
   // The stage: saved on the first frame, given back on restore.
   let stageStyle: TimelapseStyle | null = null;
@@ -125,12 +131,15 @@ export function createTimelapseView() {
 
   /** (Re)builds the schedule when the model or the options changed. */
   function prepare(project2D: boolean): void {
-    const sig = `${modelStore.modelVersion}|${modelStore.elements.size}|${modelStore.plates.size}|${modelStore.quads.size}|${buildTimelapse.order}|${buildTimelapse.duration}|${project2D}`;
+    const order = effectiveOrder(buildTimelapse.order);
+    const phases = phasesFor(order);
+    // Stages are edited in place, so their content is part of what the schedule depends on.
+    const sig = `${modelStore.loadEpoch}|${modelStore.modelVersion}|${modelStore.elements.size}|${modelStore.plates.size}|${modelStore.quads.size}|${order}|${buildTimelapse.duration}|${project2D}|${phases ? JSON.stringify(phases) : ''}`;
     if (sig === scheduleSig && schedule) return;
     scheduleSig = sig;
     const supported = new Set<number>();
     for (const s of modelStore.supports.values()) supported.add(s.nodeId);
-    schedule = buildSchedule(pieces(project2D), buildTimelapse.order, { duration: buildTimelapse.duration, supportedNodes: supported });
+    schedule = buildSchedule(pieces(project2D), order, { duration: buildTimelapse.duration, supportedNodes: supported, phases });
     stepOf.clear();
     for (const s of schedule.steps) stepOf.set(s.key, s);
     buildTimelapse.total = LEAD_S + schedule.total;
@@ -191,7 +200,8 @@ export function createTimelapseView() {
 
   function place(obj: THREE.Object3D, step: BuildStep | null, tp: number, drop: number): void {
     touched.add(obj);
-    const s = step ? growthAt(step, tp) : 1;
+    // A piece with no turn is one no stage puts up: it is not part of what gets built.
+    const s = step ? growthAt(step, tp) : schedule?.partial ? 0 : 1;
     if (s <= 0.002) { obj.visible = false; return; }
     obj.visible = true;
     obj.matrixAutoUpdate = false;
@@ -202,7 +212,7 @@ export function createTimelapseView() {
     obj.matrixWorldNeedsUpdate = true;
     let glow = 0;
     if (step && buildTimelapse.highlight) {
-      glow = s < 1 ? 1 : Math.max(0, 1 - (tp - step.end) / AFTERGLOW_S);
+      glow = s < 1 ? 1 : step.outStart !== undefined && tp > step.end ? 0 : Math.max(0, 1 - (tp - step.end) / AFTERGLOW_S);
     }
     finish(obj, glow);
   }
@@ -278,11 +288,19 @@ export function createTimelapseView() {
     }
 
     const total = buildTimelapse.total;
+    // The sound: a knock for what landed since the last frame, and the chime as the build ends.
+    // Only while it plays forward at its own pace; a seek or a loop back is silent.
+    if (wasPlaying && Number.isFinite(lastT) && t > lastT && t - lastT < 0.25) {
+      timelapseSound.hits(buildTimelapse.sound, landedBetween(sch, lastT - LEAD_S, tp));
+      if (lastT < total + 0.3 && t >= total + 0.3) timelapseSound.done(buildTimelapse.sound);
+    } else timelapseSound.reset();
+    lastT = t;
     return {
       started: piecesStarted(sch, tp),
       pieces: sch.steps.length,
       progress: total > LEAD_S ? Math.max(0, Math.min(1, tp / (total - LEAD_S))) : 1,
       closing: Math.max(0, Math.min(1, (t - total - 0.3) / Math.min(0.9, HOLD_S * 0.4))),
+      phase: phaseAt(sch, tp) || null,
     };
   }
 
@@ -308,6 +326,7 @@ export function createTimelapseView() {
     schedule = null;
     scheduleSig = '';
     lastNow = -1;
+    lastT = NaN;
   }
 
   return { frame, restore };
