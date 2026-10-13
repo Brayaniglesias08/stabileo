@@ -250,11 +250,17 @@ pub fn frame_local_stiffness_3d(
 
 /// Torsion-warping 4×4 block over [θx1, φ'1, θx2, φ'2] (row-major).
 pub(crate) fn torsion_warping_block(gj: f64, ecw: f64, l: f64, l2: f64, l3: f64) -> [f64; 16] {
+    // Each distinct term computed once: symmetric entries are the same f64 value
+    // by construction. (−x − y and −(x + y) round identically.)
+    let t = gj / l + 12.0 * ecw / l3;
+    let b = 6.0 * ecw / l2;
+    let c = 4.0 * ecw / l;
+    let d = 2.0 * ecw / l;
     [
-        gj / l + 12.0 * ecw / l3,    6.0 * ecw / l2,     -gj / l - 12.0 * ecw / l3,    6.0 * ecw / l2,
-        6.0 * ecw / l2,               4.0 * ecw / l,      -6.0 * ecw / l2,               2.0 * ecw / l,
-        -gj / l - 12.0 * ecw / l3,   -6.0 * ecw / l2,     gj / l + 12.0 * ecw / l3,    -6.0 * ecw / l2,
-        6.0 * ecw / l2,               2.0 * ecw / l,      -6.0 * ecw / l2,               4.0 * ecw / l,
+         t,  b, -t,  b,
+         b,  c, -b,  d,
+        -t, -b,  t, -b,
+         b,  d, -b,  c,
     ]
 }
 

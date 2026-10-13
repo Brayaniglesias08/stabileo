@@ -294,11 +294,13 @@ fn frame_local_stiffness_3d_stub(
 }
 
 /// The torsion-warping block alone: finite, bitwise symmetric, non-negative
-/// diagonal, for the products `gj = G·J`, `ecw = E·Cw` over their full ranges.
+/// diagonal. `gj = G·J ≥ 1e2·1e-12`; `ecw = E·Cw` is exactly 0 (no warping) or
+/// ≥ 1e-9. (Before the block computed each term once, proving two separately
+/// rounded copies of `6·ecw/l²` equal did not finish in 15 minutes.)
 #[kani::proof]
 fn torsion_warping_block_ok() {
-    let gj = any_in(0.0, 1e13);
-    let ecw = any_in(0.0, 1e12);
+    let gj = any_in(1e-10, 1e13);
+    let ecw = if kani::any() { 0.0 } else { any_in(1e-9, 1e12) };
     let l = any_len();
     let k = torsion_warping_block(gj, ecw, l, l * l, l * l * l);
     assert!(all_finite(&k));
