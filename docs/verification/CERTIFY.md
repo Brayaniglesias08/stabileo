@@ -42,6 +42,33 @@ heuristically (e.g. 0.9 × an estimate of λ_min(S)); soundness does not depend 
 On failure (pivot not certified positive, non-finite value) the result is
 `Uncertified { reason }`, never a wrong bound.
 
+## Scalable certificate (Gram residual + Gershgorin)
+
+For sparse/large systems the dense interval Cholesky is replaced by a check that is
+linear in the number of nonzeros of `L` and `R`. The checker picks *any* real matrix
+`L` — in practice the floating-point sparse Cholesky factor of `S − tI` for some shift
+`t`, with rows permuted — and encloses the residual entrywise in intervals:
+
+    R = S − L Lᵀ,   Rᵢⱼ ∈ IRᵢⱼ   for all i, j.
+
+`R` is symmetric (both `S` and `L Lᵀ` are), and `xᵀ L Lᵀ x = ‖Lᵀx‖² ≥ 0` for every
+real `L`. If for every row i
+
+    μ ≤ IRᵢᵢ.lo − ∑_{j≠i} mag(IRᵢⱼ)        (interval Gershgorin row test)
+
+then `μ‖x‖² ≤ xᵀRx` (from `|xᵢxⱼ| ≤ (xᵢ² + xⱼ²)/2` and symmetry of `R`), so
+
+    xᵀKx = xᵀSx = xᵀ L Lᵀ x + xᵀRx ≥ μ‖x‖²,   i.e.  λ_min(S) ≥ μ.
+
+If `μ > 0`, `σ := μ` certifies coercivity and the error bound above applies:
+`‖u* − ũ‖₂ ≤ ρ / μ`. Soundness is independent of how `L` was computed: its fill-reducing
+ordering, rounding errors, underflow, FMA, or even whether it is triangular only affect
+the size of `R` (hence whether the test passes), never the validity of the bound. Only
+the enclosure of `S − L Lᵀ` must be computed with outward rounding.
+
+Lean: `Certify.certified_error_bound_gram` (`verify/Certify/Gram.lean`), built on
+`quad_gram_nonneg`, `gershgorin_quad` and `coercive_of_gram`.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.
