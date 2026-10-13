@@ -118,3 +118,20 @@ function findIdAt(nodes: Iterable<{ id: number; x: number; y: number }>, p: P2):
   for (const n of nodes) if (Math.abs(n.x - p.x) < 1e-9 && Math.abs(n.y - p.y) < 1e-9) return n.id;
   return null;
 }
+
+interface P3 { x: number; y: number; z: number }
+
+/**
+ * Where on member AB (0 at A, 1 at B) a pointer ray passes closest: the point a space node-tool
+ * click on the member means. The screen position along the drawn member is not it, under a
+ * perspective camera. Null for a ray along the member.
+ */
+export function memberParamOnRay(origin: P3, dir: P3, A: P3, B: P3): number | null {
+  const d2 = { x: B.x - A.x, y: B.y - A.y, z: B.z - A.z };
+  const r = { x: A.x - origin.x, y: A.y - origin.y, z: A.z - origin.z };
+  const dot = (u: P3, v: P3) => u.x * v.x + u.y * v.y + u.z * v.z;
+  const a = dot(dir, dir), b = dot(dir, d2), c = dot(d2, d2), d = dot(dir, r), e = dot(d2, r);
+  const den = a * c - b * b;
+  if (Math.abs(den) <= 1e-12 * Math.max(a * c, 1e-30)) return null;
+  return (b * d - a * e) / den;
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveNodePlacement2D, ON_NODE_PX } from '../node-placement';
+import { resolveNodePlacement2D, memberParamOnRay, ON_NODE_PX } from '../node-placement';
 
 // The formwork wall of the report: a vertical member 2 → 3 (z 3.00 → 1.64), drawn at 160 px/m.
 const nodes = [{ id: 2, x: 0, y: 3 }, { id: 3, x: 0, y: 1.64 }, { id: 1, x: 0, y: 0 }];
@@ -31,5 +31,16 @@ describe('where a node-tool click puts its node', () => {
   it('away from everything, a free node; with splitting off, a free node on the member too', () => {
     expect(at(1, 1)).toMatchObject({ kind: 'free', x: 1, y: 1 });
     expect(at(0.01, 2.5, false)).toMatchObject({ kind: 'free' });
+  });
+});
+
+describe('node on a member in space', () => {
+  it('the ray from the pointer meets the member where it passes closest', () => {
+    // A member along x at height 2; a ray straight down through x = 1.5 hits it at t = 0.375.
+    const t = memberParamOnRay({ x: 1.5, y: 0, z: 10 }, { x: 0, y: 0, z: -1 }, { x: 0, y: 0, z: 2 }, { x: 4, y: 0, z: 2 });
+    expect(t).toBeCloseTo(0.375);
+    // Slanted ray passing over the member: still the closest station.
+    expect(memberParamOnRay({ x: 0, y: -5, z: 2 }, { x: 1, y: 2.5, z: 0 }, { x: 0, y: 0, z: 2 }, { x: 4, y: 0, z: 2 })).toBeCloseTo(0.5);
+    expect(memberParamOnRay({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, { x: 4, y: 0, z: 0 })).toBeNull();
   });
 });

@@ -69,6 +69,7 @@
   import ConnectionPrompt from './ConnectionPrompt.svelte';
   import { askAboutNewMember, askToConnectNode } from '../lib/model/edit/connection-questions';
   import { resolveMemberSnap, MEMBER_SNAP_PX, type MemberSnap, type SnapMember } from '../lib/viewport/member-snap';
+  import { toolStretch } from '../lib/model/loads/load-stretch';
   import { resolveNodePlacement2D, type NodePlacement } from '../lib/viewport/node-placement';
 
   let canvas: HTMLCanvasElement;
@@ -941,6 +942,7 @@
     // Draw node tool sliding-joint hover highlight: teal ring at the nearest
     // bar end where a click would place the slider.
     if (!exportFrame && uiStore.currentTool === 'node' && uiStore.nodeMode !== 'hinge' && draggedNodeId === null) drawNodePlacementPreview();
+    if (!exportFrame && uiStore.currentTool === 'load' && uiStore.loadType === 'distributed' && uiStore.distLoadPartial) drawStretchPreview();
 
     if (!exportFrame && uiStore.currentTool === 'node' && uiStore.nodeMode === 'hinge' && uiStore.jointType !== 'hinge') {
       const nearElem = findNearestElement(uiStore.worldX, uiStore.worldY, pickTol(PICK_PX.loose));
@@ -2075,7 +2077,10 @@
         if (nearElem) {
           const angle = uiStore.loadAngle !== 0 ? uiStore.loadAngle : undefined;
           const isGlobal = uiStore.loadIsGlobal ? true : undefined;
-          modelStore.addDistributedLoad(nearElem.id, uiStore.loadValue, uiStore.loadValueJ, angle, isGlobal, activeCaseId);
+          const L = modelStore.getElementLength(nearElem.id);
+          const st = toolStretch(uiStore.distLoadPartial, uiStore.distLoadFrom, uiStore.distLoadTo, L);
+          if (st.ok) modelStore.addDistributedLoad(nearElem.id, uiStore.loadValue, uiStore.loadValueJ, angle, isGlobal, activeCaseId, st.a, st.b);
+          else uiStore.toast(t('float.distStretchRefused').replace('{id}', String(nearElem.id)).replace('{L}', fixedQuantity(L, 'length', 2, uiStore.unitSystem)), 'error');
         }
       } else if (uiStore.loadType === 'thermal') {
         const nearElem = findNearestElement(world.x, world.y, pickTol(PICK_PX.loose));
@@ -3103,6 +3108,42 @@
     } else {
       ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.85;
       ctx.beginPath(); ctx.arc(s.x, s.y, 5, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * The load tool set to a stretch: on the member under the pointer, the part the load would
+   * cover and its node I, where "from" and "to" are measured; in amber when it does not fit.
+   */
+  function drawStretchPreview(): void {
+    if (!ctx || touchInput) return;
+    const raw = uiStore.screenToWorld(uiStore.mouseX, uiStore.mouseY);
+    const el = findNearestElement(raw.x, raw.y, pickTol(PICK_PX.loose));
+    const ni = el && getProjectedNode(el.nodeI), nj = el && getProjectedNode(el.nodeJ);
+    if (!el || !ni || !nj) return;
+    const L = modelStore.getElementLength(el.id);
+    const st = toolStretch(true, uiStore.distLoadFrom, uiStore.distLoadTo, L);
+    const A = uiStore.worldToScreen(ni.x, ni.y), B = uiStore.worldToScreen(nj.x, nj.y);
+    const at = (s: number) => ({ x: A.x + (B.x - A.x) * s / L, y: A.y + (B.y - A.y) * s / L });
+    const colour = st.ok ? canvasTheme().accent : canvasTheme().amber;
+    ctx.save();
+    ctx.strokeStyle = colour; ctx.lineCap = 'round';
+    if (st.ok) {
+      const p = at(st.a ?? 0), q = at(st.b ?? L);
+      ctx.globalAlpha = 0.5; ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.lineWidth = 2;
+      for (const e of [p, q]) { ctx.beginPath(); ctx.arc(e.x, e.y, 3.5, 0, Math.PI * 2); ctx.stroke(); }
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = colour; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    // "I" set off the member, on the far side of its node from J.
+    const ux = (A.x - B.x), uy = (A.y - B.y), n = Math.hypot(ux, uy) || 1;
+    ctx.fillText('I', A.x + ux / n * 14 + uy / n * 10, A.y + uy / n * 14 - ux / n * 10);
+    if (!st.ok) {
+      ctx.font = '11px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText(t('float.distStretchRefused').replace('{id}', String(el.id)).replace('{L}', fixedQuantity(L, 'length', 2, uiStore.unitSystem)), uiStore.mouseX + 12, uiStore.mouseY - 14);
     }
     ctx.restore();
   }

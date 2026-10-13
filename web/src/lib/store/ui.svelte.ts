@@ -160,6 +160,10 @@ function createUIStore() {
   let nodalLoadDir = $state<NodalLoadDir>('fz'); // direction for nodal load placement
   let loadValue = $state<number>(-10); // kN, negative = downward
   let loadValueJ = $state<number>(-10); // kN/m at node J (for trapezoidal)
+  // A distributed load on part of the member: from and to, in m from its node I.
+  let distLoadPartial = $state<boolean>(false);
+  let distLoadFrom = $state<number>(0);
+  let distLoadTo = $state<number>(1);
 
   // Spring stiffnesses for spring support tool
   let springKx = $state<number>(1000); // kN/m
@@ -734,6 +738,13 @@ function createUIStore() {
 
     get loadValueJ() { return loadValueJ; },
     set loadValueJ(v: number) { loadValueJ = v; },
+
+    get distLoadPartial() { return distLoadPartial; },
+    set distLoadPartial(v: boolean) { distLoadPartial = v; },
+    get distLoadFrom() { return distLoadFrom; },
+    set distLoadFrom(v: number) { distLoadFrom = v; },
+    get distLoadTo() { return distLoadTo; },
+    set distLoadTo(v: number) { distLoadTo = v; },
 
     get springKx() { return springKx; },
     set springKx(v: number) { springKx = v; },

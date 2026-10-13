@@ -9725,5 +9725,12 @@ const es: Record<string, string> = {
   'viewport.nodeSplits': 'Divide la barra {id}',
   'viewport.nodeSplitsMid': 'Divide la barra {id} al medio',
   'viewport.nodeAlreadyThere': 'Ya hay un nodo acá',
+  'float.distWhole': 'Toda la barra',
+  'float.distStretch': 'Tramo',
+  'float.distWholeTip': 'La carga cubre la barra de nodo a nodo',
+  'float.distStretchTip': 'La carga va de «desde» a «hasta», medidos desde el nodo inicial (I) de la barra',
+  'float.distFrom': 'desde',
+  'float.distTo': 'hasta',
+  'float.distStretchRefused': 'El tramo no entra en la barra {id}, que mide {L}: no se agregó la carga.',
 };
 export default es;

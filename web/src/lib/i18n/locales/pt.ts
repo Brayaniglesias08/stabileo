@@ -9369,5 +9369,12 @@ const pt: Translations = {
   'viewport.nodeSplits': 'Divide a barra {id}',
   'viewport.nodeSplitsMid': 'Divide a barra {id} ao meio',
   'viewport.nodeAlreadyThere': 'Já existe um nó aqui',
+  'float.distWhole': 'Barra inteira',
+  'float.distStretch': 'Trecho',
+  'float.distWholeTip': 'A carga cobre a barra de nó a nó',
+  'float.distStretchTip': 'A carga vai de «de» a «até», medidos a partir do nó inicial (I) da barra',
+  'float.distFrom': 'de',
+  'float.distTo': 'até',
+  'float.distStretchRefused': 'O trecho não cabe na barra {id}, que mede {L}: a carga não foi adicionada.',
 };
 export default pt;

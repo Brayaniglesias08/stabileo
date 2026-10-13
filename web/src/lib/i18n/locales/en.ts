@@ -9736,5 +9736,12 @@ const en: Record<string, string> = {
   'viewport.nodeSplits': 'Splits member {id}',
   'viewport.nodeSplitsMid': 'Splits member {id} at its midpoint',
   'viewport.nodeAlreadyThere': 'There is a node here already',
+  'float.distWhole': 'Whole member',
+  'float.distStretch': 'Stretch',
+  'float.distWholeTip': 'The load covers the member from node to node',
+  'float.distStretchTip': 'The load runs from «from» to «to», measured from the member\'s start node (I)',
+  'float.distFrom': 'from',
+  'float.distTo': 'to',
+  'float.distStretchRefused': 'The stretch does not fit member {id}, which is {L} long: no load was added.',
 };
 export default en;

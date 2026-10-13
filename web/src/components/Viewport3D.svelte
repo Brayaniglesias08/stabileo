@@ -20,7 +20,8 @@
   import { editPreview } from '../lib/store/edit-preview.svelte';
   import { snapToAxes } from '../lib/model/grid';
   import { addSupportFromTool3D } from '../lib/store/support-tool-3d';
-  import { nodeAtPlacement3D } from '../lib/viewport/node-placement';
+  import { nodeAtPlacement3D, resolveNodePlacement2D, memberParamOnRay, MIN_SPLIT_PX } from '../lib/viewport/node-placement';
+  import { toolStretch, loadedLength, loadedSegment } from '../lib/model/loads/load-stretch';
   import { boxSelect as boxSelectTargets, type BoxSelectMode } from '../lib/viewport/box-select';
   import { membersNearPointer, membersNearPointerWithDistance, nodesNearPointer } from '../lib/viewport3d/screen-pick';
   import { createPickCycle, mergeTargets, type PickTarget } from '../lib/viewport/pick-cycle';
@@ -2167,22 +2168,128 @@
     // 3D joint (relative-DOF release mask) at the nearest end.
     if (uiStore.nodeMode === 'hinge') { handleJoint3DPlacement(e); return; }
 
-    const pos = getGroundIntersection(e);
-    if (!pos) return;
-
-    // Full 3D snap: snap all coordinates to grid, then onto the structural grid's axes
-    const snapped = snapToStructure(pos);
-    // Duplicate-coincident-node guard (`viewport/node-placement.ts`): a click on a node of the
-    // working plane, or one the snap put the placement point on, selects it instead of a twin.
-    const onExisting = nodeAtPlacement3D(findNodeHit(e), snapped, uiStore.workingPlane, modelStore.nodes);
-    if (onExisting !== null) {
-      uiStore.selectNode(onExisting, e.shiftKey);
+    // The node tool only makes nodes: a click on one already there does nothing, and selects
+    // nothing (selecting is the selection tool's, and the panel's).
+    const place = nodePlacement3D(e);
+    if (!place || place.kind === 'onNode') return;
+    if (place.kind === 'onMember') {
+      if (modelStore.splitElementAtPoint(place.elementId, place.t)) {
+        uiStore.toast(t('viewport.barSubdivided'), 'info');
+        resultsStore.clear();
+      }
       return;
     }
     // No pushState here: the mutation below pushes its own undo step, and a second one made the first Ctrl+Z a no-op.
-    const id = modelStore.addNode(snapped.x, snapped.y, snapped.z);
-    uiStore.selectNode(id, false);
+    const id = modelStore.addNode(place.p.x, place.p.y, place.p.z);
     uiStore.toast(t('viewport3d.nodeCreated').replace('{id}', String(id)), 'success');
+  }
+
+  type NodePlacement3D =
+    | { kind: 'onNode'; nodeId: number; sx: number; sy: number }
+    | { kind: 'onMember'; elementId: number; t: number; midpoint: boolean; sx: number; sy: number; a: { x: number; y: number }; b: { x: number; y: number } }
+    | { kind: 'free'; p: { x: number; y: number; z: number }; sx: number; sy: number };
+
+  /**
+   * What a node-tool click at this pointer does, as in the plane (`resolveNodePlacement2D`), read
+   * on the screen: right on a drawn node, nothing; on a drawn member, a node splitting it where
+   * the pointer ray passes closest (on the grid along it, for a member in the working plane);
+   * elsewhere a new node on the working plane, unless one is already exactly there.
+   */
+  function nodePlacement3D(e: MouseEvent): NodePlacement3D | null {
+    if (!camera || !container) return null;
+    const rect = container.getBoundingClientRect();
+    const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const screen = new Map<number, { x: number; y: number }>();
+    const nodes: Array<{ id: number; x: number; y: number }> = [];
+    for (const n of visibleNodes().values()) {
+      const s = projectToScreen(n.x, n.y, n.z ?? 0);
+      screen.set(n.id, s); nodes.push({ id: n.id, ...s });
+    }
+    const members = [...visibleElements().values()];
+    const place = resolveNodePlacement2D({
+      cursor, snapped: cursor, pxPerM: 1, nodes, members, nodeAt: (id) => screen.get(id), split: uiStore.autoSplitOnNodePlace,
+    });
+    if (place.kind === 'onNode') return { kind: 'onNode', nodeId: place.nodeId, sx: place.x, sy: place.y };
+    if (place.kind === 'onMember') {
+      const el = modelStore.elements.get(place.elementId);
+      const A = el && modelStore.nodes.get(el.nodeI), B = el && modelStore.nodes.get(el.nodeJ);
+      if (!el || !A || !B) return null;
+      const a3 = { x: A.x, y: A.y, z: A.z ?? 0 }, b3 = { x: B.x, y: B.y, z: B.z ?? 0 };
+      let t = 0.5;
+      if (!place.midpoint) {
+        updateMouseNDC(e);
+        raycaster.setFromCamera(mouse, camera);
+        const plane = uiStore.workingPlane;
+        const acrossOf = (p: { x: number; y: number; z: number }) => plane === 'XY' ? p.z : plane === 'XZ' ? p.y : p.x;
+        const inPlane = Math.abs(acrossOf(a3) - uiStore.nodeCreateZ) < 1e-6 && Math.abs(acrossOf(b3) - uiStore.nodeCreateZ) < 1e-6;
+        const ground = inPlane ? getGroundIntersection(e) : null;
+        const L2 = (b3.x - a3.x) ** 2 + (b3.y - a3.y) ** 2 + (b3.z - a3.z) ** 2;
+        if (ground && L2 > 1e-12) {
+          const g = snapToStructure(ground);
+          t = ((g.x - a3.x) * (b3.x - a3.x) + (g.y - a3.y) * (b3.y - a3.y) + (g.z - a3.z) * (b3.z - a3.z)) / L2;
+        } else {
+          t = memberParamOnRay(raycaster.ray.origin, raycaster.ray.direction, a3, b3) ?? place.t;
+        }
+        // Kept off the ends by a few pixels, like the plane.
+        const ends = { a: screen.get(el.nodeI)!, b: screen.get(el.nodeJ)! };
+        const minT = Math.max(0.01, MIN_SPLIT_PX / Math.max(Math.hypot(ends.b.x - ends.a.x, ends.b.y - ends.a.y), 1e-9));
+        t = Math.min(1 - minT, Math.max(minT, t));
+      }
+      const p = projectToScreen(a3.x + t * (b3.x - a3.x), a3.y + t * (b3.y - a3.y), a3.z + t * (b3.z - a3.z));
+      return { kind: 'onMember', elementId: place.elementId, t, midpoint: place.midpoint, sx: p.x, sy: p.y, a: screen.get(el.nodeI)!, b: screen.get(el.nodeJ)! };
+    }
+    const pos = getGroundIntersection(e);
+    if (!pos) return null;
+    const snapped = snapToStructure(pos);
+    const there = nodeAtPlacement3D(null, snapped, uiStore.workingPlane, modelStore.nodes);
+    const s = projectToScreen(snapped.x, snapped.y, snapped.z);
+    if (there !== null) return { kind: 'onNode', nodeId: there, sx: s.x, sy: s.y };
+    return { kind: 'free', p: snapped, sx: s.x, sy: s.y };
+  }
+
+  /**
+   * The load tool set to a stretch: on the member under the pointer, the part the load would cover
+   * and its node I, where "from" and "to" are measured; in amber when it does not fit.
+   */
+  type StretchHint = { ok: boolean; p?: { x: number; y: number }; q?: { x: number; y: number }; I: { x: number; y: number }; J: { x: number; y: number }; text?: string; mx: number; my: number };
+  let stretchHint = $state<StretchHint | null>(null);
+  let stretchHintFrame = 0;
+  let stretchHintEvent: MouseEvent | null = null;
+  function scheduleStretchHint(e: MouseEvent) {
+    stretchHintEvent = e;
+    if (stretchHintFrame) return;
+    stretchHintFrame = requestAnimationFrame(() => {
+      stretchHintFrame = 0;
+      const ev = stretchHintEvent; stretchHintEvent = null;
+      stretchHint = ev && !isOrbiting ? stretchHintAt(ev) : null;
+    });
+  }
+  function stretchHintAt(e: MouseEvent): StretchHint | null {
+    if (!camera || !container) return null;
+    const id = loadToolMember(e);
+    const el = id !== null ? modelStore.elements.get(id) : undefined;
+    const seg = id !== null ? loadedSegment(modelStore.model as never, id) : null;
+    if (!el || !seg) return null;
+    const st = toolStretch(true, uiStore.distLoadFrom, uiStore.distLoadTo, seg.L);
+    const pt = (s: number) => projectToScreen(...(seg.I.map((v, k) => v + (seg.J[k]! - v) * s / seg.L) as [number, number, number]));
+    const rect = container.getBoundingClientRect();
+    const base = { I: pt(0), J: pt(seg.L), mx: e.clientX - rect.left, my: e.clientY - rect.top };
+    if (st.ok) return { ok: true, p: pt(st.a ?? 0), q: pt(st.b ?? seg.L), ...base };
+    return { ok: false, text: t('float.distStretchRefused').replace('{id}', String(id)).replace('{L}', fixedQuantity(seg.L, 'length', 2, uiStore.unitSystem)), ...base };
+  }
+
+  /** The node tool's marker under the pointer (mouse only: a touch has no hover). */
+  let nodeHint = $state<NodePlacement3D | null>(null);
+  let nodeHintFrame = 0;
+  let nodeHintEvent: MouseEvent | null = null;
+  function scheduleNodeHint(e: MouseEvent) {
+    nodeHintEvent = e;
+    if (nodeHintFrame) return;
+    nodeHintFrame = requestAnimationFrame(() => {
+      nodeHintFrame = 0;
+      const ev = nodeHintEvent; nodeHintEvent = null;
+      nodeHint = ev && uiStore.currentTool === 'node' && uiStore.nodeMode !== 'hinge' && !isOrbiting ? nodePlacement3D(ev) : null;
+    });
   }
 
   /** Apply the current 3D joint DOF mask to the nearest end of the clicked member. */
@@ -2421,9 +2528,15 @@
         // Global by default: "qZ" on the bar reads as the vertical, gravity on a beam, a column
         // or a rafter alike. Local follows the member's own axes.
         const frame = uiStore.distLoadFrame3D === 'global' ? { frame: 'global' as const } : {};
-        modelStore.addDistributedLoad3D(elemId, uiStore.loadValueY3D, uiStore.loadValueYJ3D, uiStore.loadValueZ, uiStore.loadValueZJ, undefined, undefined, uiStore.activeLoadCaseId, frame);
+        const L = loadedLength(modelStore.model as never, elemId);
+        const st = toolStretch(uiStore.distLoadPartial, uiStore.distLoadFrom, uiStore.distLoadTo, L);
+        if (!st.ok) { uiStore.toast(t('float.distStretchRefused').replace('{id}', String(elemId)).replace('{L}', fixedQuantity(L, 'length', 2, uiStore.unitSystem)), 'error'); return; }
+        modelStore.addDistributedLoad3D(elemId, uiStore.loadValueY3D, uiStore.loadValueYJ3D, uiStore.loadValueZ, uiStore.loadValueZJ, st.a, st.b, uiStore.activeLoadCaseId, frame);
       } else {
-        modelStore.addDistributedLoad(elemId, uiStore.loadValue, uiStore.loadValueJ, undefined, undefined, uiStore.activeLoadCaseId);
+        const L = modelStore.getElementLength(elemId);
+        const st = toolStretch(uiStore.distLoadPartial, uiStore.distLoadFrom, uiStore.distLoadTo, L);
+        if (!st.ok) { uiStore.toast(t('float.distStretchRefused').replace('{id}', String(elemId)).replace('{L}', fixedQuantity(L, 'length', 2, uiStore.unitSystem)), 'error'); return; }
+        modelStore.addDistributedLoad(elemId, uiStore.loadValue, uiStore.loadValueJ, undefined, undefined, uiStore.activeLoadCaseId, st.a, st.b);
       }
       uiStore.toast(t('viewport3d.distLoadApplied').replace('{id}', String(elemId)), 'success');
     } else if (uiStore.loadType === 'thermal') {
@@ -3249,6 +3362,11 @@
 
     if (placementStore.active) { if (placementStore.follow) schedulePlacementHover(e); return; }
 
+    if (uiStore.currentTool === 'node' && uiStore.nodeMode !== 'hinge') scheduleNodeHint(e);
+    else if (nodeHint) nodeHint = null;
+    if (uiStore.currentTool === 'load' && uiStore.loadType === 'distributed' && uiStore.distLoadPartial && uiStore.appMode !== 'pro') scheduleStretchHint(e);
+    else if (stretchHint) stretchHint = null;
+
     // Schedule the expensive hover/diagram raycast on the next animation frame.
     // During orbit we clear any stale hover and skip entirely — recursive raycasts
     // over a large scene are the main cost of orbit on pro fixtures.
@@ -3491,6 +3609,8 @@
 
   function handleMouseLeave() {
     drawFeedback.setTarget(null);
+    nodeHint = null;
+    stretchHint = null;
     if (hoverRafId !== null) {
       cancelAnimationFrame(hoverRafId);
       hoverRafId = null;
@@ -3904,6 +4024,38 @@
   {#if resultsStore.diagramType === 'despiece'}
     <canvas class="fb-overlay" bind:this={fbCanvas} aria-hidden="true"></canvas>
   {/if}
+  {#if stretchHint && uiStore.currentTool === 'load'}
+    {@const h = stretchHint}
+    {@const dx = h.I.x - h.J.x}
+    {@const dy = h.I.y - h.J.y}
+    {@const n = Math.hypot(dx, dy) || 1}
+    <svg class="node-hint" aria-hidden="true" data-testid="stretch-hint-3d" data-ok={h.ok}>
+      {#if h.ok && h.p && h.q}
+        <line class="nh-member" x1={h.p.x} y1={h.p.y} x2={h.q.x} y2={h.q.y} />
+        <circle class="nh-free" cx={h.p.x} cy={h.p.y} r="3.5" />
+        <circle class="nh-free" cx={h.q.x} cy={h.q.y} r="3.5" />
+      {:else if h.text}
+        <text class="nh-text nh-warn" x={h.mx + 12} y={h.my - 14}>{h.text}</text>
+      {/if}
+      <text class="nh-text nh-end" class:nh-warn={!h.ok} x={h.I.x + dx / n * 14 + dy / n * 10} y={h.I.y + dy / n * 14 - dx / n * 10}>I</text>
+    </svg>
+  {/if}
+  {#if nodeHint && uiStore.currentTool === 'node'}
+    {@const h = nodeHint}
+    <svg class="node-hint" aria-hidden="true" data-testid="node-hint-3d" data-kind={h.kind}>
+      {#if h.kind === 'onMember'}
+        <line class="nh-member" x1={h.a.x} y1={h.a.y} x2={h.b.x} y2={h.b.y} />
+        <circle class="nh-split" cx={h.sx} cy={h.sy} r="6" />
+        <path class="nh-plus" d={`M${h.sx - 3} ${h.sy}h6M${h.sx} ${h.sy - 3}v6`} />
+        <text class="nh-text" x={h.sx + 12} y={h.sy - 12}>{t(h.midpoint ? 'viewport.nodeSplitsMid' : 'viewport.nodeSplits').replace('{id}', String(h.elementId))}</text>
+      {:else if h.kind === 'onNode'}
+        <circle class="nh-there" cx={h.sx} cy={h.sy} r="11" />
+        <text class="nh-text nh-warn" x={h.sx + 14} y={h.sy - 12}>{t('viewport.nodeAlreadyThere')}</text>
+      {:else}
+        <circle class="nh-free" cx={h.sx} cy={h.sy} r="5" />
+      {/if}
+    </svg>
+  {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="vp-prompt" onmousedown={(e) => e.stopPropagation()} onpointerdown={(e) => e.stopPropagation()}
     ontouchstart={(e) => e.stopPropagation()}><ConnectionPrompt /></div>
@@ -4261,6 +4413,15 @@
     pointer-events: none;
     z-index: 2;
   }
+  .node-hint { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
+  .nh-member { stroke: var(--st-accent); stroke-width: 6; stroke-linecap: round; opacity: 0.45; }
+  .nh-split { fill: var(--st-surface); stroke: var(--st-accent); stroke-width: 2; }
+  .nh-plus { stroke: var(--st-accent); stroke-width: 2; }
+  .nh-free { fill: none; stroke: var(--st-accent); stroke-width: 1.5; opacity: 0.85; }
+  .nh-there { fill: none; stroke: var(--st-amber, #e0a030); stroke-width: 1.5; stroke-dasharray: 3 3; }
+  .nh-text { font: 11px sans-serif; fill: var(--st-accent); paint-order: stroke; stroke: var(--st-bg, #0b1220); stroke-width: 3px; }
+  .nh-warn { fill: var(--st-amber, #e0a030); }
+  .nh-end { font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
   .viewport3d-wrapper :global(canvas:not(.axis-gizmo):not(.tl-frame)) {
     display: block;
     width: 100% !important;
