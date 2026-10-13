@@ -19,6 +19,22 @@ const unit = (v: V): P3 => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return
 const dot = (a: V, b: V) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const scale = (a: V, k: number): V => [a[0] * k, a[1] * k, a[2] * k];
 
+/**
+ * Point resultants of one trapezoidal/partial distributed component (qI at a … qJ at b),
+ * statically exact. When qI and qJ share a sign that is one force at the trapezoid's centroid; a
+ * sign-reversing trapezoid has no single equivalent force on the span, so it is its two triangles.
+ */
+export function pointResultants(qI: number, qJ: number, a: number, b: number): Array<{ mag: number; at: number }> {
+  const L = b - a;
+  if (!(L > 1e-12)) return [];
+  if (qI * qJ >= 0) {
+    const sum = qI + qJ;
+    if (Math.abs(sum) < 1e-12) return [];
+    return [{ mag: (sum / 2) * L, at: a + (L / 3) * (qI + 2 * qJ) / sum }];
+  }
+  return [{ mag: (qI * L) / 2, at: a + L / 3 }, { mag: (qJ * L) / 2, at: a + (2 * L) / 3 }];
+}
+
 export function freeBodyActions3D(opts: {
   elements: Map<number, Element>;
   nodes: Map<number, Node>;
@@ -39,6 +55,11 @@ export function freeBodyActions3D(opts: {
    * "T = 0.0 kN·m" at every cut buries what it does carry. 0 shows everything (the tests).
    */
   negligible?: number;
+  /**
+   * How the member loads are shown: along the member as they act ('all'), or as the point
+   * force(s) they amount to ('resultant'). Nodal loads are point forces either way.
+   */
+  loadMode?: 'all' | 'resultant';
 }): {
   members: Array<{ id: number; nodeI: number; nodeJ: number; i: P3; j: P3 }>;
   nodes: (id: number) => P3 | undefined;
@@ -139,10 +160,28 @@ export function freeBodyActions3D(opts: {
       const eyUser = opts.leftHand ? scale(ax.ey, -1) : ax.ey;
       if (ld.type === 'distributed3d') {
         const d = ld.data;
+        const a0 = d.a ?? 0, b0 = d.b ?? ax.len;
+        if (opts.loadMode === 'resultant') {
+          // The point forces the load amounts to (statically exact): one when the y and z parts
+          // share a line of action, one per part otherwise.
+          const RY = pointResultants(d.qYI, d.qYJ, a0, b0), RZ = pointResultants(d.qZI, d.qZJ, a0, b0);
+          const parts: Array<{ f: V; at: number }> = [];
+          if (RY.length === 1 && RZ.length === 1 && Math.abs(RY[0]!.at - RZ[0]!.at) <= 1e-9 * ax.len) {
+            parts.push({ f: [eyUser[0] * RY[0]!.mag + ax.ez[0] * RZ[0]!.mag, eyUser[1] * RY[0]!.mag + ax.ez[1] * RZ[0]!.mag, eyUser[2] * RY[0]!.mag + ax.ez[2] * RZ[0]!.mag], at: RY[0]!.at });
+          } else {
+            for (const r of RY) parts.push({ f: scale(eyUser, r.mag), at: r.at });
+            for (const r of RZ) parts.push({ f: scale(ax.ez, r.mag), at: r.at });
+          }
+          for (const p of parts) {
+            const f = Math.hypot(...p.f);
+            if (f > EPS) loads.push({ kind: 'point', memberId: d.elementId, t: p.at / ax.len, dir: unit(p.f), label: opts.loadText(f, 'force') });
+          }
+          continue;
+        }
         const qy = (d.qYI + d.qYJ) / 2, qz = (d.qZI + d.qZJ) / 2;
         const v: V = [eyUser[0] * qy + ax.ez[0] * qz, eyUser[1] * qy + ax.ez[1] * qz, eyUser[2] * qy + ax.ez[2] * qz];
         const q = Math.hypot(...v);
-        if (q > EPS) loads.push({ kind: 'dist', memberId: ld.data.elementId, t0: (d.a ?? 0) / ax.len, t1: (d.b ?? ax.len) / ax.len, dir: unit(v), label: opts.loadText(q, 'distributedLoad') });
+        if (q > EPS) loads.push({ kind: 'dist', memberId: ld.data.elementId, t0: a0 / ax.len, t1: b0 / ax.len, dir: unit(v), label: opts.loadText(q, 'distributedLoad') });
       } else {
         const d = ld.data;
         const v: V = (d.frame ?? 'local') === 'global'

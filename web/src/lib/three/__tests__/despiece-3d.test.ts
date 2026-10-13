@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { inspectMember3D, inspectNode3D, type DespieceBasis } from '../despiece-3d';
-import { freeBodyActions3D } from '../../viewport3d/free-body-3d';
+import { freeBodyActions3D, pointResultants } from '../../viewport3d/free-body-3d';
 import type { Element, Node, Section, Load } from '../../store/model.svelte';
 import type { ElementForces3D, Reaction3D } from '../../engine/types-3d';
 
@@ -18,13 +18,13 @@ function ef(id: number, n = 10): ElementForces3D {
 }
 const SEC = new Map<number, Section>([[1, { id: 1, a: 0.01, iz: 1e-4 } as Section]]);
 
-function actions(o: { basis?: DespieceBasis; resultant?: boolean; showReactions?: boolean; reactions?: Reaction3D[]; loads?: Load[] } = {}) {
+function actions(o: { basis?: DespieceBasis; resultant?: boolean; showReactions?: boolean; reactions?: Reaction3D[]; loads?: Load[]; loadMode?: 'all' | 'resultant' } = {}) {
   const nodes = new Map<number, Node>([[1, { id: 1, x: 0, y: 0, z: 0 }], [2, { id: 2, x: 4, y: 0, z: 0 }]]);
   const elements = new Map<number, Element>([[1, el(1, 1, 2)]]);
   return freeBodyActions3D({
     elements, nodes, forces: [ef(1)], reactions: o.reactions ?? [], sections: SEC, project2D: false, leftHand: false,
     basis: o.basis ?? 'local', resultant: o.resultant ?? false, showReactions: o.showReactions ?? false,
-    loads: o.loads, loadText: (v) => v.toFixed(1),
+    loads: o.loads, loadText: (v) => v.toFixed(1), loadMode: o.loadMode,
   });
 }
 
@@ -72,6 +72,27 @@ describe('3D despiece actions', () => {
     const l = actions({ loads }).loads;
     expect(l.map((x) => x.kind)).toEqual(['dist', 'nodal']);
     expect(l[0]!.label).toBe('6.0');
+  });
+});
+
+describe('3D despiece loads as resultants', () => {
+  it('a uniform load is one force, q·L at mid-span; a sign-reversing one is its two triangles', () => {
+    expect(pointResultants(-6, -6, 0, 4)).toEqual([{ mag: -24, at: 2 }]);
+    const two = pointResultants(-4, 6, 0, 3);
+    expect(two).toHaveLength(2);
+    expect(two[0]!.mag).toBeCloseTo(-6); expect(two[0]!.at).toBeCloseTo(1);
+    expect(two[1]!.mag).toBeCloseTo(9); expect(two[1]!.at).toBeCloseTo(2);
+  });
+
+  it('the view draws a point force for the resultant and the spread load for all', () => {
+    const loads = [{ type: 'distributed3d', data: { id: 1, elementId: 1, qYI: 0, qYJ: 0, qZI: -6, qZJ: -6 } }] as unknown as Load[];
+    const all = actions({ loads, loadMode: 'all' }).loads;
+    expect(all.map((l) => l.kind)).toEqual(['dist']);
+    const res = actions({ loads, loadMode: 'resultant' }).loads;
+    expect(res).toHaveLength(1);
+    expect(res[0]!.kind).toBe('point');
+    expect(res[0]!.label).toBe('24.0');
+    expect(res[0]!.kind === 'point' && res[0]!.t).toBeCloseTo(0.5);
   });
 });
 

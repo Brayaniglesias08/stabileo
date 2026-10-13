@@ -1337,6 +1337,7 @@
       loads: modelStore.loads,
       loadText: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),
       negligible: 0.02,
+      loadMode: uiStore.despieceLoadMode === 'resultant' ? 'resultant' : 'all',
     });
     camera.getWorldDirection(fbView);
     drawFreeBody({
