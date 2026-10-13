@@ -9729,5 +9729,6 @@ const en: Record<string, string> = {
   'timelapse.soundSoft': 'Soft',
   'timelapse.videoSubtitle': 'Subtitle',
   'timelapse.optional': 'Optional',
+  'despiece.selectToSee': 'Large model: select members or nodes to see their actions.',
 };
 export default en;

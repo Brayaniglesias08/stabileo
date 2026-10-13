@@ -6,5 +6,7 @@
  * picture and a capture for the assistant got an 80 × 80 image of the axes.
  */
 export function viewportCanvas(): HTMLCanvasElement | null {
-  return document.querySelector('.viewport-container canvas:not(.axis-gizmo)') as HTMLCanvasElement | null;
+  // Nor the layers drawn over it (the despiece, the timelapse picture): those are composed in
+  // by whoever needs them.
+  return document.querySelector('.viewport-container canvas:not(.axis-gizmo):not(.fb-overlay):not(.tl-frame)') as HTMLCanvasElement | null;
 }

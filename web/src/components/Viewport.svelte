@@ -21,9 +21,11 @@
   import { effectiveBendingInertia } from '../lib/engine/solver-service';
   import { computeLocalAxes3D } from '../lib/engine/local-axes-3d';
   import { drawDeformed } from '../lib/canvas/draw-deformed';
-  import { drawDespiecePrint, printSpans } from '../lib/canvas/draw-despiece-print';
-  import { drawDespiece, despieceElementSpan, remapLoadSpanToShrunk, distributedResultantVector, DESPIECE_LOAD_COLOR } from '../lib/canvas/draw-despiece';
-  import { drawDistributedLoads, drawPointLoadsOnElements, drawThermalLoads, drawMovingLoadAxles, drawMomentSymbol } from '../lib/canvas/draw-loads';
+  import { drawFreeBody, screenPieces, freeBodyFocus, FB_GAP_PX } from '../lib/canvas/free-body';
+  import { freeBodyActions2D } from '../lib/canvas/free-body-2d';
+  import { despieceElementSpan, remapLoadSpanToShrunk, distributedResultantVector, DESPIECE_LOAD_COLOR } from '../lib/canvas/draw-despiece';
+  import { drawDistributedLoads, drawPointLoadsOnElements, drawThermalLoads, drawMovingLoadAxles, drawMomentSymbol, computeLoadDirection } from '../lib/canvas/draw-loads';
+  import { segmentToBoxes } from '../lib/canvas/label-layout';
   import { createLabelCollector, type LabelCollector } from '../lib/canvas/label-layout';
   import { computeAxleWorldPositions } from '../lib/engine/moving-loads';
   import { drawInfluenceLine } from '../lib/canvas/draw-influence';
@@ -1123,41 +1125,27 @@
           const f = resultsStore.getElementForces(id);
           return f ? { elementId: f.elementId, nStart: f.nStart, nEnd: f.nEnd, vStart: f.vStart, vEnd: f.vEnd, mStart: f.mStart, mEnd: f.mEnd } : undefined;
         };
-        // A figure is laid out for the page (`draw-despiece-print.ts`): fixed gaps, magnitudes,
-        // values that make room for each other. Its pieces are where the loads go too.
-        const printSpanOf = exportFrame
-          ? printSpans({ elements: despieceElements, getNode: despieceNode, zoom: uiStore.zoom })
-          : null;
-        if (exportFrame) {
-          drawDespiecePrint({
-            ctx: ctx!,
-            worldToScreen: (wx, wy) => uiStore.worldToScreen(wx, wy),
-            zoom: uiStore.zoom,
-            elements: despieceElements,
-            getNode: despieceNode,
-            getElementForces: despieceForces,
-            reactions,
-            fmt: (v, q = 'force') => fixedQuantity(v, q, 1, uiStore.unitSystem),
-            basis: uiStore.despieceBasis,
-            mode: exportFrame.options.dcl ?? 'members',
-            labels: currentFrameLabels!,
-          });
-        } else drawDespiece({
-          ctx: ctx!,
-          worldToScreen: (wx, wy) => uiStore.worldToScreen(wx, wy),
-          elements: despieceElements,
-          getNode: despieceNode,
-          getElementForces: despieceForces,
-          reactions,
-          sep,
-          fmt: (v, q = 'force') => fixedQuantity(v, q, 1, uiStore.unitSystem),
-          vectorMode: uiStore.despieceVectorMode,
-          basis: uiStore.despieceBasis,
-          showReactions: reactionsNow(),
-          resultant: uiStore.despieceCombineVectors,
-          vectorSize: uiStore.despieceVectorSize,
-          labelSize: uiStore.despieceLabelSize,
-        });
+        // One free-body drawing for the screen and the figures (`canvas/free-body.ts`): pieces cut
+        // back the same distance at shared joints, arrows in their sense, magnitudes, one block of
+        // values per cut tied to it by a leader. The loads go on first, on those same pieces, so
+        // the blocks keep clear of them.
+        const vSizeFb = exportFrame ? 1 : Math.max(0.5, uiStore.despieceVectorSize);
+        const lSizeFb = exportFrame ? 1 : Math.max(0.6, uiStore.despieceLabelSize);
+        const fbMembers = despieceElements.map((e) => ({ ...e, i: despieceNode(e.nodeI)!, j: despieceNode(e.nodeJ)! })).filter((m) => m.i && m.j);
+        const fbPieces = screenPieces(fbMembers, (p) => uiStore.worldToScreen(p.x, p.y), FB_GAP_PX * sep);
+        const fbSpan = (id: number, ni: { x: number; y: number }, nj: { x: number; y: number }) => {
+          const p = fbPieces.get(id);
+          if (!p) return despieceElementSpan(ni, nj, sep);
+          const aI = uiStore.screenToWorld(p.a.x, p.a.y), aJ = uiStore.screenToWorld(p.b.x, p.b.y);
+          return { aI, aJ, lenOrig: Math.hypot(nj.x - ni.x, nj.y - ni.y), lenShrunk: Math.hypot(aJ.x - aI.x, aJ.y - aI.y) };
+        };
+        const fbObstacles: Array<{ x: number; y: number; width: number; height: number }> = [];
+        /** The band a load's arrows fill, on the side they come from, kept clear of the values. */
+        const obstructBand = (a: { x: number; y: number }, b: { x: number; y: number }, fx: number, fy: number, depth = 46) => {
+          const sa = uiStore.worldToScreen(a.x, a.y), sb = uiStore.worldToScreen(b.x, b.y);
+          const l = Math.hypot(fx, fy) || 1, tx = -fx / l, ty = fy / l;
+          for (let k = 0; k <= depth; k += 12) fbObstacles.push(...segmentToBoxes({ x1: sa.x + tx * k, y1: sa.y + ty * k, x2: sb.x + tx * k, y2: sb.y + ty * k, pad: 7 }));
+        };
         // Applied loads as EXTERNAL actions in free-body mode (drawn once, never
         // mirrored). 'all' = full glyphs; 'resultant' = one equivalent force per
         // load (distributed → arrow at its centroid). Element loads ride the
@@ -1182,6 +1170,7 @@
             const len = 38 * vSize, tx = sx + ux * len, ty = sy + uy * len;
             ctx!.strokeStyle = LOAD; ctx!.fillStyle = LOAD; ctx!.lineWidth = 2;
             ctx!.beginPath(); ctx!.moveTo(sx, sy); ctx!.lineTo(tx, ty); ctx!.stroke();
+            fbObstacles.push(...segmentToBoxes({ x1: sx, y1: sy, x2: tx, y2: ty, pad: 6 }));
             const a = Math.atan2(uy, ux), h = 8;
             ctx!.beginPath(); ctx!.moveTo(tx, ty);
             ctx!.lineTo(tx - h * Math.cos(a - 0.4), ty - h * Math.sin(a - 0.4));
@@ -1199,7 +1188,12 @@
             if (load.type === 'nodal') {
               const d = load.data as { nodeId: number; fx?: number; fz?: number; fy?: number; my?: number; mz?: number };
               const node = baseCtx.getNode(d.nodeId); if (!node) continue;
-              if (loadMode === 'all') { drawNodalLoad(load, LOAD, undefined, overlayLabels); continue; }
+              if (loadMode === 'all') {
+                drawNodalLoad(load, LOAD, undefined, overlayLabels);
+                const sn = uiStore.worldToScreen(node.x, node.y);
+                fbObstacles.push({ x: sn.x - 44, y: sn.y - 44, width: 88, height: 88 });
+                continue;
+              }
               // resultant: one combined force arrow (fx, fz-up) + one moment glyph
               const s = uiStore.worldToScreen(node.x, node.y);
               const fx = d.fx ?? 0, fz = d.fz ?? d.fy ?? 0, fmag = Math.hypot(fx, fz);
@@ -1210,7 +1204,7 @@
               const d = load.data as { elementId: number; qI?: number; qJ?: number; a?: number; b?: number; p?: number; px?: number; my?: number; mz?: number; angle?: number; isGlobal?: boolean };
               const el = modelStore.elements.get(d.elementId); if (!el) continue;
               const ni = baseCtx.getNode(el.nodeI), nj = baseCtx.getNode(el.nodeJ); if (!ni || !nj) continue;
-              const span = printSpanOf?.get(el.id) ?? despieceElementSpan(ni, nj, sep);
+              const span = fbSpan(el.id, ni, nj);
               const elemCtx = { ...baseCtx, getNode: (id: number) => id === el.nodeI ? span.aI : id === el.nodeJ ? span.aJ : baseCtx.getNode(id) };
               if (load.type === 'distributed' && loadMode === 'resultant') {
                 // ONE equivalent resultant arrow at the (remapped) load centroid,
@@ -1228,6 +1222,12 @@
               } else if (load.type === 'distributed') {
                 const rem = remapLoadSpanToShrunk(d.a ?? 0, d.b ?? span.lenOrig, span.lenOrig, span.lenShrunk);
                 drawDistributedLoads([{ elementId: d.elementId, qI: d.qI ?? 0, qJ: d.qJ ?? 0, angle: d.angle, isGlobal: d.isGlobal, a: rem.a, b: rem.b, caseColor: LOAD, caseName: '' }], elemCtx);
+                {
+                  const L0 = Math.hypot(nj.x - ni.x, nj.y - ni.y) || 1;
+                  const ld = computeLoadDirection(d.angle ?? 0, d.isGlobal ?? false, (nj.x - ni.x) / L0, (nj.y - ni.y) / L0);
+                  const sg = Math.sign((d.qI ?? 0) + (d.qJ ?? 0)) || 1;
+                  obstructBand(span.aI, span.aJ, ld.dx * sg, ld.dy * sg);
+                }
               } else {
                 // point load — already concentrated; draw at mapped point in both modes
                 const aRem = span.lenOrig > 1e-9 ? ((d.a ?? 0) / span.lenOrig) * span.lenShrunk : 0;
@@ -1237,6 +1237,28 @@
           }
           if (!exportFrame) overlayLabels.flush(ctx!);
         }
+        drawFreeBody({
+          ctx: ctx!,
+          toScreen: (p) => uiStore.worldToScreen(p.x, p.y),
+          members: fbMembers,
+          nodes: despieceNode,
+          ...freeBodyActions2D({
+            elements: despieceElements, getNode: despieceNode, getElementForces: despieceForces, reactions,
+            basis: uiStore.despieceBasis, resultant: uiStore.despieceCombineVectors, showReactions: reactionsNow(),
+            negligible: 0.02,
+          }),
+          // A large model shows the selected members' actions; a figure, everything it can.
+          focus: exportFrame ? undefined : freeBodyFocus(fbMembers, uiStore.selectedElements, uiStore.selectedNodes),
+          hint: t('despiece.selectToSee'),
+          mode: exportFrame ? (exportFrame.options.dcl ?? 'members') : uiStore.despieceVectorMode,
+          sep,
+          planar: true,
+          fmt: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),
+          labelPx: 10.5 * lSizeFb,
+          arrowPx: 32 * vSizeFb,
+          labels: currentFrameLabels,
+          obstacles: fbObstacles,
+        });
       } else if (dt === 'moment' || dt === 'shear' || dt === 'axial') {
         const dkind = dt as DiagramKind;
         // Check if we should render envelope dual curves

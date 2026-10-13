@@ -23,6 +23,7 @@ import { t } from '../i18n';
 import { unitQ } from '../store/display-units.svelte';
 import { resultSetName, composeFigure } from './figure';
 import { viewportCanvas } from '../utils/viewport-canvas';
+import { freeBodyCapture } from '../canvas/free-body';
 import type { DiagramType } from '../store/results.svelte';
 
 /** What a figure shows. */
@@ -129,15 +130,21 @@ export interface FigurePlan {
   paint(ctx: CanvasRenderingContext2D): void;
 }
 
-function fitView(nodes: Array<{ x: number; y: number }>): FrameView {
+/**
+ * The free body needs room at every joint for its values, so its figure may run taller: a page
+ * holds a tall figure, while a cramped one forces the values away from the cuts they belong to.
+ */
+const FIT_H_FREE_BODY = 1000;
+
+function fitView(nodes: Array<{ x: number; y: number }>, fitH = FIT_H): FrameView {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const n of nodes) { x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x); y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y); }
   if (!Number.isFinite(x0)) return { zoom: 100, panX: 0, panY: 0 };
   const sx = x1 - x0, sy = y1 - y0;
   const zoom = sx < 1e-9 && sy < 1e-9 ? 100
     : sy < 1e-9 ? FIT_W / sx
-    : sx < 1e-9 ? FIT_H / sy
-    : Math.min(FIT_W / sx, FIT_H / sy);
+    : sx < 1e-9 ? fitH / sy
+    : Math.min(FIT_W / sx, fitH / sy);
   // World x0 at screen 0, world y1 (the top) at screen 0.
   return { zoom, panX: -x0 * zoom, panY: y1 * zoom };
 }
@@ -151,7 +158,7 @@ export function plan2D(content: FigureContent, options: FigureOptions): FigurePl
   const r = renderer2D;
   if (!r) return null;
   const frame: ExportFrame = { content, options };
-  const view = fitView(r.nodes());
+  const view = fitView(r.nodes(), content === 'despiece' ? FIT_H_FREE_BODY : FIT_H);
   // First pass: where does the drawing land?
   const probe = createSvgContext(FIT_W, FIT_H);
   r.render(inkContext(probe.ctx, options.style, textScale()), FIT_W, FIT_H, frame, view);
@@ -251,7 +258,14 @@ const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()
  * each capture and put back after.
  */
 export async function capture3D(contents: FigureContent[], options: FigureOptions): Promise<Array<{ content: FigureContent; title: string; dataUrl: string }>> {
-  const keep = { diagram: resultsStore.diagramType, reactions: resultsStore.showReactions, values: resultsStore.showDiagramValues, loads: uiStore.showLoads3D };
+  const keep = {
+    diagram: resultsStore.diagramType, reactions: resultsStore.showReactions, values: resultsStore.showDiagramValues,
+    loads: uiStore.showLoads3D, despieceLoads: uiStore.despieceLoadMode, despieceMode: uiStore.despieceVectorMode,
+  };
+  uiStore.despieceVectorMode = options.dcl ?? 'members';
+  freeBodyCapture.active = true;
+  // A free body is in equilibrium only with its loads on it.
+  if (uiStore.despieceLoadMode === 'off') uiStore.despieceLoadMode = 'all';
   // Where the reader is standing (the viewport publishes it as the camera moves), to come back to.
   const camera = { position: { ...uiStore.cameraPosition3D }, target: { ...uiStore.cameraTarget3D }, orthoZoom: uiStore.cameraOrthoZoom3D };
   const out: Array<{ content: FigureContent; title: string; dataUrl: string }> = [];
@@ -265,7 +279,7 @@ export async function capture3D(contents: FigureContent[], options: FigureOption
       uiStore.showLoads3D = options.loads && (content === 'model' || content === 'reactions');
       // Two frames: one for the scene to take the change, one for it to be drawn.
       await nextFrame(); await nextFrame(); await nextFrame();
-      const c = viewportCanvas();
+      const c = withOverlay(viewportCanvas());
       if (!c) continue;
       const title = options.titles ? figureTitle(content) : '';
       const dataUrl = composeFigure(c, title || (modelStore.model.name ?? ''), null);
@@ -276,9 +290,28 @@ export async function capture3D(contents: FigureContent[], options: FigureOption
     resultsStore.showReactions = keep.reactions;
     resultsStore.showDiagramValues = keep.values;
     uiStore.showLoads3D = keep.loads;
+    uiStore.despieceLoadMode = keep.despieceLoads;
+    uiStore.despieceVectorMode = keep.despieceMode;
+    freeBodyCapture.active = false;
     window.dispatchEvent(new CustomEvent('stabileo-camera-set', { detail: camera }));
   }
   return out;
+}
+
+/**
+ * The 3D view with what is drawn over it: the despiece is a 2D canvas laid over the WebGL one,
+ * so a capture of the WebGL canvas alone would leave it out.
+ */
+function withOverlay(gl: HTMLCanvasElement | null): HTMLCanvasElement | null {
+  if (!gl) return null;
+  const over = document.querySelector('.viewport-container canvas.fb-overlay') as HTMLCanvasElement | null;
+  if (!over || resultsStore.diagramType !== 'despiece' || !over.width) return gl;
+  const c = document.createElement('canvas');
+  c.width = gl.width; c.height = gl.height;
+  const g = c.getContext('2d');
+  if (!g) return gl;
+  try { g.drawImage(gl, 0, 0); g.drawImage(over, 0, 0, c.width, c.height); } catch { return gl; }
+  return c;
 }
 
 /** Captured 3D figures, one under the other, as one PNG. */

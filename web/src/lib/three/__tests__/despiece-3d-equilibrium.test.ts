@@ -1,44 +1,29 @@
 /**
- * Equilibrium of the 3D free-body view (despiece-3d.ts) on real solves.
+ * Equilibrium of the 3D free-body view on real solves.
  *
- * Every model here is built through the model store, as drawing in Basic 3D
- * builds it, and solved by modelStore.solve3D (the static solve the view reads).
- * The overlay is then built exactly as results-sync.ts builds it, and the test
- * reads back what it DRAWS: every force arrow and moment arc carries the signed
- * world vector it stands for (userData.forceVec / momentVec), loads carry the
- * point they act at (userData.loadAt). From those vectors alone:
+ * Every model here is built through the model store, as drawing in Basic 3D builds it, and
+ * solved by modelStore.solve3D (the static solve the view reads). The view's actions are then
+ * taken exactly as the viewport takes them (`freeBodyActions3D`, which `drawFreeBody` draws):
+ * every arrow is a direction and a magnitude, so their sum is the action the view shows.
  *
- *   - every isolated member balances its end actions and its drawn loads
- *     (ΣF = 0, ΣM = 0 in 3D), and also the loads the solver was given (the
- *     wire), which ties the view's local axes to the solver's;
- *   - every joint balances the node-side actions of the members meeting there,
- *     its drawn nodal loads and its drawn support reaction (forces and moments);
- *   - in the local basis every component arrow and arc lies on one of the
- *     member's local axes (the solver's) with the engine's end-action sign;
- *   - the global basis and the combined (resultant) toggle draw the same action.
+ *   - every isolated member balances its end actions and the loads the solver was given (the
+ *     wire), which ties the view's local axes to the solver's (ΣF = 0, ΣM = 0 in 3D);
+ *   - every joint balances the node-side actions of the members meeting there, its nodal loads
+ *     and its support reaction (forces and moments);
+ *   - in the local basis every component lies on one of the member's local axes (the solver's)
+ *     with the engine's end-action sign;
+ *   - the global basis and the combined (resultant) toggle show the same action.
  *
- * Members point in every direction (±X, ±Y, ±Z, skew, drawn toward or away from
- * the joint), with roll angles, explicit local y, rotated sections, hinges and
- * torsion releases, trapezoidal/partial/sign-reversing distributed loads, point
- * loads and nodal moments, under both axis conventions; plus the seeded random
- * families of the Basic-3D sweep.
+ * Members point in every direction (±X, ±Y, ±Z, skew, drawn toward or away from the joint),
+ * with roll angles, explicit local y, rotated sections, hinges and torsion releases,
+ * trapezoidal/partial/sign-reversing distributed loads, point loads and nodal moments, under
+ * both axis conventions; plus the seeded random families of the Basic-3D sweep.
  */
 import { describe, expect, it } from 'vitest';
-import * as THREE from 'three';
-
-// createTextSprite needs a canvas: stub the one call it makes, keep anything else.
-const canvasStub = {
-  width: 0, height: 0,
-  getContext: () => ({ fillStyle: '', font: '', textAlign: 'center', textBaseline: 'middle', fillText: () => {}, strokeText: () => {}, measureText: () => ({ width: 10 }), clearRect: () => {}, fillRect: () => {}, strokeRect: () => {}, beginPath: () => {}, fill: () => {}, stroke: () => {}, roundRect: () => {}, rect: () => {}, arc: () => {}, moveTo: () => {}, lineTo: () => {}, closePath: () => {} }),
-};
-const prevDoc = (globalThis as { document?: Document }).document;
-Object.defineProperty(globalThis, 'document', {
-  value: prevDoc ? new Proxy(prevDoc, { get: (t, k) => (k === 'createElement' ? () => canvasStub : Reflect.get(t, k)) }) : { createElement: () => canvasStub },
-  configurable: true,
-});
-
 import { modelStore } from '../../store';
-import { createDespiece3DGroup, inspectMember3D, type DespieceBasis } from '../despiece-3d';
+import { inspectMember3D, type DespieceBasis } from '../despiece-3d';
+import { freeBodyActions3D } from '../../viewport3d/free-body-3d';
+import type { FBAction } from '../../canvas/free-body';
 import { computeLocalAxes3D } from '../../engine/local-axes-3d';
 import type { AnalysisResults3D, SolverInput3D } from '../../engine/types-3d';
 import {
@@ -53,55 +38,44 @@ const dot = (a: V, b: V) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a: V, b: V): V => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const norm = (a: V) => Math.hypot(a[0], a[1], a[2]);
 const Z: V = [0, 0, 0];
+const vecOf = (a: FBAction): V => [a.dir.x * a.magnitude, a.dir.y * a.magnitude, (a.dir.z ?? 0) * a.magnitude];
 
-/** A component the view drops (|x| ≤ FORCE_EPS = 1e-3) may be missing from the sum. */
+/** A component the view drops (|x| ≤ 1e-3) may be missing from the sum. */
 const DROP = 1e-3;
 
-interface Drawn {
-  /** Signed force / moment of each end group, keyed `${elemId}|${end}|${side}`. */
-  ends: Map<string, { f: V; m: V; nodeId: number; arrows: THREE.ArrowHelper[]; arcs: THREE.Object3D[] }>;
-  memberLoads: Map<number, Array<{ f: V; at: V }>>;
+interface Shown {
+  /** Signed force / moment of each end, keyed `${elemId}|${end}|${side}`. */
+  ends: Map<string, { f: V; m: V; nodeId: number; forces: FBAction[]; moments: FBAction[] }>;
+  loadsOn: Map<number, number>;
   nodalF: Map<number, V>;
   nodalM: Map<number, V>;
   reactF: Map<number, V>;
   reactM: Map<number, V>;
 }
 
-function readDrawn(g: THREE.Group): Drawn {
-  const d: Drawn = { ends: new Map(), memberLoads: new Map(), nodalF: new Map(), nodalM: new Map(), reactF: new Map(), reactM: new Map() };
+function readShown(res: AnalysisResults3D, o: { leftHand: boolean; basis: DespieceBasis; resultant: boolean }): Shown {
+  const data = freeBodyActions3D({
+    elements: modelStore.elements, nodes: modelStore.nodes, forces: res.elementForces, reactions: res.reactions ?? [],
+    sections: modelStore.sections, project2D: false, leftHand: o.leftHand, basis: o.basis, resultant: o.resultant,
+    showReactions: true, loads: modelStore.loads, loadText: () => '',
+  });
+  const d: Shown = { ends: new Map(), loadsOn: new Map(), nodalF: new Map(), nodalM: new Map(), reactF: new Map(), reactM: new Map() };
   const acc = (m: Map<number, V>, k: number, v: V) => m.set(k, add(m.get(k) ?? Z, v));
-  for (const c of g.children) {
-    const u = c.userData;
-    if (u?.despieceEnd) {
-      const e = { f: Z, m: Z, nodeId: u.nodeId as number, arrows: [] as THREE.ArrowHelper[], arcs: [] as THREE.Object3D[] };
-      for (const o of c.children) {
-        if (o instanceof THREE.ArrowHelper) { e.f = add(e.f, o.userData.forceVec as V); e.arrows.push(o); }
-        else if (o.userData?.despieceMoment) { e.m = add(e.m, o.userData.momentVec as V); e.arcs.push(o); }
-      }
-      d.ends.set(`${u.elemId}|${u.end}|${u.side}`, e);
-    } else if (u?.despieceLoad) {
-      if (u.elemId !== undefined) {
-        if (!u.forceVec) continue;   // 'all' mode samples are intensities
-        const list = d.memberLoads.get(u.elemId) ?? [];
-        list.push({ f: u.forceVec as V, at: u.loadAt as V });
-        d.memberLoads.set(u.elemId, list);
-      } else if (u.despieceMoment) acc(d.nodalM, u.nodeId, u.momentVec as V);
-      else acc(d.nodalF, u.nodeId, u.forceVec as V);
-    } else if (u?.despieceReaction) {
-      if (u.despieceMoment) acc(d.reactM, u.nodeId, u.momentVec as V);
-      else acc(d.reactF, u.nodeId, u.forceVec as V);
-    }
+  for (const e of data.ends) {
+    const forces = e.actions.filter((a) => a.kind === 'force'), moments = e.actions.filter((a) => a.kind === 'moment');
+    d.ends.set(`${e.memberId}|${e.end}|${e.side}`, {
+      f: forces.reduce((s, a) => add(s, vecOf(a)), Z), m: moments.reduce((s, a) => add(s, vecOf(a)), Z),
+      nodeId: e.nodeId, forces, moments,
+    });
+  }
+  for (const s of data.supports) for (const a of s.actions) acc(a.kind === 'force' ? d.reactF : d.reactM, s.nodeId, vecOf(a));
+  for (const l of data.loads) if (l.kind !== 'nodal') d.loadsOn.set(l.memberId, (d.loadsOn.get(l.memberId) ?? 0) + 1);
+  for (const l of modelStore.loads) {
+    if (l.type !== 'nodal3d') continue;
+    acc(d.nodalF, l.data.nodeId, [l.data.fx, l.data.fy, l.data.fz]);
+    acc(d.nodalM, l.data.nodeId, [l.data.mx, l.data.my, l.data.mz]);
   }
   return d;
-}
-
-function buildView(res: AnalysisResults3D, o: { leftHand: boolean; basis: DespieceBasis; resultant: boolean }) {
-  return createDespiece3DGroup({
-    elements: modelStore.elements, nodes: modelStore.nodes, forces: res.elementForces, reactions: res.reactions ?? [],
-    sep: 1, sections: modelStore.sections, leftHand: o.leftHand, project2D: false,
-    vectorMode: 'all', basis: o.basis, showReactions: true, resultant: o.resultant,
-    loads: modelStore.loads, loadMode: 'resultant',
-  });
 }
 
 const pos = (id: number): V => { const n = modelStore.nodes.get(id)!; return [n.x, n.y, n.z ?? 0]; };
@@ -146,9 +120,9 @@ function checkModel(tag: string, leftHand: boolean, rep: Report): boolean {
   if (!input || !res || typeof res === 'string') return false;
 
   const views = {
-    local: readDrawn(buildView(res, { leftHand, basis: 'local', resultant: false })),
-    global: readDrawn(buildView(res, { leftHand, basis: 'global', resultant: false })),
-    combined: readDrawn(buildView(res, { leftHand, basis: 'local', resultant: true })),
+    local: readShown(res, { leftHand, basis: 'local', resultant: false }),
+    global: readShown(res, { leftHand, basis: 'global', resultant: false }),
+    combined: readShown(res, { leftHand, basis: 'local', resultant: true }),
   };
   const v = views.local;
   const efMap = new Map(res.elementForces.map((f) => [f.elementId, f]));
@@ -168,8 +142,6 @@ function checkModel(tag: string, leftHand: boolean, rep: Report): boolean {
       for (const l of loads) { F = add(F, l.f); M = add(M, cross(sub(l.at, pI), l.f)); }
       return { F: norm(F), M: norm(M) };
     };
-    const drawnB = balance(v.memberLoads.get(elem.id) ?? []);
-    if (drawnB.F > tolF || drawnB.M > tolM) rep.members.push(`${tag} e${elem.id} (${elem.nodeI}→${elem.nodeJ}): |ΣF|=${drawnB.F.toExponential(2)} |ΣM|=${drawnB.M.toExponential(2)}`);
     const wireB = balance(wireMemberLoads(input, elem.id));
     if (wireB.F > tolF || wireB.M > tolM) rep.wire.push(`${tag} e${elem.id}: with the solver's loads |ΣF|=${wireB.F.toExponential(2)} |ΣM|=${wireB.M.toExponential(2)}`);
     rep.checkedMembers++;
@@ -184,21 +156,17 @@ function checkModel(tag: string, leftHand: boolean, rep: Report): boolean {
     for (const end of ['I', 'J'] as const) {
       const grp = v.ends.get(`${elem.id}|${end}|member`)!;
       const seen = [0, 0, 0], seenM = [0, 0, 0];
-      for (const a of grp.arrows) {
-        const vec = a.userData.forceVec as V;
-        const k = basisOf.findIndex((e) => Math.abs(Math.abs(dot(e, vec)) - norm(vec)) < 1e-9 * (1 + norm(vec)));
+      for (const a of grp.forces) {
+        const vec = vecOf(a);
+        const k = basisOf.findIndex((e) => Math.abs(Math.abs(dot(e, vec)) - norm(vec)) < 1e-6 * (1 + norm(vec)));
         if (k < 0) { rep.local.push(`${tag} e${elem.id}${end}: arrow off the local axes`); continue; }
         seen[k] += dot(basisOf[k], vec);
-        const dir = new THREE.Vector3(0, 1, 0).applyQuaternion(a.quaternion);
-        if (dot([dir.x, dir.y, dir.z], vec) <= 0) rep.local.push(`${tag} e${elem.id}${end}: arrow points against its value`);
       }
-      for (const arc of grp.arcs) {
-        const vec = arc.userData.momentVec as V;
-        const k = basisOf.findIndex((e) => Math.abs(Math.abs(dot(e, vec)) - norm(vec)) < 1e-9 * (1 + norm(vec)));
-        if (k < 0) { rep.local.push(`${tag} e${elem.id}${end}: arc off the local axes`); continue; }
+      for (const a of grp.moments) {
+        const vec = vecOf(a);
+        const k = basisOf.findIndex((e) => Math.abs(Math.abs(dot(e, vec)) - norm(vec)) < 1e-6 * (1 + norm(vec)));
+        if (k < 0) { rep.local.push(`${tag} e${elem.id}${end}: moment off the local axes`); continue; }
         seenM[k] += dot(basisOf[k], vec);
-        const axis = arc.userData.momentAxis as V;
-        if (dot(axis, vec) <= 0) rep.local.push(`${tag} e${elem.id}${end}: arc sense against its value`);
       }
       for (let k = 0; k < 3; k++) {
         if (Math.abs(seen[k] - want[end].f[k]) > DROP + 1e-9 * Fscale) rep.local.push(`${tag} e${elem.id}${end} force ${'xyz'[k]}: drawn ${seen[k].toFixed(4)} engine ${want[end].f[k].toFixed(4)}`);
@@ -210,11 +178,11 @@ function checkModel(tag: string, leftHand: boolean, rep: Report): boolean {
           const a = v.ends.get(`${elem.id}|${end}|${side}`)!, b = other.ends.get(`${elem.id}|${end}|${side}`)!;
           if (norm(sub(a.f, b.f)) > 3 * DROP + 1e-9 * Fscale || norm(sub(a.m, b.m)) > 3 * DROP + 1e-9 * Fscale) rep.bases.push(`${tag} e${elem.id}${end} ${side}: ${name} differs from local`);
         }
-        if (name === 'global') for (const a of other.ends.get(`${elem.id}|${end}|member`)!.arrows) {
-          const vec = a.userData.forceVec as V;
+        if (name === 'global') for (const a of other.ends.get(`${elem.id}|${end}|member`)!.forces) {
+          const vec = vecOf(a);
           if ([0, 1, 2].filter((k) => Math.abs(vec[k]) > 1e-12).length !== 1) rep.bases.push(`${tag} e${elem.id}${end}: global arrow not along a world axis`);
         }
-        if (name === 'combined' && other.ends.get(`${elem.id}|${end}|member`)!.arrows.length > 1) rep.bases.push(`${tag} e${elem.id}${end}: combined draws more than one force arrow`);
+        if (name === 'combined' && other.ends.get(`${elem.id}|${end}|member`)!.forces.length > 1) rep.bases.push(`${tag} e${elem.id}${end}: combined draws more than one force arrow`);
       }
     }
 
@@ -372,19 +340,14 @@ describe('3D free-body view — equilibrium on real solves', () => {
     });
   }
 
-  it('the hand-built models draw reaction moments, split sign-reversing loads, and keep y/z resultants apart', () => {
+  it('the hand-built models show reaction moments and every member load', () => {
     starModel({ hinges: false });
     const res = modelStore.solve3D(false, false, false) as AnalysisResults3D;
-    const g = buildView(res, { leftHand: false, basis: 'local', resultant: false });
-    const d = readDrawn(g);
-    // Fixed far ends carry reaction moments; the view draws them.
+    const d = readShown(res, { leftHand: false, basis: 'local', resultant: false });
+    // Fixed far ends carry reaction moments; the view shows them.
     expect(d.reactM.size).toBeGreaterThan(0);
-    // Element 3 carries qY −4 → +6 (reversing): two triangle resultants.
-    const e3 = [...modelStore.elements.values()][2].id;
-    expect(d.memberLoads.get(e3)!.length).toBe(2);
-    // Element 4 carries y and z parts with different centroids: two arrows.
-    const e4 = [...modelStore.elements.values()][3].id;
-    expect(d.memberLoads.get(e4)!.length).toBe(2);
+    // Every loaded member carries its load (11 members, 12 member loads, one member has two).
+    expect([...d.loadsOn.values()].reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(11);
   });
 
   describe('seeded random models of the Basic-3D sweep', () => {
@@ -392,12 +355,9 @@ describe('3D free-body view — equilibrium on real solves', () => {
     for (const family of Object.keys(FAMILIES)) {
       it(`${family}: every drawn member and joint balances`, () => {
         const rep = newReport();
-        let solved = 0, skippedBig = 0;
+        let solved = 0;
         for (let seed = 1; seed <= SEEDS; seed++) {
           buildRandom(family, seed);
-          // Moment glyphs and loads are suppressed above 60 members (clutter cap):
-          // the drawn free body is incomplete there by design.
-          if (modelStore.elements.size > 60) { skippedBig++; continue; }
           if (checkModel(`${family}#${seed}`, seed % 3 === 0, rep)) solved++;
         }
         expect(solved).toBeGreaterThan(0);

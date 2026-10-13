@@ -61,7 +61,7 @@
   import { setCameraProbe, setWorldProjector } from '../lib/viewport3d/camera-probe';
   import { updateGrid as _updateGrid, gridLayout, gridKey, createFatAxes as _createFatAxes, addAxisLabels as _addAxisLabels } from '../lib/viewport3d/grid';
   import { syncNodes as _syncNodes, syncElements as _syncElements, syncSupports as _syncSupports, syncLoads as _syncLoads, syncShells as _syncShells, syncSelection as _syncSelection, syncLocalAxes as _syncLocalAxes, syncMemberOffsets as _syncMemberOffsets, syncShellOffsets as _syncShellOffsets, applyElementVisibility, type SceneSyncContext } from '../lib/viewport3d/scene-sync';
-  import { syncDeformed as _syncDeformed, syncDiagrams3D as _syncDiagrams3D, syncColorMap3D as _syncColorMap3D, syncVerificationLabels as _syncVerificationLabels, syncReactions as _syncReactions, syncConstraintForces as _syncConstraintForces, syncLabels3D as _syncLabels3D, syncDespiece3D as _syncDespiece3D, DIAGRAM_3D_TYPES, type ResultsSyncContext } from '../lib/viewport3d/results-sync';
+  import { syncDeformed as _syncDeformed, syncDiagrams3D as _syncDiagrams3D, syncColorMap3D as _syncColorMap3D, syncVerificationLabels as _syncVerificationLabels, syncReactions as _syncReactions, syncConstraintForces as _syncConstraintForces, syncLabels3D as _syncLabels3D, DIAGRAM_3D_TYPES, type ResultsSyncContext } from '../lib/viewport3d/results-sync';
   import { applyLowDetail, isHeavyModel } from '../lib/viewport3d/lod';
   import { buildTimelapse, FORMAT_SIZE } from '../lib/store/build-timelapse.svelte';
   import { createTimelapseView } from '../lib/viewport3d/build-timelapse-view';
@@ -69,6 +69,8 @@
   import { timelapseSound } from '../lib/viewport3d/timelapse-sound';
   import { setLineResolution } from '../lib/three/create-element-mesh';
   import BuildTimelapsePanel from './BuildTimelapsePanel.svelte';
+  import { drawFreeBody, freeBodyFocus, freeBodyCapture } from '../lib/canvas/free-body';
+  import { freeBodyActions3D } from '../lib/viewport3d/free-body-3d';
 
   let container: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -910,18 +912,16 @@
         const sep = 1 - Math.pow(1 - tNorm, 3);
         if (resultsCtx.lastDespieceSep === null || Math.abs(sep - resultsCtx.lastDespieceSep) > 0.01 || sep >= 1) {
           resultsCtx.lastDespieceSep = sep;
-          syncDespiece(sep);
+          fbSep = sep;
         }
-      } else if (resultsCtx.despieceGroup && resultsCtx.lastDespieceSep !== null) {
-        resultsParent.remove(resultsCtx.despieceGroup);
-        disposeObject(resultsCtx.despieceGroup);
-        resultsCtx.despieceGroup = null;
+      } else if (resultsCtx.lastDespieceSep !== null) {
         resultsCtx.lastDespieceSep = null;
       }
 
       const _perfT0 = perfHud.on ? performance.now() : 0;
       nodesInstanced.setPixelRatio(renderer.getPixelRatio());
       renderer.render(scene, camera);
+      drawFreeBody3D();
       if (timelapseInfo && timelapseFrame) composeTimelapse(timelapseInfo);
       else renderInset();
       drawAxisGizmo();
@@ -1240,7 +1240,7 @@
       elementGroups,
       elementsBatched,
       shellGroups: sceneCtx.shellGroups,
-      deformedGroup: null, diagramGroup: null, overlayDiagramGroup: null, despieceGroup: null,
+      deformedGroup: null, diagramGroup: null, overlayDiagramGroup: null,
       reactionGroup: null, constraintForcesGroup: null, nodeLabelsGroup: null, elementLabelsGroup: null, lengthLabelsGroup: null, shellLabelsGroup: null, verificationLabelsGroup: null,
       lastDeformedAnimScale: null, lastDespieceSep: null,
       colorMapApplied: false,
@@ -1300,9 +1300,63 @@
       syncColorMap3D();
     }
   }
-  function syncDespiece(sep: number) {
-    _syncDespiece3D(resultsCtx, sep);
+  /*
+   * ── The despiece ───────────────────────────────────────────────
+   * Drawn on a 2D canvas over the scene, projected through the camera on every render, with the
+   * same drawing as the 2D view and the figures. The 3D glyphs it replaces (cones and arcs at
+   * world size) piled into blobs at every joint.
+   */
+  let fbCanvas: HTMLCanvasElement | null = $state(null);
+  // The layer mounts with the despiece: draw on it as soon as it is there.
+  $effect(() => { if (fbCanvas) invalidate(); });
+  let fbSep = 0;
+  let fbDrawn = false;
+  const fbV = new THREE.Vector3();
+  const fbView = new THREE.Vector3();
+  function drawFreeBody3D(): void {
+    if (!fbCanvas || !container) return;
+    const g = fbCanvas.getContext('2d');
+    if (!g) return;
+    const on = resultsStore.diagramType === 'despiece' && !!resultsStore.results3D && !buildTimelapse.active;
+    if (!on) {
+      if (fbDrawn) { g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, fbCanvas.width, fbCanvas.height); fbDrawn = false; }
+      return;
+    }
+    const w = container.clientWidth, h = container.clientHeight, dpr = window.devicePixelRatio || 1;
+    if (fbCanvas.width !== Math.round(w * dpr) || fbCanvas.height !== Math.round(h * dpr)) {
+      fbCanvas.width = Math.round(w * dpr); fbCanvas.height = Math.round(h * dpr);
+    }
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, fbCanvas.width, fbCanvas.height);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const r3d = resultsStore.results3D!;
+    const data = freeBodyActions3D({
+      elements: modelStore.elements, nodes: modelStore.nodes, forces: r3d.elementForces, reactions: r3d.reactions ?? [],
+      sections: modelStore.sections, project2D: shouldProject2DModel(), leftHand: uiStore.axisConvention3D === 'leftHand',
+      basis: uiStore.despieceBasis, resultant: uiStore.despieceCombineVectors, showReactions: resultsStore.showReactions,
+      loads: modelStore.loads,
+      loadText: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),
+      negligible: 0.02,
+    });
+    camera.getWorldDirection(fbView);
+    drawFreeBody({
+      ctx: g,
+      toScreen: (p) => { fbV.set(p.x, p.y, p.z ?? 0).project(camera); return { x: (fbV.x + 1) / 2 * w, y: (1 - fbV.y) / 2 * h }; },
+      towardViewer: (d) => -(d.x * fbView.x + d.y * fbView.y + (d.z ?? 0) * fbView.z),
+      members: data.members, nodes: data.nodes, ends: data.ends, supports: data.supports,
+      loads: uiStore.despieceLoadMode !== 'off' ? data.loads : [],
+      mode: uiStore.despieceVectorMode,
+      sep: fbSep,
+      planar: false,
+      focus: freeBodyFocus(data.members, uiStore.selectedElements, uiStore.selectedNodes),
+      hint: freeBodyCapture.active ? undefined : t('despiece.selectToSee'),
+      fmt: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),
+      labelPx: 10.5 * Math.max(0.6, uiStore.despieceLabelSize),
+      arrowPx: 32 * Math.max(0.5, uiStore.despieceVectorSize),
+    });
+    fbDrawn = true;
   }
+
 
   function syncDeformed(scaleOverride?: number) {
     _syncDeformed(resultsCtx, scaleOverride);
@@ -1488,6 +1542,8 @@
   $effect(() => {
     const hide = resultsStore.diagramType === 'despiece';
     modelStore.modelVersion; modelStore.nodes; modelStore.elements; // re-assert after re-sync
+    // …and after a selection, whose highlight restyles (and shows) the member meshes.
+    uiStore.selectedElements; uiStore.selectedNodes;
     applyElementVisibility(elementGroups, elementsBatched?.mesh, elementsParent, hide, uiStore.renderMode3D === 'wireframe');
     invalidate();
   });
@@ -3843,6 +3899,10 @@
   onmouseleave={handleMouseLeave}
   oncontextmenu={handleContextMenu3D}
 >
+  <!-- The despiece, drawn over the scene in screen space (`canvas/free-body.ts`); only while it is on. -->
+  {#if resultsStore.diagramType === 'despiece'}
+    <canvas class="fb-overlay" bind:this={fbCanvas} aria-hidden="true"></canvas>
+  {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="vp-prompt" onmousedown={(e) => e.stopPropagation()} onpointerdown={(e) => e.stopPropagation()}
     ontouchstart={(e) => e.stopPropagation()}><ConnectionPrompt /></div>
@@ -4194,6 +4254,12 @@
   .perf-hud b { color: #fff; }
 
   /* The scene's canvas fills the viewport; the timelapse picture sizes itself (letterboxed). */
+  .fb-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+  }
   .viewport3d-wrapper :global(canvas:not(.axis-gizmo):not(.tl-frame)) {
     display: block;
     width: 100% !important;

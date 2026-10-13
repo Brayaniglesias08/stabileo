@@ -9718,5 +9718,6 @@ const es: Record<string, string> = {
   'timelapse.soundSoft': 'Suave',
   'timelapse.videoSubtitle': 'Subtítulo',
   'timelapse.optional': 'Opcional',
+  'despiece.selectToSee': 'Modelo grande: seleccioná barras o nudos para ver sus acciones.',
 };
 export default es;

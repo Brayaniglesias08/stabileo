@@ -9362,5 +9362,6 @@ const pt: Translations = {
   'timelapse.soundSoft': 'Suave',
   'timelapse.videoSubtitle': 'Subtítulo',
   'timelapse.optional': 'Opcional',
+  'despiece.selectToSee': 'Modelo grande: selecione barras ou nós para ver suas ações.',
 };
 export default pt;
