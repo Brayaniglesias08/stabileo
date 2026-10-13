@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { uiStore, resultsStore } from '../../lib/store';
+  import { uiStore, resultsStore, modelStore } from '../../lib/store';
   import LocaleSelect from '../LocaleSelect.svelte';
 
   /**
@@ -315,6 +315,19 @@
             <input type="checkbox" checked={uiStore.panelScrollbars} data-testid="cfg-panel-scrollbars"
               onchange={(e) => { uiStore.panelScrollbars = e.currentTarget.checked; }} />
             <span>{t('config.panelScrollbars')}</span>
+            </HelpTip>
+          </label>
+        {/if}
+        {#if uiStore.appMode === 'basico'}
+          <label class="checkbox-item">
+            <HelpTip text={t('config.tip.loadCaseInToolbar')}>
+            <input type="checkbox" checked={uiStore.loadCaseInToolbar} data-testid="cfg-load-case-in-toolbar"
+              onchange={(e) => {
+                uiStore.loadCaseInToolbar = e.currentTarget.checked;
+                // Hidden, the picker cannot say where a load goes: back to the first case.
+                if (!e.currentTarget.checked) uiStore.activeLoadCaseId = modelStore.loadCases[0]?.id ?? 1;
+              }} />
+            <span>{t('config.loadCaseInToolbar')}</span>
             </HelpTip>
           </label>
         {/if}

@@ -168,6 +168,7 @@
 {#if selectedLoad}
   <div class="ft-load-edit" class:in-bar={inBar}>
     {#if !inBar}<span class="ft-load-tag">{t('selEntity.editingLoad')}</span>{/if}
+    {#if uiStore.showLoadCasePicker}
     <span class="ft-case-dot" style="background: {modelStore.getLoadCaseColor((selectedLoad.data as any).caseId ?? 1)}"></span>
     <select class="ft-case-select"
       value={String((selectedLoad.data as any).caseId ?? 1)}
@@ -178,6 +179,7 @@
       {/each}
     </select>
     <span class="ft-sep">|</span>
+    {/if}
     {#if selectedLoad.type === 'nodal'}
       {@const nl = selectedLoad.data as NodalLoad}
       <label class="ft-input-group">

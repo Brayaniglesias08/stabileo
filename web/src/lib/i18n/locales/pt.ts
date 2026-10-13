@@ -9385,5 +9385,7 @@ const pt: Translations = {
   'float.ilVerticalTip': 'A carga P = 1 atua para baixo (gravidade): vigas, pontes',
   'float.ilHorizontalTip': 'A carga P = 1 empurra em +X: muros, pilares',
   'viewport.ilZeroThisWay': 'Com a carga unitária nesta direção, {q} dá zero em toda a estrutura.',
+  'config.loadCaseInToolbar': 'Escolher o caso de carga na barra de ferramentas',
+  'config.tip.loadCaseInToolbar': 'Mostra o seletor do caso (D, L, W…) ao criar ou editar uma carga. Desligado, todas as cargas vão para o primeiro caso.',
 };
 export default pt;

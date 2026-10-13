@@ -85,16 +85,19 @@
   </label>
   <span class="ft-sep">|</span>
 {/if}
+<!-- The load case: in Basic only when asked for under Settings (every load goes to the first case). -->
+{#if uiStore.showLoadCasePicker}
 <span class="ft-case-dot" style="background: {modelStore.getLoadCaseColor(uiStore.activeLoadCaseId)}"></span>
 <select class="ft-case-select"
   value={String(uiStore.activeLoadCaseId)}
   onchange={(e) => uiStore.activeLoadCaseId = parseInt(e.currentTarget.value)}
-  title={t('float.activeLoadCase')}>
+  title={t('float.activeLoadCase')} data-testid="load-case-select">
   {#each modelStore.loadCases as lc}
     <option value={String(lc.id)}>{lc.type || lc.name}</option>
   {/each}
 </select>
 <span class="ft-sep">|</span>
+{/if}
 {#each loadTypes as lt}
   <button
     class="ft-opt-btn ft-primary"

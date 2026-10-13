@@ -9741,5 +9741,7 @@ const es: Record<string, string> = {
   'float.ilVerticalTip': 'La carga P = 1 baja por la estructura (gravedad): vigas, puentes',
   'float.ilHorizontalTip': 'La carga P = 1 empuja en +X: muros, columnas, tabiques',
   'viewport.ilZeroThisWay': 'Con esta dirección de la carga unitaria, {q} da cero en toda la estructura.',
+  'config.loadCaseInToolbar': 'Elegir el caso de carga en la barra de herramientas',
+  'config.tip.loadCaseInToolbar': 'Muestra el desplegable del caso (D, L, W…) al crear o editar una carga. Apagado, todas las cargas van al primer caso.',
 };
 export default es;

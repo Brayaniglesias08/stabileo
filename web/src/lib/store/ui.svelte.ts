@@ -152,6 +152,10 @@ function createUIStore() {
    * teaching, and remembered per browser because it is a preference about how
    * you work rather than a property of the model.
    */
+  /** Basic: the load case picker in the load bar, off unless asked for under Settings. */
+  let loadCaseInToolbar = $state(
+    hasLocalStorage() ? localStorage.getItem('stabileo-load-case-in-toolbar') === '1' : false,
+  );
   let eduInBasic = $state(
     hasLocalStorage() ? localStorage.getItem('stabileo-edu-in-basic') === '1' : false,
   );
@@ -689,6 +693,13 @@ function createUIStore() {
   }
 
   return {
+    get loadCaseInToolbar() { return loadCaseInToolbar; },
+    set loadCaseInToolbar(v: boolean) {
+      loadCaseInToolbar = v;
+      try { localStorage.setItem('stabileo-load-case-in-toolbar', v ? '1' : '0'); } catch { /* private mode */ }
+    },
+    /** Whether the load bars offer the load case: always in PRO and EDU, in Basic when asked for. */
+    get showLoadCasePicker() { return analysisMode === 'pro' || analysisMode === 'edu' || loadCaseInToolbar; },
     get eduInBasic() { return eduInBasic; },
     set eduInBasic(v: boolean) {
       eduInBasic = v;
