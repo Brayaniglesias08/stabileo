@@ -60,6 +60,7 @@
   import { PICK_PX, pickTolAt, nodeToolTolerances } from '../lib/viewport/pick-tolerance';
   import { boxSelect as boxSelectTargets, normaliseDrag, type BoxSelectMode } from '../lib/viewport/box-select';
   import { canvasTheme } from '../lib/canvas/theme';
+  import { registerFigure2D, diagramFor, type ExportFrame, type FrameView } from '../lib/export/view-figure';
   import { drawMemberDimensions } from '../lib/canvas/draw-member-dimensions';
   import { drawMemberSnap } from '../lib/canvas/draw-member-snap';
   import ConnectionPrompt from './ConnectionPrompt.svelte';
@@ -161,6 +162,39 @@
   let rafId: number | null = null;
   const DESPIECE_ANIM_MS = 700;   // one-shot pull-apart duration for the despiece view
   let despieceStart = 0;
+
+  /*
+   * ── Export frames ──────────────────────────────────────────────
+   * While a figure is being exported (`lib/export/view-figure.ts`) the draw routine runs on
+   * another context with what the figure shows: these say what that is, in place of what the
+   * screen shows. Outside an export they read the stores, as before.
+   */
+  let exportFrame: ExportFrame | null = null;
+  const dtNow = () => (exportFrame ? diagramFor(exportFrame.content) : resultsStore.diagramType);
+  const valuesNow = () => (exportFrame ? exportFrame.options.values : resultsStore.showDiagramValues);
+  const reactionsNow = () => (exportFrame
+    ? exportFrame.content === 'reactions' || exportFrame.content === 'despiece'
+    : resultsStore.showReactions);
+  const nodeLabelsNow = () => (exportFrame ? exportFrame.options.numbering : uiStore.showNodeLabels);
+  /**
+   * The deformed shape in a figure: at the reader's scale when they set one, otherwise drawn so
+   * the largest movement reads at about a twentieth of the structure. At the default true scale
+   * a millimetre on a six-metre frame is not on the page at all.
+   */
+  function exportDeformedScale(): number {
+    const user = resultsStore.deformedScale;
+    const res = resultsStore.results;
+    if (user !== 1 || !res) return user;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const n of modelStore.nodes.values()) {
+      const p = project2DNode(n);
+      x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+    }
+    const span = Math.max(x1 - x0, y1 - y0);
+    let dmax = 0;
+    for (const d of res.displacements) dmax = Math.max(dmax, Math.hypot(d.ux, d.uz ?? 0));
+    return dmax > 1e-12 && span > 0 ? (0.05 * span) / dmax : user;
+  }
 
   function invalidate() {
     if (!needsRedraw) {
@@ -340,7 +374,7 @@
       const sb = uiStore.worldToScreen(pb.x, pb.y);
       segs.push({ x1: sa.x, y1: sa.y, x2: sb.x, y2: sb.y });
     }
-    if (uiStore.showNodeLabels) {
+    if (nodeLabelsNow()) {
       for (const n of modelStore.nodes.values()) {
         const pn = project2DNode(n);
         const s = uiStore.worldToScreen(pn.x, pn.y);
@@ -350,7 +384,30 @@
     return segs;
   }
 
+  /**
+   * Draw a figure for the exports on `target` instead of the screen: what `frame` asks for, at
+   * `view`'s zoom and pan, with nothing of the pointer's. Everything is put back after, in the
+   * same task, so the screen never draws the figure's state.
+   */
+  function renderExportFrame(target: CanvasRenderingContext2D, w: number, h: number, frame: ExportFrame, view: FrameView): void {
+    const keep = { ctx, width, height, zoom: uiStore.zoom, panX: uiStore.panX, panY: uiStore.panY };
+    ctx = target; width = w; height = h;
+    uiStore.zoom = view.zoom; uiStore.panX = view.panX; uiStore.panY = view.panY;
+    exportFrame = frame;
+    try {
+      draw();
+    } finally {
+      exportFrame = null;
+      ctx = keep.ctx; width = keep.width; height = keep.height;
+      uiStore.zoom = keep.zoom; uiStore.panX = keep.panX; uiStore.panY = keep.panY;
+    }
+  }
+
   onMount(() => {
+    const unregisterFigures = registerFigure2D({
+      render: renderExportFrame,
+      nodes: () => [...modelStore.nodes.values()].filter((n) => !viewVisibility.isNodeHidden(n.id)).map((n) => project2DNode(n)),
+    });
     ctx = canvas.getContext('2d')!;
     // Text on the drawing follows the reader's label size (Settings › Model).
     scaleCanvasText(ctx, () => uiStore.labelScale);
@@ -429,6 +486,7 @@
     rafId = requestAnimationFrame(drawOnce);
 
     return () => {
+      unregisterFigures();
       if (rafId !== null) cancelAnimationFrame(rafId);
       rafId = null;
       ro.disconnect();
@@ -481,20 +539,23 @@
     }
     lastFrameTime = now;
 
-    ctx.clearRect(0, 0, width, height);
+    if (!exportFrame) ctx.clearRect(0, 0, width, height);
 
     // Background
     // Same ground as the shell: the model sits on the page, not in a box on it.
-    ctx.fillStyle = canvasTheme().surface;
-    ctx.fillRect(0, 0, width, height);
+    // An exported figure lays its own page under the drawing.
+    if (!exportFrame) {
+      ctx.fillStyle = canvasTheme().surface;
+      ctx.fillRect(0, 0, width, height);
+    }
 
     // Draw grid
-    if (uiStore.showGrid) {
+    if (uiStore.showGrid && !exportFrame) {
       drawGrid();
     }
 
     // Draw axes
-    if (uiStore.showAxes) {
+    if (uiStore.showAxes && !exportFrame) {
       drawAxes();
     }
 
@@ -502,7 +563,7 @@
     const colorMapOverrides = new Map<number, string>();
     // The value behind each member's colour, for its label when values are shown.
     let colorMapValues: { values: Map<number, number>; kind: string } | null = null;
-    if (resultsStore.results && resultsStore.diagramType === 'axialColor') {
+    if (resultsStore.results && dtNow() === 'axialColor') {
       // Axial color: blue = compression, red = tension, intensity by magnitude
       let globalMaxN = 0;
       for (const ef of resultsStore.results.elementForces) {
@@ -544,7 +605,7 @@
           }
         }
       }
-    } else if (resultsStore.results && resultsStore.diagramType === 'colorMap') {
+    } else if (resultsStore.results && dtNow() === 'colorMap') {
       const kind = resultsStore.colorMapKind;
       let globalMax = 0;
       const elemMaxes = new Map<number, number>();
@@ -627,7 +688,7 @@
     // Draw elements — suppressed in despiece (the free-body overlay draws its
     // own separated solid members + ghost remnants; the full member would
     // otherwise show through under the dashed remnant).
-    if (resultsStore.diagramType !== 'despiece') {
+    if (dtNow() !== 'despiece') {
       for (const elem of modelStore.elements.values()) {
         if (viewVisibility.isElementHidden(elem.id)) continue;
         drawElement(elem, colorMapOverrides.get(elem.id), nodeBarCount);
@@ -635,10 +696,10 @@
     }
 
     // Member local axes (Basic 2D): one unified "Local axes" setting (localAxesMode3D).
-    drawLocalAxes2D();
+    if (!exportFrame) drawLocalAxes2D();
 
     // Draw axial value labels when axialColor mode is active
-    if (resultsStore.results && resultsStore.diagramType === 'axialColor') {
+    if (resultsStore.results && dtNow() === 'axialColor') {
       for (const ef of resultsStore.results.elementForces) {
         const avgN = (ef.nStart + ef.nEnd) / 2;
         if (Math.abs(avgN) < 0.001) continue;
@@ -652,7 +713,7 @@
      * A colour map says "more" and "less"; with values shown, each member
      * also says how much: the largest along it, the one its colour stands for.
      */
-    if (colorMapValues && resultsStore.showDiagramValues) {
+    if (colorMapValues && valuesNow()) {
       const k = colorMapValues.kind;
       const qty: Quantity | null = k === 'stressRatio' ? null
         : (k === 'vonMises' || k === 'sigmaMax' || k === 'tauMax') ? 'stress'
@@ -674,8 +735,10 @@
     }
 
     // Compute effective load visibility
-    const diagramActive = !!(resultsStore.results && resultsStore.diagramType !== 'none');
-    const loadsVisible = uiStore.showLoads && !(uiStore.hideLoadsWithDiagram && diagramActive);
+    const diagramActive = !!(resultsStore.results && dtNow() !== 'none');
+    const loadsVisible = exportFrame
+      ? exportFrame.options.loads && (exportFrame.content === 'model' || exportFrame.content === 'reactions')
+      : uiStore.showLoads && !(uiStore.hideLoadsWithDiagram && diagramActive);
 
     // Draw all loads (nodal, distributed, point, thermal) if visible
     if (loadsVisible) {
@@ -792,7 +855,7 @@
     }
 
     // Draw selected load highlights
-    if (uiStore.selectedLoads.size > 0) {
+    if (!exportFrame && uiStore.selectedLoads.size > 0) {
       for (const loadId of uiStore.selectedLoads) {
         const load = modelStore.model.loads.find(l => l.data.id === loadId);
         if (!load) continue;
@@ -842,7 +905,7 @@
     }
 
     // Draw snap highlight when using tools that target nodes/elements
-    const tool = uiStore.currentTool;
+    const tool = exportFrame ? null : uiStore.currentTool;
     // The member tool draws its own snap markers (drawMemberSnap, below).
     if (tool === 'support' || tool === 'load') {
       const nearNode = findNearestNode(uiStore.worldX, uiStore.worldY, pickTol(PICK_PX.loose));
@@ -874,7 +937,7 @@
 
     // Draw node tool sliding-joint hover highlight: teal ring at the nearest
     // bar end where a click would place the slider.
-    if (uiStore.currentTool === 'node' && uiStore.nodeMode === 'hinge' && uiStore.jointType !== 'hinge') {
+    if (!exportFrame && uiStore.currentTool === 'node' && uiStore.nodeMode === 'hinge' && uiStore.jointType !== 'hinge') {
       const nearElem = findNearestElement(uiStore.worldX, uiStore.worldY, pickTol(PICK_PX.loose));
       if (nearElem) {
         const ni = getProjectedNode(nearElem.nodeI);
@@ -906,7 +969,7 @@
     }
 
     // Draw node tool hinge mode hover highlight
-    if (uiStore.currentTool === 'node' && uiStore.nodeMode === 'hinge' && uiStore.jointType === 'hinge') {
+    if (!exportFrame && uiStore.currentTool === 'node' && uiStore.nodeMode === 'hinge' && uiStore.jointType === 'hinge') {
       const nearNode = findNearestNode(uiStore.worldX, uiStore.worldY, pickTol(PICK_PX.tight));
       if (nearNode) {
         // Hovering over a node: teal circle
@@ -960,7 +1023,7 @@
     }
 
     // Draw pending node + rubber band line
-    if (pendingNode) {
+    if (!exportFrame && pendingNode) {
       const screen = uiStore.worldToScreen(pendingNode.x, pendingNode.y);
       ctx.beginPath();
       ctx.arc(screen.x, screen.y, 6, 0, Math.PI * 2);
@@ -987,12 +1050,12 @@
     }
 
     // What a dragged node has caught, as the member tool shows it.
-    if (draggedNodeId !== null && dragSnap) {
+    if (!exportFrame && draggedNodeId !== null && dragSnap) {
       drawMemberSnap(ctx, dragSnap, null, t(`float.snap.${dragSnap.kind}`),
         (x, y) => uiStore.worldToScreen(x, y), { x: uiStore.mouseX, y: uiStore.mouseY }, canvasTheme(), { width, height }, touchInput ? 48 : 14);
     }
     // What the member tool's next click catches: a marker on the point and its name by the cursor.
-    if (uiStore.currentTool === 'element' && memberSnapPreview) {
+    if (!exportFrame && uiStore.currentTool === 'element' && memberSnapPreview) {
       drawMemberSnap(ctx, memberSnapPreview, pendingNode, t(`float.snap.${memberSnapPreview.kind}`),
         (x, y) => uiStore.worldToScreen(x, y), { x: uiStore.mouseX, y: uiStore.mouseY }, canvasTheme(), { width, height }, touchInput ? 48 : 14);
     }
@@ -1003,7 +1066,7 @@
      * results block below, Dynamic on a model not yet solved computed its
      * modes, listed them, and left the structure standing still.
      */
-    const mdt = resultsStore.diagramType;
+    const mdt = dtNow();
     if (mdt === 'modeShape' && resultsStore.modalResult) {
       const mode = resultsStore.modalResult.modes[resultsStore.activeModeIndex];
       if (mode) {
@@ -1032,12 +1095,12 @@
 
     // Draw results
     if (resultsStore.results) {
-      const dt = resultsStore.diagramType;
+      const dt = dtNow();
       setDiagramUnitSystem(uiStore.unitSystem);
 
       if (dt === 'deformed') {
-        const scale = resultsStore.deformedScale;
-        const animScale = resultsStore.animateDeformed
+        const scale = exportFrame ? exportDeformedScale() : resultsStore.deformedScale;
+        const animScale = resultsStore.animateDeformed && !exportFrame
           ? scale * Math.sin(performance.now() / (500 / resultsStore.animSpeed))
           : scale;
         drawDeformed(resultsStore.results, makeDrawContext(), uiStore.zoom, animScale);
@@ -1045,7 +1108,8 @@
       } else if (dt === 'despiece') {
         // Member free-body / "despiece": pull members off their joints (animated)
         // and draw the transmitted end forces + support reactions. Solver-free overlay.
-        const tNorm = Math.max(0, Math.min(1, (performance.now() - despieceStart) / DESPIECE_ANIM_MS));
+        // An export is the pulled-apart picture, not a moment of the animation.
+        const tNorm = exportFrame ? 1 : Math.max(0, Math.min(1, (performance.now() - despieceStart) / DESPIECE_ANIM_MS));
         const sep = 1 - Math.pow(1 - tNorm, 3); // easeOutCubic 0→1
         const reactions = new Map<number, { rx: number; rz: number; my: number }>();
         for (const sup of modelStore.supports.values()) {
@@ -1066,7 +1130,7 @@
           fmt: (v, q = 'force') => fixedQuantity(v, q, 1, uiStore.unitSystem),
           vectorMode: uiStore.despieceVectorMode,
           basis: uiStore.despieceBasis,
-          showReactions: resultsStore.showReactions,
+          showReactions: reactionsNow(),
           resultant: uiStore.despieceCombineVectors,
           vectorSize: uiStore.despieceVectorSize,
           labelSize: uiStore.despieceLabelSize,
@@ -1158,8 +1222,9 @@
           const envData = dkind === 'moment' ? envSrc.moment
                         : dkind === 'shear'  ? envSrc.shear
                         :                       envSrc.axial;
-          drawEnvelopeDiagrams(envData, makeDrawContext(), resultsStore.diagramScale, resultsStore.showDiagramValues, resultsStore.drawPositiveTowardLocalAxes);
+          drawEnvelopeDiagrams(envData, makeDrawContext(), resultsStore.diagramScale, valuesNow(), resultsStore.drawPositiveTowardLocalAxes);
           // Draw envelope legend
+          if (!exportFrame) {
           ctx.save();
           ctx.font = '11px sans-serif';
           const legendX = 10;
@@ -1175,9 +1240,10 @@
           ctx.beginPath(); ctx.moveTo(legendX, legendY + 16); ctx.lineTo(legendX + 20, legendY + 16); ctx.stroke();
           ctx.fillText(t('viewport.envMinus'), legendX + 24, legendY + 20);
           ctx.restore();
+          }
         } else {
           // Normal mode: overlay + main diagram
-          if (resultsStore.overlayResults) {
+          if (resultsStore.overlayResults && !exportFrame) {
             // Compute shared globalMax so both diagrams use the same scale
             const sharedMax = Math.max(
               computeDiagramGlobalMax(resultsStore.results, dkind),
@@ -1185,9 +1251,9 @@
             );
             const overlayColors = { fill: 'rgba(255, 165, 0, 0.12)', stroke: 'rgba(255, 165, 0, 0.5)', text: 'rgba(255, 165, 0, 0.6)' };
             drawDiagrams(resultsStore.overlayResults, dkind, makeDrawContext(), resultsStore.diagramScale, false, overlayColors, sharedMax, resultsStore.drawPositiveTowardLocalAxes);
-            drawDiagrams(resultsStore.results, dkind, makeDrawContext(), resultsStore.diagramScale, resultsStore.showDiagramValues, undefined, sharedMax, resultsStore.drawPositiveTowardLocalAxes);
+            drawDiagrams(resultsStore.results, dkind, makeDrawContext(), resultsStore.diagramScale, valuesNow(), undefined, sharedMax, resultsStore.drawPositiveTowardLocalAxes);
           } else {
-            drawDiagrams(resultsStore.results, dkind, makeDrawContext(), resultsStore.diagramScale, resultsStore.showDiagramValues, undefined, undefined, resultsStore.drawPositiveTowardLocalAxes);
+            drawDiagrams(resultsStore.results, dkind, makeDrawContext(), resultsStore.diagramScale, valuesNow(), undefined, undefined, resultsStore.drawPositiveTowardLocalAxes);
           }
         }
       } else if (dt === 'influenceLine' && resultsStore.influenceLine) {
@@ -1201,7 +1267,7 @@
         const stepRes = pr.steps[resultsStore.plasticStep]?.results;
         if (stepRes) {
           const scaleAll = Math.max(...pr.steps.map((st) => computeDiagramGlobalMax(st.results, 'moment')));
-          drawDiagrams(stepRes, 'moment', makeDrawContext(), resultsStore.diagramScale, resultsStore.showDiagramValues, undefined, scaleAll, resultsStore.drawPositiveTowardLocalAxes);
+          drawDiagrams(stepRes, 'moment', makeDrawContext(), resultsStore.diagramScale, valuesNow(), undefined, scaleAll, resultsStore.drawPositiveTowardLocalAxes);
         }
         const mdc = {
           ctx,
@@ -1214,12 +1280,12 @@
 
       // Draw reactions when results exist and toggle is on. In despiece the
       // free-body overlay already draws each reaction ONCE — don't double them.
-      if (resultsStore.showReactions && resultsStore.diagramType !== 'despiece') drawReactions();
-      if (resultsStore.showConstraintForces) drawConstraintForces();
+      if (reactionsNow() && dtNow() !== 'despiece') drawReactions();
+      if (resultsStore.showConstraintForces && !exportFrame) drawConstraintForces();
 
       // Overlay label
-      if (resultsStore.overlayResults && resultsStore.overlayLabel) {
-        const dt = resultsStore.diagramType;
+      if (!exportFrame && resultsStore.overlayResults && resultsStore.overlayLabel) {
+        const dt = dtNow();
         if (dt === 'moment' || dt === 'shear' || dt === 'axial') {
           ctx.fillStyle = 'rgba(255, 165, 0, 0.7)';
           ctx.font = 'bold 11px sans-serif';
@@ -1242,7 +1308,7 @@
        * The two-colour axial key below stays: it is a key, not a scale, and
        * has no gradient to explain.
        */
-      if (resultsStore.diagramType === 'axialColor') {
+      if (dtNow() === 'axialColor') {
         // Same rule as the gradient key above: clear the axis indicator by
         // construction. The block is 32 px tall plus its title.
         const lx = 12, ly = height - AXES_GIZMO_HEIGHT - 40;
@@ -1264,8 +1330,15 @@
     }
 
     // Draw diagram query marker
+    // A figure ends here: what follows is the pointer's (queries, hover, tooltips, box select).
+    if (exportFrame) {
+      currentFrameLabels.flush(ctx, memberScreenSegments());
+      currentFrameLabels = undefined;
+      return;
+    }
+
     if (diagramQuery && resultsStore.results) {
-      const dt = resultsStore.diagramType;
+      const dt = dtNow();
       if (dt === 'moment' || dt === 'shear' || dt === 'axial') {
         const s = uiStore.worldToScreen(diagramQuery.worldX, diagramQuery.worldY);
         // Cross marker
@@ -1331,7 +1404,7 @@
 
     // Draw diagram hover crosshair + tooltip (only if no click query active)
     if (diagramHover && resultsStore.results && !diagramQuery) {
-      const dt = resultsStore.diagramType;
+      const dt = dtNow();
       if (dt === 'moment' || dt === 'shear' || dt === 'axial' || dt === 'deformed' || dt === 'colorMap') {
         const s = uiStore.worldToScreen(diagramHover.worldX, diagramHover.worldY);
 
@@ -1483,7 +1556,7 @@
    */
   function drawDeformedValues(scale: number) {
     const res = resultsStore.results;
-    if (!ctx || !res || !resultsStore.showDiagramValues) return;
+    if (!ctx || !res || !valuesNow()) return;
     const byId = new Map(res.displacements.map((d) => [d.nodeId, d]));
     const picks = nodesToLabel(res.displacements.map((d) => ({ nodeId: d.nodeId, ux: d.ux, uy: 0, uz: d.uz })));
     ctx.font = 'bold 11px sans-serif';
@@ -1506,7 +1579,7 @@
   }
 
   function drawNode(node: { id: number; x: number; y: number }) {
-    _drawNode(ctx!, node, (wx, wy) => uiStore.worldToScreen(wx, wy), uiStore.selectedNodes.has(node.id), uiStore.showNodeLabels);
+    _drawNode(ctx!, node, (wx, wy) => uiStore.worldToScreen(wx, wy), !exportFrame && uiStore.selectedNodes.has(node.id), nodeLabelsNow());
   }
 
   function drawElement(elem: { id: number; type: string; nodeI: number; nodeJ: number; materialId: number; sectionId: number; releaseI?: { my: boolean; mz: boolean; t: boolean }; releaseJ?: { my: boolean; mz: boolean; t: boolean } }, colorOverride?: string, nodeBarCount?: Map<number, number>) {
@@ -1518,13 +1591,13 @@
 
     const opts: DrawElementOpts = {
       worldToScreen: (wx, wy) => uiStore.worldToScreen(wx, wy),
-      isSelected: uiStore.selectedElements.has(elem.id),
+      isSelected: !exportFrame && uiStore.selectedElements.has(elem.id),
       elementColorMode: uiStore.elementColorMode,
       groupOf: memberGroups ? (id: number) => memberGroups!.get(id) : undefined,
-      showElementLabels: uiStore.showElementLabels,
-      showLengths: uiStore.showLengths,
+      showElementLabels: exportFrame ? exportFrame.options.numbering : uiStore.showElementLabels,
+      showLengths: exportFrame ? exportFrame.options.lengths : uiStore.showLengths,
       zoom: uiStore.zoom,
-      diagramType: resultsStore.diagramType,
+      diagramType: dtNow(),
       worldLength: modelStore.getElementLength(elem.id),
     };
     _drawElement(ctx!, elem, ni, nj, opts, colorOverride, nodeBarCount);
@@ -1620,7 +1693,7 @@
     if (!node) return;
     const pn = project2DNode(node);
     const screen = uiStore.worldToScreen(pn.x, pn.y);
-    _drawSupport(ctx!, sup, screen, uiStore.selectedSupports.has(sup.id), (nid) => modelStore.getElementAngleAtNode(nid));
+    _drawSupport(ctx!, sup, screen, !exportFrame && uiStore.selectedSupports.has(sup.id), (nid) => modelStore.getElementAngleAtNode(nid));
   }
 
   function drawNodalLoad(load: { type: string; data: any }, caseColor: string | undefined, caseName: string | undefined, labels: LabelCollector) {

@@ -23,7 +23,10 @@ import { reportModelDiagnostics } from '../engine/solve-diagnostics';
 import { requestAutosave } from '../store/autosave-service';
 import { syncDefinedLoadsForAnalysis } from '../store/defined-loads';
 
-export function runSolve() {
+/** How a solve ended: with results, or with the message the reader was shown. */
+export type SolveOutcome = { ok: true } | { ok: false; error: string };
+
+export function runSolve(): void {
   /*
    * This is the solve entry point the Basic UI actually uses — Enter, the
    * ribbon's Solve command and Calcular all land here, NOT in
@@ -36,18 +39,41 @@ export function runSolve() {
    */
   reportModelDiagnostics();
   if (uiStore.is3DWorkspace) {
-    runSolve3D();
+    void runSolve3D();
     return;
   }
+  runSolve2D();
+}
+
+/** Whether the results on hand are the current model's: an edit clears them. */
+export function hasCurrentResults(): boolean {
+  return uiStore.is3DWorkspace ? !!resultsStore.results3D : !!resultsStore.results;
+}
+
+/**
+ * Solve unless the results on hand are already the model's, and say how it went.
+ *
+ * For the exports: a workbook or a report asked for before Calcular solves first, rather than
+ * coming out without results and without saying why. The failure is the message the reader was
+ * also shown as a toast, so the export can carry it.
+ */
+export async function ensureResults(): Promise<SolveOutcome> {
+  if (hasCurrentResults()) return { ok: true };
+  reportModelDiagnostics();
+  return uiStore.is3DWorkspace ? runSolve3D() : runSolve2D();
+}
+
+function runSolve2D(): SolveOutcome {
   const results = modelStore.solve(uiStore.includeSelfWeight, uiStore.drawPlane2D);
   if (typeof results === 'string') {
     uiStore.toast(results, 'error');
+    return { ok: false, error: results };
   } else if (results) {
     // Validate results aren't degenerate
     const hasNaN = hasInvalid2DDisplacements(results.displacements);
     if (hasNaN) {
       uiStore.toast(t('results.numericError'), 'error');
-      return;
+      return { ok: false, error: t('results.numericError') };
     }
     resultsStore.setResults(results);
     // Show classification in success toast
@@ -77,9 +103,10 @@ export function runSolve() {
     uiStore.toast(`${t('results.calcSuccess')}${classText} — ${results.elementForces.length} ${t('results.bars')}, ${results.reactions.length} ${t('results.reactions')}${comboText}`, 'success');
     // A solve is the expensive operation autosave exists for; only live-calc asked for one.
     void requestAutosave('solve');
-  } else {
-    uiStore.toast(t('results.emptyModelError'), 'error');
+    return { ok: true };
   }
+  uiStore.toast(t('results.emptyModelError'), 'error');
+  return { ok: false, error: t('results.emptyModelError') };
   /*
    * A solve no longer opens anything by itself on a phone.
    *
@@ -92,11 +119,12 @@ export function runSolve() {
    */
 }
 
-export async function runSolve3D() {
+export async function runSolve3D(): Promise<SolveOutcome> {
   if (!isWasmReady()) {
     try { await initSolver(); } catch (e: any) {
-      uiStore.toast(e?.message || t('toast.solverInitFailed'), 'error');
-      return;
+      const error = e?.message || t('toast.solverInitFailed');
+      uiStore.toast(error, 'error');
+      return { ok: false, error };
     }
   }
   const isPro = uiStore.analysisMode === 'pro';
@@ -104,18 +132,20 @@ export async function runSolve3D() {
   syncDefinedLoadsForAnalysis();
   const versionAtStart = modelStore.modelVersion;
   const results = await modelStore.solve3DAsync(uiStore.includeSelfWeight, uiStore.axisConvention3D === 'leftHand', isPro);
-  if (modelStore.modelVersion !== versionAtStart) return; // stale — user edited mid-solve
+  // Stale: the model was edited mid-solve, and these results are not its own.
+  if (modelStore.modelVersion !== versionAtStart) return { ok: false, error: t('results.editedDuringSolve') };
   if (typeof results === 'string') {
     uiStore.toast(results, 'error');
     // Name the mechanism, when that is what stopped it (`store/instability.svelte.ts`).
     if (isPro) instability.explain(uiStore.includeSelfWeight, uiStore.axisConvention3D === 'leftHand');
+    return { ok: false, error: results };
   } else if (results) {
     instability.clear();
     // Validate results aren't degenerate
     const hasNaN = hasInvalid3DDisplacements(results.displacements as Array<{ ux: number; uy: number; uz: number }>);
     if (hasNaN) {
       uiStore.toast(t('results.numericError3d'), 'error');
-      return;
+      return { ok: false, error: t('results.numericError3d') };
     }
     resultsStore.setResults3D(results);
     // Auto-solve 3D combinations if they exist
@@ -143,8 +173,9 @@ export async function runSolve3D() {
       'success',
     );
     void requestAutosave('solve');
-  } else {
-    uiStore.toast(t('results.emptyModelError'), 'error');
+    return { ok: true };
   }
+  uiStore.toast(t('results.emptyModelError'), 'error');
   // Same as above: a solve opens no panel of its own on a phone.
+  return { ok: false, error: t('results.emptyModelError') };
 }

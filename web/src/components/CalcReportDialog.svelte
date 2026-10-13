@@ -1,6 +1,16 @@
 <script lang="ts">
   import { modelStore, resultsStore, uiStore, verificationStore } from '../lib/store';
-  import { openCalcReport, type CalcReportData, type CalcReportConfig, type ResultProvenance, type AnalysisModeLabel } from '../lib/engine/calc-report';
+  import {
+    openCalcReport, DEFAULT_REPORT_CONTENT, RESULT_ROWS,
+    type CalcReportData, type CalcReportConfig, type ResultProvenance, type AnalysisModeLabel, type CalcReportContent, type ResultRow,
+  } from '../lib/engine/calc-report';
+  import ExportDialog from './export/ExportDialog.svelte';
+  import ExportSection from './export/ExportSection.svelte';
+  import { ensureResults } from '../lib/actions/solve';
+  import { kinematicReportOfModel } from '../lib/engine/kinematic-model';
+  import { reportFigures } from '../lib/export/report-figures';
+  import { DEFAULT_FIGURE_OPTIONS, type FigureOptions } from '../lib/export/view-figure';
+  import type { InkStyle } from '../lib/export/paper-ink';
   import { loadComponentsText, distributedText, pointOnElementText, thermalText } from '../lib/engine/calc-report-loads';
   import { t, tp, i18n } from '../lib/i18n';
   import { shouldProjectModelToXZ } from '../lib/geometry/coordinate-system';
@@ -12,6 +22,56 @@
   let companyName = $state('');
   let notes = $state('');
 
+  /*
+   * What goes in, and how the figures look: remembered between sessions, per browser. The
+   * project's own data (name, author) is not: it belongs to the model.
+   */
+  const KEY = 'stabileo-calc-report';
+  interface Prefs { content: CalcReportContent; figures: Pick<FigureOptions, 'style' | 'values'> }
+  function loadPrefs(): Prefs {
+    const base: Prefs = { content: structuredClone(DEFAULT_REPORT_CONTENT), figures: { style: 'color', values: true } };
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) return base;
+      const p = JSON.parse(raw) as Partial<Prefs>;
+      const c = p.content ?? base.content;
+      return {
+        content: { ...base.content, ...c, rows: { ...base.content.rows, ...(c.rows ?? {}) } },
+        figures: { ...base.figures, ...(p.figures ?? {}) },
+      };
+    } catch { return base; }
+  }
+  const prefs = loadPrefs();
+  let content = $state<CalcReportContent>(prefs.content);
+  let figStyle = $state<InkStyle>(prefs.figures.style);
+  let figValues = $state(prefs.figures.values);
+  let busy = $state(false);
+  function savePrefs() {
+    try { localStorage.setItem(KEY, JSON.stringify({ content: $state.snapshot(content), figures: { style: figStyle, values: figValues } })); } catch { /* this session only */ }
+  }
+
+  const ROW_LABEL: Record<ResultRow, string> = {
+    reactions: 'calcReport.rowReactions', displacements: 'calcReport.rowDisplacements',
+    moment: 'figures.moment', shear: 'figures.shear', axial: 'figures.axial',
+  };
+  const projectSummary = $derived([projectName, engineerName, companyName].map((s) => s.trim()).filter(Boolean).join(' · ') || '—');
+  const contentSummary = $derived.by(() => {
+    const parts: string[] = [];
+    if (content.modelData) parts.push(t('calcReport.partModel'));
+    if (content.loads) parts.push(t('calcReport.partLoads'));
+    if (content.kinematics) parts.push(t('calcReport.partKinematics'));
+    if (content.despiece) parts.push(t('calcReport.partDespiece'));
+    const tables = RESULT_ROWS.filter((r) => content.rows[r].table).length;
+    const diagrams = RESULT_ROWS.filter((r) => content.rows[r].diagram).length;
+    if (tables) parts.push(tp('calcReport.nTables', { n: tables }));
+    if (diagrams) parts.push(tp('calcReport.nDiagrams', { n: diagrams }));
+    return parts.join(' · ') || '—';
+  });
+  const figureSummary = $derived([
+    t(figStyle === 'bw' ? 'viewExport.styleBw' : figStyle === 'screen' ? 'viewExport.styleScreen' : 'viewExport.styleColor'),
+    figValues ? t('viewExport.optValues') : null,
+  ].filter(Boolean).join(' · '));
+
   // The dialog component stays mounted for the app's lifetime, so the $state
   // initializer above only sees the startup model. Re-seed the project name
   // from the current model each time the dialog opens (it remains editable).
@@ -20,7 +80,6 @@
   });
 
   const is3D = $derived(uiStore.is3DWorkspace);
-  const hasResults = $derived(is3D ? resultsStore.results3D !== null : resultsStore.results !== null);
   const modeLabel = $derived<AnalysisModeLabel>(uiStore.analysisMode === 'pro' ? 'PRO' : uiStore.is3DWorkspace ? '3D' : '2D');
 
   function deriveProvenance(): ResultProvenance {
@@ -40,8 +99,33 @@
     return { kind: 'single', caseName: caseName || undefined };
   }
 
-  function generateReport() {
-    if (!hasResults) return;
+  async function generateReport() {
+    if (busy) return;
+    // The tab is opened now, inside the click: one opened after the solve and the figures is
+    // one the pop-up blocker refuses.
+    const win = window.open('', '_blank');
+    busy = true;
+    try {
+      // Solved first when there are no results; a failure still gives the report, saying why.
+      const solved = await ensureResults();
+      const figureOptions: FigureOptions = { ...DEFAULT_FIGURE_OPTIONS, style: figStyle, values: figValues, loads: false };
+      const figures = await reportFigures(content, solved.ok, figureOptions);
+      const data = reportData();
+      data.content = $state.snapshot(content);
+      data.figures = figures;
+      data.kinematics = content.kinematics ? kinematicReportOfModel() : undefined;
+      if (!solved.ok) data.solveError = solved.error;
+      openCalcReport(data, win);
+      open = false;
+    } catch (e) {
+      win?.close();
+      uiStore.toast(String((e as Error)?.message ?? e), 'error');
+    } finally {
+      busy = false;
+    }
+  }
+
+  function reportData(): CalcReportData {
     const config: CalcReportConfig = {
       projectName,
       engineerName,
@@ -114,131 +198,69 @@
       results2D: !is3D ? (resultsStore.results ?? undefined) : undefined,
       results3D: is3D ? (resultsStore.results3D ?? undefined) : undefined,
     };
+    return data;
+  }
 
-    openCalcReport(data);
-    open = false;
+  function setRow(r: ResultRow, part: 'table' | 'diagram', v: boolean) {
+    content.rows[r][part] = v;
+    savePrefs();
   }
 </script>
 
-{#if open}
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="dialog-overlay" onclick={() => open = false}>
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="dialog" onclick={(e) => e.stopPropagation()}>
-    <h3>{t('calcReport.title')}</h3>
-    <div class="form">
-      <label>
-        <span>{t('calcReport.projectName')}</span>
-        <input type="text" bind:value={projectName} />
-      </label>
-      <label>
-        <span>{t('calcReport.engineerName')}</span>
-        <input type="text" bind:value={engineerName} placeholder={t('calcReport.optional')} />
-      </label>
-      <label>
-        <span>{t('calcReport.companyName')}</span>
-        <input type="text" bind:value={companyName} placeholder={t('calcReport.optional')} />
-      </label>
-      <label>
-        <span>{t('calcReport.notes')}</span>
-        <textarea bind:value={notes} rows="2" placeholder={t('calcReport.optional')}></textarea>
-      </label>
-    </div>
-    {#if !hasResults}
-      <div class="no-results-warning">{t('calcReport.noResults')}</div>
+<ExportDialog bind:open title={t('calcReport.title')} testid="calc-report-dialog">
+  <ExportSection title={t('calcReport.sectionProject')} summary={projectSummary}>
+    <label class="xs-field"><span>{t('calcReport.projectName')}</span><input type="text" bind:value={projectName} /></label>
+    <label class="xs-field"><span>{t('calcReport.engineerName')}</span><input type="text" bind:value={engineerName} placeholder={t('calcReport.optional')} /></label>
+    <label class="xs-field"><span>{t('calcReport.companyName')}</span><input type="text" bind:value={companyName} placeholder={t('calcReport.optional')} /></label>
+    <label class="xs-field"><span>{t('calcReport.notes')}</span><textarea bind:value={notes} rows="2" placeholder={t('calcReport.optional')}></textarea></label>
+  </ExportSection>
+
+  <ExportSection title={t('calcReport.sectionContent')} summary={contentSummary} testid="calc-report-content">
+    <label class="xs-check"><input type="checkbox" bind:checked={content.modelData} onchange={savePrefs} />{t('calcReport.partModelLong')}</label>
+    <label class="xs-check"><input type="checkbox" bind:checked={content.loads} onchange={savePrefs} />{t('calcReport.partLoadsLong')}</label>
+    <label class="xs-check"><input type="checkbox" bind:checked={content.kinematics} onchange={savePrefs} data-testid="calc-report-kinematics" />{t('calcReport.partKinematicsLong')}</label>
+    <label class="xs-check"><input type="checkbox" bind:checked={content.despiece} onchange={savePrefs} data-testid="calc-report-despiece" />{t('calcReport.partDespieceLong')}</label>
+    <table class="cr-rows">
+      <thead><tr><th></th><th>{t('calcReport.colTable')}</th><th>{t('calcReport.colDiagram')}</th></tr></thead>
+      <tbody>
+        {#each RESULT_ROWS as r (r)}
+          <tr>
+            <td>{t(ROW_LABEL[r])}</td>
+            <td><input type="checkbox" checked={content.rows[r].table} onchange={(e) => setRow(r, 'table', e.currentTarget.checked)} aria-label={`${t(ROW_LABEL[r])} — ${t('calcReport.colTable')}`} data-testid={`calc-report-${r}-table`} /></td>
+            <td><input type="checkbox" checked={content.rows[r].diagram} onchange={(e) => setRow(r, 'diagram', e.currentTarget.checked)} aria-label={`${t(ROW_LABEL[r])} — ${t('calcReport.colDiagram')}`} data-testid={`calc-report-${r}-diagram`} /></td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+    <p class="xs-note">{t('calcReport.autoSolveNote')}</p>
+  </ExportSection>
+
+  <ExportSection title={t('calcReport.sectionFigures')} summary={figureSummary}>
+    {#if is3D}
+      <p class="xs-note">{t('viewExport.note3D')}</p>
+    {:else}
+      <div class="xs-field">
+        <span>{t('viewExport.style')}</span>
+        <div class="xs-seg">
+          <button type="button" class:on={figStyle === 'color'} onclick={() => { figStyle = 'color'; savePrefs(); }}>{t('viewExport.styleColor')}</button>
+          <button type="button" class:on={figStyle === 'bw'} onclick={() => { figStyle = 'bw'; savePrefs(); }}>{t('viewExport.styleBw')}</button>
+        </div>
+      </div>
     {/if}
-    <div class="actions">
-      <button class="btn-secondary" onclick={() => open = false}>{t('calcReport.cancel')}</button>
-      <button class="btn-primary" onclick={generateReport} disabled={!hasResults}>{t('calcReport.generate')}</button>
-    </div>
-  </div>
-</div>
-{/if}
+    <label class="xs-check"><input type="checkbox" bind:checked={figValues} onchange={savePrefs} />{t('viewExport.optValuesLong')}</label>
+  </ExportSection>
+
+  {#snippet actions()}
+    <button type="button" onclick={() => (open = false)}>{t('calcReport.cancel')}</button>
+    <button type="button" class="primary" onclick={generateReport} disabled={busy} data-testid="calc-report-generate">{busy ? t('calcReport.generating') : t('calcReport.generate')}</button>
+  {/snippet}
+</ExportDialog>
 
 <style>
-  .dialog-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .dialog {
-    background: #0d1b2e;
-    border: 1px solid #1a4a7a;
-    border-radius: 8px;
-    padding: 1.5rem;
-    width: 380px;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  .dialog h3 {
-    margin: 0;
-    font-size: 1rem;
-    color: #eee;
-  }
-  .form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-  .form label {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-  }
-  .form label span {
-    font-size: 0.75rem;
-    color: #888;
-  }
-  .form input, .form textarea {
-    padding: 0.4rem 0.6rem;
-    background: #0f3460;
-    border: 1px solid #1a4a7a;
-    border-radius: 4px;
-    color: #eee;
-    font-size: 0.85rem;
-  }
-  .form textarea {
-    resize: vertical;
-  }
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-    justify-content: flex-end;
-  }
-  .btn-secondary {
-    padding: 0.4rem 1rem;
-    background: #12192e;
-    border: 1px solid #333;
-    border-radius: 4px;
-    color: #888;
-    cursor: pointer;
-    font-size: 0.8rem;
-  }
-  .btn-secondary:hover { background: #1a1a2e; color: #ccc; }
-  .btn-primary {
-    padding: 0.4rem 1rem;
-    background: #1a4a7a;
-    border: 1px solid #2a6ab0;
-    border-radius: 4px;
-    color: white;
-    cursor: pointer;
-    font-size: 0.8rem;
-    font-weight: 600;
-  }
-  .btn-primary:hover:not(:disabled) { background: #2a6ab0; }
-  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-  .no-results-warning {
-    font-size: 0.8rem;
-    color: #e8a040;
-    background: rgba(232, 160, 64, 0.1);
-    border: 1px solid rgba(232, 160, 64, 0.3);
-    border-radius: 4px;
-    padding: 0.5rem 0.7rem;
-    text-align: center;
-  }
+  .cr-rows { border-collapse: collapse; margin: 4px 0 2px; font-size: 0.8rem; }
+  .cr-rows th { font-weight: 500; color: var(--st-text-3); font-size: 0.72rem; padding: 2px 10px; text-align: center; }
+  .cr-rows td { padding: 2px 10px; color: var(--st-text-2); }
+  .cr-rows td:not(:first-child) { text-align: center; }
+  .cr-rows td:first-child { padding-left: 0; }
+  .cr-rows input { accent-color: var(--st-accent); }
 </style>

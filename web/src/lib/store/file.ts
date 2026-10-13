@@ -501,18 +501,28 @@ export async function loadFile(file: File): Promise<{ type: 'tab' | 'session'; c
 
 // ─── Export Results CSV ─────────────────────────────────────────
 
-export function exportResultsCSV(): string {
+/**
+ * The results as CSV. With `solveError` (the solve run for this export failed) and no results,
+ * the file is its header and the reason, so the download still says what happened.
+ */
+export function exportResultsCSV(solveError?: string): string {
   const is3D = uiStore.is3DWorkspace;
   const r3d = resultsStore.results3D;
   const r2d = resultsStore.results;
 
-  if (!r3d && !r2d) return '';
+  if (!r3d && !r2d && !solveError) return '';
 
   const lines: string[] = [];
-  lines.push(`# Dedaliano — ${t('file.csvResults')} ${is3D ? '3D' : '2D'}`);
+  lines.push(`# Stabileo — ${t('file.csvResults')} ${is3D ? '3D' : '2D'}`);
   lines.push(`# ${t('file.csvProject')}: ${modelStore.model.name}`);
   lines.push(`# ${t('file.csvDate')}: ${new Date().toLocaleString()}`);
   lines.push('');
+  if (!r3d && !r2d) {
+    lines.push(`# ${t('excel.solveFailed')}`);
+    lines.push(`# ${solveError!.replace(/\s*\n\s*/g, ' ')}`);
+    lines.push(`# ${t('file.csvSolveFailedHint')}`);
+    return lines.join('\n');
+  }
 
   if (is3D && r3d) {
     // 3D Displacements
@@ -565,8 +575,8 @@ export function exportResultsCSV(): string {
   return lines.join('\n');
 }
 
-export function downloadResultsCSV(): void {
-  const csv = exportResultsCSV();
+export function downloadResultsCSV(solveError?: string): void {
+  const csv = exportResultsCSV(solveError);
   if (!csv) return;
   const safeName = modelStore.model.name.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ _-]/g, '').trim() || t('file.defaultResults');
   downloadText(csv, `${safeName}_${t('file.defaultResults')}.csv`, 'text/csv');
