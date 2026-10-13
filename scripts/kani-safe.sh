@@ -18,6 +18,7 @@ root=$(git rev-parse --show-toplevel)
 mem_kb=$(( ${KANI_MEM_GB:-12} * 1024 * 1024 ))
 timeout_s=${KANI_TIMEOUT_S:-900}
 report=${KANI_REPORT:-$root/target/kani-report.tsv}
+case $report in /*) ;; *) report=$PWD/$report ;; esac
 src=$root/engine/src/kani_proofs.rs
 logdir=$root/target/kani-logs
 target_dir=${KANI_TARGET_DIR:-$root/target/agent-kani}

@@ -69,6 +69,32 @@ the enclosure of `S − L Lᵀ` must be computed with outward rounding.
 Lean: `Certify.certified_error_bound_gram` (`verify/Certify/Gram.lean`), built on
 `quad_gram_nonneg`, `gershgorin_quad` and `coercive_of_gram`.
 
+## Buckling load-factor enclosure
+
+Linear buckling solves `K φ = λ N φ` with `N = −K_G`. The stability matrix
+`A(λ) = K − λN` is affine in λ, and the structure is *stable* at λ when `A(λ) ≻ 0`
+(`xᵀA(λ)x > 0` for all `x ≠ 0`). The critical load factor is where positive
+definiteness is first lost:
+
+    λ_cr = sup { λ ≥ 0 : A(λ') ≻ 0 for all λ' ∈ [0, λ] }.
+
+* **Lower bound (convexity).** `xᵀA(λ)x = xᵀKx − λ xᵀNx` is affine in λ, so if
+  `A(0) ≻ 0` and `A(λ̲) ≻ 0` then `A(λ) ≻ 0` on all of `[0, λ̲]`, hence `λ_cr ≥ λ̲`.
+  Both endpoints are certified with the Gram residual + Gershgorin check above
+  (applied to the interval-enclosed entries of `K − λN`, `μ > 0`).
+* **Upper bound (Rayleigh quotient).** For the computed mode `φ ≠ 0`, if
+  `φᵀKφ ∈ Inum`, `φᵀNφ ∈ Iden`, `Iden.lo > 0` and `λ̄ ≥ max(0, Inum.hi / Iden.lo)`
+  (rounded up), then `φᵀA(λ̄)φ ≤ 0`, so `A(λ̄)` is not positive definite and `λ_cr ≤ λ̄`.
+
+The enclosure `λ̲ ≤ λ_cr ≤ λ̄` is about the f64 `K` and `K_G` as assembled (with `K_G`
+built from the computed linear axial forces), not about rounding-free versions of them.
+Constraints are not supported.
+
+Lean: `Certify.buckling_enclosure` (`verify/Certify/Buckling.lean`), built on
+`stable_segment`, `not_stable_of_interval_rayleigh` and `stable_of_gram`; the
+corollary `Certify.buckling_criticalFactor_mem` states `λ_cr ∈ [λ̲, λ̄]` for
+`criticalFactor K N := sSup {λ | 0 ≤ λ ∧ ∀ λ' ∈ [0, λ], Stable K N λ'}`.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.
@@ -78,7 +104,7 @@ modelled by abstract `down, up : ℝ → ℝ` with `down x ≤ x ≤ up x`.
 
 ## Out of scope for v1
 
-Mechanism certificates (exact rational null vectors), eigenvalue (buckling/modal)
+Mechanism certificates (exact rational null vectors), modal eigenvalue
 certificates, and proving the f64 implementation matches the Lean algorithm. (Large
 models are covered by the Gram/Gershgorin certificate above; the dense interval
 Cholesky is used only below the solver's sparse threshold.)

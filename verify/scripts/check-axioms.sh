@@ -14,6 +14,8 @@ theorems=(
 	Certify.posDef_of_interval_cholesky
 	Certify.coercive_solution
 	Certify.certified_error_bound_gram
+	Certify.buckling_enclosure
+	Certify.buckling_criticalFactor_mem
 )
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
