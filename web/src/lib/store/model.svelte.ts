@@ -1087,7 +1087,12 @@ export interface InfluenceLineResult {
   targetPosition?: number; // 0..1 along target element
   /** Data points: loadPosition (global x along structure) → quantity value */
   points: Array<{ x: number; y: number; elementId: number; t: number; value: number }>;
+  /** The unit load's direction; absent is downward. */
+  direction?: InfluenceDirection;
 }
+
+/** Which way the influence line's unit load acts: down, or across to +X. */
+export type InfluenceDirection = 'vertical' | 'horizontal';
 
 /**
  * The model fields recorded through the views undo channel (`_pushUndoView`), which undo restores
@@ -4190,18 +4195,19 @@ function createModelStore() {
       return isPro ? scopeBundle3D(r, model.resultScopes, model.combinations) : r;
     },
 
-    /** Compute influence line: move unit load P=1 (downward) across elements */
+    /** Compute influence line: move unit load P=1 (downward, or across) over the elements */
     computeInfluenceLine(
       quantity: InfluenceQuantity,
       targetNodeId?: number,
       targetElementId?: number,
       targetPosition: number = 0.5,
       nPointsPerElement: number = 20,
+      direction: InfluenceDirection = 'vertical',
     ): InfluenceLineResult | string {
       return computeInfluenceLineFn(
         { nodes: model.nodes, elements: model.elements, supports: model.supports,
           loads: model.loads, materials: model.materials, sections: model.sections, analysis: model.analysis, groups: model.groups },
-        quantity, targetNodeId, targetElementId, targetPosition, nPointsPerElement,
+        quantity, targetNodeId, targetElementId, targetPosition, nPointsPerElement, direction,
       );
     },
 

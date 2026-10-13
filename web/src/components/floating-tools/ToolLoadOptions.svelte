@@ -63,11 +63,13 @@
       <span class="ft-span-range">
       <label class="ft-input-group" title={t('float.distStretchTip')}>
         <span>{t('float.distFrom')}</span>
-        <UnitInput value={uiStore.distLoadFrom} qty={'length'} onchange={(v) => (uiStore.distLoadFrom = v)} unit={false} live testid="dist-span-from" />
+        <UnitInput value={uiStore.distLoadFrom ?? NaN} qty={'length'} onchange={(v) => (uiStore.distLoadFrom = v)} onempty={() => (uiStore.distLoadFrom = null)}
+          placeholder="0" unit={false} live testid="dist-span-from" />
       </label>
       <label class="ft-input-group" title={t('float.distStretchTip')}>
         <span>{t('float.distTo')}</span>
-        <UnitInput value={uiStore.distLoadTo} qty={'length'} onchange={(v) => (uiStore.distLoadTo = v)} unit={false} live testid="dist-span-to" />
+        <UnitInput value={uiStore.distLoadTo ?? NaN} qty={'length'} onchange={(v) => (uiStore.distLoadTo = v)} onempty={() => (uiStore.distLoadTo = null)}
+          placeholder="L" unit={false} live testid="dist-span-to" />
         <span class="ft-unit">{unitQ('length')}</span>
       </label>
       </span>

@@ -160,10 +160,11 @@ function createUIStore() {
   let nodalLoadDir = $state<NodalLoadDir>('fz'); // direction for nodal load placement
   let loadValue = $state<number>(-10); // kN, negative = downward
   let loadValueJ = $state<number>(-10); // kN/m at node J (for trapezoidal)
-  // A distributed load on part of the member: from and to, in m from its node I.
+  // A distributed load on part of the member: from and to, in m from its node I. Null is the
+  // member's own end: from node I, to L.
   let distLoadPartial = $state<boolean>(false);
-  let distLoadFrom = $state<number>(0);
-  let distLoadTo = $state<number>(1);
+  let distLoadFrom = $state<number | null>(null);
+  let distLoadTo = $state<number | null>(null);
 
   // Spring stiffnesses for spring support tool
   let springKx = $state<number>(1000); // kN/m
@@ -407,6 +408,8 @@ function createUIStore() {
 
   // Influence line quantity
   let ilQuantity = $state<ILQuantity>('Rz');
+  /** The influence line's unit load: down, or across to +X (a wall, a column). */
+  let ilDirection = $state<'vertical' | 'horizontal'>('vertical');
 
   // Help overlay
   let showHelp = $state<boolean>(false);
@@ -742,9 +745,9 @@ function createUIStore() {
     get distLoadPartial() { return distLoadPartial; },
     set distLoadPartial(v: boolean) { distLoadPartial = v; },
     get distLoadFrom() { return distLoadFrom; },
-    set distLoadFrom(v: number) { distLoadFrom = v; },
+    set distLoadFrom(v: number | null) { distLoadFrom = v; },
     get distLoadTo() { return distLoadTo; },
-    set distLoadTo(v: number) { distLoadTo = v; },
+    set distLoadTo(v: number | null) { distLoadTo = v; },
 
     get springKx() { return springKx; },
     set springKx(v: number) { springKx = v; },
@@ -1035,6 +1038,8 @@ function createUIStore() {
 
     get ilQuantity() { return ilQuantity; },
     set ilQuantity(v: ILQuantity) { ilQuantity = v; },
+    get ilDirection() { return ilDirection; },
+    set ilDirection(v: 'vertical' | 'horizontal') { ilDirection = v; },
 
     get showHelp() { return showHelp; },
     set showHelp(v: boolean) { showHelp = v; },

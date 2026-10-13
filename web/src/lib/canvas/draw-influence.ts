@@ -173,7 +173,7 @@ export function drawInfluenceLine(
     ctx.stroke();
   }
 
-  // Draw unit load marker (arrow perpendicular to element) during animation
+  // Draw unit load marker during animation: an arrow along the load, down or toward +X
   if (progressT !== undefined && unitLoadFound && unitLoadElemId !== -1) {
     const elem = dc.getElement(unitLoadElemId);
     const s = dc.worldToScreen(unitLoadWorldX, unitLoadWorldY);
@@ -190,9 +190,9 @@ export function drawInfluenceLine(
         const edy = nj.y - ni.y;
         const eL = Math.sqrt(edx * edx + edy * edy);
         if (eL > 1e-6) {
-          // Perpendicular in world coords (local +y)
-          const perpWx = -edy / eL;
-          const perpWy = edx / eL;
+          // The tail's side, in world coords: against the load (up, or toward −X).
+          const perpWx = il.direction === 'horizontal' ? -1 : 0;
+          const perpWy = il.direction === 'horizontal' ? 0 : 1;
           // Screen-space perpendicular
           const tipW = dc.worldToScreen(unitLoadWorldX + perpWx * 0.01, unitLoadWorldY + perpWy * 0.01);
           const spx = tipW.x - s.x;

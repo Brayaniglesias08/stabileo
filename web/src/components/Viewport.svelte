@@ -70,6 +70,7 @@
   import { askAboutNewMember, askToConnectNode } from '../lib/model/edit/connection-questions';
   import { resolveMemberSnap, MEMBER_SNAP_PX, type MemberSnap, type SnapMember } from '../lib/viewport/member-snap';
   import { toolStretch } from '../lib/model/loads/load-stretch';
+  import type { InfluenceLineResult } from '../lib/store/model.svelte';
   import { resolveNodePlacement2D, type NodePlacement } from '../lib/viewport/node-placement';
 
   let canvas: HTMLCanvasElement;
@@ -1100,6 +1101,15 @@
       }
     }
 
+    /*
+     * An influence line needs no solve of the loaded model: it is its own sweep of a unit load. It
+     * was drawn only inside the results below, so on a model not yet calculated a click computed
+     * the line, said so, and showed nothing.
+     */
+    if (!resultsStore.results && dtNow() === 'influenceLine' && resultsStore.influenceLine) {
+      drawInfluenceLine(resultsStore.influenceLine, makeDrawContext(), uiStore.zoom, resultsStore.ilAnimating ? resultsStore.ilAnimProgress : undefined);
+    }
+
     // Draw results
     if (resultsStore.results) {
       const dt = dtNow();
@@ -2094,26 +2104,37 @@
       const nearNode = findNearestNode(world.x, world.y, pickTol(PICK_PX.loose));
       const nearElem = findNearestElement(world.x, world.y, pickTol(PICK_PX.loose));
 
-      let result: any;
-      if ((q === 'Rz' || q === 'Rx' || q === 'My') && nearNode) {
-        result = modelStore.computeInfluenceLine(q, nearNode.id);
-      } else if ((q === 'V' || q === 'M') && nearElem) {
-        result = modelStore.computeInfluenceLine(q, undefined, nearElem.id, 0.5);
-      } else if (nearNode) {
-        // Clicked node but quantity is V/M → switch to Rz
-        result = modelStore.computeInfluenceLine('Rz', nearNode.id);
-        uiStore.ilQuantity = 'Rz';
-      } else if (nearElem) {
-        // Clicked element but quantity is Rz/Rx/My → switch to M
-        result = modelStore.computeInfluenceLine('M', undefined, nearElem.id, 0.5);
-        uiStore.ilQuantity = 'M';
-      } else {
-        uiStore.toast(t('viewport.ilClickHint'), 'info');
-      }
+      let target: { q: 'Rz' | 'Rx' | 'My' | 'V' | 'M'; node?: number; elem?: number } | null = null;
+      if ((q === 'Rz' || q === 'Rx' || q === 'My') && nearNode) target = { q, node: nearNode.id };
+      else if ((q === 'V' || q === 'M') && nearElem) target = { q, elem: nearElem.id };
+      // Clicked node but quantity is V/M → Rz; clicked element but quantity is a reaction → M
+      else if (nearNode) target = { q: 'Rz', node: nearNode.id };
+      else if (nearElem) target = { q: 'M', elem: nearElem.id };
+      else uiStore.toast(t('viewport.ilClickHint'), 'info');
 
-      if (result) {
+      if (target) {
+        uiStore.ilQuantity = target.q;
+        const run = (dir: 'vertical' | 'horizontal') => modelStore.computeInfluenceLine(target!.q, target!.node, target!.elem, 0.5, 20, dir);
+        const flat = (r: InfluenceLineResult) => r.points.every((p) => Math.abs(p.value) < 1e-9);
+        let result = run(uiStore.ilDirection);
         if (typeof result === 'string') {
           uiStore.toast(result, 'error');
+        } else if (flat(result)) {
+          /*
+           * Zero wherever the unit load stands: a load down a vertical member (a wall, a column)
+           * puts no shear or moment in it. The other direction is tried before saying there is
+           * no line, and used, said so, when it gives one.
+           */
+          const other = uiStore.ilDirection === 'vertical' ? 'horizontal' : 'vertical';
+          const alt = run(other);
+          if (typeof alt !== 'string' && !flat(alt)) {
+            uiStore.ilDirection = other;
+            resultsStore.setInfluenceLine(alt);
+            uiStore.toast(t(other === 'horizontal' ? 'viewport.ilSwitchedHorizontal' : 'viewport.ilSwitchedVertical').replace('{q}', target.q), 'info');
+          } else {
+            resultsStore.setInfluenceLine(result);
+            uiStore.toast(t('viewport.ilAllZero').replace('{q}', target.q), 'info');
+          }
         } else {
           resultsStore.setInfluenceLine(result);
           uiStore.toast(t('viewport.ilCalculated'), 'success');
