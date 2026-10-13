@@ -9733,5 +9733,8 @@ const en: Record<string, string> = {
   'despiece.arrows': 'Arrows',
   'despiece.values': 'Values',
   'despiece.inspectTip': 'Click a member or a joint to see its actions in a table.',
+  'viewport.nodeSplits': 'Splits member {id}',
+  'viewport.nodeSplitsMid': 'Splits member {id} at its midpoint',
+  'viewport.nodeAlreadyThere': 'There is a node here already',
 };
 export default en;

@@ -9366,5 +9366,8 @@ const pt: Translations = {
   'despiece.arrows': 'Setas',
   'despiece.values': 'Valores',
   'despiece.inspectTip': 'Toque uma barra ou um nó para ver suas ações em uma tabela.',
+  'viewport.nodeSplits': 'Divide a barra {id}',
+  'viewport.nodeSplitsMid': 'Divide a barra {id} ao meio',
+  'viewport.nodeAlreadyThere': 'Já existe um nó aqui',
 };
 export default pt;

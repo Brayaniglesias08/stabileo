@@ -69,7 +69,7 @@
   import ConnectionPrompt from './ConnectionPrompt.svelte';
   import { askAboutNewMember, askToConnectNode } from '../lib/model/edit/connection-questions';
   import { resolveMemberSnap, MEMBER_SNAP_PX, type MemberSnap, type SnapMember } from '../lib/viewport/member-snap';
-  import { NODE_PLACEMENT_TOL } from '../lib/viewport/node-placement';
+  import { resolveNodePlacement2D, type NodePlacement } from '../lib/viewport/node-placement';
 
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D | null = null;
@@ -940,6 +940,8 @@
 
     // Draw node tool sliding-joint hover highlight: teal ring at the nearest
     // bar end where a click would place the slider.
+    if (!exportFrame && uiStore.currentTool === 'node' && uiStore.nodeMode !== 'hinge' && draggedNodeId === null) drawNodePlacementPreview();
+
     if (!exportFrame && uiStore.currentTool === 'node' && uiStore.nodeMode === 'hinge' && uiStore.jointType !== 'hinge') {
       const nearElem = findNearestElement(uiStore.worldX, uiStore.worldY, pickTol(PICK_PX.loose));
       if (nearElem) {
@@ -1900,105 +1902,20 @@
           }
         }
       } else {
-        // Create node mode (default).
-        //
-        // Auto-split-on-node-place (opt-in via uiStore.autoSplitOnNodePlace):
-        // when ON and the click lands on the interior of an existing element
-        // (and not on/near an existing node), subdivide that element instead
-        // of creating a free-floating node. We delegate to the existing
-        // splitElementAtPoint so distributed/point/thermal loads are
-        // redistributed by the same logic the hinge-mode subdivide already
-        // uses in production.
-        const ms = snapWithMidpoint(world.x, world.y);
-        let didSplit = false;
-        // Attempt to subdivide the element nearest to (searchX, searchY),
-        // splitting at the projection of (projX, projY) onto it. Interior
-        // guard: endpoints + thin slivers would either duplicate an existing
-        // node or produce near-zero-length sub-elements.
-        const attemptSplit = (searchX: number, searchY: number, maxDist: number, projX: number, projY: number): boolean => {
-          const nearElem = findNearestElement(searchX, searchY, maxDist);
-          if (!nearElem) return false;
-          const ni = modelStore.getNode(nearElem.nodeI);
-          const nj = modelStore.getNode(nearElem.nodeJ);
-          if (!ni || !nj) return false;
-          const edx = nj.x - ni.x;
-          const edy = nj.y - ni.y;
-          const lenSq = edx * edx + edy * edy;
-          if (lenSq <= 1e-10) return false;
-          const tParam = ((projX - ni.x) * edx + (projY - ni.y) * edy) / lenSq;
-          if (tParam < 0.05 || tParam > 0.95) return false;
-          const result = modelStore.splitElementAtPoint(nearElem.id, tParam);
-          if (!result) return false;
-          uiStore.selectNode(result.nodeId);
-          uiStore.toast(t('viewport.barSubdivided'), 'info');
-          resultsStore.clear();
-          return true;
-        };
-        // One shared scan: both the auto-split guard and the
-        // duplicate-coincident-node guard below answer the same question
-        // ('is the cursor on an existing node?') with the same threshold —
-        // two separate calls would silently diverge if one threshold is tuned.
-        const nodeAtCursor = findNearestNode(world.x, world.y, pickTol(PICK_PX.loose));
-        if (uiStore.autoSplitOnNodePlace) {
-          // Only auto-split when the cursor isn't already targeting an
-          // existing node. snapWithMidpoint returns node coords if a node is
-          // within nodeThreshold of the raw cursor; we re-check explicitly
-          // to keep the guard tight (also handles the same threshold).
-          if (!nodeAtCursor) {
-            // 1st attempt — cursor-based: use the RAW cursor to find which
-            // element the user is pointing at (grid-snap can warp the cursor
-            // off the element line), but project the GRID-SNAPPED cursor so
-            // the new node lands at a grid-aligned position on the bar when
-            // snap-to-grid is on. When it's off, `snapped` equals `world`.
-            const projInputX = uiStore.snapToGrid ? snapped.x : world.x;
-            const projInputY = uiStore.snapToGrid ? snapped.y : world.y;
-            // Reaches in screen pixels, as every other one (they were 0.3 and 0.4 m).
-            const reach = nodeToolTolerances(uiStore.zoom);
-            didSplit = attemptSplit(world.x, world.y, reach.split, projInputX, projInputY);
-            // 2nd attempt — placement-point-based: snapWithMidpoint can
-            // resolve `ms` ONTO a bar even when the cursor attempt missed
-            // (its midpoint snap reaches further than the search above, and a
-            // grid intersection can lie on the bar). Without this, the node
-            // would sit exactly on the element without subdividing it — the
-            // coincident-unconnected trap auto-split exists to prevent.
-            // Tight tolerance: only when ms is effectively ON the element
-            // (1 cm, or a pixel zoomed in on a small part).
-            if (!didSplit) {
-              didSplit = attemptSplit(ms.x, ms.y, Math.min(0.01, pickTol(1)), ms.x, ms.y);
-            }
+        // Create node mode (default): this tool creates nodes and nothing else
+        // (`resolveNodePlacement2D`). Right on a node it does nothing; on a member it splits
+        // it there, carrying its loads along (`splitElementAtPoint`); anywhere else it places
+        // a free node. What a click will do is shown under the pointer before it is made.
+        const place = nodePlacementAt(world.x, world.y);
+        if (place.kind === 'onMember') {
+          const result = modelStore.splitElementAtPoint(place.elementId, place.t);
+          if (result) {
+            uiStore.toast(t('viewport.barSubdivided'), 'info');
+            resultsStore.clear();
           }
-        }
-        if (!didSplit) {
-          // Duplicate-coincident-node guard: if the click effectively lands
-          // on an existing node (within nodeThreshold of the raw cursor),
-          // treat it as "select that node" + start a drag so the user can
-          // reposition. Node-tool create-mode is the only place where
-          // node repositioning lives — the select tool no longer drags
-          // (would silently move nodes whenever the user just wanted to
-          // click around). Checked at the raw cursor AND at the resolved
-          // placement point `ms`: with grid snap on, `ms` can land exactly
-          // on an existing grid-aligned node that is >0.5m from the cursor —
-          // creating an exact coincident duplicate.
-          // The coincidence check looks at hidden nodes too: a node is not
-          // placed on one (a twin that looks joined and is not), and a hidden
-          // one is not dragged either, so the click does nothing.
-          const coincident = _findNearestNode(ms.x, ms.y, NODE_PLACEMENT_TOL, modelStore.nodes);
-          const onExisting = nodeAtCursor
-            ?? (coincident && !viewVisibility.isNodeHidden(coincident.id) ? coincident : null);
-          if (!onExisting && coincident) {
-            // Nothing: the place is taken by a node the view hides.
-          } else if (onExisting) {
-            if (!uiStore.selectedNodes.has(onExisting.id)) {
-              uiStore.selectNode(onExisting.id, e.shiftKey);
-            }
-            historyStore.pushState();
-            draggedNodeId = onExisting.id;
-            dragMoved = false;
-            dragStartWorld = { x: snapped.x, y: snapped.y };
-          } else {
-            const p3d = to3D(uiStore.drawPlane2D, ms.x, ms.y, { x: 0, y: 0, z: 0 });
-            modelStore.addNode(p3d.x, p3d.y, p3d.z || undefined);
-          }
+        } else if (place.kind === 'free') {
+          const p3d = to3D(uiStore.drawPlane2D, place.x, place.y, { x: 0, y: 0, z: 0 });
+          modelStore.addNode(p3d.x, p3d.y, p3d.z || undefined);
         }
       }
     } else if (uiStore.currentTool === 'element') {
@@ -3136,6 +3053,60 @@
   }
 
   /** The node tool's snap: a drawn node, a drawn member's midpoint, the grid; reaches in pixels. */
+  /** Where a node-tool click at (wx, wy) would put its node (`resolveNodePlacement2D`). */
+  function nodePlacementAt(wx: number, wy: number): NodePlacement {
+    const snapped = uiStore.snapWorld(wx, wy);
+    const nodes = getProjectedNodes();
+    return resolveNodePlacement2D({
+      cursor: { x: wx, y: wy },
+      snapped: uiStore.snapToGrid ? snapped : { x: wx, y: wy },
+      pxPerM: uiStore.zoom,
+      nodes: [...nodes.values()],
+      members: [...pickable().elements.values()],
+      nodeAt: (id) => nodes.get(id),
+      split: uiStore.autoSplitOnNodePlace,
+    });
+  }
+
+  /**
+   * What a node-tool click would do, drawn under the pointer: a mark on the member it would split
+   * (the member lit), a ring on the node already there, or the free node to be.
+   */
+  function drawNodePlacementPreview(): void {
+    if (!ctx || touchInput) return;
+    // The raw pointer: `worldX/Y` are already pulled onto nearby nodes for the other tools.
+    const raw = uiStore.screenToWorld(uiStore.mouseX, uiStore.mouseY);
+    const place = nodePlacementAt(raw.x, raw.y);
+    const s = uiStore.worldToScreen(place.x, place.y);
+    const accent = canvasTheme().accent;
+    ctx.save();
+    ctx.font = '11px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    if (place.kind === 'onMember') {
+      const el = modelStore.elements.get(place.elementId);
+      const ni = el && getProjectedNode(el.nodeI), nj = el && getProjectedNode(el.nodeJ);
+      if (ni && nj) {
+        const a = uiStore.worldToScreen(ni.x, ni.y), b = uiStore.worldToScreen(nj.x, nj.y);
+        ctx.strokeStyle = accent; ctx.globalAlpha = 0.45; ctx.lineWidth = 6; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = canvasTheme().surface; ctx.strokeStyle = accent; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(s.x, s.y, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(s.x - 3, s.y); ctx.lineTo(s.x + 3, s.y); ctx.moveTo(s.x, s.y - 3); ctx.lineTo(s.x, s.y + 3); ctx.stroke();
+      ctx.fillStyle = accent;
+      ctx.fillText(t(place.midpoint ? 'viewport.nodeSplitsMid' : 'viewport.nodeSplits').replace('{id}', String(place.elementId)), s.x + 12, s.y - 12);
+    } else if (place.kind === 'onNode') {
+      ctx.strokeStyle = canvasTheme().amber; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.arc(s.x, s.y, 11, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = canvasTheme().amber;
+      ctx.fillText(t('viewport.nodeAlreadyThere'), s.x + 14, s.y - 12);
+    } else {
+      ctx.strokeStyle = accent; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.arc(s.x, s.y, 5, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function snapWithMidpoint(worldX: number, worldY: number): { x: number; y: number } {
     const tol = nodeToolTolerances(uiStore.zoom);
     return _snapWithMidpoint(worldX, worldY, (x, y) => uiStore.snapWorld(x, y), getPickableProjectedNodes(), pickable().elements, tol.node, tol.midpoint);

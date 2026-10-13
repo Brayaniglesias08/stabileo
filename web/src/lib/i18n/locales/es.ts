@@ -9722,5 +9722,8 @@ const es: Record<string, string> = {
   'despiece.arrows': 'Flechas',
   'despiece.values': 'Valores',
   'despiece.inspectTip': 'Tocá una barra o un nudo para ver sus acciones en una tabla.',
+  'viewport.nodeSplits': 'Divide la barra {id}',
+  'viewport.nodeSplitsMid': 'Divide la barra {id} al medio',
+  'viewport.nodeAlreadyThere': 'Ya hay un nodo acá',
 };
 export default es;
