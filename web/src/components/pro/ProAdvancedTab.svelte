@@ -56,7 +56,6 @@
   } from '../../lib/codes/cirsoc103/spectrum';
   import { findBehaviour, R_ELASTIC } from '../../lib/codes/cirsoc103/behaviour';
   import { regulationsStore } from '../../lib/store/regulations.svelte';
-  import { stagedConstruction } from '../../lib/store/staged-construction.svelte';
   import { isVariableMember } from '../../lib/section/variable';
   import { collapseVariableResults, variableExpansionFor } from '../../lib/engine/variable-members';
   // Wind loads moved to ProAutoLoadsDialog
@@ -668,8 +667,11 @@
 
   // ─── 11. Staged Construction ───────────────────────────────────
 
-  // In a store, so they outlast the tab and the build timelapse can put the model up by them.
-  const staged = stagedConstruction;
+  let stages = $state<{
+    name: string; elementsAdded: number[]; elementsRemoved: number[]; caseIds: number[];
+    platesAdded: number[]; platesRemoved: number[];
+    quadsAdded: number[]; quadsRemoved: number[];
+  }[]>([]);
   let stagedResult = $state<any | null>(null);
 
   /** The model's shells, so a stage can name them the way it names members. */
@@ -677,15 +679,15 @@
   const quadIds = $derived([...modelStore.quads.keys()]);
 
   function addStage() {
-    staged.stages = [...staged.stages, {
-      name: t('pro.stageN').replace('{n}', String(staged.stages.length + 1)),
+    stages = [...stages, {
+      name: t('pro.stageN').replace('{n}', String(stages.length + 1)),
       // A stage that adds nothing builds nothing, so the first one starts with
       // the whole model and later stages are cut back from it by hand.
-      elementsAdded: staged.stages.length === 0 ? [...elementIds] : [],
+      elementsAdded: stages.length === 0 ? [...elementIds] : [],
       elementsRemoved: [],
       // A stage names the load CASES it applies. It took indices into the solver's internal list,
       // empty by default, so a stage applied no load at all. The first one starts with every case.
-      caseIds: staged.stages.length === 0 ? modelStore.model.loadCases.map((c) => c.id) : [],
+      caseIds: stages.length === 0 ? modelStore.model.loadCases.map((c) => c.id) : [],
       /*
        * Slabs and walls follow the members: the first stage starts with all of
        * them, later stages start empty. They used to reach the engine and be
@@ -693,8 +695,8 @@
        * `deny_unknown_fields` serde discarded them silently, so a building
        * staged with its floors was analysed as the bare frame.
        */
-      platesAdded: staged.stages.length === 0 ? [...plateIds] : [],
-      quadsAdded: staged.stages.length === 0 ? [...quadIds] : [],
+      platesAdded: stages.length === 0 ? [...plateIds] : [],
+      quadsAdded: stages.length === 0 ? [...quadIds] : [],
       // And they leave the same way. A slab struck after it has done its
       // temporary work is as much a stage as a slab cast, and the engine
       // takes `platesRemoved`/`quadsRemoved` for exactly that — leaving the
@@ -704,7 +706,7 @@
   }
 
   function removeStage(idx: number) {
-    staged.stages = staged.stages.filter((_, i) => i !== idx);
+    stages = stages.filter((_, i) => i !== idx);
   }
 
   /** Analyses whose input names members (stages, an influence path) do not take one cut into pieces. */
@@ -737,7 +739,7 @@
         solver: input,
         // The model's supports enter with the first stage; the engine keeps only the supports a
         // stage names, so springs and supports that are not fully fixed were dropped before.
-        stages: stagedStagesPayload(staged.stages, indicesOf, supportNodes),
+        stages: stagedStagesPayload(stages, indicesOf, supportNodes),
       });
       /*
        * The panel lists each stage's peak and the finished structure's; nothing is published to
@@ -1423,14 +1425,14 @@
       <div class="adv-panel">
         <p class="adv-hint" data-testid="staged-engine-note">{t('adv.stagedNote')}</p>
         <button class="adv-btn-sm" onclick={addStage}>{t('pro.addStage')}</button>
-        {#each staged.stages as stage, i}
+        {#each stages as stage, i}
           <div class="adv-stage-card">
             <div class="adv-stage-header">
               <input type="text" class="adv-stage-name" bind:value={stage.name} />
               <button class="adv-rm" onclick={() => removeStage(i)}>x</button>
             </div>
             <div class="adv-form">
-              <label class="adv-label">{t('pro.addElemIds')} <input type="text" class="adv-text" value={stage.elementsAdded.join(',')} oninput={(e) => { stage.elementsAdded = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); staged.stages = [...staged.stages]; }} /></label>
+              <label class="adv-label">{t('pro.addElemIds')} <input type="text" class="adv-text" value={stage.elementsAdded.join(',')} oninput={(e) => { stage.elementsAdded = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); stages = [...stages]; }} /></label>
             </div>
             <!--
               Shells get their own rows, and only when the model has them: a
@@ -1440,38 +1442,38 @@
             -->
             {#if plateIds.length}
               <div class="adv-form">
-                <label class="adv-label">{t('pro.addPlateIds')} <input type="text" class="adv-text" value={stage.platesAdded.join(',')} oninput={(e) => { stage.platesAdded = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); staged.stages = [...staged.stages]; }} /></label>
+                <label class="adv-label">{t('pro.addPlateIds')} <input type="text" class="adv-text" value={stage.platesAdded.join(',')} oninput={(e) => { stage.platesAdded = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); stages = [...stages]; }} /></label>
               </div>
             {/if}
             {#if quadIds.length}
               <div class="adv-form">
-                <label class="adv-label">{t('pro.addQuadIds')} <input type="text" class="adv-text" value={stage.quadsAdded.join(',')} oninput={(e) => { stage.quadsAdded = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); staged.stages = [...staged.stages]; }} /></label>
+                <label class="adv-label">{t('pro.addQuadIds')} <input type="text" class="adv-text" value={stage.quadsAdded.join(',')} oninput={(e) => { stage.quadsAdded = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); stages = [...stages]; }} /></label>
               </div>
             {/if}
             {#if plateIds.length}
               <div class="adv-form">
-                <label class="adv-label">{t('pro.removePlateIds')} <input type="text" class="adv-text" value={stage.platesRemoved.join(',')} oninput={(e) => { stage.platesRemoved = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); staged.stages = [...staged.stages]; }} /></label>
+                <label class="adv-label">{t('pro.removePlateIds')} <input type="text" class="adv-text" value={stage.platesRemoved.join(',')} oninput={(e) => { stage.platesRemoved = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); stages = [...stages]; }} /></label>
               </div>
             {/if}
             {#if quadIds.length}
               <div class="adv-form">
-                <label class="adv-label">{t('pro.removeQuadIds')} <input type="text" class="adv-text" value={stage.quadsRemoved.join(',')} oninput={(e) => { stage.quadsRemoved = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); staged.stages = [...staged.stages]; }} /></label>
+                <label class="adv-label">{t('pro.removeQuadIds')} <input type="text" class="adv-text" value={stage.quadsRemoved.join(',')} oninput={(e) => { stage.quadsRemoved = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); stages = [...stages]; }} /></label>
               </div>
             {/if}
             <div class="adv-form">
-              <label class="adv-label">{t('pro.removeElemIds')} <input type="text" class="adv-text" value={stage.elementsRemoved.join(',')} oninput={(e) => { stage.elementsRemoved = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); staged.stages = [...staged.stages]; }} /></label>
+              <label class="adv-label">{t('pro.removeElemIds')} <input type="text" class="adv-text" value={stage.elementsRemoved.join(',')} oninput={(e) => { stage.elementsRemoved = (e.target as HTMLInputElement).value.split(',').map(Number).filter(n => !isNaN(n) && n > 0); stages = [...stages]; }} /></label>
             </div>
             <div class="adv-form">
               <span class="adv-label">{t('adv.stageCases')}:
                 {#each modelStore.model.loadCases as lc (lc.id)}
                   <label class="adv-check"><input type="checkbox" checked={stage.caseIds.includes(lc.id)}
-                    onchange={(e) => { const on = (e.target as HTMLInputElement).checked; stage.caseIds = on ? [...stage.caseIds, lc.id] : stage.caseIds.filter((c) => c !== lc.id); staged.stages = [...staged.stages]; }} /> {lc.name}</label>
+                    onchange={(e) => { const on = (e.target as HTMLInputElement).checked; stage.caseIds = on ? [...stage.caseIds, lc.id] : stage.caseIds.filter((c) => c !== lc.id); stages = [...stages]; }} /> {lc.name}</label>
                 {/each}
               </span>
             </div>
           </div>
         {/each}
-        <button class="adv-run-btn" onclick={handleStaged} disabled={!hasModel || solving || !wasmAvailable || staged.stages.length === 0}>{solving ? t('pro.solving') : t('pro.solveStaged')}</button>
+        <button class="adv-run-btn" onclick={handleStaged} disabled={!hasModel || solving || !wasmAvailable || stages.length === 0}>{solving ? t('pro.solving') : t('pro.solveStaged')}</button>
       </div>
       {#if stagedResult}
         <div class="adv-result-title">{t('pro.resultStaged')}</div>

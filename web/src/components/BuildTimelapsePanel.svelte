@@ -9,7 +9,6 @@
   import { modelStore, uiStore } from '../lib/store';
   import { t, tp } from '../lib/i18n';
   import type { BuildOrder } from '../lib/viewport3d/build-timelapse';
-  import { effectiveOrder, orderAvailable } from '../lib/viewport3d/timelapse-phases';
   import { timelapseSound, type TimelapseSound } from '../lib/viewport3d/timelapse-sound';
 
   let { picture, stage }: { picture: HTMLCanvasElement | null; stage: HTMLElement | null } = $props();
@@ -21,9 +20,6 @@
     { id: 'byType', key: 'timelapse.orderByType' },
     { id: 'radial', key: 'timelapse.orderRadial' },
     { id: 'list', key: 'timelapse.orderList' },
-    // PRO's: offered only there, and only when the model has stages or groups.
-    { id: 'stages', key: 'timelapse.orderStages' },
-    { id: 'groups', key: 'timelapse.orderGroups' },
   ];
   const DURATIONS = [6, 10, 12, 15, 20, 30, 45];
   const STYLES: Array<{ id: TimelapseStyle; key: string }> = [
@@ -53,8 +49,9 @@
     { id: 'fixed', key: 'timelapse.cameraFixed' },
   ];
 
-  const orders = $derived(ORDERS.filter((o) => orderAvailable(o.id)));
-  const order = $derived(effectiveOrder(buildTimelapse.order));
+  const orders = ORDERS;
+  // A phased order remembered from elsewhere is not offered here: it builds as it would go up.
+  const order = $derived(ORDERS.some((o) => o.id === buildTimelapse.order) ? buildTimelapse.order : 'construction');
   const empty = $derived(modelStore.elements.size + modelStore.plates.size + modelStore.quads.size === 0);
   const formatLabel = (f: TimelapseFormat) => (f === 'screen' ? t('timelapse.formatScreen') : FORMATS.find((x) => x.id === f)!.label);
   const summary = $derived([

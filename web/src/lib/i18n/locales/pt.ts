@@ -9355,8 +9355,6 @@ const pt: Translations = {
   'timelapse.counter': 'Peças {n} / {total}',
   'timelapse.orderByType': 'Por tipo de peça',
   'timelapse.orderRadial': 'Do centro para fora',
-  'timelapse.orderStages': 'Etapas construtivas',
-  'timelapse.orderGroups': 'Por grupos',
   'timelapse.sound': 'Som',
   'timelapse.soundOff': 'Sem som',
   'timelapse.soundBlocks': 'Blocos',

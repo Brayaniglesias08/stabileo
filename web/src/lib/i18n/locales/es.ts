@@ -9711,8 +9711,6 @@ const es: Record<string, string> = {
   'timelapse.counter': 'Piezas {n} / {total}',
   'timelapse.orderByType': 'Por tipo de pieza',
   'timelapse.orderRadial': 'Del centro hacia afuera',
-  'timelapse.orderStages': 'Etapas constructivas',
-  'timelapse.orderGroups': 'Por grupos',
   'timelapse.sound': 'Sonido',
   'timelapse.soundOff': 'Sin sonido',
   'timelapse.soundBlocks': 'Bloques',

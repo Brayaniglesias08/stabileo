@@ -16,7 +16,6 @@ import {
   buildFront, buildSchedule, dropMatrix, growMatrix, growthAt, landedBetween, phaseAt, piecesStarted,
   type BuildPiece, type BuildSchedule, type BuildStep, type P3,
 } from './build-timelapse';
-import { effectiveOrder, phasesFor } from './timelapse-phases';
 import { timelapseSound } from './timelapse-sound';
 
 export interface TimelapseRefs {
@@ -131,15 +130,16 @@ export function createTimelapseView() {
 
   /** (Re)builds the schedule when the model or the options changed. */
   function prepare(project2D: boolean): void {
-    const order = effectiveOrder(buildTimelapse.order);
-    const phases = phasesFor(order);
+    // The phased orders need phases (construction stages, groups) this view is not given: they
+    // build as they would go up.
+    const order = buildTimelapse.order === 'stages' || buildTimelapse.order === 'groups' ? 'construction' : buildTimelapse.order;
     // Stages are edited in place, so their content is part of what the schedule depends on.
-    const sig = `${modelStore.loadEpoch}|${modelStore.modelVersion}|${modelStore.elements.size}|${modelStore.plates.size}|${modelStore.quads.size}|${order}|${buildTimelapse.duration}|${project2D}|${phases ? JSON.stringify(phases) : ''}`;
+    const sig = `${modelStore.loadEpoch}|${modelStore.modelVersion}|${modelStore.elements.size}|${modelStore.plates.size}|${modelStore.quads.size}|${order}|${buildTimelapse.duration}|${project2D}`;
     if (sig === scheduleSig && schedule) return;
     scheduleSig = sig;
     const supported = new Set<number>();
     for (const s of modelStore.supports.values()) supported.add(s.nodeId);
-    schedule = buildSchedule(pieces(project2D), order, { duration: buildTimelapse.duration, supportedNodes: supported, phases });
+    schedule = buildSchedule(pieces(project2D), order, { duration: buildTimelapse.duration, supportedNodes: supported });
     stepOf.clear();
     for (const s of schedule.steps) stepOf.set(s.key, s);
     buildTimelapse.total = LEAD_S + schedule.total;
