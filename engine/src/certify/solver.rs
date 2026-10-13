@@ -21,6 +21,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use super::forces::{force_bounds_2d, force_bounds_3d, ForceBound2D, ForceBound3D};
 use super::interval::Interval;
 use super::linear::{certify_linear_system_auto_interval_rhs, Certificate, MAX_CERTIFY_N};
 use super::sparse::certify_sparse_spd_system;
@@ -39,6 +40,8 @@ use crate::types::*;
 pub struct CertifiedResults2D {
     pub results: AnalysisResults,
     pub certificate: Certificate,
+    /// Per-member bounds on |force(u*) − force(ũ)| (empty when uncertified).
+    pub force_bounds: Vec<ForceBound2D>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +49,25 @@ pub struct CertifiedResults2D {
 pub struct CertifiedResults3D {
     pub results: AnalysisResults3D,
     pub certificate: Certificate,
+    /// Per-member bounds on |force(u*) − force(ũ)| (empty when uncertified).
+    pub force_bounds: Vec<ForceBound3D>,
+}
+
+/// `certify_linear_2d` plus per-member force bounds.
+pub fn certify_linear_2d_full(input: &SolverInput) -> Result<CertifiedResults2D, String> {
+    let (results, certificate) = certify_linear_2d(input)?;
+    let force_bounds = certificate.abs_bound().map(|b| force_bounds_2d(input, b)).unwrap_or_default();
+    Ok(CertifiedResults2D { results, certificate, force_bounds })
+}
+
+/// `certify_linear_3d` plus per-member force bounds.
+pub fn certify_linear_3d_full(input: &SolverInput3D) -> Result<CertifiedResults3D, String> {
+    let (results, certificate) = certify_linear_3d(input)?;
+    let force_bounds = certificate
+        .abs_bound()
+        .map(|b| force_bounds_3d(&expand_curved_beams_3d(input), b))
+        .unwrap_or_default();
+    Ok(CertifiedResults3D { results, certificate, force_bounds })
 }
 
 /// Solve a 2D linear static model with `solve_2d` and certify its displacements.
