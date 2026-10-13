@@ -39,6 +39,7 @@ rayon = { version = "1.10", optional = true }
 wasm-bindgen-test = "0.3"
 criterion = { version = "0.5", features = ["html_reports"] }
 rand = "0.8"
+proptest = "1"
 
 [[bench]]
 name = "solver_bench"
@@ -66,3 +67,6 @@ lto = true
 
 [profile.test]
 opt-level = 1
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

@@ -8,6 +8,9 @@ pub mod element;
 pub mod solver;
 pub mod postprocess;
 pub mod section;
+pub mod certify;
+#[cfg(kani)]
+mod kani_proofs;
 
 use wasm_bindgen::prelude::*;
 
