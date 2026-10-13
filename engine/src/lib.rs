@@ -99,6 +99,18 @@ pub fn solve_buckling_2d(json: &str, num_modes: usize) -> Result<String, JsValue
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 
+/// Solve 2D linear buckling and certify the critical load factor
+/// (docs/verification/CERTIFY.md). JSON in → `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_buckling_2d(json: &str, num_modes: usize) -> Result<String, JsValue> {
+    let input: types::SolverInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::buckling::certify_buckling_2d(&input, num_modes)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
 /// Solve 2D modal analysis. JSON in → JSON out.
 /// densities_json: { "materialId": density_kg_m3, ... }
 #[wasm_bindgen]
@@ -139,6 +151,18 @@ pub fn solve_buckling_3d(json: &str, num_modes: usize) -> Result<String, JsValue
     let input: types::SolverInput3D = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
     let results = solver::buckling::solve_buckling_3d(&input, num_modes)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Solve 3D linear buckling and certify the critical load factor
+/// (docs/verification/CERTIFY.md). JSON in → `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_buckling_3d(json: &str, num_modes: usize) -> Result<String, JsValue> {
+    let input: types::SolverInput3D = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::buckling::certify_buckling_3d(&input, num_modes)
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&results)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))

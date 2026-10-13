@@ -195,9 +195,10 @@ fn any_hinge3d() -> Hinge3D {
 //      a non-negative diagonal to any subset of the symmetric pairs of its four
 //      DOFs. By (1) that over-approximates the real block, so the assembly
 //      properties proven with the stub hold for the real function.
-//   3. `frame_local_stiffness_3d_warping_ok` likewise stubs the 12x12 matrix with
-//      `frame_local_stiffness_3d_stub` (justified by (2)) and checks the
-//      torsion-warping block it adds.
+//   3. `torsion_warping_block_ok` proves the torsion-warping 4x4 block alone, and
+//      `frame_local_stiffness_3d_warping_ok` stubs both the 12x12 matrix
+//      (justified by (2)) and that block (justified by (3)) to check how the
+//      14x14 matrix is assembled from them.
 
 fn bending_block_case(release_start: bool, release_end: bool) {
     let e = any_e();
@@ -292,8 +293,37 @@ fn frame_local_stiffness_3d_stub(
     k
 }
 
+/// The torsion-warping block alone: finite, bitwise symmetric, non-negative
+/// diagonal, for the products `gj = G·J`, `ecw = E·Cw` over their full ranges.
+#[kani::proof]
+fn torsion_warping_block_ok() {
+    let gj = any_in(0.0, 1e13);
+    let ecw = any_in(0.0, 1e12);
+    let l = any_len();
+    let k = torsion_warping_block(gj, ecw, l, l * l, l * l * l);
+    assert!(all_finite(&k));
+    assert!(bitwise_symmetric(&k, 4));
+    assert!(diag_nonneg(&k, 4));
+}
+
+/// Over-approximation of `torsion_warping_block`, justified by
+/// `torsion_warping_block_ok`.
+fn torsion_warping_block_stub(_gj: f64, _ecw: f64, _l: f64, _l2: f64, _l3: f64) -> [f64; 16] {
+    let mut k = [0.0; 16];
+    for p in 0..4 {
+        for q in p..4 {
+            let x: f64 = kani::any();
+            kani::assume(x.is_finite() && (p != q || x >= 0.0));
+            k[p * 4 + q] = x;
+            k[q * 4 + p] = x;
+        }
+    }
+    k
+}
+
 #[kani::proof]
 #[kani::stub(frame_local_stiffness_3d, frame_local_stiffness_3d_stub)]
+#[kani::stub(torsion_warping_block, torsion_warping_block_stub)]
 fn frame_local_stiffness_3d_warping_ok() {
     let e = any_e();
     let a = any_area();

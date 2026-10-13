@@ -7,6 +7,7 @@
 mod common;
 
 use common::*;
+use dedaliano_engine::certify::buckling::{certify_buckling_2d, certify_buckling_3d, BucklingCertificate};
 use dedaliano_engine::certify::{
     certify_linear_2d, certify_linear_3d, certify_linear_system, Certificate,
 };
@@ -502,4 +503,55 @@ fn overhead() {
             t_cert.as_secs_f64() / t_solve.as_secs_f64()
         );
     }
+}
+
+// ───────────────────────── buckling ─────────────────────────
+
+fn assert_buckling_enclosure(name: &str, cert: &BucklingCertificate) -> (f64, Option<f64>) {
+    let BucklingCertificate::Certified { lambda_lower, lambda_upper, lambda_computed } = cert else {
+        panic!("{name}: {cert:?}");
+    };
+    assert!(*lambda_lower > 0.0 && lambda_lower <= lambda_computed, "{name}: {cert:?}");
+    if let Some(ub) = lambda_upper {
+        assert!(lambda_computed <= ub, "{name}: {cert:?}");
+    }
+    (*lambda_lower, *lambda_upper)
+}
+
+#[test]
+fn certify_buckling_euler_column() {
+    // Pinned–pinned column: FE λ_cr converges to π²EI/(PL²) from above.
+    let (l, e, a, iz, p) = (5.0, 200_000.0, 0.01, 1e-4, 100.0);
+    let euler = std::f64::consts::PI.powi(2) * e * 1000.0 * iz / (l * l) / p;
+    for n_elem in [4, 16, 64] {
+        let input = make_column(n_elem, l, e, a, iz, "pinned", "rollerX", -p);
+        let out = certify_buckling_2d(&input, 1).unwrap();
+        let (lo, hi) = assert_buckling_enclosure("column", &out.certificate);
+        let hi = hi.expect("Rayleigh upper bound");
+        eprintln!("column n={n_elem}: λ_cr ∈ [{lo:.9e}, {hi:.9e}], Euler {euler:.9e}");
+        assert!((hi - lo) / lo < 1e-3, "enclosure too wide: [{lo}, {hi}]");
+        assert!(lo > 0.99 * euler && lo < 1.05 * euler, "λ̲ {lo} vs Euler {euler}");
+    }
+}
+
+#[test]
+fn certify_buckling_3d_fixtures() {
+    let mut certified = 0;
+    for p in fixture_paths("ex-3d-", |_| true) {
+        let name = p.file_name().unwrap().to_str().unwrap().to_string();
+        let input: SolverInput3D = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        if DofNumbering::build_3d(&expand_curved_beams_3d(&input)).n_free > 600 {
+            continue;
+        }
+        let Ok(out) = certify_buckling_3d(&input, 1) else { continue }; // no compression etc.
+        match &out.certificate {
+            BucklingCertificate::Uncertified { reason } => eprintln!("{name}: {reason}"),
+            c => {
+                let (lo, hi) = assert_buckling_enclosure(&name, c);
+                eprintln!("{name}: λ_cr ∈ [{lo:.6e}, {hi:?}]");
+                certified += 1;
+            }
+        }
+    }
+    assert!(certified >= 1, "no 3D buckling fixture certified");
 }

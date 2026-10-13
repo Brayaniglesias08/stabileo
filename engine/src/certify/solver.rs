@@ -88,7 +88,7 @@ pub fn certify_results_2d(input: &SolverInput, results: &AnalysisResults) -> Cer
             return Certificate::uncertified("unsupported: inclined supports");
         }
         let f = assemble_load_vector_2d(input, &input.loads, &dof_num, &stiff.inclined_transforms_2d);
-        return match gather_u_2d(&dof_num, results) {
+        return match gather_u_2d(&dof_num, &results.displacements) {
             Ok(u) => certify_reduced_sparse(&stiff.k_ff, &stiff.k_full, dof_num.n_free, &f, &u),
             Err(c) => c,
         };
@@ -101,14 +101,14 @@ pub fn certify_results_2d(input: &SolverInput, results: &AnalysisResults) -> Cer
         return Certificate::uncertified("unsupported: inclined supports");
     }
     let f = assemble_load_vector_2d(input, &input.loads, &dof_num, &stiff.inclined_transforms_2d);
-    match gather_u_2d(&dof_num, results) {
+    match gather_u_2d(&dof_num, &results.displacements) {
         Ok(u) => certify_reduced(&stiff.k, dof_num.n_total, dof_num.n_free, &f, &u),
         Err(c) => c,
     }
 }
 
-fn gather_u_2d(dof_num: &DofNumbering, results: &AnalysisResults) -> Result<Vec<f64>, Certificate> {
-    let disp: HashMap<usize, &Displacement> = results.displacements.iter().map(|d| (d.node_id, d)).collect();
+pub(super) fn gather_u_2d(dof_num: &DofNumbering, displacements: &[Displacement]) -> Result<Vec<f64>, Certificate> {
+    let disp: HashMap<usize, &Displacement> = displacements.iter().map(|d| (d.node_id, d)).collect();
     let mut u = vec![0.0; dof_num.n_total];
     for (&(node, local), &g) in &dof_num.map {
         let Some(d) = disp.get(&node) else {
@@ -144,7 +144,7 @@ pub fn certify_results_3d(input: &SolverInput3D, results: &AnalysisResults3D) ->
             return Certificate::uncertified("sparse assembly did not build the full K");
         };
         let f = assemble_load_vector_sparse_3d(input, &input.loads, &dof_num, &stiff.inclined_transforms);
-        return match gather_u_3d(&dof_num, results) {
+        return match gather_u_3d(&dof_num, &results.displacements) {
             Ok(u) => certify_reduced_sparse(&stiff.k_ff, k_full, dof_num.n_free, &f, &u),
             Err(c) => c,
         };
@@ -157,14 +157,14 @@ pub fn certify_results_3d(input: &SolverInput3D, results: &AnalysisResults3D) ->
         return Certificate::uncertified("unsupported: inclined supports");
     }
     let f = assemble_load_vector_3d_dense(input, &input.loads, &dof_num, &stiff.inclined_transforms);
-    match gather_u_3d(&dof_num, results) {
+    match gather_u_3d(&dof_num, &results.displacements) {
         Ok(u) => certify_reduced(&stiff.k, dof_num.n_total, dof_num.n_free, &f, &u),
         Err(c) => c,
     }
 }
 
-fn gather_u_3d(dof_num: &DofNumbering, results: &AnalysisResults3D) -> Result<Vec<f64>, Certificate> {
-    let disp: HashMap<usize, &Displacement3D> = results.displacements.iter().map(|d| (d.node_id, d)).collect();
+pub(super) fn gather_u_3d(dof_num: &DofNumbering, displacements: &[Displacement3D]) -> Result<Vec<f64>, Certificate> {
+    let disp: HashMap<usize, &Displacement3D> = displacements.iter().map(|d| (d.node_id, d)).collect();
     let mut u = vec![0.0; dof_num.n_total];
     for (&(node, local), &g) in &dof_num.map {
         let Some(d) = disp.get(&node) else {

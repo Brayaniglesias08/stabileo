@@ -70,38 +70,50 @@ pub fn certify_sparse_spd_system(k: &CscMatrix, f: &[Interval], u: &[f64]) -> Ce
     if n == 0 {
         return Certificate::Certified { abs_bound: 0.0, rel_bound: 0.0, sigma: 0.0, residual_norm: 0.0 };
     }
-    let Some(diag_pos) = diagonal_positions(k) else {
-        return Certificate::uncertified("K has a structurally zero diagonal entry: mechanism");
+    let vals: Vec<Interval> = k.values.iter().map(|&x| Interval::point(x)).collect();
+    match certify_lambda_min_lower(k, &vals) {
+        Ok(mu) => finish(k, f, u, mu),
+        Err(reason) => Certificate::uncertified(reason),
+    }
+}
+
+/// Certified μ > 0 with λ_min(A) ≥ μ for the exact symmetric matrix `A` whose
+/// lower-triangle entries are enclosed by `vals` (aligned with `a.values`).
+/// `a.values` holds f64 approximations of those entries; it is only used to
+/// compute the factor and never trusted. Err with a reason when no positive μ
+/// could be certified.
+pub fn certify_lambda_min_lower(a: &CscMatrix, vals: &[Interval]) -> Result<f64, String> {
+    if vals.len() != a.values.len() || !vals.iter().all(|v| v.is_finite()) {
+        return Err("non-finite or misaligned matrix enclosure".into());
+    }
+    let Some(diag_pos) = diagonal_positions(a) else {
+        return Err("matrix has a structurally zero diagonal entry: mechanism".into());
     };
-    let sym = Rc::new(symbolic_cholesky(k));
-    let Some(factor) = numeric_cholesky(&sym, k) else {
-        return Certificate::uncertified(
-            "stiffness matrix is not positive definite (sparse Cholesky failed): mechanism or unstable structure",
+    let sym = Rc::new(symbolic_cholesky(a));
+    let Some(factor) = numeric_cholesky(&sym, a) else {
+        return Err(
+            "matrix is not positive definite (sparse Cholesky failed): mechanism or unstable structure".into(),
         );
     };
-    let lambda = match estimate_lambda_min(k, &factor) {
-        Ok(l) => l,
-        Err(reason) => return Certificate::uncertified(reason),
-    };
+    let lambda = estimate_lambda_min(a, &factor)?;
     let mut last = String::new();
     for frac in [0.9, 0.5, 0.1, 0.01] {
         let t = frac * lambda;
-        let mut shifted = k.clone();
+        let mut shifted = a.clone();
         for (j, &p) in diag_pos.iter().enumerate() {
-            shifted.values[p] = k.values[p] - t;
+            shifted.values[p] = a.values[p] - t;
             debug_assert_eq!(shifted.row_idx[p], j);
         }
         let Some(l) = numeric_cholesky(&sym, &shifted) else {
-            last = format!("Cholesky of K − {t:.3e}·I failed");
+            last = format!("Cholesky of A − {t:.3e}·I failed");
             continue;
         };
-        match gram_gershgorin(k, &l) {
-            Ok(mu) if mu > 0.0 => return finish(k, f, u, mu),
-            Ok(mu) => last = format!("Gershgorin bound μ = {mu:.3e} not positive at shift {t:.3e}"),
-            Err(reason) => return Certificate::uncertified(reason),
+        match gram_gershgorin(vals, &l)? {
+            mu if mu > 0.0 => return Ok(mu),
+            mu => last = format!("Gershgorin bound μ = {mu:.3e} not positive at shift {t:.3e}"),
         }
     }
-    Certificate::uncertified(format!("could not certify K positive definite (λ̂ = {lambda:.3e}): {last}"))
+    Err(format!("could not certify positive definiteness (λ̂ = {lambda:.3e}): {last}"))
 }
 
 /// Position of the diagonal entry in each column, or None if one is missing.
@@ -111,9 +123,11 @@ fn diagonal_positions(k: &CscMatrix) -> Option<Vec<usize>> {
         .collect()
 }
 
-/// Rigorous lower bound μ on λ_min(K) from any factor `L` (in the symbolic's
-/// permuted ordering): Gershgorin on an interval enclosure of `P K Pᵀ − L Lᵀ`.
-pub fn gram_gershgorin(k: &CscMatrix, l: &NumericCholesky) -> Result<f64, String> {
+/// Rigorous lower bound μ on λ_min(A) from any factor `L` (in the symbolic's
+/// permuted ordering): Gershgorin on an interval enclosure of `P A Pᵀ − L Lᵀ`.
+/// `vals` encloses A's lower-triangle entries, aligned with the values of the
+/// matrix the symbolic factorization was built from.
+pub fn gram_gershgorin(vals: &[Interval], l: &NumericCholesky) -> Result<f64, String> {
     let sym = &l.symbolic;
     let n = sym.n;
     let (lp, li, lv) = (&sym.l_col_ptr, &sym.l_row_idx, &l.l_values);
@@ -149,11 +163,11 @@ pub fn gram_gershgorin(k: &CscMatrix, l: &NumericCholesky) -> Result<f64, String
         }
     }
     for b in 0..n {
-        // + (P K Pᵀ)_{ab}, a ≥ b: the symbolic's permuted lower structure.
+        // + (P A Pᵀ)_{ab}, a ≥ b: the symbolic's permuted lower structure.
         for p in sym.pa_col_ptr[b]..sym.pa_col_ptr[b + 1] {
             let a = sym.pa_row_idx[p];
             touch(a, &mut touched, &mut list);
-            w[a] = w[a] + Interval::point(k.values[sym.pa_src[p]]);
+            w[a] = w[a] + vals[sym.pa_src[p]];
         }
         // − Σ_c L_{ac} L_{bc} over columns c with L_{bc} ≠ 0, rows a ≥ b.
         for &(c, pb) in &row_entries[row_ptr[b]..row_ptr[b + 1]] {
@@ -342,7 +356,8 @@ mod tests {
         let k = csc_lower(&[1.0, 0.0, 0.0, 1.0], 2);
         let sym = Rc::new(symbolic_cholesky(&k));
         let l = NumericCholesky { symbolic: sym.clone(), l_values: vec![2.0; sym.l_nnz] };
-        let mu = gram_gershgorin(&k, &l).unwrap();
+        let vals: Vec<Interval> = k.values.iter().map(|&x| Interval::point(x)).collect();
+        let mu = gram_gershgorin(&vals, &l).unwrap();
         assert!(mu < 0.0, "μ = {mu}");
     }
 }
