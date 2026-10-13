@@ -310,7 +310,9 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
     const perp = { x: -inward.y, y: inward.x };
     const out = (perp.x * (at.x - centre.x) + perp.y * (at.y - centre.y)) >= 0 ? 1 : -1;
     const side: S2 = shear ?? { x: perp.x * out, y: perp.y * out };
-    blocks.push({ anchor: at, inward: e.side === 'member' ? inward : { x: -inward.x, y: -inward.y }, side, lines: e.actions.map(lineOf) });
+    // Toward the member in both cases: a joint's actions stand on the member's side of the joint,
+    // so their values go there too, next to the arrows they belong to, not across the joint.
+    blocks.push({ anchor: at, inward, side, lines: e.actions.map(lineOf) });
   }
 
   // ── The supports ──
