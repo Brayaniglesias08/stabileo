@@ -44,6 +44,11 @@
     model: 'figures.model', reactions: 'figures.reactions', despiece: 'figures.despiece',
     moment: 'figures.moment', shear: 'figures.shear', axial: 'figures.axial', deformed: 'figures.deformed',
   };
+  const DCL: Array<{ id: 'members' | 'nodes' | 'all'; key: string }> = [
+    { id: 'members', key: 'viewExport.dclMembers' },
+    { id: 'nodes', key: 'viewExport.dclNodes' },
+    { id: 'all', key: 'viewExport.dclAll' },
+  ];
   const STYLES: Array<{ id: InkStyle; key: string }> = [
     { id: 'color', key: 'viewExport.styleColor' },
     { id: 'bw', key: 'viewExport.styleBw' },
@@ -101,6 +106,16 @@
     <label class="xs-check" class:off={is3D}><input type="checkbox" bind:checked={options.lengths} onchange={save} disabled={is3D} />{t('viewExport.optLengthsLong')}</label>
     <label class="xs-check"><input type="checkbox" bind:checked={options.values} onchange={save} />{t('viewExport.optValuesLong')}</label>
     <label class="xs-check"><input type="checkbox" bind:checked={options.titles} onchange={save} />{t('viewExport.optTitlesLong')}</label>
+    {#if contents.includes('despiece') && !is3D}
+      <div class="xs-field">
+        <span>{t('viewExport.dcl')}</span>
+        <div class="xs-seg">
+          {#each DCL as o (o.id)}
+            <button type="button" class:on={(options.dcl ?? 'members') === o.id} onclick={() => { options.dcl = o.id; save(); }} data-testid={`view-export-dcl-${o.id}`}>{t(o.key)}</button>
+          {/each}
+        </div>
+      </div>
+    {/if}
   </ExportSection>
 
   <ExportSection title={t('viewExport.sectionOutput')} summary={outputSummary}>

@@ -45,10 +45,12 @@ export interface FigureOptions {
   /** A heading on each figure saying what it shows. */
   titles: boolean;
   style: InkStyle;
+  /** Which pieces the free-body figure shows: the members, the joints, or both. */
+  dcl?: 'members' | 'nodes' | 'all';
 }
 
 export const DEFAULT_FIGURE_OPTIONS: FigureOptions = {
-  loads: true, numbering: false, lengths: false, values: true, titles: true, style: 'color',
+  loads: true, numbering: false, lengths: false, values: true, titles: true, style: 'color', dcl: 'members',
 };
 
 /** What the viewport draws for one figure. */

@@ -21,6 +21,7 @@
   import { effectiveBendingInertia } from '../lib/engine/solver-service';
   import { computeLocalAxes3D } from '../lib/engine/local-axes-3d';
   import { drawDeformed } from '../lib/canvas/draw-deformed';
+  import { drawDespiecePrint, printSpans } from '../lib/canvas/draw-despiece-print';
   import { drawDespiece, despieceElementSpan, remapLoadSpanToShrunk, distributedResultantVector, DESPIECE_LOAD_COLOR } from '../lib/canvas/draw-despiece';
   import { drawDistributedLoads, drawPointLoadsOnElements, drawThermalLoads, drawMovingLoadAxles, drawMomentSymbol } from '../lib/canvas/draw-loads';
   import { createLabelCollector, type LabelCollector } from '../lib/canvas/label-layout';
@@ -1116,15 +1117,37 @@
           const r = resultsStore.getReaction(sup.nodeId);
           if (r) reactions.set(sup.nodeId, { rx: r.rx, rz: r.rz, my: r.my });
         }
-        drawDespiece({
+        const despieceElements = [...modelStore.elements.values()].map(e => ({ id: e.id, nodeI: e.nodeI, nodeJ: e.nodeJ }));
+        const despieceNode = (id: number) => { const n = modelStore.getNode(id); return n ? project2DNode(n) : undefined; };
+        const despieceForces = (id: number) => {
+          const f = resultsStore.getElementForces(id);
+          return f ? { elementId: f.elementId, nStart: f.nStart, nEnd: f.nEnd, vStart: f.vStart, vEnd: f.vEnd, mStart: f.mStart, mEnd: f.mEnd } : undefined;
+        };
+        // A figure is laid out for the page (`draw-despiece-print.ts`): fixed gaps, magnitudes,
+        // values that make room for each other. Its pieces are where the loads go too.
+        const printSpanOf = exportFrame
+          ? printSpans({ elements: despieceElements, getNode: despieceNode, zoom: uiStore.zoom })
+          : null;
+        if (exportFrame) {
+          drawDespiecePrint({
+            ctx: ctx!,
+            worldToScreen: (wx, wy) => uiStore.worldToScreen(wx, wy),
+            zoom: uiStore.zoom,
+            elements: despieceElements,
+            getNode: despieceNode,
+            getElementForces: despieceForces,
+            reactions,
+            fmt: (v, q = 'force') => fixedQuantity(v, q, 1, uiStore.unitSystem),
+            basis: uiStore.despieceBasis,
+            mode: exportFrame.options.dcl ?? 'members',
+            labels: currentFrameLabels!,
+          });
+        } else drawDespiece({
           ctx: ctx!,
           worldToScreen: (wx, wy) => uiStore.worldToScreen(wx, wy),
-          elements: [...modelStore.elements.values()].map(e => ({ id: e.id, nodeI: e.nodeI, nodeJ: e.nodeJ })),
-          getNode: (id) => { const n = modelStore.getNode(id); return n ? project2DNode(n) : undefined; },
-          getElementForces: (id) => {
-            const f = resultsStore.getElementForces(id);
-            return f ? { elementId: f.elementId, nStart: f.nStart, nEnd: f.nEnd, vStart: f.vStart, vEnd: f.vEnd, mStart: f.mStart, mEnd: f.mEnd } : undefined;
-          },
+          elements: despieceElements,
+          getNode: despieceNode,
+          getElementForces: despieceForces,
           reactions,
           sep,
           fmt: (v, q = 'force') => fixedQuantity(v, q, 1, uiStore.unitSystem),
@@ -1139,7 +1162,9 @@
         // mirrored). 'all' = full glyphs; 'resultant' = one equivalent force per
         // load (distributed → arrow at its centroid). Element loads ride the
         // SHRUNKEN member segment; nodal loads stay at their node. Amber color.
-        const loadMode = uiStore.despieceLoadMode;
+        // A printed free body is in equilibrium only with its loads on it: shown even when the
+        // screen has them off.
+        const loadMode = exportFrame && uiStore.despieceLoadMode === 'off' ? 'all' : uiStore.despieceLoadMode;
         if (loadMode !== 'off') {
           const LOAD = DESPIECE_LOAD_COLOR;
           const vSize = Math.max(0.3, uiStore.despieceVectorSize);
@@ -1149,7 +1174,8 @@
            * shrunk and pulled apart, so the segments the main pass uses as
            * obstacles do not describe what is on screen.
            */
-          const overlayLabels = createLabelCollector();
+          // In a figure the load values join the free body's layout, so they dodge each other too.
+          const overlayLabels = exportFrame ? currentFrameLabels! : createLabelCollector();
           const baseCtx = { ...makeDrawContext(), labels: overlayLabels };
           // Fixed-size amber arrow (screen space) so big load values don't dominate.
           const loadArrow = (sx: number, sy: number, ux: number, uy: number, label: string) => {
@@ -1184,7 +1210,7 @@
               const d = load.data as { elementId: number; qI?: number; qJ?: number; a?: number; b?: number; p?: number; px?: number; my?: number; mz?: number; angle?: number; isGlobal?: boolean };
               const el = modelStore.elements.get(d.elementId); if (!el) continue;
               const ni = baseCtx.getNode(el.nodeI), nj = baseCtx.getNode(el.nodeJ); if (!ni || !nj) continue;
-              const span = despieceElementSpan(ni, nj, sep);
+              const span = printSpanOf?.get(el.id) ?? despieceElementSpan(ni, nj, sep);
               const elemCtx = { ...baseCtx, getNode: (id: number) => id === el.nodeI ? span.aI : id === el.nodeJ ? span.aJ : baseCtx.getNode(id) };
               if (load.type === 'distributed' && loadMode === 'resultant') {
                 // ONE equivalent resultant arrow at the (remapped) load centroid,
@@ -1209,7 +1235,7 @@
               }
             }
           }
-          overlayLabels.flush(ctx!);
+          if (!exportFrame) overlayLabels.flush(ctx!);
         }
       } else if (dt === 'moment' || dt === 'shear' || dt === 'axial') {
         const dkind = dt as DiagramKind;

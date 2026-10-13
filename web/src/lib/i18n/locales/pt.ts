@@ -9229,7 +9229,7 @@ const pt: Translations = {
   'viewExport.sectionOutput': 'Saída',
   'viewExport.nothing': 'Nenhuma figura escolhida',
   'viewExport.needsSolve': 'As figuras de resultados calculam o modelo se ele ainda não foi calculado.',
-  'viewExport.despieceNote': 'O DCL usa a configuração do despiece (Avançado › Despiece).',
+  'viewExport.despieceNote': 'O DCL usa as forças do despiece (Avançado › Despiece), desenhadas para impressão: cada peça separada, setas no sentido real e valores sem sinal.',
   'viewExport.optLoads': 'Cargas',
   'viewExport.optNumbering': 'Numeração',
   'viewExport.optLengths': 'Comprimentos',
@@ -9309,5 +9309,9 @@ const pt: Translations = {
   'calcReport.autoSolveNote': 'Se o modelo não estiver calculado, ele é calculado ao gerar. Se não for possível, o memorial sai mesmo assim e explica o motivo.',
   'calcReport.generating': 'Gerando…',
   'figures.modelLoaded': 'Estrutura com suas cargas',
+  'viewExport.dcl': 'DCL de',
+  'viewExport.dclMembers': 'Barras',
+  'viewExport.dclNodes': 'Nós',
+  'viewExport.dclAll': 'Barras e nós',
 };
 export default pt;

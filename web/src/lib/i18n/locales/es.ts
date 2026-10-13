@@ -9585,7 +9585,7 @@ const es: Record<string, string> = {
   'viewExport.sectionOutput': 'Salida',
   'viewExport.nothing': 'Ninguna figura elegida',
   'viewExport.needsSolve': 'Las figuras de resultados calculan el modelo si todavía no está calculado.',
-  'viewExport.despieceNote': 'El DCL se dibuja con la configuración del despiece (Avanzado › Despiece).',
+  'viewExport.despieceNote': 'El DCL usa las fuerzas del despiece (Avanzado › Despiece), dibujadas para imprimir: cada pieza separada, flechas con su sentido real y valores sin signo.',
   'viewExport.optLoads': 'Cargas',
   'viewExport.optNumbering': 'Numeración',
   'viewExport.optLengths': 'Longitudes',
@@ -9665,5 +9665,9 @@ const es: Record<string, string> = {
   'calcReport.autoSolveNote': 'Si el modelo no está calculado, se calcula al generar. Si no se puede, la memoria sale igual y explica por qué.',
   'calcReport.generating': 'Generando…',
   'figures.modelLoaded': 'Estructura con sus cargas',
+  'viewExport.dcl': 'DCL de',
+  'viewExport.dclMembers': 'Barras',
+  'viewExport.dclNodes': 'Nudos',
+  'viewExport.dclAll': 'Barras y nudos',
 };
 export default es;

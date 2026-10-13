@@ -9596,7 +9596,7 @@ const en: Record<string, string> = {
   'viewExport.sectionOutput': 'Output',
   'viewExport.nothing': 'No figure chosen',
   'viewExport.needsSolve': 'Result figures solve the model first if it has not been solved yet.',
-  'viewExport.despieceNote': 'The free-body diagram uses the despiece settings (Advanced › Despiece).',
+  'viewExport.despieceNote': 'The free-body diagram uses the despiece forces (Advanced › Despiece), drawn for print: every piece apart, arrows in their real sense and values without sign.',
   'viewExport.optLoads': 'Loads',
   'viewExport.optNumbering': 'Numbering',
   'viewExport.optLengths': 'Lengths',
@@ -9676,5 +9676,9 @@ const en: Record<string, string> = {
   'calcReport.autoSolveNote': 'If the model has not been solved, it is solved on generating. If it cannot be, the report still comes out and says why.',
   'calcReport.generating': 'Generating…',
   'figures.modelLoaded': 'The structure and its loads',
+  'viewExport.dcl': 'Free body of',
+  'viewExport.dclMembers': 'Members',
+  'viewExport.dclNodes': 'Joints',
+  'viewExport.dclAll': 'Both',
 };
 export default en;
