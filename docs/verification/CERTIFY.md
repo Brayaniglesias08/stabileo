@@ -95,6 +95,59 @@ Lean: `Certify.buckling_enclosure` (`verify/Certify/Buckling.lean`), built on
 corollary `Certify.buckling_criticalFactor_mem` states `λ_cr ∈ [λ̲, λ̄]` for
 `criticalFactor K N := sSup {λ | 0 ≤ λ ∧ ∀ λ' ∈ [0, λ], Stable K N λ'}`.
 
+## Modal enclosures and completeness
+
+Free vibration solves `K φ = λ M φ` (`λ = ω²`) with `K ≻ 0` and `M ⪰ 0` (possibly
+singular). `engine/src/certify/modal.rs` certifies three things.
+
+* **Single-mode enclosure.** With `C = K^{-1/2} M K^{-1/2}` (symmetric, eigenvalues
+  `ν = 1/λ`) and `y = K^{1/2}φ`, the residual `C y − ν̂ y = K^{-1/2} s`,
+  `s = Mφ − ν̂ Kφ`. For a symmetric matrix some eigenvalue `ν` satisfies
+  `|ν − ν̂| ≤ ‖C y − ν̂ y‖₂ / ‖y‖₂` (Bauer–Fike for normal matrices), and
+  `‖K^{-1/2}s‖/‖y‖ ≤ ‖s‖ / √(σ_K · φᵀKφ)` with `σ_K` a certified lower bound on `λ_min(K)`.
+* **At most `j` eigenvalues `λ ≤ μ`.** Stated without eigenvalues (min-max form): every
+  subspace `S` on which `xᵀ(K − μM)x ≤ 0` has `dim S ≤ j`. If `A = K − μM` is positive
+  on a subspace `V` then `S ∩ V = 0`, so `dim S + dim V ≤ n`. Two certified choices
+  of `V`: the coordinate subspace `{x | xᵢ = 0, i ∈ I}` (a principal submatrix of `A`
+  with `|I| = j` rows/columns deleted is positive definite, `dim V = n − |I|`), or
+  `V = ker Uᵀ` when `A + c U Uᵀ ≻ 0` for some `U ∈ ℝ^{n×j}` (Finsler; checked by the
+  Gram residual + Gershgorin certificate).
+* **At least `j` eigenvalues `λ < μ`.** Kahan's block residual theorem applied to
+  `Y = K^{1/2}Φ`, `R = CY − Y diag(ν̂)`: `j` eigenvalues of `C` (with multiplicity) lie
+  within `‖R‖₂ / σ_min(Y)` of the `ν̂ᵢ`. This is a **cited theorem, not yet formalized**.
+
+Lean (`verify/Certify/Modal.lean`), with `NonposSubspace A S := ∀ x ∈ S, xᵀAx ≤ 0`:
+
+* `count_le_of_pos_on` / `count_le_of_pos_on'`: `A` positive on `V \ 0` ⇒ every
+  nonpositive `S` has `dim S + dim V ≤ n` (`dim S ≤ n − dim V`).
+* `finrank_deletedSubspace`: `dim {x | xᵢ = 0, i ∈ I} = n − |I|`;
+  `count_le_of_deleted`: `A` positive there ⇒ `dim S ≤ |I|`. (Positivity of the
+  principal submatrix is taken as a hypothesis; its Gram/Gershgorin certificate is not
+  connected in Lean.)
+* `count_le_of_finsler`: `A + c U Uᵀ ≻ 0` ⇒ `dim S ≤ j`; `count_le_of_finsler_gram`:
+  the same from an interval Gram-residual certificate of `K − μM + c U Uᵀ` (any real `L`,
+  Gershgorin bound `> 0`).
+* `exists_eigenvalue_near`: for real symmetric `C`, `y ≠ 0` and any `ν`, some
+  `e = hC.eigenvalues k` has `|e − ν| ≤ ‖Cy − νy‖₂ / ‖y‖₂` (via the spectral theorem).
+  The change of variables to the pencil (`K^{±1/2}`, `σ_K`) is not formalized.
+
+## Member force bounds
+
+Local member end forces are affine in the element end displacements,
+`f = k_local · T · u_e − fef`, so forces at the exact `u*` and the computed `ũ` differ
+by `k_local T (u* − ũ)`. By Cauchy–Schwarz, component `i` satisfies
+
+    |(k T (u* − ũ))ᵢ| ≤ ‖row_i(k)‖₂ · ‖T‖₂ · ‖u* − ũ‖₂,
+
+with `‖T‖₂ ≤ 1 + 4ε` (rotation with rounded entries) and `‖u* − ũ‖₂` from the
+displacement certificate (`engine/src/certify/forces.rs`). Rounding in the f64 force
+evaluation itself is not included.
+
+Lean (`verify/Certify/Forces.lean`): `abs_mulVec_sub_le` (`|(B(u − ũ))ᵢ| ≤
+‖row_i B‖ ‖u − ũ‖`) and `force_bound`: if `‖row_i k‖ ≤ r`, `‖Tx‖ ≤ τ‖x‖` for all `x`
+(`τ ≥ 0`) and `‖u − ũ‖ ≤ b`, then `|((kT)(u − ũ))ᵢ| ≤ r τ b`. The bound `‖T‖₂ ≤ 1 + 4ε`
+is assumed, not proved.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.
@@ -104,7 +157,7 @@ modelled by abstract `down, up : ℝ → ℝ` with `down x ≤ x ≤ up x`.
 
 ## Out of scope for v1
 
-Mechanism certificates (exact rational null vectors), modal eigenvalue
-certificates, and proving the f64 implementation matches the Lean algorithm. (Large
+Mechanism certificates (exact rational null vectors), a Lean proof of Kahan's
+theorem (used for the modal lower count), and proving the f64 implementation matches the Lean algorithm. (Large
 models are covered by the Gram/Gershgorin certificate above; the dense interval
 Cholesky is used only below the solver's sparse threshold.)

@@ -4,3 +4,5 @@ import Certify.Cholesky
 import Certify.Main
 import Certify.Gram
 import Certify.Buckling
+import Certify.Modal
+import Certify.Forces

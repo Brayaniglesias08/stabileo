@@ -16,6 +16,15 @@ theorems=(
 	Certify.certified_error_bound_gram
 	Certify.buckling_enclosure
 	Certify.buckling_criticalFactor_mem
+	Certify.count_le_of_pos_on
+	"Certify.count_le_of_pos_on'"
+	Certify.finrank_deletedSubspace
+	Certify.count_le_of_deleted
+	Certify.count_le_of_finsler
+	Certify.count_le_of_finsler_gram
+	Certify.exists_eigenvalue_near
+	Certify.abs_mulVec_sub_le
+	Certify.force_bound
 )
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
