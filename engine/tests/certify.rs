@@ -555,3 +555,39 @@ fn certify_buckling_3d_fixtures() {
     }
     assert!(certified >= 1, "no 3D buckling fixture certified");
 }
+
+// ───────────────────────── modal ─────────────────────────
+
+#[test]
+fn certify_modal_3d_fixtures() {
+    use dedaliano_engine::certify::modal::{certify_modal_3d, ModalCertificate};
+    let mut complete = 0;
+    for p in fixture_paths("ex-3d-", |_| true) {
+        let name = p.file_name().unwrap().to_str().unwrap().to_string();
+        let input: SolverInput3D = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        if !input.constraints.is_empty() || DofNumbering::build_3d(&input).n_free > 600 {
+            continue;
+        }
+        let densities: HashMap<String, f64> =
+            input.materials.values().map(|m| (m.id.to_string(), 7.85)).collect();
+        let Ok(out) = certify_modal_3d(&input, &densities, 6) else { continue };
+        match &out.certificate {
+            ModalCertificate::Uncertified { reason } => eprintln!("{name}: {reason}"),
+            ModalCertificate::Certified { modes, complete_modes, cutoff_omega2, count_failure } => {
+                for (e, m) in modes.iter().zip(&out.results.modes) {
+                    let w2 = m.omega * m.omega;
+                    assert!(e.omega2_lower <= w2 && w2 <= e.omega2_upper, "{name}: {e:?}");
+                }
+                let w = modes.iter().map(|e| (e.omega2_upper - e.omega2_lower) / e.omega2_computed).fold(0.0, f64::max);
+                eprintln!(
+                    "{name}: max rel width {w:.1e}, {complete_modes}/{} complete below ω² = {cutoff_omega2:.4e} {count_failure:?}",
+                    modes.len()
+                );
+                if *complete_modes == modes.len() {
+                    complete += 1;
+                }
+            }
+        }
+    }
+    assert!(complete >= 3, "only {complete} fixtures certified complete");
+}

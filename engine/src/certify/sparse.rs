@@ -172,7 +172,7 @@ pub fn gram_gershgorin(vals: &[Interval], l: &NumericCholesky) -> Result<f64, St
         // − Σ_c L_{ac} L_{bc} over columns c with L_{bc} ≠ 0, rows a ≥ b.
         for &(c, pb) in &row_entries[row_ptr[b]..row_ptr[b + 1]] {
             let lbc = lv[pb];
-            for p in pb..lp[c + 1] {
+            for p in lp[c]..lp[c + 1] {
                 let a = li[p];
                 if a < b {
                     continue; // rows in a column need not be sorted

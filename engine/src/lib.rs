@@ -121,6 +121,19 @@ pub fn solve_modal_2d(json: &str, num_modes: usize) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 
+/// Solve 2D modal analysis and certify the modes: per-mode ω² enclosures and
+/// whether any mode below the cutoff was missed (docs/verification/CERTIFY.md).
+/// JSON in → JSON `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_modal_2d(json: &str, num_modes: usize) -> Result<String, JsValue> {
+    let input: types::ModalInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::modal::certify_modal_2d(&input.solver, &input.densities, num_modes)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
 /// Solve 2D spectral analysis. JSON in → JSON out.
 #[wasm_bindgen]
 pub fn solve_spectral_2d(json: &str) -> Result<String, JsValue> {
@@ -172,6 +185,19 @@ pub fn solve_modal_3d(json: &str, num_modes: usize) -> Result<String, JsValue> {
     let input: types::ModalInput3D = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
     let results = solver::modal::solve_modal_3d(&input.solver, &input.densities, num_modes)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Solve 3D modal analysis and certify the modes: per-mode ω² enclosures and
+/// whether any mode below the cutoff was missed (docs/verification/CERTIFY.md).
+/// JSON in → JSON `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_modal_3d(json: &str, num_modes: usize) -> Result<String, JsValue> {
+    let input: types::ModalInput3D = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::modal::certify_modal_3d(&input.solver, &input.densities, num_modes)
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&results)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
