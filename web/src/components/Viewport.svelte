@@ -21,7 +21,7 @@
   import { effectiveBendingInertia } from '../lib/engine/solver-service';
   import { computeLocalAxes3D } from '../lib/engine/local-axes-3d';
   import { drawDeformed } from '../lib/canvas/draw-deformed';
-  import { drawFreeBody, screenPieces, freeBodyFocus, FB_GAP_PX } from '../lib/canvas/free-body';
+  import { drawFreeBody, screenPieces, freeBodyFocus, freeBodyGap } from '../lib/canvas/free-body';
   import { freeBodyActions2D } from '../lib/canvas/free-body-2d';
   import { despieceElementSpan, remapLoadSpanToShrunk, distributedResultantVector, DESPIECE_LOAD_COLOR } from '../lib/canvas/draw-despiece';
   import { drawDistributedLoads, drawPointLoadsOnElements, drawThermalLoads, drawMovingLoadAxles, drawMomentSymbol, computeLoadDirection } from '../lib/canvas/draw-loads';
@@ -1132,7 +1132,8 @@
         const vSizeFb = exportFrame ? 1 : Math.max(0.5, uiStore.despieceVectorSize);
         const lSizeFb = exportFrame ? 1 : Math.max(0.6, uiStore.despieceLabelSize);
         const fbMembers = despieceElements.map((e) => ({ ...e, i: despieceNode(e.nodeI)!, j: despieceNode(e.nodeJ)! })).filter((m) => m.i && m.j);
-        const fbPieces = screenPieces(fbMembers, (p) => uiStore.worldToScreen(p.x, p.y), FB_GAP_PX * sep);
+        const fbMode = exportFrame ? (exportFrame.options.dcl ?? 'members') : uiStore.despieceVectorMode;
+        const fbPieces = screenPieces(fbMembers, (p) => uiStore.worldToScreen(p.x, p.y), freeBodyGap(fbMode, sep));
         const fbSpan = (id: number, ni: { x: number; y: number }, nj: { x: number; y: number }) => {
           const p = fbPieces.get(id);
           if (!p) return despieceElementSpan(ni, nj, sep);
@@ -1250,7 +1251,7 @@
           // A large model shows the selected members' actions; a figure, everything it can.
           focus: exportFrame ? undefined : freeBodyFocus(fbMembers, uiStore.selectedElements, uiStore.selectedNodes),
           hint: t('despiece.selectToSee'),
-          mode: exportFrame ? (exportFrame.options.dcl ?? 'members') : uiStore.despieceVectorMode,
+          mode: fbMode,
           sep,
           planar: true,
           fmt: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),

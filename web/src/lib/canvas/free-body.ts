@@ -80,6 +80,16 @@ export interface FreeBodyInput {
 }
 
 export const FB_GAP_PX = 58;
+/**
+ * With both sides drawn, a cut holds two sets of arrows, the member's at the cut and the joint's
+ * at the joint, so it opens wider, and each set keeps to its half.
+ */
+export const FB_GAP_PX_BOTH = 104;
+
+/** How far the cuts open, on the screen, for a mode and a pull-apart. */
+export function freeBodyGap(mode: FreeBodyInput['mode'], sep: number): number {
+  return (mode === 'all' ? FB_GAP_PX_BOTH : FB_GAP_PX) * Math.max(0, Math.min(1, sep));
+}
 /** Above this many members only the selected ones show their actions. */
 export const FB_FOCUS_ABOVE = 40;
 
@@ -177,7 +187,11 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
   const fontPx = d.labelPx ?? 10.5;
   const font = `bold ${fontPx}px sans-serif`;
   const sep = Math.max(0, Math.min(1, d.sep));
-  const pieces = screenPieces(d.members, d.toScreen, FB_GAP_PX * sep);
+  const gap = freeBodyGap(d.mode, sep);
+  const pieces = screenPieces(d.members, d.toScreen, gap);
+  // An arrow along a member keeps to its own half of the cut, so the member's and the joint's
+  // never run into each other.
+  const alongMax = Math.max(14, gap * 0.42);
   const val = valence(d.members);
   const taken: Obstacle[] = [...(d.obstacles ?? [])];
   const blockSeg = (x1: number, y1: number, x2: number, y2: number, pad = 3) => {
@@ -234,7 +248,7 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
   const lineOf = (a: FBAction) => ({ text: `${a.name} = ${d.fmt(a.magnitude, a.kind)}`, color: a.color });
 
   /** Draw one action standing at screen point `at` (world `w`), the piece lying along `inward`. */
-  function drawAction(a: FBAction, at: S2, w: P3, inward: S2 | null, external: boolean, slot: number): { x: number; y: number } | null {
+  function drawAction(a: FBAction, at: S2, w: P3, inward: S2 | null, external: boolean, slot: number, onJoint = false): { x: number; y: number } | null {
     if (a.kind === 'moment' && d.planar) {
       const r = external ? 18 : 12;
       arc(ctx, at.x, at.y, r, !!a.ccw, a.color);
@@ -263,12 +277,19 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
       arrow(ctx, x0, y0, x1, y1, a.color);
     } else {
       const along = inward ? sd.x * inward.x + sd.y * inward.y : 0;
-      if (inward && Math.abs(along) > 0.7 && along < 0) {
+      const isAlong = !!inward && Math.abs(along) > 0.7;
+      const l = isAlong ? Math.min(len, alongMax) : len;
+      if (onJoint && isAlong) {
+        // On the joint itself, `inward` pointing at the member: pulled toward the member, the
+        // arrow leaves the joint; pushed from the member's side, its head is at the joint.
+        if (along > 0) { x0 = at.x; y0 = at.y; x1 = at.x + sd.x * l; y1 = at.y + sd.y * l; }
+        else { x1 = at.x; y1 = at.y; x0 = at.x - sd.x * l; y0 = at.y - sd.y * l; }
+      } else if (isAlong && along < 0) {
         // Along the piece and pulling it: drawn leaving the face, in the gap.
-        x0 = at.x; y0 = at.y; x1 = at.x + sd.x * len; y1 = at.y + sd.y * len;
+        x0 = at.x; y0 = at.y; x1 = at.x + sd.x * l; y1 = at.y + sd.y * l;
       } else {
         // Pushing the face, or across it: the head on the face.
-        x1 = at.x; y1 = at.y; x0 = at.x - sd.x * len; y0 = at.y - sd.y * len;
+        x1 = at.x; y1 = at.y; x0 = at.x - sd.x * l; y0 = at.y - sd.y * l;
       }
       arrow(ctx, x0, y0, x1, y1, a.color);
     }
@@ -293,12 +314,24 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
     const gx = cut.x - sn.x, gy = cut.y - sn.y, gl = Math.hypot(gx, gy);
     const far = e.end === 'I' ? p.b : p.a;
     const inward = gl > 1 ? { x: gx / gl, y: gy / gl } : (() => { const l = Math.hypot(far.x - sn.x, far.y - sn.y) || 1; return { x: (far.x - sn.x) / l, y: (far.y - sn.y) / l }; })();
-    const at = e.side === 'member' ? cut : { x: sn.x + inward.x * Math.min(16, gl * 0.3), y: sn.y + inward.y * Math.min(16, gl * 0.3) };
+    // On the joint's side the axial forces stand on the joint itself (a joint's forces meet at
+    // it); its shears and moments a little along the member, where each can be told apart.
+    const onJointAt = { x: sn.x + inward.x * 6, y: sn.y + inward.y * 6 };
+    // The joint's shears and moments stand in its half of the cut: the middle of it when only
+    // the joints are drawn, the third nearest the joint when the members' share the cut.
+    const jointAt = gl * (d.mode === 'all' ? 0.3 : 0.55);
+    const at = e.side === 'member' ? cut : { x: sn.x + inward.x * jointAt, y: sn.y + inward.y * jointAt };
     // The world point of the cut, for projecting directions (the joint is close enough).
     const w = node;
     let shear: { x: number; y: number } | null = null;
     e.actions.forEach((a, k) => {
-      const v = drawAction(a, at, w, e.side === 'member' ? inward : { x: -inward.x, y: -inward.y }, false, k);
+      const axialOnJoint = e.side === 'node' && a.kind === 'force' && (() => {
+        const sd = screenDir(w, a.dir);
+        return Math.abs(sd.x * inward.x + sd.y * inward.y) > 0.7;
+      })();
+      const v = axialOnJoint
+        ? drawAction(a, onJointAt, w, inward, false, k, true)
+        : drawAction(a, at, w, e.side === 'member' ? inward : { x: -inward.x, y: -inward.y }, false, k);
       if (v && a.kind === 'force') {
         const l = Math.hypot(v.x, v.y) || 1;
         const across = Math.abs((v.x / l) * inward.x + (v.y / l) * inward.y) < 0.7;
