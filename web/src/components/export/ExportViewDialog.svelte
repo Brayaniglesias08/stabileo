@@ -69,7 +69,7 @@
     options.titles ? t('viewExport.optTitles') : null,
   ].filter(Boolean).join(' · ') || '—');
   const outputSummary = $derived([
-    is3D ? null : t(STYLES.find((s) => s.id === options.style)!.key),
+    t(STYLES.find((s) => s.id === options.style)!.key),
     contents.length > 1 ? t(sheet ? 'viewExport.layoutSheet' : 'viewExport.layoutSeparate') : null,
   ].filter(Boolean).join(' · ') || 'PNG');
 
@@ -78,7 +78,7 @@
   async function run(kind: 'download' | 'copy') {
     if (busy || contents.length === 0) return;
     busy = true;
-    const req = { format: is3D ? 'png' as const : format, contents: [...contents], options: { ...options }, sheet };
+    const req = { format, contents: [...contents], options: { ...options }, sheet };
     try {
       if (kind === 'copy') {
         if (await copyView(req)) { uiStore.toast(t('viewExport.copied'), 'success'); open = false; }
@@ -89,7 +89,7 @@
   }
 </script>
 
-<ExportDialog bind:open title={`${t('viewExport.title')} — ${is3D ? 'PNG' : format.toUpperCase()}`} testid="view-export-dialog">
+<ExportDialog bind:open title={`${t('viewExport.title')} — ${format.toUpperCase()}`} testid="view-export-dialog">
   <ExportSection title={t('viewExport.sectionContent')} summary={contentSummary} testid="view-export-content">
     <div class="xs-grid">
       {#each FIGURE_CONTENTS as c (c)}
@@ -106,7 +106,7 @@
     <label class="xs-check" class:off={is3D}><input type="checkbox" bind:checked={options.lengths} onchange={save} disabled={is3D} />{t('viewExport.optLengthsLong')}</label>
     <label class="xs-check"><input type="checkbox" bind:checked={options.values} onchange={save} />{t('viewExport.optValuesLong')}</label>
     <label class="xs-check"><input type="checkbox" bind:checked={options.titles} onchange={save} />{t('viewExport.optTitlesLong')}</label>
-    {#if contents.includes('despiece') && !is3D}
+    {#if contents.includes('despiece')}
       <div class="xs-field">
         <span>{t('viewExport.dcl')}</span>
         <div class="xs-seg">
@@ -119,9 +119,6 @@
   </ExportSection>
 
   <ExportSection title={t('viewExport.sectionOutput')} summary={outputSummary}>
-    {#if is3D}
-      <p class="xs-note">{t('viewExport.note3D')}</p>
-    {:else}
       <div class="xs-field">
         <span>{t('viewExport.style')}</span>
         <div class="xs-seg">
@@ -130,7 +127,6 @@
           {/each}
         </div>
       </div>
-    {/if}
     <div class="xs-field">
       <span>{t('viewExport.layout')}</span>
       <div class="xs-seg">

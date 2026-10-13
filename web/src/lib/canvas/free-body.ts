@@ -80,9 +80,6 @@ export interface FreeBodyInput {
 }
 
 export const FB_GAP_PX = 58;
-/** Set while a figure is being captured from the 3D view: a capture carries no on-screen hints. */
-export const freeBodyCapture = { active: false };
-
 /** Above this many members only the selected ones show their actions. */
 export const FB_FOCUS_ABOVE = 40;
 

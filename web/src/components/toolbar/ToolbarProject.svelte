@@ -434,7 +434,7 @@
             No DXF: a drawing for CAD is PRO's. SVG and PNG open the figure dialog, where the
             reader picks what goes in (the model, its diagrams, the equilibrated free body).
           -->
-          <button class="file-btn" onclick={() => openViewExport('svg')} disabled={uiStore.is3DWorkspace} title={uiStore.is3DWorkspace ? t('project.svgOnly2d') : t('project.exportSvgTooltip')} data-testid="export-svg">
+          <button class="file-btn" onclick={() => openViewExport('svg')} title={t('project.exportSvgTooltip')} data-testid="export-svg">
             SVG
           </button>
           <button class="file-btn" onclick={() => openViewExport('png')} title={t('project.exportPngTooltip')} data-testid="export-png">

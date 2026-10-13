@@ -69,7 +69,7 @@
   import { timelapseSound } from '../lib/viewport3d/timelapse-sound';
   import { setLineResolution } from '../lib/three/create-element-mesh';
   import BuildTimelapsePanel from './BuildTimelapsePanel.svelte';
-  import { drawFreeBody, freeBodyFocus, freeBodyCapture } from '../lib/canvas/free-body';
+  import { drawFreeBody, freeBodyFocus } from '../lib/canvas/free-body';
   import { freeBodyActions3D } from '../lib/viewport3d/free-body-3d';
 
   let container: HTMLDivElement;
@@ -1349,7 +1349,7 @@
       sep: fbSep,
       planar: false,
       focus: freeBodyFocus(data.members, uiStore.selectedElements, uiStore.selectedNodes),
-      hint: freeBodyCapture.active ? undefined : t('despiece.selectToSee'),
+      hint: t('despiece.selectToSee'),
       fmt: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),
       labelPx: 10.5 * Math.max(0.6, uiStore.despieceLabelSize),
       arrowPx: 32 * Math.max(0.5, uiStore.despieceVectorSize),

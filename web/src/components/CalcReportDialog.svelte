@@ -236,9 +236,6 @@
   </ExportSection>
 
   <ExportSection title={t('calcReport.sectionFigures')} summary={figureSummary}>
-    {#if is3D}
-      <p class="xs-note">{t('viewExport.note3D')}</p>
-    {:else}
       <div class="xs-field">
         <span>{t('viewExport.style')}</span>
         <div class="xs-seg">
@@ -246,7 +243,6 @@
           <button type="button" class:on={figStyle === 'bw'} onclick={() => { figStyle = 'bw'; savePrefs(); }}>{t('viewExport.styleBw')}</button>
         </div>
       </div>
-    {/if}
     <label class="xs-check"><input type="checkbox" bind:checked={figValues} onchange={savePrefs} />{t('viewExport.optValuesLong')}</label>
   </ExportSection>
 

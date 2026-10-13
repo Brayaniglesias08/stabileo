@@ -12,8 +12,8 @@
  * once for real, with the page cut to that box and a margin. Nothing is clipped and no figure is
  * mostly empty.
  *
- * The 3D viewport has no off-screen path: there a figure is the 3D view, captured with what the
- * figure shows switched on (`capture3D`), and comes out as a PNG.
+ * In 3D a figure is the model projected from where the reader's camera looks (`figure-3d.ts`),
+ * drawn on the same contexts: the same paper, framing and output as in 2D.
  */
 import { createSvgContext, type Bounds } from './svg-context';
 import { inkContext } from './ink-context';
@@ -21,9 +21,8 @@ import type { InkStyle } from './paper-ink';
 import { modelStore, resultsStore, uiStore } from '../store';
 import { t } from '../i18n';
 import { unitQ } from '../store/display-units.svelte';
-import { resultSetName, composeFigure } from './figure';
-import { viewportCanvas } from '../utils/viewport-canvas';
-import { freeBodyCapture } from '../canvas/free-body';
+import { resultSetName } from './figure';
+import { createFigure3DRenderer, components3D } from './figure-3d';
 import type { DiagramType } from '../store/results.svelte';
 
 /** What a figure shows. */
@@ -77,9 +76,17 @@ export function registerFigure2D(r: Figure2DRenderer): () => void {
   return () => { if (renderer2D === r) renderer2D = null; };
 }
 
-/** Whether figures can be drawn as vectors here (the 2D viewport is up). */
+let renderer3D: Figure2DRenderer | null = null;
+
+/** The renderer for the workspace: the 2D view's own drawing, or the projected 3D figures. */
+function rendererNow(): Figure2DRenderer | null {
+  if (uiStore.is3DWorkspace) return (renderer3D ??= createFigure3DRenderer());
+  return renderer2D;
+}
+
+/** Whether figures can be drawn as vectors here: always in 3D, in 2D while its view is up. */
 export function canDrawVector(): boolean {
-  return renderer2D !== null && !uiStore.is3DWorkspace;
+  return rendererNow() !== null;
 }
 
 /** The viewport's diagram for a content. */
@@ -93,12 +100,19 @@ export function figureTitle(content: FigureContent): string {
     content === 'model' ? t('figures.model')
     : content === 'reactions' ? `${t('figures.reactions')} [${unitQ('force')}, ${unitQ('moment')}]`
     : content === 'despiece' ? t('figures.despiece')
-    : content === 'moment' ? `${t('figures.moment')} [${unitQ('moment')}]`
-    : content === 'shear' ? `${t('figures.shear')} [${unitQ('force')}]`
+    : content === 'moment' ? `${t('figures.moment')}${planes(content)} [${unitQ('moment')}]`
+    : content === 'shear' ? `${t('figures.shear')}${planes(content)} [${unitQ('force')}]`
     : content === 'axial' ? `${t('figures.axial')} [${unitQ('force')}]`
     : t('figures.deformed');
   const set = NEEDS_RESULTS.has(content) ? resultsLabel() : '';
   return set ? `${what} — ${set}` : what;
+}
+
+/** In 3D, which planes a bending or shear figure draws (", Mz y My"). */
+function planes(content: 'moment' | 'shear'): string {
+  if (!uiStore.is3DWorkspace || !resultsStore.results3D) return '';
+  const names = components3D(content).map((k) => ({ momentZ: 'Mz', momentY: 'My', shearY: 'Vy', shearZ: 'Vz' } as Record<string, string>)[k] ?? k);
+  return names.length ? ` (${names.join(', ')})` : '';
 }
 
 /**
@@ -155,7 +169,7 @@ function textScale(): number {
 
 /** Plan one 2D figure; null when there is no 2D viewport to draw it. */
 export function plan2D(content: FigureContent, options: FigureOptions): FigurePlan | null {
-  const r = renderer2D;
+  const r = rendererNow();
   if (!r) return null;
   const frame: ExportFrame = { content, options };
   const view = fitView(r.nodes(), content === 'despiece' ? FIT_H_FREE_BODY : FIT_H);
@@ -240,93 +254,4 @@ export function toCanvas(plan: FigurePlan, scale = PNG_SCALE): HTMLCanvasElement
 
 export function canvasToBlob(c: HTMLCanvasElement): Promise<Blob | null> {
   return new Promise((res) => c.toBlob((b) => res(b), 'image/png'));
-}
-
-/* ─── 3D: the view itself, captured with each content shown ─────────────── */
-
-/** The 3D viewport's diagram for a content: Basic 3D draws its moments and shears about z. */
-function diagram3D(content: FigureContent): DiagramType {
-  if (content === 'moment') return 'momentZ';
-  if (content === 'shear') return 'shearY';
-  return diagramFor(content);
-}
-
-const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
-
-/**
- * Each content as a PNG of the 3D view, captioned. The view's diagram and loads are switched for
- * each capture and put back after.
- */
-export async function capture3D(contents: FigureContent[], options: FigureOptions): Promise<Array<{ content: FigureContent; title: string; dataUrl: string }>> {
-  const keep = {
-    diagram: resultsStore.diagramType, reactions: resultsStore.showReactions, values: resultsStore.showDiagramValues,
-    loads: uiStore.showLoads3D, despieceLoads: uiStore.despieceLoadMode, despieceMode: uiStore.despieceVectorMode,
-  };
-  uiStore.despieceVectorMode = options.dcl ?? 'members';
-  freeBodyCapture.active = true;
-  // A free body is in equilibrium only with its loads on it.
-  if (uiStore.despieceLoadMode === 'off') uiStore.despieceLoadMode = 'all';
-  // Where the reader is standing (the viewport publishes it as the camera moves), to come back to.
-  const camera = { position: { ...uiStore.cameraPosition3D }, target: { ...uiStore.cameraTarget3D }, orthoZoom: uiStore.cameraOrthoZoom3D };
-  const out: Array<{ content: FigureContent; title: string; dataUrl: string }> = [];
-  // The whole model in each figure, whatever the view was zoomed to.
-  window.dispatchEvent(new CustomEvent('stabileo-zoom-to-fit'));
-  try {
-    for (const content of contents) {
-      resultsStore.diagramType = diagram3D(content);
-      resultsStore.showReactions = content === 'reactions' || content === 'despiece';
-      resultsStore.showDiagramValues = options.values;
-      uiStore.showLoads3D = options.loads && (content === 'model' || content === 'reactions');
-      // Two frames: one for the scene to take the change, one for it to be drawn.
-      await nextFrame(); await nextFrame(); await nextFrame();
-      const c = withOverlay(viewportCanvas());
-      if (!c) continue;
-      const title = options.titles ? figureTitle(content) : '';
-      const dataUrl = composeFigure(c, title || (modelStore.model.name ?? ''), null);
-      if (dataUrl) out.push({ content, title, dataUrl });
-    }
-  } finally {
-    resultsStore.diagramType = keep.diagram;
-    resultsStore.showReactions = keep.reactions;
-    resultsStore.showDiagramValues = keep.values;
-    uiStore.showLoads3D = keep.loads;
-    uiStore.despieceLoadMode = keep.despieceLoads;
-    uiStore.despieceVectorMode = keep.despieceMode;
-    freeBodyCapture.active = false;
-    window.dispatchEvent(new CustomEvent('stabileo-camera-set', { detail: camera }));
-  }
-  return out;
-}
-
-/**
- * The 3D view with what is drawn over it: the despiece is a 2D canvas laid over the WebGL one,
- * so a capture of the WebGL canvas alone would leave it out.
- */
-function withOverlay(gl: HTMLCanvasElement | null): HTMLCanvasElement | null {
-  if (!gl) return null;
-  const over = document.querySelector('.viewport-container canvas.fb-overlay') as HTMLCanvasElement | null;
-  if (!over || resultsStore.diagramType !== 'despiece' || !over.width) return gl;
-  const c = document.createElement('canvas');
-  c.width = gl.width; c.height = gl.height;
-  const g = c.getContext('2d');
-  if (!g) return gl;
-  try { g.drawImage(gl, 0, 0); g.drawImage(over, 0, 0, c.width, c.height); } catch { return gl; }
-  return c;
-}
-
-/** Captured 3D figures, one under the other, as one PNG. */
-export async function stackPngs(urls: string[]): Promise<Blob | null> {
-  const imgs = await Promise.all(urls.map((u) => new Promise<HTMLImageElement>((res, rej) => {
-    const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = u;
-  })));
-  const gap = 24;
-  const c = document.createElement('canvas');
-  c.width = Math.max(...imgs.map((i) => i.width));
-  c.height = imgs.reduce((h, i) => h + i.height, 0) + gap * (imgs.length - 1);
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#ffffff';
-  g.fillRect(0, 0, c.width, c.height);
-  let y = 0;
-  for (const i of imgs) { g.drawImage(i, Math.round((c.width - i.width) / 2), y); y += i.height + gap; }
-  return canvasToBlob(c);
 }

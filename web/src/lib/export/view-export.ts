@@ -2,8 +2,8 @@
  * "Exportar vista": the chosen figures as SVG or PNG files, or a picture on the clipboard.
  *
  * Figures that need results solve the model first (`ensureResults`); when it cannot be solved,
- * the figures that do not need results still come out and the reason is told. In 2D the figures
- * are drawn as vectors (`view-figure.ts`); in 3D they are the 3D view, captured, so only PNG.
+ * the figures that do not need results still come out and the reason is told. The figures are
+ * drawn as vectors (`view-figure.ts`), in 2D and in 3D.
  */
 import { zipSync } from 'fflate';
 import { modelStore, uiStore } from '../store';
@@ -11,7 +11,7 @@ import { t, tp } from '../i18n';
 import { ensureResults } from '../actions/solve';
 import { downloadBlob } from '../store/file';
 import {
-  NEEDS_RESULTS, canDrawVector, capture3D, canvasToBlob, plan2D, sheetOf, stackPngs, toCanvas, toSvg,
+  NEEDS_RESULTS, canvasToBlob, plan2D, sheetOf, toCanvas, toSvg,
   type FigureContent, type FigureOptions, type FigurePlan,
 } from './view-figure';
 
@@ -54,24 +54,11 @@ function plans(contents: FigureContent[], req: ViewExportRequest): FigurePlan[] 
   return list;
 }
 
-async function dataUrlBlob(url: string): Promise<Blob> {
-  return (await fetch(url)).blob();
-}
-
 /** The files the request makes: name and content. */
 async function files(req: ViewExportRequest): Promise<Array<{ name: string; blob: Blob }>> {
   const contents = await drawable(req.contents);
   if (contents.length === 0) return [];
   const base = fileBase();
-  if (!canDrawVector()) {
-    // 3D: the view, captured.
-    const shots = await capture3D(contents, req.options);
-    if (req.sheet && shots.length > 1) {
-      const blob = await stackPngs(shots.map((s) => s.dataUrl));
-      return blob ? [{ name: `${base}_${t('viewExport.sheetFile')}.png`, blob }] : [];
-    }
-    return Promise.all(shots.map(async (s) => ({ name: `${base}_${SLUG[s.content]}.png`, blob: await dataUrlBlob(s.dataUrl) })));
-  }
   const ps = plans(contents, req);
   const out: Array<{ name: string; blob: Blob }> = [];
   for (const p of ps) {
@@ -109,13 +96,6 @@ export async function copyView(req: ViewExportRequest): Promise<boolean> {
   const picture = (async () => {
     const contents = await drawable(req.contents);
     if (contents.length === 0) throw new Error('empty');
-    if (!canDrawVector()) {
-      const shots = await capture3D(contents, req.options);
-      if (!shots[0]) throw new Error('empty');
-      const blob = shots.length > 1 ? await stackPngs(shots.map((s) => s.dataUrl)) : await dataUrlBlob(shots[0].dataUrl);
-      if (!blob) throw new Error('empty');
-      return blob;
-    }
     const ps = plans(contents, { ...req, sheet: true });
     const blob = ps[0] ? await canvasToBlob(toCanvas(ps[0])) : null;
     if (!blob) throw new Error('empty');
