@@ -1,0 +1,62 @@
+name: Verify
+
+# Formal verification: Lean soundness proofs of the result certificate (verify/)
+# and Kani harnesses (engine/src/kani_proofs.rs). Property tests and certificate
+# tests are ordinary engine tests and run in ci.yml's suite.
+#
+# Everything runs in the `verify` Nix dev shell so CI and local builds use the
+# same tools: `nix develop .#verify -c <cmd>`.
+
+on:
+  pull_request:
+    paths:
+      - "verify/**"
+      - "engine/src/**"
+      - "docs/verification/**"
+      - "flake.nix"
+      - "flake.lock"
+      - ".github/workflows/verify.yml"
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  lean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .tools/elan
+            verify/.lake
+          key: lean-${{ runner.os }}-${{ hashFiles('verify/lean-toolchain', 'verify/lake-manifest.json') }}
+      - name: Fetch Mathlib build cache
+        working-directory: verify
+        run: nix develop ..#verify -c lake exe cache get
+      - name: Build proofs
+        working-directory: verify
+        run: nix develop ..#verify -c lake build
+      - name: No sorry, no extra axioms
+        working-directory: verify
+        run: nix develop ..#verify -c ./scripts/check-axioms.sh
+
+  kani:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: kani-${{ runner.os }}-${{ hashFiles('flake.lock', 'scripts/kani-setup.sh') }}
+      - name: Install Kani
+        run: nix develop .#verify -c ./scripts/kani-setup.sh
+      - name: Kani harnesses
+        working-directory: engine
+        run: nix develop ..#verify -c cargo kani

@@ -59,8 +59,8 @@
         };
 
         # Verification tooling: Lean (elan reads verify/lean-toolchain), Kani, SAT solvers.
-        # Kani is not in nixpkgs: it is installed into ./.tools on first entry and keeps
-        # its own nightly toolchain and CBMC under ./.tools/kani (KANI_HOME).
+        # Kani is not in nixpkgs: scripts/kani-setup.sh installs it into ./.tools, and it
+        # keeps its own nightly toolchain and CBMC under ./.tools/kani (KANI_HOME).
         devShells.verify = pkgs.mkShell {
           buildInputs = [
             rustToolchain
@@ -80,9 +80,6 @@
             export ELAN_HOME="$root/.tools/elan"
             export KANI_HOME="$root/.tools/kani"
             export PATH="$root/.tools/bin:$ELAN_HOME/bin:$PATH"
-            if ! command -v cargo-kani >/dev/null; then
-              cargo install --locked --root "$root/.tools" kani-verifier && cargo kani setup
-            fi
           '';
         };
       }
