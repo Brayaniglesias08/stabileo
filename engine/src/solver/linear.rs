@@ -30,7 +30,7 @@ const DOF_MAP_12_TO_14: [usize; 12] = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12];
 
 
 /// Free DOFs threshold: use sparse solver when n_free >= this.
-pub(crate) const SPARSE_THRESHOLD: usize = 64;
+pub const SPARSE_THRESHOLD: usize = 64;
 
 /// Free-DOF count at which explicitly requested Auto mode tries PCG after
 /// checking stability with unshifted Cholesky. Missing options remain direct.

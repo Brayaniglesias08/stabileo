@@ -5,6 +5,7 @@
 //! double-double solution vector (accurate to ~κ·ε², far below any bound).
 
 mod common;
+mod fuzz_models;
 
 use common::*;
 use dedaliano_engine::certify::buckling::{certify_buckling_2d, certify_buckling_3d, BucklingCertificate};
@@ -15,8 +16,11 @@ use dedaliano_engine::linalg::{lu_apply, lu_factor};
 use dedaliano_engine::solver::assembly::{
     assemble_load_vector_2d, assemble_load_vector_3d_dense, assemble_stiffness_2d, assemble_stiffness_3d,
 };
+use dedaliano_engine::linalg::CscMatrix;
+use dedaliano_engine::solver::assembly::assemble_stiffness_sparse_3d;
 use dedaliano_engine::solver::dof::DofNumbering;
-use dedaliano_engine::solver::linear::{expand_curved_beams_3d, solve_2d, solve_3d};
+use dedaliano_engine::solver::linear::{expand_curved_beams_3d, solve_2d, solve_3d, SPARSE_THRESHOLD};
+use dedaliano_engine::solver::sparse_assembly::{assemble_load_vector_sparse_3d, assemble_stiffness_sparse_2d};
 use dedaliano_engine::types::*;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -83,29 +87,58 @@ fn reduce(k_full: &[f64], n: usize, nf: usize, f: &[f64], u_full: &[f64]) -> Red
 
 fn reduced_2d(input: &SolverInput, res: &AnalysisResults) -> Reduced {
     let dof = DofNumbering::build_2d(input);
-    let st = assemble_stiffness_2d(input, &dof);
-    let f = assemble_load_vector_2d(input, &input.loads, &dof, &st.inclined_transforms_2d);
+    let (k, f) = if dof.n_free >= SPARSE_THRESHOLD {
+        let st = assemble_stiffness_sparse_2d(input, &dof);
+        let f = assemble_load_vector_2d(input, &input.loads, &dof, &st.inclined_transforms_2d);
+        (dense_from_lower(&st.k_full), f)
+    } else {
+        let st = assemble_stiffness_2d(input, &dof);
+        let f = assemble_load_vector_2d(input, &input.loads, &dof, &st.inclined_transforms_2d);
+        (st.k, f)
+    };
     let d: HashMap<usize, &Displacement> = res.displacements.iter().map(|d| (d.node_id, d)).collect();
     let mut u = vec![0.0; dof.n_total];
     for (&(node, l), &g) in &dof.map {
         let x = d[&node];
         u[g] = [x.ux, x.uz, x.ry][l];
     }
-    reduce(&st.k, dof.n_total, dof.n_free, &f, &u)
+    reduce(&k, dof.n_total, dof.n_free, &f, &u)
+}
+
+/// Dense copy of a symmetric matrix stored as its lower triangle.
+fn dense_from_lower(a: &CscMatrix) -> Vec<f64> {
+    let n = a.n;
+    let mut d = vec![0.0; n * n];
+    for j in 0..n {
+        for p in a.col_ptr[j]..a.col_ptr[j + 1] {
+            let i = a.row_idx[p];
+            d[i * n + j] = a.values[p];
+            d[j * n + i] = a.values[p];
+        }
+    }
+    d
 }
 
 fn reduced_3d(input: &SolverInput3D, res: &AnalysisResults3D) -> Reduced {
     let input = &expand_curved_beams_3d(input);
     let dof = DofNumbering::build_3d(input);
-    let st = assemble_stiffness_3d(input, &dof);
-    let f = assemble_load_vector_3d_dense(input, &input.loads, &dof, &st.inclined_transforms);
+    // Same assembly as the certificate: the solver's sparse path above the threshold.
+    let (k, f) = if dof.n_free >= SPARSE_THRESHOLD {
+        let st = assemble_stiffness_sparse_3d(input, &dof, true);
+        let f = assemble_load_vector_sparse_3d(input, &input.loads, &dof, &st.inclined_transforms);
+        (dense_from_lower(st.k_full.as_ref().unwrap()), f)
+    } else {
+        let st = assemble_stiffness_3d(input, &dof);
+        let f = assemble_load_vector_3d_dense(input, &input.loads, &dof, &st.inclined_transforms);
+        (st.k, f)
+    };
     let d: HashMap<usize, &Displacement3D> = res.displacements.iter().map(|d| (d.node_id, d)).collect();
     let mut u = vec![0.0; dof.n_total];
     for (&(node, l), &g) in &dof.map {
         let x = d[&node];
         u[g] = [x.ux, x.uy, x.uz, x.rx, x.ry, x.rz, x.warping.unwrap_or(0.0)][l];
     }
-    reduce(&st.k, dof.n_total, dof.n_free, &f, &u)
+    reduce(&k, dof.n_total, dof.n_free, &f, &u)
 }
 
 /// Reference solution (hi, lo) by double-double iterative refinement.
@@ -590,4 +623,50 @@ fn certify_modal_3d_fixtures() {
         }
     }
     assert!(complete >= 3, "only {complete} fixtures certified complete");
+}
+
+// ───────────────────────── fuzz with an oracle ─────────────────────────
+
+/// Random models (the crash-free fuzz generators): whenever the solver returns
+/// results, the certificate is either honest (true error ≤ bound, checked
+/// against a double-double reference) or Uncertified with a reason.
+#[test]
+fn certify_fuzz_oracle() {
+    use dedaliano_engine::certify::{certify_results_2d, certify_results_3d};
+    let (mut cert, mut unc, mut solved) = (0, 0, 0);
+    let mut reasons: HashMap<String, usize> = HashMap::new();
+    for seed in 0..400u64 {
+        let input = fuzz_models::random_2d_model(seed);
+        if let Ok(res) = solve_2d(&input) {
+            solved += 1;
+            match certify_results_2d(&input, &res) {
+                c @ Certificate::Certified { .. } => {
+                    assert_honest(&format!("2d seed {seed}"), &c, &reduced_2d(&input, &res));
+                    cert += 1;
+                }
+                Certificate::Uncertified { reason } => {
+                    assert!(!reason.is_empty());
+                    *reasons.entry(reason.chars().take(40).collect()).or_default() += 1;
+                    unc += 1;
+                }
+            }
+        }
+        let input = fuzz_models::random_3d_model(100_000 + seed);
+        if let Ok(res) = solve_3d(&input) {
+            solved += 1;
+            match certify_results_3d(&input, &res) {
+                c @ Certificate::Certified { .. } => {
+                    assert_honest(&format!("3d seed {seed}"), &c, &reduced_3d(&input, &res));
+                    cert += 1;
+                }
+                Certificate::Uncertified { reason } => {
+                    assert!(!reason.is_empty());
+                    *reasons.entry(reason.chars().take(40).collect()).or_default() += 1;
+                    unc += 1;
+                }
+            }
+        }
+    }
+    eprintln!("fuzz: {solved} solved, {cert} certified, {unc} uncertified: {reasons:?}");
+    assert!(cert > 0);
 }

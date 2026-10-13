@@ -12,6 +12,6 @@ pub use linear::{
     certify_linear_system, certify_linear_system_auto, Certificate, MAX_CERTIFY_N,
 };
 pub use solver::{
-    certify_linear_2d, certify_linear_2d_full, certify_linear_3d, certify_linear_3d_full, CertifiedResults2D,
-    CertifiedResults3D,
+    certify_linear_2d, certify_linear_2d_full, certify_linear_3d, certify_linear_3d_full, certify_results_2d,
+    certify_results_3d, CertifiedResults2D, CertifiedResults3D,
 };
