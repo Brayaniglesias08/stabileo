@@ -57,6 +57,26 @@ pub fn solve_3d(input: JsValue) -> Result<JsValue, JsValue> {
     to_js_value(&results)
 }
 
+/// Solve 2D linear static analysis and certify the displacements
+/// (docs/verification/CERTIFY.md). JsValue in → `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_linear_2d(input: JsValue) -> Result<JsValue, JsValue> {
+    let input: types::SolverInput = from_js_value(input)?;
+    let (results, certificate) = certify::certify_linear_2d(&input)
+        .map_err(|e| JsValue::from_str(&e))?;
+    to_js_value(&certify::CertifiedResults2D { results, certificate })
+}
+
+/// Solve 3D linear static analysis and certify the displacements
+/// (docs/verification/CERTIFY.md). JsValue in → `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_linear_3d(input: JsValue) -> Result<JsValue, JsValue> {
+    let input: types::SolverInput3D = from_js_value(input)?;
+    let (results, certificate) = certify::certify_linear_3d(&input)
+        .map_err(|e| JsValue::from_str(&e))?;
+    to_js_value(&certify::CertifiedResults3D { results, certificate })
+}
+
 /// Solve 2D P-Delta analysis. JSON in → JSON out.
 #[wasm_bindgen]
 pub fn solve_pdelta_2d(json: &str, max_iter: usize, tolerance: f64) -> Result<String, JsValue> {
