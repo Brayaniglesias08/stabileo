@@ -78,6 +78,7 @@ modelled by abstract `down, up : ℝ → ℝ` with `down x ≤ x ≤ up x`.
 
 ## Out of scope for v1
 
-Sparse/large models (dense interval Cholesky is O(n³); cap n), mechanism certificates
-(exact rational null vectors), eigenvalue (buckling/modal) certificates, and proving
-the f64 implementation matches the Lean algorithm.
+Mechanism certificates (exact rational null vectors), eigenvalue (buckling/modal)
+certificates, and proving the f64 implementation matches the Lean algorithm. (Large
+models are covered by the Gram/Gershgorin certificate above; the dense interval
+Cholesky is used only below the solver's sparse threshold.)

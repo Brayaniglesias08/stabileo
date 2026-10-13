@@ -479,7 +479,7 @@ fn grid_frame(bays: usize, stories: usize) -> SolverInput {
 #[test]
 #[ignore]
 fn overhead() {
-    for (bays, stories) in [(2, 3), (4, 8), (6, 15), (8, 15), (6, 30), (10, 20)] {
+    for (bays, stories) in [(2, 3), (4, 8), (6, 15), (8, 15), (6, 30), (10, 20), (20, 40), (30, 80), (50, 100)] {
         let input = grid_frame(bays, stories);
         let nf = DofNumbering::build_2d(&input).n_free;
         let t = Instant::now();
