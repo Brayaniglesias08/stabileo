@@ -57,6 +57,13 @@ jobs:
           key: kani-${{ runner.os }}-${{ hashFiles('flake.lock', 'scripts/kani-setup.sh') }}
       - name: Install Kani
         run: nix develop .#verify -c ./scripts/kani-setup.sh
+      # One harness at a time under a memory/time watchdog: CBMC can need tens of GB
+      # per float-heavy harness, and the runner has 16 GB.
       - name: Kani harnesses
-        working-directory: engine
-        run: nix develop ..#verify -c cargo kani
+        env:
+          KANI_MEM_GB: 12
+          KANI_TIMEOUT_S: 900
+        run: nix develop .#verify -c ./scripts/kani-safe.sh
+      - name: Kani report
+        if: always()
+        run: column -t target/kani-report.tsv || true

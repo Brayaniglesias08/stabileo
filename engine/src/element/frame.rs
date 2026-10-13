@@ -144,7 +144,7 @@ impl Hinge3D {
 /// at the given DOF indices. `s` is the sign of the off-diagonal c2 coefficient
 /// (+1 for Z-plane bending, -1 for Y-plane bending — captures the right-hand-rule
 /// sign mismatch between the two planes).
-fn add_bending_block(
+pub(crate) fn add_bending_block(
     k: &mut [f64], n: usize,
     v1: usize, r1: usize, v2: usize, r2: usize,
     e: f64, i: f64, l: f64, l2: f64, l3: f64, phi: f64,

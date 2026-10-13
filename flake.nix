@@ -60,12 +60,12 @@
 
         # Verification tooling: Lean (elan reads verify/lean-toolchain), Kani, SAT solvers.
         # Kani is not in nixpkgs: scripts/kani-setup.sh installs it into ./.tools, and it
-        # keeps its own nightly toolchain and CBMC under ./.tools/kani (KANI_HOME).
+        # keeps its own nightly toolchain and CBMC under ./.tools/kani (KANI_HOME). Do not add
+        # nixpkgs' cbmc here: it shadows Kani's bundled CBMC and breaks goto-cc on macOS.
         devShells.verify = pkgs.mkShell {
           buildInputs = [
             rustToolchain
             pkgs.elan
-            pkgs.cbmc
             pkgs.kissat
             pkgs.cadical
             pkgs.git
