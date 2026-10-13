@@ -3599,5 +3599,13 @@ const tr: Translations = {
   'design.stagePurpose.design': "Chooses the reinforcement for beams and columns against the code in force. The optional floor pass runs inside it.",
   'design.stagePurpose.floorsNotVerified': '{n} footing(s) not verified',
   'design.stagePurpose.detailing': 'Coordinates the bars the design produced into assemblies. The drawings, the schedule, the report and the 3-D view are projections of it.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': 'Sertifikalı: yer değiştirme hatası ≤ {abs} ({rel} bağıl)',
+  'certificate.notCertified': 'Sertifikalı değil: {reason}',
+  'certificate.pending': 'Sertifikalandırılıyor…',
+  'certificate.tooltip': 'Lean ile kanıtlanmış kesin a-posteriori sınır: birleştirilmiş doğrusal sistemin tam çözümü, hesaplanan yer değiştirmelerden en fazla bu kadar farklıdır (tüm serbest serbestlik dereceleri üzerinde Öklid normu, metre ve radyan birlikte). Bir çubuk kuvvetinin yanındaki ± onun hatasını aynı şekilde sınırlar.',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (sertifikalı)',
+  'certificate.bucklingNotCertified': 'λ_cr sertifikalı değil: {reason}',
+  'certificate.bucklingTooltip': 'Lean ile kanıtlanmış kesin aralık: yapı, alt değere kadar her yük çarpanı için kesinlikle kararlı, üst değerde ise kesinlikle kararsızdır.',
 };
 export default tr;

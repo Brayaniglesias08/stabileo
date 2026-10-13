@@ -3600,5 +3600,13 @@ const fr: Translations = {
   'design.stagePurpose.design': "Chooses the reinforcement for beams and columns against the code in force. The optional floor pass runs inside it.",
   'design.stagePurpose.floorsNotVerified': '{n} footing(s) not verified',
   'design.stagePurpose.detailing': 'Coordinates the bars the design produced into assemblies. The drawings, the schedule, the report and the 3-D view are projections of it.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': 'Certifié : erreur de déplacement ≤ {abs} ({rel} relative)',
+  'certificate.notCertified': 'Non certifié : {reason}',
+  'certificate.pending': 'Certification…',
+  'certificate.tooltip': 'Borne a posteriori rigoureuse, prouvée en Lean : la solution exacte du système linéaire assemblé diffère des déplacements calculés d’au plus cette valeur (norme euclidienne sur tous les degrés de liberté libres, mètres et radians ensemble). Le ± à côté d’un effort de barre borne son erreur de la même façon.',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (certifié)',
+  'certificate.bucklingNotCertified': 'λ_cr non certifié : {reason}',
+  'certificate.bucklingTooltip': 'Encadrement rigoureux, prouvé en Lean : la structure est certifiée stable pour tout facteur de charge jusqu’à la valeur inférieure et certifiée instable à la valeur supérieure.',
 };
 export default fr;

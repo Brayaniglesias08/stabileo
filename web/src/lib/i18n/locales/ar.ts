@@ -3587,6 +3587,14 @@ const ar: Translations = {
   'design.stagePurpose.design': "Chooses the reinforcement for beams and columns against the code in force. The optional floor pass runs inside it.",
   'design.stagePurpose.floorsNotVerified': '{n} footing(s) not verified',
   'design.stagePurpose.detailing': 'Coordinates the bars the design produced into assemblies. The drawings, the schedule, the report and the 3-D view are projections of it.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': 'معتمد: خطأ الإزاحات ≤ {abs} ({rel} نسبي)',
+  'certificate.notCertified': 'غير معتمد: {reason}',
+  'certificate.pending': 'جارٍ الاعتماد…',
+  'certificate.tooltip': 'حدّ لاحق صارم مُثبت في Lean: يختلف الحل الدقيق للنظام الخطي المُجمَّع عن الإزاحات المحسوبة بما لا يزيد عن هذه القيمة (المعيار الإقليدي على جميع درجات الحرية الحرة، الأمتار والراديان معًا). علامة ± بجانب قوة العنصر تحدّ خطأها بالطريقة نفسها.',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (معتمد)',
+  'certificate.bucklingNotCertified': 'λ_cr غير معتمد: {reason}',
+  'certificate.bucklingTooltip': 'حصر صارم مُثبت في Lean: المنشأ مستقر بشكل مؤكد لكل معامل حمل حتى القيمة الدنيا وغير مستقر بشكل مؤكد عند القيمة العليا.',
 } as const satisfies Record<string, string>;
 
 export default ar;

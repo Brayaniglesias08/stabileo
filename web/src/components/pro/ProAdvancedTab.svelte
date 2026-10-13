@@ -4,6 +4,7 @@
   import MassSourcePanel from './dynamics/MassSourcePanel.svelte';
   import TimeHistoryPanel from './dynamics/TimeHistoryPanel.svelte';
   import ProMovingLoadsPanel from './ProMovingLoadsPanel.svelte';
+  import BucklingCertificate from '../advanced/BucklingCertificate.svelte';
   import {
     densityRecord, spectralModesFrom, cumulativeMassRatios, HORIZONTAL_DIRECTIONS, modalUntilMass,
   } from '../../lib/engine/dynamics/requests';
@@ -1149,6 +1150,7 @@
             </tbody>
           </table>
         </div>
+        <BucklingCertificate certificate={bucklingResult.certificate} />
       {/if}
     </div>
 

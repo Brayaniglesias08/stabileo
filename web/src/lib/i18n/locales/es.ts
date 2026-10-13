@@ -9540,5 +9540,13 @@ const es: Record<string, string> = {
   'loadZone.changed': 'Se borró un nudo de su contorno: su forma ya no es la dibujada.',
   'floorLoad.readOnlyLoad': 'Una carga escrita por una carga de piso definida se cambia o se borra desde su definición (Cargas › Piso): se rehace a partir de ella.',
   'floorLoad.rangeInvalid': 'Indicá los dos límites de cada eje de la caja, o ninguno.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': 'Certificado: error de desplazamientos ≤ {abs} ({rel} relativo)',
+  'certificate.notCertified': 'No certificado: {reason}',
+  'certificate.pending': 'Certificando…',
+  'certificate.tooltip': 'Cota a posteriori rigurosa, demostrada en Lean: la solución exacta del sistema lineal ensamblado difiere de los desplazamientos calculados en a lo sumo este valor (norma euclídea sobre todos los grados de libertad libres, metros y radianes juntos). El ± junto a un esfuerzo de barra acota su error de la misma forma.',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (certificado)',
+  'certificate.bucklingNotCertified': 'λ_cr no certificado: {reason}',
+  'certificate.bucklingTooltip': 'Intervalo riguroso, demostrado en Lean: la estructura es estable con certeza para todo factor de carga hasta el valor inferior, e inestable con certeza en el superior.',
 };
 export default es;

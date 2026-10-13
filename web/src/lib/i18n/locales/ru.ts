@@ -3591,6 +3591,14 @@ const ru: Translations = {
   'design.stagePurpose.design': "Chooses the reinforcement for beams and columns against the code in force. The optional floor pass runs inside it.",
   'design.stagePurpose.floorsNotVerified': '{n} footing(s) not verified',
   'design.stagePurpose.detailing': 'Coordinates the bars the design produced into assemblies. The drawings, the schedule, the report and the 3-D view are projections of it.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': 'Сертифицировано: погрешность перемещений ≤ {abs} ({rel} относительная)',
+  'certificate.notCertified': 'Не сертифицировано: {reason}',
+  'certificate.pending': 'Сертификация…',
+  'certificate.tooltip': 'Строгая апостериорная оценка, доказанная в Lean: точное решение собранной линейной системы отличается от вычисленных перемещений не более чем на эту величину (евклидова норма по всем свободным степеням свободы, метры и радианы вместе). Знак ± рядом с усилием в стержне так же ограничивает его погрешность.',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (сертифицировано)',
+  'certificate.bucklingNotCertified': 'λ_cr не сертифицировано: {reason}',
+  'certificate.bucklingTooltip': 'Строгая оценка, доказанная в Lean: конструкция гарантированно устойчива при любом коэффициенте нагрузки до нижнего значения и гарантированно неустойчива при верхнем.',
 } as const satisfies Record<string, string>;
 
 export default ru;

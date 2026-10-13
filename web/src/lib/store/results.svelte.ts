@@ -287,6 +287,8 @@ function createResultsStore() {
   // verificationStore can stamp a solve-generation counter without this store
   // importing verificationStore (mirrors modelStore's `_onMutation` wiring).
   let _onResultsPublish: (() => void) | null = null;
+  /** Told of every base static solve published (as the solver returned it) and of every clear; see `certificate.svelte.ts`. */
+  let _onStaticPublish: ((r: object | null, dim: '2d' | '3d') => void) | null = null;
   /**
    * What a 3D result is put through before it is published: members of variable section back to
    * one member each (`engine/variable-members.ts`), whichever analysis produced it. Idempotent.
@@ -407,6 +409,7 @@ function createResultsStore() {
      *  its solve-generation counter — including a plain re-solve with no
      *  structural mutation (self-weight / axis-convention toggle). */
     _setOnResultsPublish(fn: () => void) { _onResultsPublish = fn; },
+    _setOnStaticPublish(fn: (r: object | null, dim: '2d' | '3d') => void) { _onStaticPublish = fn; },
     _setNormalise3D(r: (x: AnalysisResults3D) => AnalysisResults3D, e: (x: FullEnvelope3D) => FullEnvelope3D, adv?: Normalise3DAdvanced) {
       _normalise3D = r; _normaliseEnvelope3D = e; _normaliseAdvanced3D = adv ?? null;
     },
@@ -904,6 +907,7 @@ function createResultsStore() {
     },
 
     setResults(r: AnalysisResults, preserveDiagram = false) {
+      _onStaticPublish?.(r, '2d');
       r = drawn(r);
       results = r;
       singleResults = r; // Save base solve for "Cargas simples" option
@@ -993,6 +997,7 @@ function createResultsStore() {
       }
       // The held view described the results this clear throws away.
       _held = null;
+      _onStaticPublish?.(null, '2d');
       results = null;
       singleResults = null;
       diagramType = 'none';
@@ -1093,6 +1098,7 @@ function createResultsStore() {
     get results3D() { return results3D; },
 
     setResults3D(r: AnalysisResults3D, preserveDiagram = false) {
+      _onStaticPublish?.(r, '3d');
       if (_normalise3D) r = _normalise3D(r);
       noteStructuralSolve();
       _onResultsPublish?.();
@@ -1131,6 +1137,7 @@ function createResultsStore() {
     },
 
     clear3D() {
+      _onStaticPublish?.(null, '3d');
       _held = null;
       results3D = null;
       singleResults3D = null;

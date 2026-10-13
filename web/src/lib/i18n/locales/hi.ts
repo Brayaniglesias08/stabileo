@@ -3599,5 +3599,13 @@ const hi: Translations = {
   'design.stagePurpose.design': "Chooses the reinforcement for beams and columns against the code in force. The optional floor pass runs inside it.",
   'design.stagePurpose.floorsNotVerified': '{n} footing(s) not verified',
   'design.stagePurpose.detailing': 'Coordinates the bars the design produced into assemblies. The drawings, the schedule, the report and the 3-D view are projections of it.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': 'प्रमाणित: विस्थापन त्रुटि ≤ {abs} ({rel} सापेक्ष)',
+  'certificate.notCertified': 'प्रमाणित नहीं: {reason}',
+  'certificate.pending': 'प्रमाणित किया जा रहा है…',
+  'certificate.tooltip': 'Lean में सिद्ध कठोर a-posteriori सीमा: संयोजित रैखिक प्रणाली का सटीक हल गणना किए गए विस्थापनों से अधिकतम इतना भिन्न है (सभी मुक्त स्वतंत्रता कोटियों पर यूक्लिडियन मानदंड, मीटर और रेडियन साथ में)। किसी सदस्य बल के पास ± उसकी त्रुटि को इसी तरह सीमित करता है।',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (प्रमाणित)',
+  'certificate.bucklingNotCertified': 'λ_cr प्रमाणित नहीं: {reason}',
+  'certificate.bucklingTooltip': 'Lean में सिद्ध कठोर अंतराल: संरचना निचले मान तक हर भार गुणांक के लिए प्रमाणित रूप से स्थिर है और ऊपरी मान पर प्रमाणित रूप से अस्थिर है।',
 };
 export default hi;

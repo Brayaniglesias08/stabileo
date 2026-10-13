@@ -3589,6 +3589,14 @@ const id: Translations = {
   'design.stagePurpose.design': "Chooses the reinforcement for beams and columns against the code in force. The optional floor pass runs inside it.",
   'design.stagePurpose.floorsNotVerified': '{n} footing(s) not verified',
   'design.stagePurpose.detailing': 'Coordinates the bars the design produced into assemblies. The drawings, the schedule, the report and the 3-D view are projections of it.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': 'Tersertifikasi: galat perpindahan ≤ {abs} ({rel} relatif)',
+  'certificate.notCertified': 'Tidak tersertifikasi: {reason}',
+  'certificate.pending': 'Mensertifikasi…',
+  'certificate.tooltip': 'Batas a-posteriori yang ketat, dibuktikan di Lean: solusi eksak dari sistem linear yang dirakit berbeda dari perpindahan yang dihitung paling banyak sebesar nilai ini (norma Euklides atas semua derajat kebebasan bebas, meter dan radian bersama). Tanda ± di samping gaya batang membatasi galatnya dengan cara yang sama.',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (tersertifikasi)',
+  'certificate.bucklingNotCertified': 'λ_cr tidak tersertifikasi: {reason}',
+  'certificate.bucklingTooltip': 'Selang ketat, dibuktikan di Lean: struktur dipastikan stabil untuk setiap faktor beban hingga nilai bawah dan dipastikan tidak stabil pada nilai atas.',
 } as const satisfies Record<string, string>;
 
 export default id;

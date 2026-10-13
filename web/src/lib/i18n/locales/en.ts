@@ -9551,5 +9551,13 @@ const en: Record<string, string> = {
   'loadZone.changed': 'A node of its outline was deleted: its shape is not the one drawn.',
   'floorLoad.readOnlyLoad': 'A load written by a floor-load definition is changed or removed through its definition (Loads › Floor): it is rewritten from it.',
   'floorLoad.rangeInvalid': 'Give each axis of the box both bounds, or neither.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': 'Certified: displacement error ≤ {abs} ({rel} relative)',
+  'certificate.notCertified': 'Not certified: {reason}',
+  'certificate.pending': 'Certifying…',
+  'certificate.tooltip': 'Rigorous a-posteriori bound, proved in Lean: the exact solution of the assembled linear system differs from the computed displacements by at most this amount (Euclidean norm over all free degrees of freedom, meters and radians together). The ± next to a member force bounds its error the same way.',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (certified)',
+  'certificate.bucklingNotCertified': 'λ_cr not certified: {reason}',
+  'certificate.bucklingTooltip': 'Rigorous enclosure, proved in Lean: the structure is certified stable for every load factor up to the lower value and certified unstable at the upper one.',
 };
 export default en;

@@ -3607,5 +3607,13 @@ const de: Translations = {
   'design.stagePurpose.design': "Chooses the reinforcement for beams and columns against the code in force. The optional floor pass runs inside it.",
   'design.stagePurpose.floorsNotVerified': '{n} footing(s) not verified',
   'design.stagePurpose.detailing': 'Coordinates the bars the design produced into assemblies. The drawings, the schedule, the report and the 3-D view are projections of it.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': 'Zertifiziert: Verschiebungsfehler ≤ {abs} ({rel} relativ)',
+  'certificate.notCertified': 'Nicht zertifiziert: {reason}',
+  'certificate.pending': 'Zertifizierung…',
+  'certificate.tooltip': 'Strenge A-posteriori-Schranke, in Lean bewiesen: Die exakte Lösung des assemblierten linearen Systems weicht von den berechneten Verschiebungen um höchstens diesen Betrag ab (euklidische Norm über alle freien Freiheitsgrade, Meter und Radiant zusammen). Das ± neben einer Stabschnittgröße begrenzt deren Fehler auf dieselbe Weise.',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (zertifiziert)',
+  'certificate.bucklingNotCertified': 'λ_cr nicht zertifiziert: {reason}',
+  'certificate.bucklingTooltip': 'Strenge Einschließung, in Lean bewiesen: Das Tragwerk ist für jeden Lastfaktor bis zum unteren Wert nachweislich stabil und beim oberen Wert nachweislich instabil.',
 };
 export default de;

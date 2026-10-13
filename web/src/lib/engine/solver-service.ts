@@ -954,6 +954,24 @@ function finalizeSolve2DResults(results: AnalysisResults, prep: Solve2DPreparati
   return results;
 }
 
+/**
+ * The wire input of every plain linear static solve this module returned, keyed by its result,
+ * so the certificate (`store/certificate.svelte.ts`) is computed for exactly what was solved.
+ * Results of any other analysis (non-linear, combinations, …) are never in it.
+ */
+const certifiableInputs = new WeakMap<object, CertifiableInput>();
+export interface CertifiableInput { dim: '2d' | '3d'; wire: () => Record<string, any> }
+
+function certifiable<R extends object>(results: R, dim: '2d' | '3d', wire: () => Record<string, any>): R {
+  certifiableInputs.set(results, { dim, wire });
+  return results;
+}
+
+/** The input a published linear static result was solved from, or null when it cannot be certified. */
+export function certifiableInputOf(results: object): CertifiableInput | null {
+  return certifiableInputs.get(results) ?? null;
+}
+
 export function validateAndSolve2D(
   model: ModelData,
   includeSelfWeight = false,
@@ -967,7 +985,7 @@ export function validateAndSolve2D(
     const results = solveStructure(prep.input);
     const dt = performance.now() - t0;
     console.log(`Estructura resuelta en ${dt.toFixed(1)} ms — ${model.nodes.size} nodos, ${model.elements.size} elementos`);
-    return finalizeSolve2DResults(results, prep);
+    return certifiable(finalizeSolve2DResults(results, prep), '2d', () => input2DToWireObject(prep.input));
   } catch (err: any) {
     console.error('Solver error:', err);
     return t('svc.solverError').replace('{n}', err.message);
@@ -1067,7 +1085,7 @@ export async function validateAndSolve2DAsync(
     }
     const dt = performance.now() - t0;
     console.log(`Estructura resuelta en ${dt.toFixed(1)} ms — ${model.nodes.size} nodos, ${model.elements.size} elementos`);
-    const finalResults = finalizeSolve2DResults(results, prep);
+    const finalResults = certifiable(finalizeSolve2DResults(results, prep), '2d', () => input2DToWireObject(prep.input));
     solveCacheSet(cacheKey, finalResults);
     return finalResults;
   } catch (err: any) {
@@ -2111,7 +2129,8 @@ export function validateAndSolve3D(model: ModelData, includeSelfWeight = false, 
   try {
     const t0 = performance.now();
     let results: AnalysisResults3D;
-    if (hasNonlinearBehaviour(model)) {
+    const nonlinear = hasNonlinearBehaviour(model);
+    if (nonlinear) {
       const r = solveNonlinear3D(solvableModel(model), input);
       results = { ...r.results, nonlinear: r.report };
     } else {
@@ -2121,7 +2140,8 @@ export function validateAndSolve3D(model: ModelData, includeSelfWeight = false, 
     console.log(`Estructura 3D resuelta en ${dt.toFixed(1)} ms — ${model.nodes.size} nodos, ${model.elements.size} elementos`);
     const mechanism = excitedMechanism3D(results);
     if (mechanism) return mechanism;
-    return finalizeSolve3DResults(results, model);
+    const finalResults = finalizeSolve3DResults(results, model);
+    return nonlinear ? finalResults : certifiable(finalResults, '3d', () => input3DToWireObject(input));
   } catch (err: any) {
     console.error('Solver 3D error:', err);
     return t('svc.solver3dError').replace('{n}', err.message);
@@ -2161,7 +2181,7 @@ export async function validateAndSolve3DAsync(model: ModelData, includeSelfWeigh
     console.log(`Estructura 3D resuelta en ${dt.toFixed(1)} ms — ${model.nodes.size} nodos, ${model.elements.size} elementos`);
     const mechanism = excitedMechanism3D(results);
     if (mechanism) return mechanism;
-    const finalResults = finalizeSolve3DResults(results, model);
+    const finalResults = certifiable(finalizeSolve3DResults(results, model), '3d', () => wire);
     solveCacheSet(cacheKey, finalResults);
     return finalResults;
   } catch (err: any) {

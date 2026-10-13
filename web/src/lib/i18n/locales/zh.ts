@@ -3588,6 +3588,14 @@ const zh: Translations = {
   'design.stagePurpose.design': "Chooses the reinforcement for beams and columns against the code in force. The optional floor pass runs inside it.",
   'design.stagePurpose.floorsNotVerified': '{n} footing(s) not verified',
   'design.stagePurpose.detailing': 'Coordinates the bars the design produced into assemblies. The drawings, the schedule, the report and the 3-D view are projections of it.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': '已认证：位移误差 ≤ {abs}（相对 {rel}）',
+  'certificate.notCertified': '未认证：{reason}',
+  'certificate.pending': '正在认证…',
+  'certificate.tooltip': '在 Lean 中证明的严格后验误差界：组装后线性方程组的精确解与计算位移之差不超过此值（对所有自由自由度取欧几里得范数，米与弧度合计）。杆件内力旁的 ± 以同样方式界定其误差。',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}]（已认证）',
+  'certificate.bucklingNotCertified': 'λ_cr 未认证：{reason}',
+  'certificate.bucklingTooltip': '在 Lean 中证明的严格区间：结构在直至下限值的任意荷载系数下保证稳定，在上限值处保证失稳。',
 } as const satisfies Record<string, string>;
 
 export default zh;

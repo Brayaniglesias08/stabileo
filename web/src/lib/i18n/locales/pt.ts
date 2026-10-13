@@ -9184,5 +9184,13 @@ const pt: Translations = {
   'loadZone.changed': 'Um nó do seu contorno foi apagado: sua forma já não é a desenhada.',
   'floorLoad.readOnlyLoad': 'Uma carga escrita por uma carga de piso definida é mudada ou apagada pela sua definição (Cargas › Piso): é refeita a partir dela.',
   'floorLoad.rangeInvalid': 'Indique os dois limites de cada eixo da caixa, ou nenhum.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': 'Certificado: erro de deslocamentos ≤ {abs} ({rel} relativo)',
+  'certificate.notCertified': 'Não certificado: {reason}',
+  'certificate.pending': 'Certificando…',
+  'certificate.tooltip': 'Limite a posteriori rigoroso, demonstrado em Lean: a solução exata do sistema linear montado difere dos deslocamentos calculados em no máximo este valor (norma euclidiana sobre todos os graus de liberdade livres, metros e radianos juntos). O ± ao lado de um esforço de barra limita seu erro da mesma forma.',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (certificado)',
+  'certificate.bucklingNotCertified': 'λ_cr não certificado: {reason}',
+  'certificate.bucklingTooltip': 'Intervalo rigoroso, demonstrado em Lean: a estrutura é certificadamente estável para todo fator de carga até o valor inferior e certificadamente instável no superior.',
 };
 export default pt;

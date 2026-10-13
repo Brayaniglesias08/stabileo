@@ -7,6 +7,8 @@
  *   { type: 'solve',   id: number, input: object }    → 2D solve (SolverInput wire object)
  *   { type: 'solve3d', id: number, input: object }    → 3D solve (SolverInput3D wire object)
  *   { type: 'pdelta3d', id, input, maxIter, tol }      → 3D P-Delta, one load set
+ *   { type: 'certify2d' | 'certify3d', id, input }      → certificate of a linear solve
+ *                                                         ({ certificate, forceBounds }, no results)
  * Inputs/outputs are plain JS objects — structured-cloned both ways, no JSON text.
  */
 
@@ -16,6 +18,8 @@ import { finishSolve3D, finishPDelta3D } from './solve-finish';
 let solve_2d: ((input: any) => any) | null = null;
 let solve_3d: ((input: any) => any) | null = null;
 let solve_pdelta_3d: ((json: string, maxIter: number, tol: number) => string) | null = null;
+let certify_linear_2d: ((input: any) => any) | null = null;
+let certify_linear_3d: ((input: any) => any) | null = null;
 let ready = false;
 
 function handleSolve(msg: any, solveFn: ((input: any) => any) | null): void {
@@ -47,6 +51,8 @@ self.onmessage = async (e: MessageEvent) => {
       solve_2d = wasm.solve_2d;
       solve_3d = wasm.solve_3d;
       solve_pdelta_3d = (wasm as { solve_pdelta_3d?: typeof solve_pdelta_3d }).solve_pdelta_3d ?? null;
+      certify_linear_2d = (wasm as { certify_linear_2d?: typeof certify_linear_2d }).certify_linear_2d ?? null;
+      certify_linear_3d = (wasm as { certify_linear_3d?: typeof certify_linear_3d }).certify_linear_3d ?? null;
 
       wasm.initSync({ module: msg.wasmModule });
       ready = true;
@@ -64,6 +70,23 @@ self.onmessage = async (e: MessageEvent) => {
 
   if (msg.type === 'solve3d') {
     handleSolve(msg, solve_3d);
+    return;
+  }
+
+  if (msg.type === 'certify2d' || msg.type === 'certify3d') {
+    const certify = msg.type === 'certify2d' ? certify_linear_2d : certify_linear_3d;
+    if (!ready || !certify) {
+      self.postMessage({ type: 'result', id: msg.id, error: 'Worker certificate not available' });
+      return;
+    }
+    try {
+      assertFiniteWire(msg.input);
+      // Only the certificate crosses back: the results are the solve's, already on screen.
+      const { certificate, forceBounds } = certify(msg.input);
+      self.postMessage({ type: 'result', id: msg.id, result: { certificate, forceBounds } });
+    } catch (err: any) {
+      self.postMessage({ type: 'result', id: msg.id, error: err?.message ?? String(err) });
+    }
     return;
   }
 

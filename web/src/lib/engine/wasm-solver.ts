@@ -162,6 +162,12 @@ let wasmCheckBoltGroups: ((json: string) => string) | null = null;
 let wasmCheckWeldGroups: ((json: string) => string) | null = null;
 let wasmCheckSpreadFootings: ((json: string) => string) | null = null;
 
+// Certified results (docs/verification/CERTIFY.md). Absent from older WASM builds.
+let wasmCertifyLinear2d: ((input: any) => any) | null = null;
+let wasmCertifyLinear3d: ((input: any) => any) | null = null;
+let wasmCertifyBuckling2d: ((json: string, numModes: number) => string) | null = null;
+let wasmCertifyBuckling3d: ((json: string, numModes: number) => string) | null = null;
+
 let wasmBytesPromise: Promise<ArrayBuffer> | null = null;
 
 /** Fetch the WASM binary once. Shared between the main-thread init and the
@@ -336,6 +342,12 @@ export async function initSolver(): Promise<void> {
     wasmExtractBeamStations3d = wasm.extract_beam_stations_3d ?? null;
     wasmExtractBeamStationsGrouped = wasm.extract_beam_stations_grouped ?? null;
     wasmExtractBeamStationsGrouped3d = wasm.extract_beam_stations_grouped_3d ?? null;
+
+    // Certified results (may not exist in older WASM builds)
+    wasmCertifyLinear2d = wasm.certify_linear_2d ?? null;
+    wasmCertifyLinear3d = wasm.certify_linear_3d ?? null;
+    wasmCertifyBuckling2d = wasm.certify_buckling_2d ?? null;
+    wasmCertifyBuckling3d = wasm.certify_buckling_3d ?? null;
 
     wasmReady = true;
   })();
@@ -768,6 +780,97 @@ export function prepareLoadSession3D(input: SolverInput3D) {
     loads => solve3D({ ...input, loads }), (result, loads) => finishSolve3D(result, { ...input, loads }));
 }
 
+// ─── Certified results (docs/verification/CERTIFY.md) ──────────
+
+/**
+ * A rigorous a-posteriori bound on the linear static solution, proved in Lean
+ * (`verify/Certify`). `absBound` bounds ‖u* − ũ‖₂ over every free DOF (m and rad
+ * mixed); `relBound` is `absBound / ‖ũ‖₂`, null when that is +∞.
+ */
+export type LinearCertificate =
+  | { status: 'certified'; absBound: number; relBound: number | null; sigma: number; residualNorm: number }
+  | { status: 'uncertified'; reason: string };
+
+/** Per-member bound on |force(exact) − force(computed)|, kN / kN·m. */
+export interface ForceBound2D { elementId: number; n: number; v: number; m: number }
+/** Per-member bound on |force(exact) − force(computed)|, local axes, kN / kN·m. */
+export interface ForceBound3D { elementId: number; n: number; vy: number; vz: number; t: number; my: number; mz: number }
+
+export interface CertifiedLinear2D { results: AnalysisResults; certificate: LinearCertificate; forceBounds: ForceBound2D[] }
+export interface CertifiedLinear3D { results: AnalysisResults3D; certificate: LinearCertificate; forceBounds: ForceBound3D[] }
+
+/**
+ * The structure is certified stable for every load factor ≤ `lambdaLower`, and
+ * certified unstable at `lambdaUpper` (null when the computed mode gave no bound).
+ */
+export type BucklingCertificate =
+  | { status: 'certified'; lambdaLower: number; lambdaUpper: number | null; lambdaComputed: number }
+  | { status: 'uncertified'; reason: string };
+
+/** Whether this WASM build carries the certificate exports. */
+export function hasCertifyExport(): boolean {
+  return wasmCertifyLinear2d !== null && wasmCertifyLinear3d !== null;
+}
+
+/** Solve and certify a 2D linear static analysis (a few times the cost of `solve`). */
+export function certifyLinear2D(input: SolverInput): CertifiedLinear2D {
+  if (!wasmReady || !wasmCertifyLinear2d) throw new Error('WASM certificate export not available.');
+  const wire = input2DToWireObject(input);
+  assertFiniteWire(wire);
+  return wasmCertifyLinear2d(wire);
+}
+
+/** Solve and certify a 3D linear static analysis (a few times the cost of `solve3D`). */
+export function certifyLinear3D(input: SolverInput3D): CertifiedLinear3D {
+  if (!wasmReady || !wasmCertifyLinear3d) throw new Error('WASM certificate export not available.');
+  const wire = input3DToWireObject(input);
+  assertFiniteWire(wire);
+  const out: CertifiedLinear3D = wasmCertifyLinear3d(wire);
+  finishSolve3D(out.results, input);
+  return out;
+}
+
+/** The certificate of a solve already prepared as a wire object, on this thread (the worker's fallback). */
+export function certifyLinearWire(dim: '2d' | '3d', wire: Record<string, any>): { certificate: LinearCertificate; forceBounds: Array<ForceBound2D | ForceBound3D> } {
+  const certify = dim === '2d' ? wasmCertifyLinear2d : wasmCertifyLinear3d;
+  if (!wasmReady || !certify) throw new Error('WASM certificate export not available.');
+  assertFiniteWire(wire);
+  const { certificate, forceBounds } = certify(wire);
+  return { certificate, forceBounds };
+}
+
+/** 2D buckling with its certificate, through the same guards as `solveBuckling`. */
+export function certifyBuckling2D(input: SolverInput, numModes = 4) {
+  if (!wasmCertifyBuckling2d) throw new Error('WASM certificate export not available.');
+  return solveBuckling(input, numModes);
+}
+
+/** 3D buckling with its certificate, through the same guards as `solveBuckling3D`. */
+export function certifyBuckling3D(input: SolverInput3D, numModes = 4) {
+  if (!wasmCertifyBuckling3d) throw new Error('WASM certificate export not available.');
+  return solveBuckling3D(input, numModes);
+}
+
+/**
+ * The buckling result with its certificate attached, or null to solve it plainly:
+ * no certify export, or the certifier threw (the plain solve then reports its own error).
+ */
+function bucklingWithCertificate(certify: ((json: string, numModes: number) => string) | null, json: string, numModes: number): any | null {
+  if (!certify) return null;
+  try {
+    const out = JSON.parse(certify(json, numModes));
+    return { ...out.results, certificate: out.certificate as BucklingCertificate };
+  } catch {
+    return null;
+  }
+}
+
+/** A certificate is about the first engine mode; once null modes are discarded it no longer describes what is shown. */
+function withoutStaleCertificate<R extends { discardedModes: DiscardedMode[]; certificate?: BucklingCertificate }>(r: R): R {
+  if (r.certificate && r.discardedModes.length > 0) { const { certificate: _, ...rest } = r; return rest as R; }
+  return r;
+}
+
 /** Solve 2D P-Delta analysis via WASM. */
 export function solvePDelta(input: SolverInput, maxIter = 20, tolerance = 1e-4) {
   if (!wasmReady || !wasmSolvePdelta2d) throw new Error('WASM solver not initialized.');
@@ -794,12 +897,13 @@ export function solveBuckling(input: SolverInput, numModes = 4) {
   const merged = mergeAllHingedJoints2D(input);
   let result;
   try {
-    result = JSON.parse(wasmSolveBuckling2d(serializeInput2D(restrainOrphanRotations2D(merged)), numModes));
+    const json = serializeInput2D(restrainOrphanRotations2D(merged));
+    result = bucklingWithCertificate(wasmCertifyBuckling2d, json, numModes) ?? JSON.parse(wasmSolveBuckling2d(json, numModes));
   } catch (e) {
     if (NO_FREE_DOFS.test(thrownText(e))) noFreeDofs('buckling', () => solve(merged));
     throw e;
   }
-  return filterBuckling(result);
+  return withoutStaleCertificate(filterBuckling(result));
 }
 
 /** Solve 2D modal analysis via WASM. */
@@ -965,13 +1069,16 @@ export function solveBuckling3D(input: SolverInput3D, numModes = 4) {
   refuse(guards?.refuse3D(input));
   let run;
   try {
-    run = eigen3D(guards ? guards.eigenInput3D(input) : input, (i) => JSON.parse(wasmSolveBuckling3d!(serializeInput3D(i), numModes)));
+    run = eigen3D(guards ? guards.eigenInput3D(input) : input, (i) => {
+      const json = serializeInput3D(i);
+      return bucklingWithCertificate(wasmCertifyBuckling3d, json, numModes) ?? JSON.parse(wasmSolveBuckling3d!(json, numModes));
+    });
   } catch (e) {
     if (NO_FREE_DOFS.test(thrownText(e))) noFreeDofs('buckling', () => solve3D(input));
     throw e;
   }
   const out = filterBuckling(run.result);
-  return { ...out, discardedModes: [...run.held, ...out.discardedModes] };
+  return withoutStaleCertificate({ ...out, discardedModes: [...run.held, ...out.discardedModes] });
 }
 
 /**

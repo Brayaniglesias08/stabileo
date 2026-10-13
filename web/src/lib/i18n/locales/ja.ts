@@ -3579,6 +3579,14 @@ const ja: Translations = {
   'design.stagePurpose.design': "Chooses the reinforcement for beams and columns against the code in force. The optional floor pass runs inside it.",
   'design.stagePurpose.floorsNotVerified': '{n} footing(s) not verified',
   'design.stagePurpose.detailing': 'Coordinates the bars the design produced into assemblies. The drawings, the schedule, the report and the 3-D view are projections of it.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': '認証済み: 変位誤差 ≤ {abs}（相対 {rel}）',
+  'certificate.notCertified': '未認証: {reason}',
+  'certificate.pending': '認証中…',
+  'certificate.tooltip': 'Lean で証明された厳密な事後誤差限界: 組み立てられた線形方程式の厳密解と計算された変位の差は最大でこの値です（全自由度にわたるユークリッドノルム、メートルとラジアンを合わせて）。部材力の横の ± は同様にその誤差を限定します。',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}]（認証済み）',
+  'certificate.bucklingNotCertified': 'λ_cr 未認証: {reason}',
+  'certificate.bucklingTooltip': 'Lean で証明された厳密な包含: 構造物は下限値までのすべての荷重係数で安定であることが保証され、上限値で不安定であることが保証されます。',
 } as const satisfies Record<string, string>;
 
 export default ja;

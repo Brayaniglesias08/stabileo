@@ -6,6 +6,7 @@
   import { modelStore, uiStore, resultsStore } from '../../lib/store';
   import ProResultScopes from './ProResultScopes.svelte';
   import ProNonlinearReport from './ProNonlinearReport.svelte';
+  import CertificateStatus from '../CertificateStatus.svelte';
   import ProResultTableModes, { type TableMode } from './ProResultTableModes.svelte';
   import ProDeflectionTable from './ProDeflectionTable.svelte';
   import ProStoryDriftTable from './ProStoryDriftTable.svelte';
@@ -582,6 +583,7 @@
 
     <ProResultScopes />
     <ProNonlinearReport />
+    <CertificateStatus />
 
     <!-- View mode selector -->
     {#if hasCombinations}

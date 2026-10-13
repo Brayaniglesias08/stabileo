@@ -3586,6 +3586,14 @@ const ko: Translations = {
   'design.stagePurpose.design': "Chooses the reinforcement for beams and columns against the code in force. The optional floor pass runs inside it.",
   'design.stagePurpose.floorsNotVerified': '{n} footing(s) not verified',
   'design.stagePurpose.detailing': 'Coordinates the bars the design produced into assemblies. The drawings, the schedule, the report and the 3-D view are projections of it.',
+  // ─── Certified results (docs/verification/CERTIFY.md) ───
+  'certificate.certified': '인증됨: 변위 오차 ≤ {abs} (상대 {rel})',
+  'certificate.notCertified': '인증되지 않음: {reason}',
+  'certificate.pending': '인증 중…',
+  'certificate.tooltip': 'Lean으로 증명된 엄밀한 사후 오차 한계: 조립된 선형 시스템의 정확해는 계산된 변위와 최대 이 값만큼 다릅니다(모든 자유 자유도에 대한 유클리드 노름, 미터와 라디안 함께). 부재력 옆의 ±는 같은 방식으로 그 오차를 한정합니다.',
+  'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (인증됨)',
+  'certificate.bucklingNotCertified': 'λ_cr 인증되지 않음: {reason}',
+  'certificate.bucklingTooltip': 'Lean으로 증명된 엄밀한 구간: 구조물은 하한값까지의 모든 하중 계수에서 안정함이 보장되고 상한값에서 불안정함이 보장됩니다.',
 } as const satisfies Record<string, string>;
 
 export default ko;

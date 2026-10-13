@@ -6,6 +6,7 @@
 import type { AnalysisResults } from './types';
 import type { AnalysisResults3D } from './types-3d';
 import type { SolverDiagnostic } from './types';
+import type { BucklingCertificate } from './wasm-solver';
 
 // ─── Plastic Analysis ──────────────────────────────────────────
 
@@ -153,6 +154,8 @@ export interface BucklingResult {
   modes: BucklingMode[];
   nDof: number;
   elementData: ElementBucklingData[];
+  /** Enclosure of the critical load factor, when the WASM build can certify it. */
+  certificate?: BucklingCertificate;
 }
 
 export interface BucklingMode3D {
@@ -180,6 +183,8 @@ export interface BucklingResult3D {
   nDof: number;
   elementData: ElementBucklingData3D[];
   diagnostics?: SolverDiagnostic[];
+  /** Enclosure of the critical load factor, when the WASM build can certify it. */
+  certificate?: BucklingCertificate;
 }
 
 // ─── Spectral Analysis ─────────────────────────────────────────

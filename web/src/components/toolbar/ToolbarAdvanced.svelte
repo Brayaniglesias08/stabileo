@@ -67,6 +67,7 @@
   import { withSectionMass } from '../../lib/engine/dynamics/section-mass';
   import { variableRefusal2D, imposedRefusal } from '../../lib/engine/solver-service';
   import { formatPDeltaFactor } from '../../lib/engine/pdelta-result';
+  import BucklingCertificate from '../advanced/BucklingCertificate.svelte';
   import { solvePDelta, solveBuckling, solveModal, solveModal3D as wasmModal3D, solveBuckling3D as wasmBuckling3D, initSolver, isWasmReady } from '../../lib/engine/wasm-solver';
   import { solvePDelta3DCorrected as wasmPDelta3D } from '../../lib/engine/pdelta-forces';
   import { getPredefinedTrains, solveMovingLoadsAsync } from '../../lib/engine/moving-loads';
@@ -1004,6 +1005,7 @@
     <div class="adv-result-info">
       &lambda;_cr = {buR.modes[resultsStore.activeBucklingMode]?.loadFactor.toFixed(3) ?? '—'}
     </div>
+    <BucklingCertificate certificate={buR.certificate} />
     {#if buR.elementData.length > 0}
       <div class="adv-result-info" style="font-size:10px; opacity:0.8">
         Keff: {buR.elementData.slice(0, 3).map((ed: any) => `E${ed.elementId}=${ed.kEffective.toFixed(2)}`).join(', ')}{buR.elementData.length > 3 ? '...' : ''}
