@@ -59,11 +59,32 @@ jobs:
         run: nix develop .#verify -c ./scripts/kani-setup.sh
       # One harness at a time under a memory/time watchdog: CBMC can need tens of GB
       # per float-heavy harness, and the runner has 16 GB.
+      # Pull requests run the fast tier; the nightly schedule and manual runs
+      # also run harnesses marked `// kani: nightly`.
       - name: Kani harnesses
         env:
           KANI_MEM_GB: 12
           KANI_TIMEOUT_S: 900
+          KANI_TIER: ${{ github.event_name == 'pull_request' && 'fast' || 'all' }}
         run: nix develop .#verify -c ./scripts/kani-safe.sh
       - name: Kani report
         if: always()
         run: column -t target/kani-report.tsv || true
+
+  # Large-model certificate runs (release, #[ignore]d in the normal suite):
+  # certifies the 3D fixtures above 400 DOFs and grid frames up to 15k DOFs.
+  certify-large:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+      - name: Large certificate tests
+        working-directory: engine
+        run: cargo test --release --test certify -- --ignored --nocapture

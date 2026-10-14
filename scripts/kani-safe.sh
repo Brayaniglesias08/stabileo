@@ -9,7 +9,8 @@
 # Usage (inside `nix develop .#verify`, from anywhere in the repo):
 #   scripts/kani-safe.sh                       # all harnesses
 #   scripts/kani-safe.sh truss_ dense_         # harnesses whose name contains a filter
-# Env: KANI_MEM_GB (default 12), KANI_TIMEOUT_S (default 900),
+# Env: KANI_TIER (default all; "fast" skips harnesses marked `// kani: nightly`
+#      on a line above their #[kani::proof]), KANI_MEM_GB (default 12), KANI_TIMEOUT_S (default 900),
 #      KANI_REPORT (default target/kani-report.tsv), KANI_TARGET_DIR (default target/agent-kani).
 # Exit status is non-zero if any harness did not finish with SUCCESSFUL.
 set -uo pipefail
@@ -24,7 +25,16 @@ logdir=$root/target/kani-logs
 target_dir=${KANI_TARGET_DIR:-$root/target/agent-kani}
 mkdir -p "$logdir" "$(dirname "$report")"
 
-harnesses=$(awk '/#\[kani::proof\]/{p=1; next} p && /fn [a-z_0-9]+/{match($0, /fn [a-z_0-9]+/); print substr($0, RSTART+3, RLENGTH-3); p=0}' "$src")
+tier=${KANI_TIER:-all}
+harnesses=$(awk -v tier="$tier" '
+	/^\/\/ kani: nightly/ { slow = 1; next }
+	/#\[kani::proof\]/ { p = 1; next }
+	p && /fn [a-z_0-9]+/ {
+		match($0, /fn [a-z_0-9]+/)
+		if (!(tier == "fast" && slow)) print substr($0, RSTART + 3, RLENGTH - 3)
+		p = 0; slow = 0
+	}
+	/^}/ { if (!p) slow = 0 }' "$src")
 if [ $# -gt 0 ]; then
 	harnesses=$(for h in $harnesses; do for f in "$@"; do case $h in *"$f"*) echo "$h"; break;; esac; done; done)
 fi

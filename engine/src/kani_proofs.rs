@@ -11,6 +11,8 @@
 //!   Kani adds those checks automatically.
 //! - "Bitwise" equalities compare `f64::to_bits`, i.e. exact IEEE-754 equality
 //!   (stronger than `==`, which conflates +0.0/-0.0).
+//! - Harnesses preceded by `// kani: nightly` are skipped on pull requests
+//!   (`KANI_TIER=fast` in scripts/kani-safe.sh) and run on the nightly schedule.
 //! - Harnesses marked `#[kani::should_panic]` encode a property that does NOT
 //!   hold; they pass only because Kani finds a counterexample. They document
 //!   findings and guard against silently "fixing" them in the docs.
@@ -140,6 +142,7 @@ fn truss_global_stiffness_3d_symmetry_counterexample() {
 
 // ─── frame.rs ───────────────────────────────────────────────────────────────
 
+// kani: nightly (> 100 s or > 4 GB on a laptop)
 #[kani::proof]
 fn frame_local_stiffness_2d_ok() {
     let (e, a, iz, l) = (any_e(), any_area(), any_inertia(), any_len());
@@ -323,6 +326,7 @@ fn torsion_warping_block_stub(_gj: f64, _ecw: f64, _l: f64, _l2: f64, _l3: f64) 
     k
 }
 
+// kani: nightly (> 100 s or > 4 GB on a laptop)
 #[kani::proof]
 #[kani::stub(frame_local_stiffness_3d, frame_local_stiffness_3d_stub)]
 #[kani::stub(torsion_warping_block, torsion_warping_block_stub)]
@@ -411,14 +415,52 @@ fn frame_transform_3d_warping_structure() {
     }
 }
 
+// compute_local_axes_3d: Kani proves the composition, with the three numeric
+// helpers stubbed by their contracts. The contracts themselves involve sqrt
+// normalization (e.g. |dᵢ/√(Σd²)| ≤ 1), which CBMC does not finish within 20
+// minutes even per helper, so they are checked by unit tests instead
+// (element::transform::tests::local_axes_helper_contracts: edge cases plus
+// 200k random directions):
+//   1. unit_direction: for max |dᵢ| ≥ 1e-3, ex is finite, |exᵢ| ≤ 1 + 1e-12,
+//      ex·ex ≥ 0.99.
+//   2. default_ey_ref: for such ex, finite with components ≤ 1.01.
+//   3. orthonormal_frame: for such ex and ey_ref, ey and ez finite.
+
+fn any_unit_like() -> [f64; 3] {
+    let e = [any_sym(1.0 + 1e-12), any_sym(1.0 + 1e-12), any_sym(1.0 + 1e-12)];
+    kani::assume(e[0] * e[0] + e[1] * e[1] + e[2] * e[2] >= 0.99);
+    e
+}
+
+/// Member direction components with max |dᵢ| ≥ 1e-3 (so L ≥ 1e-3).
+fn any_member_direction() -> (f64, f64, f64) {
+    let (dx, dy, dz) = (any_sym(1e3), any_sym(1e3), any_sym(1e3));
+    kani::assume(dx.abs() >= 1e-3 || dy.abs() >= 1e-3 || dz.abs() >= 1e-3);
+    (dx, dy, dz)
+}
+
+fn unit_direction_stub(_dx: f64, _dy: f64, _dz: f64) -> [f64; 3] {
+    any_unit_like()
+}
+
+fn default_ey_ref_stub(_ex: &[f64; 3]) -> [f64; 3] {
+    [any_sym(1.01), any_sym(1.01), any_sym(1.01)]
+}
+
+fn orthonormal_frame_stub(_ex: &[f64; 3], _r: &[f64; 3]) -> ([f64; 3], [f64; 3]) {
+    let v: [f64; 6] = kani::any();
+    kani::assume(v.iter().all(|x| x.is_finite()));
+    ([v[0], v[1], v[2]], [v[3], v[4], v[5]])
+}
+
 /// compute_local_axes_3d with the default (Z-up) convention, no explicit local
 /// Y, no roll: no panic and all outputs finite for members with L >= 1e-3.
 #[kani::proof]
+#[kani::stub(unit_direction, unit_direction_stub)]
+#[kani::stub(default_ey_ref, default_ey_ref_stub)]
+#[kani::stub(orthonormal_frame, orthonormal_frame_stub)]
 fn compute_local_axes_3d_default_finite() {
-    let dx = any_sym(1e3);
-    let dy = any_sym(1e3);
-    let dz = any_sym(1e3);
-    kani::assume(dx * dx + dy * dy + dz * dz >= 1e-6);
+    let (dx, dy, dz) = any_member_direction();
     let lh: bool = kani::any();
     let (ex, ey, ez) =
         compute_local_axes_3d(0.0, 0.0, 0.0, dx, dy, dz, None, None, None, None, lh);
@@ -437,6 +479,7 @@ fn fef_distributed_2d_ok() {
     assert!(f[0] == 0.0 && f[3] == 0.0);
 }
 
+// kani: nightly (> 100 s or > 4 GB on a laptop)
 #[kani::proof]
 fn fef_point_load_2d_ok() {
     let l = any_len();
@@ -478,6 +521,7 @@ fn adjust_fef_for_hinges_ok() {
     assert!(f[0] == 0.0 && f[3] == 0.0);
 }
 
+// kani: nightly (> 100 s or > 4 GB on a laptop)
 #[kani::proof]
 fn adjust_fef_for_hinges_3d_ok() {
     let l = any_len();
@@ -520,13 +564,18 @@ fn axial_distributed_fef_ok() {
 
 const NMAX: usize = 3;
 
+// The dense helpers' bounds harnesses check indexing and lengths, which do not
+// depend on the float values, so the arrays are concrete: the proof covers
+// every size n ≤ NMAX. (Symbolic floats added nothing but CBMC cost — over
+// 12 GB — and NaN reports from ∞·0 that say nothing about indexing.)
+
 #[kani::proof]
 #[kani::unwind(4)]
 fn dense_mat_vec_bounds() {
     let n: usize = kani::any();
     kani::assume(n <= NMAX);
-    let a: [f64; NMAX * NMAX] = kani::any();
-    let x: [f64; NMAX] = kani::any();
+    let a = [1.0f64; NMAX * NMAX];
+    let x = [1.0f64; NMAX];
     let y = dense::mat_vec(&a[..n * n], &x[..n], n);
     assert!(y.len() == n);
 }
@@ -537,39 +586,46 @@ fn dense_mat_vec_rect_bounds() {
     let nr: usize = kani::any();
     let nc: usize = kani::any();
     kani::assume(nr <= NMAX && nc <= NMAX);
-    let a: [f64; NMAX * NMAX] = kani::any();
-    let x: [f64; NMAX] = kani::any();
+    let a = [1.0f64; NMAX * NMAX];
+    let x = [1.0f64; NMAX];
     let y = dense::mat_vec_rect(&a[..nr * nc], &x[..nc], nr, nc);
     assert!(y.len() == nr);
 }
 
+/// Every size n ≤ NMAX, one concrete instance each (a symbolic n makes CBMC
+/// model an n·n allocation and n³ loop of unknown size: > 12 GB).
 #[kani::proof]
-#[kani::unwind(4)]
+#[kani::unwind(10)]
 fn dense_mat_mul_bounds() {
-    let n: usize = kani::any();
-    kani::assume(n <= NMAX);
-    let a: [f64; NMAX * NMAX] = kani::any();
-    let b: [f64; NMAX * NMAX] = kani::any();
-    let c = dense::mat_mul(&a[..n * n], &b[..n * n], n);
-    assert!(c.len() == n * n);
+    let a = [1.0f64; NMAX * NMAX];
+    let b = [1.0f64; NMAX * NMAX];
+    for n in 0..=NMAX {
+        let c = dense::mat_mul(&a[..n * n], &b[..n * n], n);
+        assert!(c.len() == n * n);
+    }
 }
 
-/// Transpose is an exact (bitwise) involution and moves (i,j) to (j,i).
+/// Transpose moves (i,j) to (j,i) and is an involution. It only moves data,
+/// so distinct tags (k as f64) identify the permutation for every input.
 #[kani::proof]
 #[kani::unwind(17)]
 fn dense_transpose_involution() {
-    let n: usize = kani::any();
-    kani::assume(n <= 4);
-    let orig: [f64; 16] = kani::any();
-    let mut a = orig;
-    dense::transpose_inplace(&mut a[..n * n], n);
-    let i: usize = kani::any();
-    let j: usize = kani::any();
-    kani::assume(i < n && j < n);
-    assert!(a[i * n + j].to_bits() == orig[j * n + i].to_bits());
-    dense::transpose_inplace(&mut a[..n * n], n);
-    for k in 0..16 {
-        assert!(a[k].to_bits() == orig[k].to_bits());
+    let mut orig = [0.0f64; 16];
+    for (k, v) in orig.iter_mut().enumerate() {
+        *v = k as f64;
+    }
+    for n in 0..=4 {
+        let mut a = orig;
+        dense::transpose_inplace(&mut a[..n * n], n);
+        for i in 0..n {
+            for j in 0..n {
+                assert!(a[i * n + j] == orig[j * n + i]);
+            }
+        }
+        dense::transpose_inplace(&mut a[..n * n], n);
+        for k in 0..16 {
+            assert!(a[k] == orig[k]);
+        }
     }
 }
 
@@ -578,26 +634,27 @@ fn dense_transpose_involution() {
 fn dense_transform_force_displacement_bounds() {
     let n: usize = kani::any();
     kani::assume(n <= NMAX);
-    let t: [f64; NMAX * NMAX] = kani::any();
-    let f: [f64; NMAX] = kani::any();
+    let t = [1.0f64; NMAX * NMAX];
+    let f = [1.0f64; NMAX];
     let g = dense::transform_force(&f[..n], &t[..n * n], n);
     let u = dense::transform_displacement(&f[..n], &t[..n * n], n);
     assert!(g.len() == n && u.len() == n);
 }
 
 #[kani::proof]
-#[kani::unwind(4)]
+#[kani::unwind(10)]
 fn dense_transform_stiffness_bounds() {
-    let n: usize = kani::any();
-    kani::assume(n <= 2);
-    let k: [f64; 4] = kani::any();
-    let t: [f64; 4] = kani::any();
-    let r = dense::transform_stiffness(&k[..n * n], &t[..n * n], n);
-    assert!(r.len() == n * n);
+    let k = [1.0f64; NMAX * NMAX];
+    let t = [1.0f64; NMAX * NMAX];
+    for n in 0..=NMAX {
+        let r = dense::transform_stiffness(&k[..n * n], &t[..n * n], n);
+        assert!(r.len() == n * n);
+    }
 }
 
 /// FINDING candidate: does Tᵀ K T preserve bitwise symmetry? Uses the real
 /// 2D truss local stiffness and transform (n = 4). Expected to FAIL.
+// kani: nightly (> 100 s or > 4 GB on a laptop)
 #[kani::proof]
 #[kani::should_panic]
 fn transform_stiffness_truss_2d_symmetry_counterexample() {
@@ -610,6 +667,7 @@ fn transform_stiffness_truss_2d_symmetry_counterexample() {
     assert!(bitwise_symmetric(&kg, 4));
 }
 
+// kani: nightly (> 100 s or > 4 GB on a laptop)
 #[kani::proof]
 #[kani::unwind(4)]
 fn dense_extract_submatrix_exact() {
