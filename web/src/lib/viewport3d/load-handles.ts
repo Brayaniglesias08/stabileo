@@ -55,7 +55,7 @@ export function handleUnder(
 }
 
 /** The point of the loaded segment closest to the pointer's ray, as a distance from its start, clamped to it. */
-export function stationOnRay(h: StretchHandles, ray: THREE.Ray): number {
+export function stationOnRay(h: Pick<StretchHandles, 'I' | 'J' | 'L'>, ray: THREE.Ray): number {
   const u = h.J.clone().sub(h.I).normalize();
   const w0 = h.I.clone().sub(ray.origin);
   const b = u.dot(ray.direction), d = u.dot(w0), e = ray.direction.dot(w0);

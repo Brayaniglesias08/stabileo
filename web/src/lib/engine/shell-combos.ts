@@ -166,7 +166,9 @@ export function enrichComboShellStresses(
 }
 
 /**
- * Every load case at factor 1, as a full result — the "All loads" baseline.
+ * Every load case at factor 1, as a full result — the "All loads" baseline. Or at the `factors`
+ * given: the single solve's (`case-effects.ts` `singleSolveFactors`), where a composite case's
+ * parts are in it already.
  *
  * `combined` is the engine's combination of the cases (displacements, reactions, member
  * forces). The engine leaves out everything else, and the baseline is read for more than the
@@ -181,19 +183,22 @@ export function allLoadsResult3D(
   combined: AnalysisResults3D,
   perCase: Map<number, AnalysisResults3D>,
   plateThickness: PlateThickness,
+  factors: Array<{ caseId: number; factor: number }> = [...perCase.keys()].map((caseId) => ({ caseId, factor: 1 })),
 ): AnalysisResults3D {
   const cases = [...perCase.values()];
   const first = cases[0];
-  const factors = [...perCase.keys()].map((caseId) => ({ caseId, factor: 1 }));
+  const factorOf = new Map(factors.map((f) => [f.caseId, f.factor]));
   const plates = new Map([...perCase].map(([id, r]) => [id, toMembraneMap(r.plateStresses)]));
   const quads = new Map([...perCase].map(([id, r]) => [id, toMembraneMap(r.quadStresses)]));
   const shells = combineShellStresses(factors, plates, quads, plateThickness);
   const constraint = new Map<string, { nodeId: number; dof: string; force: number }>();
-  for (const r of cases) {
+  for (const [id, r] of perCase) {
+    const k = factorOf.get(id) ?? 0;
+    if (k === 0) continue;
     for (const c of r.constraintForces ?? []) {
       const key = `${c.nodeId}:${c.dof}`;
       const acc = constraint.get(key);
-      if (acc) acc.force += c.force; else constraint.set(key, { ...c });
+      if (acc) acc.force += k * c.force; else constraint.set(key, { ...c, force: k * c.force });
     }
   }
   return {

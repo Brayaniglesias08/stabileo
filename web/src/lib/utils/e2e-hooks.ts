@@ -177,6 +177,8 @@ export interface StabileoTestHooks {
   armedKinds(): string[];
   /** What the viewport is drawing — the walkthrough audit reads this. */
   diagramType(): string;
+  /** Whether the workspace has results on screen (2D or 3D, as the mode reads them). */
+  hasDrawnResults(): boolean;
   /**
    * What a click on the canvas would currently mean, and whether the viewport
    * has anything to answer it with.
@@ -288,6 +290,10 @@ export interface StabileoTestHooks {
   entityData(kind: 'element' | 'support' | 'section' | 'setting', key: number | string): unknown;
   /** The names of the load cases, in model order. */
   loadCaseNames(): string[];
+  /** The model's load cases, every field. */
+  loadCases(): Array<Record<string, unknown>>;
+  /** The ids of the cases and the combinations with results, as published. */
+  resultIds(): { cases: number[]; combos: number[] };
   orientationSuspectCount(): number;
   undoCount(): number;
   /** Non-background pixel count of the main canvas — a blank-render sanity check. */
@@ -591,6 +597,8 @@ export function installE2EHooks(): void {
     renderMode3D: () => String(uiStore.renderMode3D),
     armedKinds: () => [...uiStore.selectKinds].sort(),
     diagramType: () => String(resultsStore.diagramType),
+    /** Whether the workspace has results on screen (2D or 3D, as the mode reads them). */
+    hasDrawnResults: () => (uiStore.is3DWorkspace ? resultsStore.results3D : resultsStore.results) !== null,
     cameraState: () => readCamera(),
 
     viewportPick: () => ({
@@ -709,6 +717,8 @@ export function installE2EHooks(): void {
     },
     sectionNames: () => [...modelStore.sections.values()].map((s) => s.name),
     loadCaseNames: () => modelStore.model.loadCases.map((c) => c.name),
+    loadCases: () => JSON.parse(JSON.stringify(modelStore.model.loadCases)),
+    resultIds: () => ({ cases: [...resultsStore.perCase3D.keys()], combos: [...resultsStore.perCombo3D.keys()] }),
     orientationSuspectCount: () => verificationStore.orientationSuspectCount,
     undoCount: () => historyStore.undoCount,
     canvasInkRatio,
