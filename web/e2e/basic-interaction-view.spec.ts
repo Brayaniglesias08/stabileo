@@ -175,6 +175,40 @@ test.describe('@smoke Basic 3D loads and members, and units', () => {
     await expect.poll(async () => (await loadsOn(page, 5)).filter((l) => l.type === 'pointOnElement3d').length).toBe(1);
   });
 
+  test('a point load keeps the physical station clicked in perspective', async ({ page }) => {
+    await boot(page);
+    await page.evaluate(() => window.__stabileoActions.loadExample('3d-portal-frame'));
+    await page.getByTestId('rb-cmd-load').click();
+    await page.getByRole('button', { name: /^Point/ }).first().click();
+    const target = await page.evaluate(() => {
+      const h = window.__stabileo;
+      const ends = h.elementEnds(5)!;
+      const a = h.nodePos(ends.i)!, b = h.nodePos(ends.j)!;
+      const sa = h.nodeScreenPos(ends.i)!, sb = h.nodeScreenPos(ends.j)!;
+      const camera = h.cameraState()!;
+      const direction = camera.target.map((v, i) => v - camera.pos[i]);
+      const depth = (p: typeof a) => [p.x, p.y, p.z ?? 0]
+        .reduce((sum, v, i) => sum + (v - camera.pos[i]) * direction[i], 0);
+      const length = Math.hypot(b.x - a.x, b.y - a.y, (b.z ?? 0) - (a.z ?? 0));
+      // At the projected midpoint the physical fraction is depth(I) / (depth(I) + depth(J)).
+      return {
+        x: (sa.x + sb.x) / 2, y: (sa.y + sb.y) / 2,
+        station: length * depth(a) / (depth(a) + depth(b)), length,
+      };
+    });
+    // Ensure this view exposes the bug: screen interpolation would store L/2.
+    expect(Math.abs(target.station - target.length / 2)).toBeGreaterThan(0.2);
+    await page.getByTestId('tool-options').locator('input[type=number]').first().fill('123');
+    await page.mouse.click(target.x, target.y);
+    const pointLoads = async () => (await loadsOn(page, 5)).filter((l) => l.type === 'pointOnElement3d');
+    await expect.poll(async () => (await pointLoads()).length).toBe(1);
+    const load = (await pointLoads())[0].data;
+    // Allow pointer coordinates to be rounded to a screen pixel.
+    expect(Math.abs(Number(load.a) - target.station)).toBeLessThan(0.02);
+    expect(load.pz).toBe(123);
+    expect(load.frame).toBe('global');
+  });
+
   test('the member tool joins nodes clicked a few pixels beside them', async ({ page }) => {
     await boot(page);
     await page.evaluate(() => window.__stabileoActions.loadExample('3d-portal-frame'));
