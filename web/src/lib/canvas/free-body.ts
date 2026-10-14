@@ -42,7 +42,8 @@ export interface FBSupport { nodeId: number; actions: FBAction[] }
 /** An applied load, for drawings that draw their own loads (3D). */
 export type FBLoad =
   | { kind: 'nodal'; nodeId: number; action?: 'force' | 'moment'; dir: P3; label: string }
-  | { kind: 'point'; memberId: number; t: number; dir: P3; label: string }
+  // A point moment on a member is `action: 'moment'`, `dir` its axis (the right-hand rule).
+  | { kind: 'point'; memberId: number; t: number; action?: 'force' | 'moment'; dir: P3; label: string }
   // Endpoint intensities in world coordinates, not unit directions: retain the load profile.
   | { kind: 'dist'; memberId: number; t0: number; t1: number; qI: P3; qJ: P3; label: string };
 
@@ -77,6 +78,11 @@ export interface FreeBodyInput {
   focus?: ReadonlySet<number>;
   /** Said at the top of the drawing when the focus is empty (what to do to see the values). */
   hint?: string;
+  /**
+   * Said at the top of the drawing whatever is selected: what the free body is not (an envelope's
+   * or a magnitude's is no state of equilibrium, and the caller draws it without its actions).
+   */
+  note?: string;
   colors?: { member: string; joint: string; link: string; leader: string; load: string; text?: string };
 }
 
@@ -93,6 +99,39 @@ export function freeBodyGap(mode: FreeBodyInput['mode'], sep: number): number {
 }
 /** Above this many members only the selected ones show their actions. */
 export const FB_FOCUS_ABOVE = 40;
+
+/**
+ * Below this share of `negligible` of the largest action of its kind in the whole drawing, a
+ * component is round-off whatever it acts on: hundredths of a kN where the structure carries
+ * nothing (a 3D solve leaves them), which "T = 0.0 kN·m" at every cut would bury the rest under.
+ */
+export const FB_NOISE_SHARE = 0.05;
+
+/**
+ * Whether the despiece draws an end action's or a reaction's component, the same rule in 2D and
+ * 3D. A free body drawn without a component it needs does not balance, so the share is taken of
+ * the piece's own actions, not of the largest in the model: a fixed portal with 1000 kN on each
+ * column and 15 kN of sway lost its 7.5 kN column shears and reactions (0.75 % of 1000 kN) at 2 %
+ * of the model, and every column and joint was out of balance by them.
+ *
+ *   noise        below `share · FB_NOISE_SHARE` of the model's largest of its kind: left out;
+ *   own          at least `share` of the largest of its kind on the same piece (a member's two
+ *                ends; for a reaction, the same component at every support): drawn;
+ *   lever        a force whose arm across the member (`lever`, m) makes it at least `share` of the
+ *                member's largest end moment: drawn, the member's moments do not balance without
+ *                it (a column's shear against its end moments, small beside its axial force).
+ */
+export function freeBodyKeeps(
+  value: number, kind: 'force' | 'moment', share: number,
+  base: { own: { force: number; moment: number }; model: { force: number; moment: number } },
+  lever = 0,
+): boolean {
+  const v = Math.abs(value);
+  if (share <= 0) return true;
+  if (v < share * FB_NOISE_SHARE * base.model[kind]) return false;
+  if (v >= share * base.own[kind]) return true;
+  return kind === 'force' && lever > 0 && v * lever >= share * base.own.moment;
+}
 
 /** The members a large model details: the selected ones and those at selected nodes. */
 export function freeBodyFocus(
@@ -306,7 +345,9 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
   const focusNodes = new Set<number>();
   if (d.focus) for (const m of d.members) if (d.focus.has(m.id)) { focusNodes.add(m.nodeI); focusNodes.add(m.nodeJ); }
   for (const e of d.ends) {
-    if (!inFocus(e.memberId)) continue;
+    // A joint a selected member reaches is drawn whole: every member's action on it, or its free
+    // body does not balance. The other members' own pieces stay without their values.
+    if (!inFocus(e.memberId) && !(e.side === 'node' && focusNodes.has(e.nodeId))) continue;
     if ((val.get(e.nodeId) ?? 0) < 2) continue;
     if (e.side === 'member' && !wantMember) continue;
     if (e.side === 'node' && !wantNode) continue;
@@ -342,7 +383,7 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
       }
     });
     // The joint's actions are the member's, opposite: written once, on the member's side.
-    if (e.side === 'node' && wantMember) continue;
+    if (e.side === 'node' && wantMember && inFocus(e.memberId)) continue;
     const perp = { x: -inward.y, y: inward.x };
     const out = (perp.x * (at.x - centre.x) + perp.y * (at.y - centre.y)) >= 0 ? 1 : -1;
     const side: S2 = shear ?? { x: perp.x * out, y: perp.y * out };
@@ -353,7 +394,8 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
 
   // ── The supports ──
   for (const s of d.supports) {
-    if (d.focus && d.focus.size > 0 && !focusNodes.has(s.nodeId)) continue;
+    // Nothing selected in a large model: the rest is drawn as pieces only, reactions included.
+    if (d.focus && !focusNodes.has(s.nodeId)) continue;
     const n = d.nodes(s.nodeId); if (!n) continue;
     const at = d.toScreen(n);
     s.actions.forEach((a, k) => drawAction(a, at, n, null, true, k));
@@ -377,6 +419,16 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
     if (!p || !m) continue;
     const pointAt = (t: number) => ({ x: p.a.x + (p.b.x - p.a.x) * t, y: p.a.y + (p.b.y - p.a.y) * t });
     const worldAt = (t: number): P3 => ({ x: m.i.x + (m.j.x - m.i.x) * t, y: m.i.y + (m.j.y - m.i.y) * t, z: (m.i.z ?? 0) + ((m.j.z ?? 0) - (m.i.z ?? 0)) * t });
+    if (ld.kind === 'point' && ld.action === 'moment') {
+      // A moment on the member, drawn as a nodal one is: a vector with a double head, or ⊙ / ⊗.
+      const at = pointAt(ld.t);
+      const along = { x: p.b.x - p.a.x, y: p.b.y - p.a.y }, l = Math.hypot(along.x, along.y) || 1;
+      drawAction({ kind: 'moment', dir: ld.dir, color: C.load }, at, worldAt(ld.t), { x: along.x / l, y: along.y / l }, true, 1);
+      const sd = screenDir(worldAt(ld.t), ld.dir);
+      const out = sd.shown < 0.28 ? { x: -along.y / l, y: along.x / l } : { x: sd.x, y: sd.y };
+      blocks.push({ anchor: at, inward: out, side: { x: -out.y, y: out.x }, lines: [{ text: ld.label, color: C.load }] });
+      continue;
+    }
     const ts = ld.kind === 'point' ? [ld.t] : Array.from({ length: 6 }, (_, k) => ld.t0 + ((ld.t1 - ld.t0) * k) / 5);
     const norm = (v: P3) => Math.hypot(v.x, v.y, v.z ?? 0);
     const maxQ = ld.kind === 'dist' ? Math.max(norm(ld.qI), norm(ld.qJ)) : 1;
@@ -462,11 +514,12 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
       ctx.fillText(l.text, r.x + 2, r.y + (k + 1) * lineH - 2);
     });
   }
-  if (d.hint && d.focus && d.focus.size === 0) {
+  const said = [d.note, d.hint && d.focus && d.focus.size === 0 ? d.hint : undefined].filter((x): x is string => !!x);
+  if (said.length) {
     ctx.save();
     ctx.font = `${fontPx + 1}px sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillStyle = C.text ?? C.member;
-    ctx.fillText(d.hint, 14, 12);
+    said.forEach((text, k) => ctx.fillText(text, 14, 12 + k * (fontPx + 6)));
     ctx.restore();
   }
   return pieces;

@@ -23,7 +23,9 @@
   import { drawDeformed } from '../lib/canvas/draw-deformed';
   import { drawFreeBody, screenPieces, freeBodyFocus, freeBodyGap } from '../lib/canvas/free-body';
   import { freeBodyActions2D } from '../lib/canvas/free-body-2d';
-  import { despieceElementSpan, remapLoadSpanToShrunk, distributedResultantVector, DESPIECE_LOAD_COLOR } from '../lib/canvas/draw-despiece';
+  import { despieceElementSpan, remapLoadSpanToShrunk, distributedResultantForces, DESPIECE_LOAD_COLOR } from '../lib/canvas/draw-despiece';
+  import { displayedLoads2D, despieceNote2D } from '../lib/store/displayed-loads-2d';
+  import { despieceDrawsActions, despieceNoteText } from '../lib/store/displayed-loads-3d';
   import { drawDistributedLoads, drawPointLoadsOnElements, drawThermalLoads, drawMovingLoadAxles, drawMomentSymbol, computeLoadDirection } from '../lib/canvas/draw-loads';
   import { segmentToBoxes } from '../lib/canvas/label-layout';
   import { createLabelCollector, type LabelCollector } from '../lib/canvas/label-layout';
@@ -1129,6 +1131,8 @@
         // An export is the pulled-apart picture, not a moment of the animation.
         const tNorm = exportFrame ? 1 : Math.max(0, Math.min(1, (performance.now() - despieceStart) / DESPIECE_ANIM_MS));
         const sep = 1 - Math.pow(1 - tNorm, 3); // easeOutCubic 0→1
+        const fbNote = despieceNote2D();
+        const fbActs = despieceDrawsActions(fbNote);
         const reactions = new Map<number, { rx: number; rz: number; my: number }>();
         for (const sup of modelStore.supports.values()) {
           const r = resultsStore.getReaction(sup.nodeId);
@@ -1200,7 +1204,9 @@
             const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
             return { ux: dx / d, uy: dy / d };
           };
-          for (const load of modelStore.loads) {
+          // The loads of the result drawn (its case's, its combination's factored, the single
+          // solve's, self-weight included), not every case's unfactored: those the actions balance.
+          for (const load of displayedLoads2D()) {
             if (load.type === 'nodal') {
               const d = load.data as { nodeId: number; fx?: number; fz?: number; fy?: number; my?: number; mz?: number };
               const node = baseCtx.getNode(d.nodeId); if (!node) continue;
@@ -1223,13 +1229,14 @@
               const span = fbSpan(el.id, ni, nj);
               const elemCtx = { ...baseCtx, getNode: (id: number) => id === el.nodeI ? span.aI : id === el.nodeJ ? span.aJ : baseCtx.getNode(id) };
               if (load.type === 'distributed' && loadMode === 'resultant') {
-                // ONE equivalent resultant arrow at the (remapped) load centroid,
-                // pointing in the APPLIED load direction (e.g. downward load → down).
+                // The equivalent resultant arrow at the (remapped) load centroid, pointing in the
+                // APPLIED load direction (e.g. downward load → down); a sign-reversing trapezoid
+                // is its two triangles, so the arrows keep its moment (`distributedResultantForces`).
                 const a0 = d.a ?? 0, b0 = d.b ?? span.lenOrig;
                 const L = Math.hypot(nj.x - ni.x, nj.y - ni.y) || 1;
-                const r = distributedResultantVector(d.qI ?? 0, d.qJ ?? 0, a0, b0, d.angle ?? 0, d.isGlobal ?? false, (nj.x - ni.x) / L, (nj.y - ni.y) / L);
-                if (Math.abs(r.magnitude) > 1e-9 && span.lenOrig > 1e-9) {
-                  const f = r.centroid / span.lenOrig;
+                for (const r of distributedResultantForces(d.qI ?? 0, d.qJ ?? 0, a0, b0, d.angle ?? 0, d.isGlobal ?? false, (nj.x - ni.x) / L, (nj.y - ni.y) / L)) {
+                  if (!(span.lenOrig > 1e-9)) break;
+                  const f = r.at / span.lenOrig;
                   const cx = span.aI.x + f * (span.aJ.x - span.aI.x), cy = span.aI.y + f * (span.aJ.y - span.aI.y);
                   const dir = screenDir(cx, cy, r.wx, r.wy);
                   const s = uiStore.worldToScreen(cx, cy);
@@ -1259,13 +1266,15 @@
           members: fbMembers,
           nodes: despieceNode,
           ...freeBodyActions2D({
-            elements: despieceElements, getNode: despieceNode, getElementForces: despieceForces, reactions,
+            // An envelope is no state of equilibrium: its pieces only, and the note says so.
+            elements: despieceElements, getNode: despieceNode, getElementForces: fbActs ? despieceForces : () => undefined, reactions: fbActs ? reactions : new Map(),
             basis: uiStore.despieceBasis, resultant: uiStore.despieceCombineVectors, showReactions: reactionsNow(),
             negligible: 0.02,
           }),
           // A large model shows the selected members' actions; a figure, everything it can.
           focus: exportFrame ? undefined : freeBodyFocus(fbMembers, uiStore.selectedElements, uiStore.selectedNodes),
           hint: t('despiece.selectToSee'),
+          note: despieceNoteText(fbNote),
           mode: fbMode,
           sep,
           planar: true,

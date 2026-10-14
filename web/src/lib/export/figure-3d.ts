@@ -13,8 +13,8 @@
  * - despiece: `drawFreeBody`, as on screen;
  * - M, V, N: each member's diagram in its own plane (the side the 3D view draws it on), the
  *   largest value of each member written; both bending planes when both carry load;
- * - deformed: the deflected members, scaled so the largest movement reads at about a twentieth of
- *   the structure, with the largest displacements written;
+ * - deformed: the deflected members, at the reader's scale, or at true scale scaled so the largest
+ *   movement reads at about a twentieth of the structure, with the largest displacements written;
  * - shellMap (PRO): the shells painted by one of their results, each element its own value, with
  *   the scale beside them.
  *
@@ -30,7 +30,7 @@ import { computeDiagramDisplayDirection } from '../three/diagram-render-3d';
 import { computeDeformedShape3D, type ElementEI } from '../three/deformed-shape-3d';
 import { eiOf } from '../engine/member-deflection';
 import { takesNoBending } from '../engine/member-loads';
-import { displayedLoads3D } from '../store/displayed-loads-3d';
+import { displayedLoads3D, despieceNote3D, despieceDrawsActions, despieceNoteText } from '../store/displayed-loads-3d';
 import { drawFreeBody, type P3 } from '../canvas/free-body';
 import { createLabelCollector } from '../canvas/label-layout';
 import { addMemberTags } from '../canvas/member-tags';
@@ -93,6 +93,31 @@ export function components3D(content: 'moment' | 'shear' | 'axial', results?: An
   return pair.filter((_, i) => max[i]! > 0.1 * top && max[i]! > 1e-9);
 }
 
+/**
+ * The deformed shape's scale in a figure, by the 2D figures' rule: the reader's scale when they
+ * set one; at true scale (1), so the largest movement reads at about a twentieth of the
+ * structure, which is the diagonal of its box (one pass over the nodes: comparing every pair
+ * took seconds on a large model, twice per figure).
+ */
+export function deformedFigureScale(
+  pts: Iterable<{ x: number; y: number; z?: number }>,
+  displacements: Iterable<{ ux: number; uy: number; uz: number }>,
+  user: number,
+): number {
+  if (user !== 1) return user;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const p of pts) {
+    const z = p.z ?? 0;
+    if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
+    if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+    if (z < z0) z0 = z; if (z > z1) z1 = z;
+  }
+  const span = Number.isFinite(x0) ? Math.hypot(x1 - x0, y1 - y0, z1 - z0) : 0;
+  let dmax = 0;
+  for (const d of displacements) dmax = Math.max(dmax, Math.hypot(d.ux, d.uy, d.uz));
+  return dmax > 1e-12 && span > 0 ? (0.05 * span) / dmax : user;
+}
+
 export function createFigure3DRenderer(): Figure2DRenderer {
   const flat = () => project2D();
   const scenePos = (id: number): P3 | undefined => {
@@ -140,8 +165,12 @@ export function createFigure3DRenderer(): Figure2DRenderer {
         elements: modelStore.elements, nodes: modelStore.nodes, forces: r3d?.elementForces ?? [], reactions: r3d?.reactions ?? [],
         sections: modelStore.sections, project2D: flat(), leftHand, basis: uiStore.despieceBasis,
         resultant: uiStore.despieceCombineVectors, showReactions: content === 'reactions' || content === 'despiece',
-        loads: content === 'model' ? modelStore.loads : displayedLoads3D(), loadText: (v, q) => fmtF(v, q), negligible: 0.02,
+        // The loads of the result drawn, which the figure may have chosen, not of the one on screen.
+        loads: content === 'model' ? modelStore.loads : displayedLoads3D(r3d), loadText: (v, q) => fmtF(v, q), negligible: 0.02,
       });
+      // An envelope's or a magnitude's free body is no state of equilibrium: pieces and a note.
+      const fbNote = content === 'despiece' ? despieceNote3D(r3d) : null;
+      const fbActs = despieceDrawsActions(fbNote);
       for (const m of fbData.members) {
         const a = toScreen(m.i), b = toScreen(m.j);
         memberSegs.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
@@ -225,12 +254,13 @@ export function createFigure3DRenderer(): Figure2DRenderer {
         drawFreeBody({
           ctx, toScreen, towardViewer,
           members: fbData.members, nodes: fbData.nodes,
-          ends: content === 'despiece' ? fbData.ends : [],
-          supports: content === 'model' ? [] : fbData.supports,
+          ends: content === 'despiece' && fbActs ? fbData.ends : [],
+          supports: content === 'model' || !fbActs ? [] : fbData.supports,
           loads: (content === 'despiece' || opts.loads) ? fbData.loads : [],
           mode: opts.dcl ?? 'members',
           sep: content === 'despiece' ? 1 : 0,
           planar: false,
+          note: despieceNoteText(fbNote),
           fmt: (v, q) => fmtF(v, q),
           labels,
         });
@@ -244,13 +274,9 @@ export function createFigure3DRenderer(): Figure2DRenderer {
 
       if (content === 'deformed' && r3d) {
         drawMembers('#8fa3b3', 1.2, [5, 4]);
-        // Scaled so the largest movement reads at about a twentieth of the structure.
-        let span = 0, dmax = 0;
         const pts = [...modelStore.nodes.values()].map((n) => projectNodeToScene(n, flat()));
-        for (const a of pts) for (const b of pts) span = Math.max(span, Math.hypot(a.x - b.x, a.y - b.y, (a.z ?? 0) - (b.z ?? 0)));
         const disp = new Map(r3d.displacements.map((d) => [d.nodeId, d]));
-        for (const d of r3d.displacements) dmax = Math.max(dmax, Math.hypot(d.ux, d.uy, d.uz));
-        const scale = dmax > 1e-12 ? (0.05 * span) / dmax : 1;
+        const scale = deformedFigureScale(pts, r3d.displacements, resultsStore.deformedScale);
         drawShells(undefined, (id) => {
           const n = modelStore.nodes.get(id), d = disp.get(id);
           if (!n) return undefined;

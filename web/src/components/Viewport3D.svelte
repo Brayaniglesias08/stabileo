@@ -21,7 +21,7 @@
   import { editPreview } from '../lib/store/edit-preview.svelte';
   import { snapToAxes } from '../lib/model/grid';
   import { addSupportFromTool3D } from '../lib/store/support-tool-3d';
-  import { nodeAtPlacement3D, resolveNodePlacement2D, memberParamOnRay, MIN_SPLIT_PX } from '../lib/viewport/node-placement';
+  import { resolveNodePlacement3D, memberParamOnRay, type NodePlacement3D } from '../lib/viewport/node-placement';
   import { toolStretch, loadedLength, loadedSegment } from '../lib/model/loads/load-stretch';
   import { boxSelect as boxSelectTargets, type BoxSelectMode } from '../lib/viewport/box-select';
   import { membersNearPointer, membersNearPointerWithDistance, nodesNearPointer } from '../lib/viewport3d/screen-pick';
@@ -73,7 +73,7 @@
   import BuildTimelapsePanel from './BuildTimelapsePanel.svelte';
   import { drawFreeBody, freeBodyFocus } from '../lib/canvas/free-body';
   import { freeBodyActions3D } from '../lib/viewport3d/free-body-3d';
-  import { displayedLoads3D } from '../lib/store/displayed-loads-3d';
+  import { displayedLoads3D, despieceNote3D, despieceDrawsActions, despieceNoteText } from '../lib/store/displayed-loads-3d';
 
   let container: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -1331,11 +1331,14 @@
     g.clearRect(0, 0, fbCanvas.width, fbCanvas.height);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const r3d = resultsStore.results3D!;
+    // An envelope or a magnitude is no state of equilibrium: its pieces, and a note saying so.
+    const fbNote = despieceNote3D(r3d);
+    const fbActs = despieceDrawsActions(fbNote);
     const data = freeBodyActions3D({
-      elements: modelStore.elements, nodes: modelStore.nodes, forces: r3d.elementForces, reactions: r3d.reactions ?? [],
+      elements: modelStore.elements, nodes: modelStore.nodes, forces: fbActs ? r3d.elementForces : [], reactions: fbActs ? r3d.reactions ?? [] : [],
       sections: modelStore.sections, project2D: shouldProject2DModel(), leftHand: uiStore.axisConvention3D === 'leftHand',
       basis: uiStore.despieceBasis, resultant: uiStore.despieceCombineVectors, showReactions: resultsStore.showReactions,
-      loads: displayedLoads3D(),
+      loads: displayedLoads3D(r3d),
       loadText: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),
       negligible: 0.02,
       loadMode: uiStore.despieceLoadMode === 'resultant' ? 'resultant' : 'all',
@@ -1352,6 +1355,7 @@
       planar: false,
       focus: freeBodyFocus(data.members, uiStore.selectedElements, uiStore.selectedNodes),
       hint: t('despiece.selectToSee'),
+      note: despieceNoteText(fbNote),
       fmt: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),
       labelPx: 10.5 * Math.max(0.6, uiStore.despieceLabelSize),
       arrowPx: 32 * Math.max(0.5, uiStore.despieceVectorSize),
@@ -2184,19 +2188,13 @@
     uiStore.toast(t('viewport3d.nodeCreated').replace('{id}', String(id)), 'success');
   }
 
-  type NodePlacement3D =
-    | { kind: 'onNode'; nodeId: number; sx: number; sy: number }
-    | { kind: 'onMember'; elementId: number; t: number; midpoint: boolean; sx: number; sy: number; a: { x: number; y: number }; b: { x: number; y: number } }
-    | { kind: 'free'; p: { x: number; y: number; z: number }; sx: number; sy: number };
-
   /**
-   * What a node-tool click at this pointer does, as in the plane (`resolveNodePlacement2D`), read
-   * on the screen: right on a drawn node, nothing; on a drawn member, a node splitting it where
-   * the pointer ray passes closest (on the grid along it, for a member in the working plane);
-   * elsewhere a new node on the working plane, unless one is already exactly there.
+   * What a node-tool click at this pointer does (`resolveNodePlacement3D`): read on the screen,
+   * with the pointer on the working plane and its ray for what the screen cannot tell.
    */
   function nodePlacement3D(e: MouseEvent): NodePlacement3D | null {
     if (!camera || !container) return null;
+    const cam = camera;
     const rect = container.getBoundingClientRect();
     const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const screen = new Map<number, { x: number; y: number }>();
@@ -2205,53 +2203,19 @@
       const s = projectToScreen(n.x, n.y, n.z ?? 0);
       screen.set(n.id, s); nodes.push({ id: n.id, ...s });
     }
-    const members = [...visibleElements().values()];
-    const place = resolveNodePlacement2D({
-      cursor, snapped: cursor, pxPerM: 1, nodes, members, nodeAt: (id) => screen.get(id), split: uiStore.autoSplitOnNodePlace,
-    });
-    if (place.kind === 'onNode') {
-      const ground = getGroundIntersection(e);
-      // A node projected over the cursor on another level must not prevent placement
-      // on the working plane (for example, a column foot below its top in plan view).
-      if (!ground || nodeAtPlacement3D(place.nodeId, ground, uiStore.workingPlane, modelStore.nodes) === place.nodeId) {
-        return { kind: 'onNode', nodeId: place.nodeId, sx: place.x, sy: place.y };
-      }
-    }
-    if (place.kind === 'onMember') {
-      const el = modelStore.elements.get(place.elementId);
-      const A = el && modelStore.nodes.get(el.nodeI), B = el && modelStore.nodes.get(el.nodeJ);
-      if (!el || !A || !B) return null;
-      const a3 = { x: A.x, y: A.y, z: A.z ?? 0 }, b3 = { x: B.x, y: B.y, z: B.z ?? 0 };
-      let t = 0.5;
-      if (!place.midpoint) {
+    return resolveNodePlacement3D({
+      cursor, nodes, members: [...visibleElements().values()], nodeAt: (id) => screen.get(id),
+      split: uiStore.autoSplitOnNodePlace, model: modelStore.nodes,
+      plane: uiStore.workingPlane, planeLevel: uiStore.nodeCreateZ,
+      ground: getGroundIntersection(e),
+      snap: (p) => snapToStructure(new THREE.Vector3(p.x, p.y, p.z)),
+      rayParam: (A, B) => {
         updateMouseNDC(e);
-        raycaster.setFromCamera(mouse, camera);
-        const plane = uiStore.workingPlane;
-        const acrossOf = (p: { x: number; y: number; z: number }) => plane === 'XY' ? p.z : plane === 'XZ' ? p.y : p.x;
-        const inPlane = Math.abs(acrossOf(a3) - uiStore.nodeCreateZ) < 1e-6 && Math.abs(acrossOf(b3) - uiStore.nodeCreateZ) < 1e-6;
-        const ground = inPlane ? getGroundIntersection(e) : null;
-        const L2 = (b3.x - a3.x) ** 2 + (b3.y - a3.y) ** 2 + (b3.z - a3.z) ** 2;
-        if (ground && L2 > 1e-12) {
-          const g = snapToStructure(ground);
-          t = ((g.x - a3.x) * (b3.x - a3.x) + (g.y - a3.y) * (b3.y - a3.y) + (g.z - a3.z) * (b3.z - a3.z)) / L2;
-        } else {
-          t = memberParamOnRay(raycaster.ray.origin, raycaster.ray.direction, a3, b3) ?? place.t;
-        }
-        // Kept off the ends by a few pixels, like the plane.
-        const ends = { a: screen.get(el.nodeI)!, b: screen.get(el.nodeJ)! };
-        const minT = Math.max(0.01, MIN_SPLIT_PX / Math.max(Math.hypot(ends.b.x - ends.a.x, ends.b.y - ends.a.y), 1e-9));
-        t = Math.min(1 - minT, Math.max(minT, t));
-      }
-      const p = projectToScreen(a3.x + t * (b3.x - a3.x), a3.y + t * (b3.y - a3.y), a3.z + t * (b3.z - a3.z));
-      return { kind: 'onMember', elementId: place.elementId, t, midpoint: place.midpoint, sx: p.x, sy: p.y, a: screen.get(el.nodeI)!, b: screen.get(el.nodeJ)! };
-    }
-    const pos = getGroundIntersection(e);
-    if (!pos) return null;
-    const snapped = snapToStructure(pos);
-    const there = nodeAtPlacement3D(null, snapped, uiStore.workingPlane, modelStore.nodes);
-    const s = projectToScreen(snapped.x, snapped.y, snapped.z);
-    if (there !== null) return { kind: 'onNode', nodeId: there, sx: s.x, sy: s.y };
-    return { kind: 'free', p: snapped, sx: s.x, sy: s.y };
+        raycaster.setFromCamera(mouse, cam);
+        return memberParamOnRay(raycaster.ray.origin, raycaster.ray.direction, A, B);
+      },
+      project: (p) => projectToScreen(p.x, p.y, p.z),
+    });
   }
 
   /**

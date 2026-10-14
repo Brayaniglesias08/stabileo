@@ -117,8 +117,9 @@
       data.figures = figures;
       data.kinematics = content.kinematics ? kinematicReportOfModel() : undefined;
       if (!solved.ok) data.solveError = solved.error;
-      openCalcReport(data, win);
-      open = false;
+      // No tab to be had: the report came as a file, which is said, and the dialog stays.
+      if (openCalcReport(data, win) === 'tab') open = false;
+      else uiStore.toast(t('calcReport.popupBlocked'), 'info');
     } catch (e) {
       win?.close();
       uiStore.toast(String((e as Error)?.message ?? e), 'error');
@@ -200,6 +201,9 @@
       combinations,
       results2D: !is3D ? (resultsStore.results ?? undefined) : undefined,
       results3D: is3D ? (resultsStore.results3D ?? undefined) : undefined,
+      // The envelope on screen: the force tables read its diagrams along each member.
+      envelope2D: !is3D && resultsStore.activeView === 'envelope' ? (resultsStore.fullEnvelope ?? undefined) : undefined,
+      envelope3D: is3D && resultsStore.activeView === 'envelope' ? (resultsStore.fullEnvelope3D ?? undefined) : undefined,
     };
     return data;
   }

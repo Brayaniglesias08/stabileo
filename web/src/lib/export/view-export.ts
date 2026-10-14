@@ -62,15 +62,20 @@ async function files(req: ViewExportRequest): Promise<Array<{ name: string; blob
   const base = fileBase();
   const ps = plans(contents, req);
   const out: Array<{ name: string; blob: Blob }> = [];
+  let failed = 0;
   for (const p of ps) {
     const name = ps.length === 1 && (req.sheet || contents.length > 1) ? `${base}_${t('viewExport.sheetFile')}` : `${base}_${SLUG[p.content]}`;
     if (req.format === 'svg') out.push({ name: `${name}.svg`, blob: new Blob([toSvg(p)], { type: 'image/svg+xml' }) });
     else {
       const jpg = req.format === 'jpg';
+      // The canvas is kept inside what browsers encode (`toCanvas`); one that still gives no
+      // picture is told, not left as a download that never comes.
       const blob = await canvasToBlob(toCanvas(p), jpg ? 'image/jpeg' : 'image/png');
       if (blob) out.push({ name: `${name}.${jpg ? 'jpg' : 'png'}`, blob });
+      else failed++;
     }
   }
+  if (failed) uiStore.toast(t('viewExport.pictureFailed'), 'error');
   return out;
 }
 
@@ -95,19 +100,24 @@ export async function copyView(req: ViewExportRequest): Promise<boolean> {
     return false;
   }
   // The clipboard write has to start inside the click, so it is handed a promise of the picture.
+  // A model that cannot be solved is told by `drawable`; the failed copy is then not told again.
+  let told = false;
   const picture = (async () => {
     const contents = await drawable(req.contents);
-    if (contents.length === 0) throw new Error('empty');
+    if (contents.length === 0) { told = req.contents.length > 0; throw new Error('empty'); }
     const ps = plans(contents, { ...req, sheet: true });
     const blob = ps[0] ? await canvasToBlob(toCanvas(ps[0])) : null;
     if (!blob) throw new Error('empty');
     return blob;
   })();
+  // A clipboard that refuses before reading the picture leaves its failure unheard: handled
+  // here, it is not an unhandled rejection.
+  picture.catch(() => {});
   try {
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': picture })]);
     return true;
   } catch {
-    uiStore.toast(t('viewExport.copyFailed'), 'error');
+    if (!told) uiStore.toast(t('viewExport.copyFailed'), 'error');
     return false;
   }
 }

@@ -7,35 +7,24 @@
  * into one force and one moment. A joint's action is the member's, reversed.
  */
 import { computeLocalAxes3D } from '../engine/local-axes-3d';
-import { distributedGlobalEnds } from '../engine/member-loads';
+import { distributedGlobalEnds, pointResultants } from '../engine/member-loads';
+import { pointGlobal } from '../engine/member-point-loads';
 import { projectNodeToScene, get2DDisplayNodalLoadVertical, get2DDisplayNodalLoadMoment } from '../geometry/coordinate-system';
 import { transverseSign } from '../engine/transverse-sign-2d';
 import { DESPIECE_COL, memberEndAction3D, type DespieceBasis } from '../three/despiece-3d';
 import type { ElementForces3D, Reaction3D } from '../engine/types-3d';
 import type { Element, Node, Section, Load } from '../store/model.svelte';
-import type { FBAction, FBEnd, FBLoad, FBSupport, P3 } from '../canvas/free-body';
+import { freeBodyKeeps, type FBAction, type FBEnd, type FBLoad, type FBSupport, type P3 } from '../canvas/free-body';
 
 const EPS = 1e-3;
 type V = [number, number, number];
 const unit = (v: V): P3 => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return { x: v[0] / l, y: v[1] / l, z: v[2] / l }; };
 const dot = (a: V, b: V) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: V, b: V): V => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const scale = (a: V, k: number): V => [a[0] * k, a[1] * k, a[2] * k];
 
-/**
- * Point resultants of one trapezoidal/partial distributed component (qI at a … qJ at b),
- * statically exact. When qI and qJ share a sign that is one force at the trapezoid's centroid; a
- * sign-reversing trapezoid has no single equivalent force on the span, so it is its two triangles.
- */
-export function pointResultants(qI: number, qJ: number, a: number, b: number): Array<{ mag: number; at: number }> {
-  const L = b - a;
-  if (!(L > 1e-12)) return [];
-  if (qI * qJ >= 0) {
-    const sum = qI + qJ;
-    if (Math.abs(sum) < 1e-12) return [];
-    return [{ mag: (sum / 2) * L, at: a + (L / 3) * (qI + 2 * qJ) / sum }];
-  }
-  return [{ mag: (qI * L) / 2, at: a + L / 3 }, { mag: (qJ * L) / 2, at: a + (2 * L) / 3 }];
-}
+// One resultant per triangle where a trapezoid changes sign (`member-loads.ts`).
+export { pointResultants };
 
 export function freeBodyActions3D(opts: {
   elements: Map<number, Element>;
@@ -52,9 +41,9 @@ export function freeBodyActions3D(opts: {
   /** Write a load intensity or force with its unit. */
   loadText: (v: number, q: 'force' | 'distributedLoad' | 'moment') => string;
   /**
-   * Components below this share of the largest force (or moment) in the model are left out:
-   * a 3D solve leaves hundredths of a kN where the structure carries nothing, and writing
-   * "T = 0.0 kN·m" at every cut buries what it does carry. 0 shows everything (the tests).
+   * Components below this share of their piece's own actions are left out (`freeBodyKeeps`, the
+   * 2D rule too): a 3D solve leaves hundredths of a kN where the structure carries nothing, and
+   * writing "T = 0.0 kN·m" at every cut buries what it does carry. 0 shows everything (the tests).
    */
   negligible?: number;
   /**
@@ -85,7 +74,7 @@ export function freeBodyActions3D(opts: {
     maxM = Math.max(maxM, Math.abs(f.mxStart), Math.abs(f.mxEnd), Math.abs(f.myStart), Math.abs(f.myEnd), Math.abs(f.mzStart), Math.abs(f.mzEnd));
   }
   const share = opts.negligible ?? 0;
-  const floor = (kind: 'force' | 'moment') => Math.max(EPS, share * (kind === 'force' ? maxF : maxM));
+  const model = { force: maxF, moment: maxM };
 
   for (const [, e] of opts.elements) {
     const pI = at(e.nodeI), pJ = at(e.nodeJ);
@@ -102,6 +91,17 @@ export function freeBodyActions3D(opts: {
     axesOf.set(e.id, { ex, ey, ez, len: Math.hypot(pJ.x - pI.x, pJ.y - pI.y, (pJ.z ?? 0) - (pI.z ?? 0)) });
     const f = forceOf.get(e.id);
     if (!f) continue;
+    const len = axesOf.get(e.id)!.len;
+    // The member's own largest end force and moment, what its negligible components are read against.
+    const own = { force: 0, moment: 0 };
+    for (const [o, n, vy, vz, mx, my, mz] of [
+      [1, f.nStart, f.vyStart, f.vzStart, f.mxStart, f.myStart, f.mzStart],
+      [-1, f.nEnd, f.vyEnd, f.vzEnd, f.mxEnd, f.myEnd, f.mzEnd],
+    ] as Array<[1 | -1, number, number, number, number, number, number]>) {
+      const a = memberEndAction3D(ex, ey, ez, o, n, vy, vz, mx, my, mz);
+      own.force = Math.max(own.force, Math.hypot(...(a.force as V)));
+      own.moment = Math.max(own.moment, Math.hypot(...(a.moment as V)));
+    }
     for (const [end, nodeId, out, n, vy, vz, mx, my, mz] of [
       ['I', e.nodeI, 1, f.nStart, f.vyStart, f.vzStart, f.mxStart, f.myStart, f.mzStart],
       ['J', e.nodeJ, -1, f.nEnd, f.vyEnd, f.vzEnd, f.mxEnd, f.myEnd, f.mzEnd],
@@ -110,8 +110,12 @@ export function freeBodyActions3D(opts: {
       const F = act.force as V, M = act.moment as V;
       const comps = (sign: 1 | -1): FBAction[] => {
         const list: FBAction[] = [];
+        // A component's arm across the member: what it adds to the member's moment balance.
+        const lever = (axis: V) => len * Math.hypot(...cross(axis, ex));
         const push = (name: string, kind: 'force' | 'moment', axis: V, comp: number, color: string) => {
-          if (Math.abs(comp) > floor(kind)) list.push({ name, kind, dir: unit(scale(axis, Math.sign(comp) * sign)), magnitude: Math.abs(comp), color });
+          if (Math.abs(comp) > EPS && freeBodyKeeps(comp, kind, share, { own, model }, kind === 'force' ? lever(axis) : 0)) {
+            list.push({ name, kind, dir: unit(scale(axis, Math.sign(comp) * sign)), magnitude: Math.abs(comp), color });
+          }
         };
         if (opts.resultant) {
           const fm = Math.hypot(...F), mm = Math.hypot(...M);
@@ -140,10 +144,18 @@ export function freeBodyActions3D(opts: {
 
   const supports: FBSupport[] = [];
   if (opts.showReactions) {
+    // A reaction is read against the same component at every support, and the largest reaction.
+    const comp = (r: Reaction3D): number[] => [r.fx, r.fy, r.fz, r.mx ?? 0, r.my ?? 0, r.mz ?? 0];
+    const same = [0, 1, 2, 3, 4, 5].map((k) => Math.max(0, ...opts.reactions.map((r) => Math.abs(comp(r)[k]!))));
+    const largest = { force: Math.max(same[0]!, same[1]!, same[2]!), moment: Math.max(same[3]!, same[4]!, same[5]!) };
     for (const r of opts.reactions) {
       const list: FBAction[] = [];
+      let k = 0;
       const push = (name: string, kind: 'force' | 'moment', axis: V, v: number) => {
-        if (Math.abs(v) > floor(kind)) list.push({ name, kind, dir: unit(scale(axis, Math.sign(v))), magnitude: Math.abs(v), color: DESPIECE_COL.reaction });
+        const sameComp = same[k++]!;
+        if (Math.abs(v) > EPS && freeBodyKeeps(v, kind, share, { own: { force: sameComp, moment: sameComp }, model: largest })) {
+          list.push({ name, kind, dir: unit(scale(axis, Math.sign(v))), magnitude: Math.abs(v), color: DESPIECE_COL.reaction });
+        }
       };
       push('Rx', 'force', [1, 0, 0], r.fx); push('Ry', 'force', [0, 1, 0], r.fy); push('Rz', 'force', [0, 0, 1], r.fz);
       push('Mx', 'moment', [1, 0, 0], r.mx ?? 0); push('My', 'moment', [0, 1, 0], r.my ?? 0); push('Mz', 'moment', [0, 0, 1], r.mz ?? 0);
@@ -177,10 +189,13 @@ export function freeBodyActions3D(opts: {
         qZI: dir[2] * d.qI, qZJ: dir[2] * d.qJ } };
     }
     const p = ld.data;
+    // Its moment about the plane's normal, put where a nodal moment of the plane goes.
+    const m = p.my ?? p.mz ?? 0;
     return { type: 'pointOnElement3d', data: { ...p, frame: 'global',
       px: dir[0] * p.p + ax.ex[0] * (p.px ?? 0),
       py: dir[1] * p.p + ax.ex[1] * (p.px ?? 0),
-      pz: dir[2] * p.p + ax.ex[2] * (p.px ?? 0) } };
+      pz: dir[2] * p.p + ax.ex[2] * (p.px ?? 0),
+      mx: 0, my: opts.project2D ? m : 0, mz: opts.project2D ? 0 : m } };
   };
 
   for (const source of opts.loads ?? []) {
@@ -193,8 +208,6 @@ export function freeBodyActions3D(opts: {
     } else if (ld.type === 'distributed3d' || ld.type === 'pointOnElement3d') {
       const ax = axesOf.get(ld.data.elementId);
       if (!ax) continue;
-      // Member loads are typed along the y the user sees: negated under the left-hand convention.
-      const eyUser = opts.leftHand ? scale(ax.ey, -1) : ax.ey;
       if (ld.type === 'distributed3d') {
         const d = ld.data;
         const { gI, gJ, a: a0, b: b0 } = distributedGlobalEnds(d, { ...ax, L: ax.len }, opts.leftHand);
@@ -224,11 +237,14 @@ export function freeBodyActions3D(opts: {
             qI: { x: gI[0], y: gI[1], z: gI[2] }, qJ: { x: gJ[0], y: gJ[1], z: gJ[2] }, label });
         }
       } else {
+        // Its force and its moment as the solve reads them (`member-point-loads.ts`): local y is
+        // typed along the y the user sees, negated under the left-hand convention. The moment was
+        // left out, and a member under one did not balance by all of it.
         const d = ld.data;
-        const v: V = (d.frame ?? 'local') === 'global'
-          ? [d.px ?? 0, d.py, d.pz]
-          : [ax.ex[0] * (d.px ?? 0) + eyUser[0] * d.py + ax.ez[0] * d.pz, ax.ex[1] * (d.px ?? 0) + eyUser[1] * d.py + ax.ez[1] * d.pz, ax.ex[2] * (d.px ?? 0) + eyUser[2] * d.py + ax.ez[2] * d.pz];
-        if (Math.hypot(...v) > EPS) loads.push({ kind: 'point', memberId: d.elementId, t: (d.a ?? 0) / ax.len, dir: unit(v), label: opts.loadText(Math.hypot(...v), 'force') });
+        const { F, M } = pointGlobal(d, { ...ax, L: ax.len }, opts.leftHand);
+        const t = (d.a ?? 0) / ax.len;
+        if (Math.hypot(...F) > EPS) loads.push({ kind: 'point', memberId: d.elementId, t, dir: unit(F), label: opts.loadText(Math.hypot(...F), 'force') });
+        if (Math.hypot(...M) > EPS) loads.push({ kind: 'point', action: 'moment', memberId: d.elementId, t, dir: unit(M), label: opts.loadText(Math.hypot(...M), 'moment') });
       }
     }
   }
