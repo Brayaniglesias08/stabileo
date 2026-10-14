@@ -3382,6 +3382,7 @@ const zh: Translations = {
   'design.error.solveFirst': '请先求解模型以计算设计内力。',
   'design.error.noCombinations': '在设计之前，请至少定义一个荷载组合。',
   'design.error.noDemands': '无法从当前结果中提取设计内力。',
+  'design.error.noLinearCombination': '没有启用的线性组合：SRSS 和 ABS 组合是无符号的量值，不用于设计。请启用一个线性组合。',
   'design.error.noAdapter': '所选规范未注册任何设计适配器。',
   'design.error.codeUnsupported': '{code} 无法设计配筋 — 它只能评定给定的配筋方案。',
   'design.error.noConcreteMembers': '{code} is the reinforced-concrete code and this model has no concrete member: all {n} of its members are steel. The reinforcement design workflow does not apply to this structure.',
