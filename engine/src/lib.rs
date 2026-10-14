@@ -1,3 +1,4 @@
+pub mod column_capacity_kernel;
 pub mod load_session;
 pub mod shell_combination_kernel;
 pub mod rc_section_kernel;

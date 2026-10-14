@@ -14,15 +14,19 @@
     capacityCurve, defaultControl, hingesThrough, hingePoints, pushoverFrames, stoppedAtJoint,
     type PushoverResult, type PushDir,
   } from '../../../lib/engine/pushover-curve';
+  import { upToTarget } from '../../../lib/engine/pushover-pattern';
 
-  let { result, modelVersion }: { result: PushoverResult; modelVersion: number } = $props();
+  let { result, modelVersion, target = null }: { result: PushoverResult; modelVersion: number; target?: { kind: 'shear' | 'displacement'; value: number } | null } = $props();
 
   const OWNER = 'pushover';
   const initial = $derived(defaultControl(result));
   let nodeChoice = $state<number | null>(null);
   let dirChoice = $state<PushDir | null>(null);
   const control = $derived({ nodeId: nodeChoice ?? initial?.nodeId ?? 0, dir: dirChoice ?? initial?.dir ?? 'x' });
-  const curve = $derived(capacityCurve(result, control));
+  /** The curve up to the target, when there is one (`pushover-pattern.ts`). */
+  const full = $derived(capacityCurve(result, control));
+  const cut = $derived(target && target.value > 0 ? upToTarget(full, target) : null);
+  const curve = $derived(cut ? cut.curve : full);
   const nodeIds = $derived([...new Set(result.steps[0]?.results.displacements.map((d) => d.nodeId) ?? [])].sort((a, b) => a - b));
   const stopped = $derived(stoppedAtJoint(result, modelStore.elements));
 
@@ -92,6 +96,12 @@
   </div>
   {#if stale}<p class="po-hint">{t('pro.po.stale')}</p>{/if}
   {#if stopped != null}<p class="po-warn" data-testid="po-stopped">{tp('pro.po.stoppedAtJoint', { node: stopped })}</p>{/if}
+  <!-- The run ended below the target: the curve shown is the whole run, not the curve up to it. -->
+  {#if cut && !cut.reached && target}
+    {@const shear = target.kind === 'shear'}
+    {@const most = Math.max(0, ...full.map((p) => (shear ? p.baseShear : p.displacement * 1000)))}
+    <p class="po-warn" data-testid="po-target-unreached">{tp(shear ? 'pro.po.targetUnreachedShear' : 'pro.po.targetUnreachedDisp', { target: fmt(shear ? target.value : target.value * 1000, 1), reached: fmt(most, 1) })}</p>
+  {/if}
 
   <div class="po-readout" data-testid="po-readout">
     {shownPoint.step < 0 ? t('pro.po.origin') : tp('pro.po.stepN', { n: shownPoint.step + 1, of: curve.length - 1 })}

@@ -6,20 +6,20 @@
   import { windCaseReversible } from '../../lib/store/wind-reversal';
   import ProFloorLoadSection from './ProFloorLoadSection.svelte';
   import { expandCombinations, presentSymbols, type CaseCombination } from '../../lib/engine/loads/combination-cases';
-  import { addGeneratedCombinations, templateCombinationSpecs } from '../../lib/store/generated-combinations';
+  import { addGeneratedCombinations, addCompositeCases, combinationExists, templateCombinationSpecs } from '../../lib/store/generated-combinations';
+  import { withNotionalVariants } from '../../lib/engine/loads/notional-combinations';
   import { modelStore, uiStore } from '../../lib/store';
   import { t } from '../../lib/i18n';
   import WriteInPanelButton from './WriteInPanelButton.svelte';
   import WriteCard from './WriteCard.svelte';
   import { drawState } from '../../lib/store/draw-state.svelte';
-  import DrawInModelButton from './DrawInModelButton.svelte';
   import ProAutoLoadsDialog from './ProAutoLoadsDialog.svelte';
   import type { AutoLoadFocus } from './ProAutoLoadsDialog.svelte';
 
   let showAutoLoadsDialog = $state(false);
 
   /*
-   * The case new loads go to is the one "Draw load" uses too (`uiStore.activeLoadCaseId`).
+   * The case new loads go to is the active one (`uiStore.activeLoadCaseId`).
    * Writing a load is `ProWriteLoadCard`; the tables and the operations on loads, `ProLoadTables`.
    */
   const loadCases = $derived(modelStore.model.loadCases);
@@ -40,6 +40,11 @@
   }
 
   let showComboModal = $state(false);
+  /** Write the combinations as composite cases. */
+  let asComposite = $state(false);
+  /** Add the notional cases to the combinations without lateral load. */
+  let addNotionals = $state(false);
+  const hasNotionalCases = $derived(loadCases.some((c) => c.notional));
   let candidateCombos = $state<CandidateCombo[]>([]);
   let activeTemplate = $state<ComboTemplate>('lrfd');
   const hasWindCases = $derived(modelStore.model.loadCases.some((c) => (c.type || '').toUpperCase() === 'W'));
@@ -53,17 +58,9 @@
   let seismicBothSenses = $state(true);
   let windBySign = $state(false);
 
+  // Read through the composite cases: one written as a composite case is the same combination.
   function comboExists(factors: Array<{caseId: number; factor: number}>): boolean {
-    const sig = comboSignature(factors);
-    return combinations.some(c => comboSignature(c.factors) === sig);
-  }
-
-  function comboSignature(factors: Array<{caseId: number; factor: number}>): string {
-    return factors
-      .filter(f => Math.abs(f.factor) > 1e-9)
-      .sort((a, b) => a.caseId - b.caseId)
-      .map(f => `${f.caseId}:${f.factor.toFixed(2)}`)
-      .join('|');
+    return combinationExists(factors, combinations, modelStore.model.loadCases);
   }
 
   function buildCandidates(template: ComboTemplate): CandidateCombo[] {
@@ -85,11 +82,13 @@
     // The project's rules carry their own factors: W is written as the engineer means it. Each
     // says which code wrote it and what for, so service ones stay out of design.
     const specs = templateCombinationSpecs(template, present, modelStore.combinationRules);
-    const out = expandCombinations(specs, cases, {
+    const expanded = expandCombinations(specs, cases, {
       bothSenses: { W: windBySign, E: seismicBothSenses },
       // A wind case with roof suction is not reversed by sign (store/wind-reversal.ts).
       reversible: (id) => windCaseReversible(modelStore.model, id),
-    }).map((c) => {
+    });
+    // The notional cases, each with its source's factor, in the combinations without lateral load.
+    const out = (addNotionals ? withNotionalVariants(expanded, cases) : expanded).map((c) => {
       const factors = cases.map((lc) => ({ caseId: lc.id, factor: c.factors.find((f) => f.caseId === lc.id)?.factor ?? 0 }));
       return { name: c.name, factors, exists: comboExists(factors), selected: false, template, generated: c };
     });
@@ -120,7 +119,10 @@
       return m ? Math.max(max, parseInt(m[1], 10)) : max;
     }, 0);
     modelStore.batch(() => {
-      addGeneratedCombinations(toAdd.map((c) => ({ ...c.generated, name: c.name })), () => `${prefix}${++n}: `);
+      const list = toAdd.map((c) => ({ ...c.generated, name: c.name }));
+      // As composite cases, each solved as one case (a second-order solve sees the whole of it).
+      if (asComposite) addCompositeCases(list, () => `${prefix}${++n}: `);
+      else addGeneratedCombinations(list, () => `${prefix}${++n}: `);
     });
     showComboModal = false;
     const label = activeTemplate === 'service' ? t('pro.serviceCombosGenerated') : t('pro.combosGenerated');
@@ -137,24 +139,18 @@
 </script>
 
 <div class="pro-loads">
-  <!-- Drawing works the MODEL, so it sits beside the other things you do to a
-       load rather than as a band across the panel. -->
+  <!-- One way to add a load: its card, which says what it goes on (the selection, numbers, a
+       group, a range...). Drawing a load in the model did less than the card and is gone. -->
   <div class="pro-autogen-bar">
-    <DrawInModelButton tool="load" label={t('pro.oneLoad')} icon="load" testid="draw-load" />
-    <WriteInPanelButton kind="load" label={t('pro.oneLoad')} testid="write-load" />
+    <WriteInPanelButton kind="load" verb="add" label={t('pro.oneLoad')} testid="write-load" />
     <button class="pro-btn-autogen" data-testid="pro-auto-loads-btn"
       onclick={() => showAutoLoadsDialog = true}>{t('autoLoad.autoGenBtn')}</button>
   </div>
 
-  <!-- Write a load: the card the "Write load" button opens, beside "Draw load". -->
+  <!-- Add a load: the card the "Add load" button opens. -->
   {#if drawState.writing === 'load'}
   <div class="pro-addload-section">
-  <WriteCard title={`${t('pro.writeIn')} ${t('pro.oneLoad')}`} testid="write-load-card">
-    <label>{t('pro.writeLoadCase')}
-      <select bind:value={uiStore.activeLoadCaseId} data-testid="write-load-case">
-        {#each loadCases as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
-      </select>
-    </label>
+  <WriteCard title={`${t('pro.add')} ${t('pro.oneLoad')}`} testid="write-load-card">
   <ProWriteLoadCard />
   </WriteCard>
   </div>
@@ -242,6 +238,16 @@
         </label>
         <p class="combo-senses-hint">{t('combos.windBySignHint')}</p>
       {/if}
+      {#if hasNotionalCases}
+        <label class="combo-wind-basis" data-testid="combo-add-notionals">
+          <input type="checkbox" bind:checked={addNotionals} onchange={() => { candidateCombos = buildCandidates(activeTemplate); }} />
+          <span>{t('combos.addNotionals')}</span>
+        </label>
+      {/if}
+      <label class="combo-wind-basis" data-testid="combo-as-composite">
+        <input type="checkbox" bind:checked={asComposite} />
+        <span>{t('combos.asComposite')}</span>
+      </label>
       <div class="combo-modal-body">
         {#each candidateCombos as cand, i}
           {@const nonZero = cand.factors.filter(f => Math.abs(f.factor) > 1e-9).sort((a, b) => {

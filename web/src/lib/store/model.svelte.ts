@@ -1,6 +1,7 @@
 import {
   defaultCodeSettings, migrateCodeSettings, type ProjectCodeSettings,
 } from '../codes/project-code-settings';
+import { loadCasesInUse } from '../model/loads/load-cases-in-use';
 import { refreshRatios } from '../section/drawn';
 import {
   emptyDetailingStore, migrateDetailingStore, type DetailingStore,
@@ -43,8 +44,9 @@ import { weldTolerance } from '../model/weld-tolerance';
 import { getFixture, is2DFixture, is3DFixture } from '../templates/fixture-index';
 import { loadFixture } from '../templates/load-fixture';
 import { inferLoadCaseType } from '../engine/combinations-service';
+import { addsLoop, singleSolveModel } from '../engine/case-effects';
 import { t } from '../i18n';
-import { GRAVITY_SELF_WEIGHT, planSelfWeight } from '../engine/analysis-settings';
+import { GRAVITY_SELF_WEIGHT, planSelfWeight, type SelfWeightLoad } from '../engine/analysis-settings';
 import { type ModelData, shouldEmbedFlat2DModelIn3D, validateAndSolve2D, validateAndSolve2DAsync, buildSolverInput2D, validateAndSolve3D, validateAndSolve3DAsync, buildSolverInput3D as buildSolverInput3DFn, solveCombinations2D, solveCombinations3D as solveCombinations3DFn, solveCombinations3DParallel as solveCombinations3DParallelFn } from '../engine/solver-service';
 import { computeInfluenceLine as computeInfluenceLineFn } from '../engine/influence-service';
 import { checkStretch, checkPosition, editKeepsPlace, loadedLength } from '../model/loads/load-stretch';
@@ -66,6 +68,8 @@ export interface Node {
   x: number;
   y: number;
   z?: number;  // 3D coordinate (default 0 for 2D models)
+  /** A name of the user's ("A1", "cumbrera"), beside the number; absent when there is none. */
+  name?: string;
 }
 
 export interface Material {
@@ -498,6 +502,8 @@ export interface ProvidedReinforcement {
 
 export interface Element extends Element3DMetadata {
   id: number;
+  /** A name of the user's ("V101", "C3 PB"), beside the number; absent when there is none. */
+  name?: string;
   type: 'frame' | 'truss';
   nodeI: number;
   nodeJ: number;
@@ -518,6 +524,12 @@ export interface Element extends Element3DMetadata {
   reinforcement?: ProvidedReinforcement;
   /** Inactive, tension only or compression only (`engine/member-behaviour.ts`). Absent: linear. */
   behaviour?: import('../engine/member-behaviour').MemberBehaviour;
+  /**
+   * The members this one lies over and was kept with ("Keep both" on the overlap question,
+   * `model/edit/connection-questions.ts`): not asked about again, on this open or the next.
+   * Read only by that question; the analysis and the diagnostics do not look at it.
+   */
+  keptOver?: number[];
   /** Factors on A, Iy, Iz and J for the analysis only; the section itself is not changed. */
   stiffness?: import('../engine/member-behaviour').StiffnessModifiers;
   /** Semi-rigid ends: rotational stiffness about local y and z, kN·m/rad (`engine/expand-semi-rigid-3d.ts`). */
@@ -825,12 +837,46 @@ export interface LoadCase {
    * read (`codes/families/origin.ts`). The generator states it; absent, it follows the type.
    */
   category?: import('../codes/families/origin').ActionCategory;
+  /**
+   * Other cases this one takes in, each times a factor, besides its own loads: a composite case
+   * (`engine/case-effects.ts`). Solved as one case, so a second-order or a nonlinear solve sees
+   * the whole of it.
+   */
+  includes?: Array<{ caseId: number; factor: number }>;
+  /**
+   * A composite case the combination generator wrote for one of its combinations ("create as
+   * composite cases", `store/generated-combinations.ts`): "replace generated loads" takes it back
+   * with its combination once nothing else takes it, and a later run knows the combination.
+   */
+  generated?: boolean;
+  /** A case of loads only to be taken in by others: not solved, nor listed in the results, on its own. */
+  reference?: boolean;
+  /** False: not solved on its own unless a combination needs it, nor listed in the results. */
+  solve?: boolean;
+  /**
+   * Notional loads (`direct-analysis.ts` `notionalLoads`): a fraction of the gravity load of
+   * another case at each node, horizontal along a direction. Written when solved.
+   */
+  notional?: { sourceCaseId: number; ratio: number; dir: '+X' | '-X' | '+Y' | '-Y' };
+  /**
+   * An imposed load's reduction for a case typed by hand: its loads times `ratio`, the one the
+   * bound loads code gives for the tributary area, member and storeys stated, and the occupancy
+   * of Table 4.1 its Lo and exclusions come from (`engine/loads/case-reduction.ts`).
+   */
+  reduction?: { ratio: number; tributaryAreaM2: number; elementKind: string; floorsSupported: number; occupancyKey?: string };
+  /** A response spectrum as this case's result (`engine/spectral-case.ts`): no loads of its own. */
+  spectral?: import('../engine/spectral-case').SpectralCaseDef;
 }
 
 export interface LoadCombination {
   id: number;
   name: string;
   factors: Array<{ caseId: number; factor: number }>;
+  /**
+   * How the factored cases add: `linear` (the default), `srss` (the square root of the sum of their
+   * squares) or `abs` (the sum of their absolute values), quantity by quantity.
+   */
+  method?: 'linear' | 'srss' | 'abs';
   /** The code, edition, rule and purpose of a generated combination: what design reads to know it is its own. */
   origin?: import('../codes/families/origin').CombinationOrigin;
 }
@@ -958,7 +1004,7 @@ export interface StructureModel {
   /** The structural grid and the named levels (`model/grid.ts`). Absent: none defined. */
   grid?: import('../model/grid').StructuralGrid;
   /** Dynamic analysis settings kept with the project: the time history. Absent: none stated. */
-  dynamics?: { timeHistory?: import('../engine/dynamics/time-history-spec').TimeHistorySpec };
+  dynamics?: { timeHistory?: import('../engine/dynamics/time-history-spec').TimeHistorySpec; spectra?: import('../engine/spectral-case').UserSpectrum[] };
   /** Deflection limits by member, group or kind (`engine/deflection-limits.ts`). Absent: beams at L/360. */
   deflectionLimits?: import('../engine/deflection-limits').DeflectionLimits;
   /**
@@ -1081,7 +1127,12 @@ export interface InfluenceLineResult {
   targetPosition?: number; // 0..1 along target element
   /** Data points: loadPosition (global x along structure) → quantity value */
   points: Array<{ x: number; y: number; elementId: number; t: number; value: number }>;
+  /** The unit load's direction; absent is downward. */
+  direction?: InfluenceDirection;
 }
+
+/** Which way the influence line's unit load acts: down, or across to +X. */
+export type InfluenceDirection = 'vertical' | 'horizontal';
 
 /**
  * The model fields recorded through the views undo channel (`_pushUndoView`), which undo restores
@@ -1226,11 +1277,14 @@ function createModelStore() {
    * into the 2D convention (x=horizontal, y=vertical) for the given plane.
    * The returned object is a shallow copy safe for passing to solver functions.
    */
-  function remapModelForPlane(plane: DrawPlane): { nodes: Map<number, Node>; elements: typeof model.elements; supports: typeof model.supports; loads: typeof model.loads; materials: typeof model.materials; sections: typeof model.sections; connectors?: typeof model.connectors; constraints?: typeof model.constraints } | string {
+  function remapModelForPlane(plane: DrawPlane, includeSelfWeight = false): { nodes: Map<number, Node>; elements: typeof model.elements; supports: typeof model.supports; loads: typeof model.loads; materials: typeof model.materials; sections: typeof model.sections; connectors?: typeof model.connectors; constraints?: typeof model.constraints; analysis?: { selfWeight: SelfWeightLoad[] } } | string {
+    // Only Basic's self-weight rule rides along: which case carries it.
+    const sw = basicSelfWeight(includeSelfWeight);
+    const analysis = sw ? { selfWeight: sw } : undefined;
     if (plane === 'xy') {
       return { nodes: model.nodes, elements: model.elements, supports: model.supports,
         loads: model.loads, materials: model.materials, sections: model.sections,
-        connectors: model.connectors, constraints: model.constraints };
+        connectors: model.connectors, constraints: model.constraints, analysis };
     }
 
     // Remap nodes into the selected 2D plane
@@ -1300,7 +1354,7 @@ function createModelStore() {
     // [ux, uz, ry] convention.
     return { nodes: remappedNodes, elements: model.elements, supports: remappedSupports,
       loads: remappedLoads, materials: model.materials, sections: model.sections,
-      connectors: model.connectors, constraints: model.constraints };
+      connectors: model.connectors, constraints: model.constraints, analysis };
   }
 
   let nextId = $state({
@@ -1376,6 +1430,8 @@ function createModelStore() {
   let _beforeAnalysisInput: (() => void) | null = null;
   /** Called when the whole model is replaced (restore, clear): state about the old one goes. */
   let _onReplaced: (() => void) | null = null;
+  /** A different project now (cleared, an example): view and project settings start over. */
+  let _onNewProject: (() => void) | null = null;
   // Bulk mutation mode: during loadExample (and other wholesale mutations) we
   // want a single reactive commit instead of one per entity. Add/update methods
   // skip their per-call Map / array reassignment while this flag is true;
@@ -1567,15 +1623,63 @@ function createModelStore() {
     }
   }
 
+  type SupportSprings = { kx?: number; ky?: number; kz?: number; krx?: number; kry?: number; krz?: number };
+  type SupportOpts = { angle?: number; isGlobal?: boolean; dx?: number; dy?: number; dz?: number; drx?: number; dry?: number; drz?: number; dofRestraints?: { tx: boolean; ty: boolean; tz: boolean; rx: boolean; ry: boolean; rz: boolean }; dofFrame?: 'global' | 'local'; dofLocalElementId?: number };
+
+  /** The support `addSupport` and `addSupports` write: only the fields given, and no zero offsets. */
+  function supportOf(id: number, nodeId: number, type: SupportType, springs?: SupportSprings, opts?: SupportOpts): Support {
+    const sup: Support = { id, nodeId, type: normalize2DSupportType(type) };
+    if (springs) {
+      if (springs.kx !== undefined) sup.kx = springs.kx;
+      if (springs.ky !== undefined) sup.ky = springs.ky;
+      if (springs.kz !== undefined) sup.kz = springs.kz;
+      if (springs.krx !== undefined) sup.krx = springs.krx;
+      if (springs.kry !== undefined) sup.kry = springs.kry;
+      if (springs.krz !== undefined) sup.krz = springs.krz;
+    }
+    if (opts?.angle !== undefined && opts.angle !== 0) sup.angle = opts.angle;
+    if (opts?.isGlobal !== undefined) sup.isGlobal = opts.isGlobal;
+    // Prescribed displacements
+    if (opts?.dx !== undefined && opts.dx !== 0) sup.dx = opts.dx;
+    const supportDz = opts?.dz ?? opts?.dy;
+    if (supportDz !== undefined && supportDz !== 0) sup.dz = supportDz;
+    if (opts?.drx !== undefined && opts.drx !== 0) sup.drx = opts.drx;
+    const supportDry = opts?.dry ?? opts?.drz;
+    if (supportDry !== undefined && supportDry !== 0) sup.dry = supportDry;
+    // Per-DOF 3D configuration; a copy, so supports added together do not share one.
+    if (opts?.dofRestraints) sup.dofRestraints = { ...opts.dofRestraints };
+    if (opts?.dofFrame) sup.dofFrame = opts.dofFrame;
+    if (opts?.dofLocalElementId !== undefined) sup.dofLocalElementId = opts.dofLocalElementId;
+    return sup;
+  }
+
   /**
    * The analysis rules a solve reads. Basic has its own self-weight toggle and no rule of its own:
    * a model that visited PRO carries a stated rule (`selfWeight: []` when it had none), and it
    * silenced Basic's toggle. Basic reads the rest of the settings and its toggle for self-weight.
    */
-  function analysisFor(isPro: boolean): StructureModel['analysis'] {
-    if (isPro || !model.analysis?.selfWeight) return model.analysis;
-    const { selfWeight: _stated, ...rest } = model.analysis;
+  function analysisFor(isPro: boolean, includeSelfWeight: boolean): StructureModel['analysis'] {
+    if (isPro) return model.analysis;
+    const { selfWeight: _stated, ...rest } = model.analysis ?? {};
+    const basic = basicSelfWeight(includeSelfWeight);
+    if (basic) return { ...rest, selfWeight: basic };
     return Object.keys(rest).length ? rest : undefined;
+  }
+
+  /**
+   * Basic's self-weight as the rule a solve reads: on or off as the solve was asked, in the case chosen under
+   * Loads › Combinations, or the first dead-load case when none is chosen (or the chosen one
+   * was deleted), else the first case. With no case at all there is nothing to state, and the
+   * older rule applies.
+   */
+  function basicSelfWeight(includeSelfWeight: boolean): SelfWeightLoad[] | undefined {
+    const cases = model.loadCases;
+    const chosen = uiStore.selfWeightCaseId;
+    const target = (chosen !== null && cases.some((c) => c.id === chosen))
+      ? chosen
+      : (cases.find((c) => c.type === 'D') ?? cases[0])?.id;
+    if (target === undefined) return undefined;
+    return includeSelfWeight ? [{ caseId: target, ...GRAVITY_SELF_WEIGHT }] : [];
   }
 
   function replaceInGroups(family: keyof GroupMembers, entityId: number, replacements: number[] = []): void {
@@ -1620,6 +1724,7 @@ function createModelStore() {
     _setOnMutation(fn: () => void) { _onMutation = fn; },
     _setBeforeAnalysisInput(fn: () => void) { _beforeAnalysisInput = fn; },
     _setOnReplaced(fn: () => void) { _onReplaced = fn; },
+    _setOnNewProject(fn: () => void) { _onNewProject = fn; },
 
     /** Register a callback fired after a reinforcement transaction commits, with the
      *  set of element ids written. Wired in store/index.ts so this store never
@@ -1795,6 +1900,45 @@ function createModelStore() {
         if (JSON.stringify(m[k] ?? null) === JSON.stringify(next ?? null)) continue;
         m[k] = next;
       }
+      // Names of nodes and members travel on this channel too: the analysis reads neither.
+      const named = <T extends { name?: string }>(map: Map<number, T>, entries: ReadonlyArray<[number, { name?: string }]> | undefined): Map<number, T> | null => {
+        let out: Map<number, T> | null = null;
+        for (const [id, v] of entries ?? []) {
+          const cur = map.get(id);
+          if (!cur || (cur.name ?? '') === (v.name ?? '')) continue;
+          out ??= new Map(map);
+          const { name: _old, ...rest } = cur;
+          out.set(id, (v.name ? { ...rest, name: v.name } : rest) as T);
+        }
+        return out;
+      };
+      const nodes = named(model.nodes, s.nodes as never);
+      if (nodes) model.nodes = nodes;
+      const elements = named(model.elements, s.elements as never);
+      if (elements) model.elements = elements;
+    },
+
+    /**
+     * Name a node or a member, or take its name away (an empty one). One undo step on the views
+     * channel: a name changes nothing the analysis reads, so the results on hand stay.
+     */
+    renameNode(id: number, name: string): void {
+      const n = model.nodes.get(id);
+      const next = name.trim();
+      if (!n || (n.name ?? '') === next) return;
+      _pushUndoView?.();
+      const { name: _old, ...rest } = n;
+      model.nodes.set(id, next ? { ...rest, name: next } : rest);
+      model.nodes = new Map(model.nodes);
+    },
+    renameElement(id: number, name: string): void {
+      const e = model.elements.get(id);
+      const next = name.trim();
+      if (!e || (e.name ?? '') === next) return;
+      _pushUndoView?.();
+      const { name: _old, ...rest } = e;
+      model.elements.set(id, (next ? { ...rest, name: next } : rest) as Element);
+      model.elements = new Map(model.elements);
     },
 
     /** Increment modelVersion to signal model changed (used by historyStore for direct mutations) */
@@ -1978,7 +2122,7 @@ function createModelStore() {
         ...(snap.grid && (snap.grid.axes.length > 0 || snap.grid.levels.length > 0)
           ? { grid: JSON.parse(JSON.stringify(snap.grid)) as ModelSnapshot['grid'] }
           : {}),
-        ...(snap.dynamics?.timeHistory
+        ...(snap.dynamics?.timeHistory || snap.dynamics?.spectra?.length
           ? { dynamics: JSON.parse(JSON.stringify(snap.dynamics)) as ModelSnapshot['dynamics'] }
           : {}),
         ...(snap.projectInfo
@@ -2588,7 +2732,7 @@ function createModelStore() {
       return id;
     },
 
-    addSupport(nodeId: number, type: SupportType, springs?: { kx?: number; ky?: number; kz?: number; krx?: number; kry?: number; krz?: number }, opts?: { angle?: number; isGlobal?: boolean; dx?: number; dy?: number; dz?: number; drx?: number; dry?: number; drz?: number; dofRestraints?: { tx: boolean; ty: boolean; tz: boolean; rx: boolean; ry: boolean; rz: boolean }; dofFrame?: 'global' | 'local'; dofLocalElementId?: number }): number {
+    addSupport(nodeId: number, type: SupportType, springs?: SupportSprings, opts?: SupportOpts): number {
       if (!_undoBatching) _pushUndo?.();
       // A space support on a standing plane model makes it a space one.
       if (opts?.dofRestraints || /3d$|^roller(XY|XZ|YZ)$/.test(type)) this.ensureSpaceCoordinates();
@@ -2600,31 +2744,33 @@ function createModelStore() {
         }
       }
       const id = nextId.support++;
-      const sup: Support = { id, nodeId, type: normalize2DSupportType(type) };
-      if (springs) {
-        if (springs.kx !== undefined) sup.kx = springs.kx;
-        if (springs.ky !== undefined) sup.ky = springs.ky;
-        if (springs.kz !== undefined) sup.kz = springs.kz;
-        if (springs.krx !== undefined) sup.krx = springs.krx;
-        if (springs.kry !== undefined) sup.kry = springs.kry;
-        if (springs.krz !== undefined) sup.krz = springs.krz;
-      }
-      if (opts?.angle !== undefined && opts.angle !== 0) sup.angle = opts.angle;
-      if (opts?.isGlobal !== undefined) sup.isGlobal = opts.isGlobal;
-      // Prescribed displacements
-      if (opts?.dx !== undefined && opts.dx !== 0) sup.dx = opts.dx;
-      const supportDz = opts?.dz ?? opts?.dy;
-      if (supportDz !== undefined && supportDz !== 0) sup.dz = supportDz;
-      if (opts?.drx !== undefined && opts.drx !== 0) sup.drx = opts.drx;
-      const supportDry = opts?.dry ?? opts?.drz;
-      if (supportDry !== undefined && supportDry !== 0) sup.dry = supportDry;
-      // Per-DOF 3D configuration
-      if (opts?.dofRestraints) sup.dofRestraints = opts.dofRestraints;
-      if (opts?.dofFrame) sup.dofFrame = opts.dofFrame;
-      if (opts?.dofLocalElementId !== undefined) sup.dofLocalElementId = opts.dofLocalElementId;
-      model.supports.set(id, sup);
+      model.supports.set(id, supportOf(id, nodeId, type, springs, opts));
       if (!_bulkMutating) model.supports = new Map(model.supports);
       return id;
+    },
+
+    /**
+     * The same support on many nodes, as `addSupport` on each, in one undo step: a node that holds
+     * one takes the new one in its place. One pass over the supports and one copy of the map, where
+     * `addSupport` per node scans and copies them all each time (8000 nodes took seconds).
+     */
+    addSupports(nodeIds: readonly number[], type: SupportType, springs?: SupportSprings, opts?: SupportOpts): number[] {
+      if (nodeIds.length === 0) return [];
+      if (!_undoBatching) _pushUndo?.();
+      if (opts?.dofRestraints || /3d$|^roller(XY|XZ|YZ)$/.test(type)) this.ensureSpaceCoordinates();
+      const into = _bulkMutating ? model.supports : new Map(model.supports);
+      const held = new Map<number, number>();
+      for (const [id, s] of into) held.set(s.nodeId, id);
+      const ids = nodeIds.map((nodeId) => {
+        const old = held.get(nodeId);
+        if (old !== undefined) into.delete(old);
+        const id = nextId.support++;
+        into.set(id, supportOf(id, nodeId, type, springs, opts));
+        held.set(nodeId, id);
+        return id;
+      });
+      if (!_bulkMutating) model.supports = into;
+      return ids;
     },
 
     addNodalLoad(nodeId: number, fx: number, fz: number, my: number = 0, caseId?: number): number {
@@ -3497,6 +3643,7 @@ function createModelStore() {
     clear(): void {
       loadEpoch++;
       _onReplaced?.();
+      _onNewProject?.();
       if (!_undoBatching) _pushUndo?.();
       model.name = t('tabBar.newStructure');
       model.nodes = new Map();
@@ -3547,6 +3694,8 @@ function createModelStore() {
         { id: 3, type: 'W', name: 'Wind' },
         { id: 4, type: 'E', name: 'Earthquake' },
       ];
+      // A new model has one case in use: Basic shows no load cases until they are switched on.
+      uiStore.loadCasesEnabled = false;
       model.combinations = [
         { id: 1, name: '1.2D + 1.6L', factors: [{ caseId: 1, factor: 1.2 }, { caseId: 2, factor: 1.6 }] },
         { id: 2, name: '1.4D', factors: [{ caseId: 1, factor: 1.4 }] },
@@ -3599,7 +3748,7 @@ function createModelStore() {
       if (node) {
         modelVersion++;
         _onMutation?.();
-        model.nodes.set(id, { id: node.id, x, y, z: z !== undefined ? z : node.z });
+        model.nodes.set(id, { ...node, id: node.id, x, y, z: z !== undefined ? z : node.z });
         model.nodes = new Map(model.nodes);
         // Clamp distributed load a/b when element length changes
         for (const elem of model.elements.values()) {
@@ -3795,7 +3944,7 @@ function createModelStore() {
     /** Mirror selected nodes about an axis through their centroid */
 
     solve(includeSelfWeight = false, drawPlane: DrawPlane = 'xy'): AnalysisResults | string | null {
-      const mapped = remapModelForPlane(drawPlane);
+      const mapped = remapModelForPlane(drawPlane, includeSelfWeight);
       if (typeof mapped === 'string') return mapped;
       return validateAndSolve2D(mapped, includeSelfWeight, (k) => { lastKinematicResult = k; });
     },
@@ -3803,14 +3952,14 @@ function createModelStore() {
     /** Async 2D solve via the worker pool (UI stays responsive). Same result
      *  shape and string-error semantics as solve(). */
     async solveAsync(includeSelfWeight = false, drawPlane: DrawPlane = 'xy'): Promise<AnalysisResults | string | null> {
-      const mapped = remapModelForPlane(drawPlane);
+      const mapped = remapModelForPlane(drawPlane, includeSelfWeight);
       if (typeof mapped === 'string') return mapped;
       return validateAndSolve2DAsync(mapped, includeSelfWeight, (k) => { lastKinematicResult = k; });
     },
 
     /** Build a SolverInput from the current model state (no validation). Returns null if model is empty. */
     buildSolverInput(includeSelfWeight = false, drawPlane: DrawPlane = 'xy'): SolverInput | null {
-      const mapped = remapModelForPlane(drawPlane);
+      const mapped = remapModelForPlane(drawPlane, includeSelfWeight);
       if (typeof mapped === 'string') return null;
       return buildSolverInput2D(mapped, includeSelfWeight);
     },
@@ -3839,10 +3988,10 @@ function createModelStore() {
     },
 
     // ─── Load Case / Combination CRUD ───
-    addLoadCase(name: string, type: LoadCaseType = '', opts: { alternatives?: string; pattern?: boolean; category?: LoadCase['category'] } = {}): number {
+    addLoadCase(name: string, type: LoadCaseType = '', opts: { alternatives?: string; pattern?: boolean; category?: LoadCase['category']; generated?: boolean } = {}): number {
       if (!_undoBatching) _pushUndo?.();
       const id = nextId.loadCase++;
-      model.loadCases.push({ id, type, name, ...(opts.alternatives ? { alternatives: opts.alternatives } : {}), ...(opts.pattern ? { pattern: true } : {}), ...(opts.category ? { category: opts.category } : {}) });
+      model.loadCases.push({ id, type, name, ...(opts.alternatives ? { alternatives: opts.alternatives } : {}), ...(opts.pattern ? { pattern: true } : {}), ...(opts.category ? { category: opts.category } : {}), ...(opts.generated ? { generated: true } : {}) });
       return id;
     },
 
@@ -3864,6 +4013,11 @@ function createModelStore() {
       // single solve (which takes every stated row) and not the combinations.
       if (model.analysis?.selfWeight?.some((s) => s.caseId === id)) {
         model.analysis = { ...model.analysis, selfWeight: model.analysis.selfWeight.filter((s) => s.caseId !== id) };
+      }
+      // And the cases that take it in, or read their notional loads off it.
+      for (const lc of model.loadCases) {
+        if (lc.includes?.some((x) => x.caseId === id)) lc.includes = lc.includes.filter((x) => x.caseId !== id);
+        if (lc.notional?.sourceCaseId === id) delete lc.notional;
       }
       // Likewise a named envelope that takes the case on its own.
       if (model.resultScopes) {
@@ -3944,9 +4098,9 @@ function createModelStore() {
       model.deflectionLimits = d && d.rules.length > 0 ? JSON.parse(JSON.stringify(d)) : undefined;
     },
 
-    setDynamics(d: { timeHistory?: import('../engine/dynamics/time-history-spec').TimeHistorySpec } | null): void {
+    setDynamics(d: { timeHistory?: import('../engine/dynamics/time-history-spec').TimeHistorySpec; spectra?: import('../engine/spectral-case').UserSpectrum[] } | null): void {
       if (!_undoBatching) _pushUndoView?.();
-      model.dynamics = d && d.timeHistory ? JSON.parse(JSON.stringify(d)) : undefined;
+      model.dynamics = d && (d.timeHistory || d.spectra?.length) ? JSON.parse(JSON.stringify(d)) : undefined;
     },
 
     /** State the project's combination rules; an empty list withdraws them. */
@@ -3969,6 +4123,9 @@ function createModelStore() {
      */
     setMassSource(ms: MassSource | null): void {
       if (!_undoBatching) _pushUndo?.();
+      // The weights stay through a change of the case factors unless the change names them.
+      const kept = model.massSource?.weights;
+      if (kept?.length && (!ms || !('weights' in ms))) ms = ms ? { ...ms, weights: kept } : { kind: 'custom', factors: [], weights: kept };
       model.massSource = normalizeMassSource(ms ? JSON.parse(JSON.stringify(ms)) : undefined);
       this.bumpModelVersion();
     },
@@ -3984,8 +4141,11 @@ function createModelStore() {
      * "Temperatura"), and a user's case of that name, pulled into the group, had its loads dropped
      * from every combination that took another alternative. When the name is taken, the new case
      * gets a numbered one.
+     *
+     * `reduced`: the loads come reduced already (the generator's live load), and a case reduced by
+     * hand (`LoadCase.reduction`) is never the one they go into, whatever its name.
      */
-    ensureLoadCase(name: string, type: LoadCaseType, opts: { existingId?: number | null; alternatives?: string; pattern?: boolean; own?: boolean; category?: LoadCase['category'] } = {}): number {
+    ensureLoadCase(name: string, type: LoadCaseType, opts: { existingId?: number | null; alternatives?: string; pattern?: boolean; own?: boolean; reduced?: boolean; category?: LoadCase['category'] } = {}): number {
       const found = findPlannedCase(model.loadCases, name, type, opts);
       if (!found) {
         let fresh = name;
@@ -4036,7 +4196,7 @@ function createModelStore() {
       }
     },
 
-    updateCombination(id: number, data: Partial<{ name: string; factors: Array<{ caseId: number; factor: number }> }>): void {
+    updateCombination(id: number, data: Partial<{ name: string; factors: Array<{ caseId: number; factor: number }>; method: LoadCombination['method'] }>): void {
       if (!_undoBatching) _pushUndo?.();
       const combo = model.combinations.find(c => c.id === id);
       if (!combo) return;
@@ -4050,6 +4210,38 @@ function createModelStore() {
         if (combo.origin && !combo.origin.edited && sig(combo.factors) !== sig(data.factors)) combo.origin = { ...combo.origin, edited: true };
         combo.factors = [...data.factors];
       }
+      if ('method' in data) {
+        const method = !data.method || data.method === 'linear' ? undefined : data.method;
+        // How the cases add is what the combination is, as its factors are: a code's combination
+        // set to SRSS or ABS is the user's now, which "replace generated loads" keeps.
+        if (combo.origin && !combo.origin.edited && method !== combo.method) combo.origin = { ...combo.origin, edited: true };
+        if (method) combo.method = method; else delete combo.method;
+      }
+    },
+
+    /**
+     * A case's composition and how it is solved (`engine/case-effects.ts`): the cases it takes in,
+     * whether it is a reference or solved on its own, its notional loads, its reduction, its
+     * alternatives group and pattern. A field given as undefined is removed.
+     *
+     * A case that would read itself, through the cases it takes in or its notional source, is
+     * refused and nothing changes (false): solved, a loop takes in nothing (`caseOrder`), so the
+     * cases in it came out empty and nothing said so. A case in a loop already, from a file, is
+     * still edited: only a loop it did not have is refused (`addsLoop`), so its factors change
+     * and any link of the loop can go.
+     */
+    updateLoadCaseFields(id: number, patch: Partial<Pick<LoadCase, 'includes' | 'reference' | 'solve' | 'notional' | 'reduction' | 'alternatives' | 'pattern' | 'spectral'>>): boolean {
+      const lc = model.loadCases.find((c) => c.id === id);
+      if (!lc) return false;
+      if (('includes' in patch || 'notional' in patch) && addsLoop(model.loadCases, id, { ...('includes' in patch ? { includes: patch.includes } : {}), ...('notional' in patch ? { notional: patch.notional } : {}) })) return false;
+      if (!_undoBatching) _pushUndo?.();
+      for (const [k, v] of Object.entries(patch) as Array<[keyof typeof patch, unknown]>) {
+        const empty = v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0) || (k === 'solve' && v === true) || ((k === 'reference' || k === 'pattern') && v === false);
+        if (empty) delete (lc as unknown as Record<string, unknown>)[k];
+        else (lc as unknown as Record<string, unknown>)[k] = JSON.parse(JSON.stringify(v));
+      }
+      model.loadCases = [...model.loadCases];
+      return true;
     },
 
     updateLoadCaseId(loadId: number, caseId: number): void {
@@ -4062,7 +4254,7 @@ function createModelStore() {
 
     /** Solve all load cases and combine. Returns per-case + per-combo + envelope results. */
     solveCombinations(includeSelfWeight = false, drawPlane: DrawPlane = 'xy'): { perCase: Map<number, AnalysisResults>; perCombo: Map<number, AnalysisResults>; envelope: FullEnvelope } | string | null {
-      const mapped = remapModelForPlane(drawPlane);
+      const mapped = remapModelForPlane(drawPlane, includeSelfWeight);
       if (typeof mapped === 'string') return mapped;
       return solveCombinations2D(mapped, model.loadCases, model.combinations, includeSelfWeight);
     },
@@ -4087,7 +4279,7 @@ function createModelStore() {
       const loads = model.loads.filter((l) => (opts.caseDisplacements || l.type !== 'displacement3d') && !(opts.uncut && l.type === 'pointOnElement3d'));
       return buildSolverInput3DFn(
         { nodes: model.nodes, elements: model.elements, supports: model.supports,
-          loads, materials: model.materials, sections: model.sections, analysis: analysisFor(!opts.basic), groups: model.groups,
+          loads, materials: model.materials, sections: model.sections, analysis: analysisFor(!opts.basic, includeSelfWeight), groups: model.groups,
           plates: model.plates, quads: model.quads,
           constraints: model.constraints, connectors: model.connectors },
         includeSelfWeight, leftHand, opts,
@@ -4100,13 +4292,14 @@ function createModelStore() {
       // Sliding joints are a Basic 2D feature; the 3D solve path does not expand
       // them, so it would silently treat slider ends as rigid. Block instead.
       if (this.hasSlidingJoints()) return t('advanced.sliding3dUnsupported');
+      // Every load once, as the cases say they are solved (`case-effects.ts` `singleSolveModel`).
       return validateAndSolve3D(
-        { nodes: model.nodes, elements: model.elements, supports: model.supports,
-          loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro), groups: model.groups,
+        singleSolveModel({ nodes: model.nodes, elements: model.elements, supports: model.supports,
+          loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro, includeSelfWeight), groups: model.groups,
           plates: isPro ? model.plates : undefined,
           quads: isPro ? model.quads : undefined,
           constraints: isPro ? model.constraints : undefined,
-          connectors: isPro ? model.connectors : undefined },
+          connectors: isPro ? model.connectors : undefined }, model.loadCases),
         includeSelfWeight, leftHand,
       );
     },
@@ -4116,61 +4309,62 @@ function createModelStore() {
     async solve3DAsync(includeSelfWeight = false, leftHand = false, isPro = false): Promise<AnalysisResults3D | string | null> {
       if (this.hasSlidingJoints()) return t('advanced.sliding3dUnsupported');
       return validateAndSolve3DAsync(
-        { nodes: model.nodes, elements: model.elements, supports: model.supports,
-          loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro), groups: model.groups,
+        singleSolveModel({ nodes: model.nodes, elements: model.elements, supports: model.supports,
+          loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro, includeSelfWeight), groups: model.groups,
           plates: isPro ? model.plates : undefined,
           quads: isPro ? model.quads : undefined,
           constraints: isPro ? model.constraints : undefined,
-          connectors: isPro ? model.connectors : undefined },
+          connectors: isPro ? model.connectors : undefined }, model.loadCases),
         includeSelfWeight, leftHand,
       );
     },
 
     /** Solve load combinations for 3D analysis (mirrors 2D solveCombinations).
      *  Shell elements are only included when isPro=true. */
-    solveCombinations3D(includeSelfWeight = false, leftHand = false, isPro = false): { perCase: Map<number, AnalysisResults3D>; perCombo: Map<number, AnalysisResults3D>; envelope: FullEnvelope3D; unstable?: number[] } | string | null {
+    solveCombinations3D(includeSelfWeight = false, leftHand = false, isPro = false, spectral?: Map<number, AnalysisResults3D>): { perCase: Map<number, AnalysisResults3D>; perCombo: Map<number, AnalysisResults3D>; envelope: FullEnvelope3D; unstable?: number[] } | string | null {
       if (this.hasSlidingJoints()) return t('advanced.sliding3dUnsupported');
       const r = solveCombinations3DFn(
         { nodes: model.nodes, elements: model.elements, supports: model.supports,
-          loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro), groups: model.groups,
+          loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro, includeSelfWeight), groups: model.groups,
           plates: isPro ? model.plates : undefined,
           quads: isPro ? model.quads : undefined,
           constraints: isPro ? model.constraints : undefined,
           connectors: isPro ? model.connectors : undefined },
-        model.loadCases, model.combinations, includeSelfWeight, leftHand,
+        model.loadCases, model.combinations, includeSelfWeight, leftHand, spectral,
       );
       // The active list is a PRO definition; Basic keeps enveloping every combination.
       return isPro ? scopeBundle3D(r, model.resultScopes, model.combinations) : r;
     },
 
     /** Async parallel version of solveCombinations3D — uses Web Workers for parallel solving. */
-    async solveCombinations3DParallel(includeSelfWeight = false, leftHand = false, isPro = false): Promise<{ perCase: Map<number, AnalysisResults3D>; perCombo: Map<number, AnalysisResults3D>; envelope: FullEnvelope3D; unstable?: number[] } | string | null> {
+    async solveCombinations3DParallel(includeSelfWeight = false, leftHand = false, isPro = false, spectral?: Map<number, AnalysisResults3D>): Promise<{ perCase: Map<number, AnalysisResults3D>; perCombo: Map<number, AnalysisResults3D>; envelope: FullEnvelope3D; unstable?: number[] } | string | null> {
       if (this.hasSlidingJoints()) return t('advanced.sliding3dUnsupported');
       const r = await solveCombinations3DParallelFn(
         { nodes: model.nodes, elements: model.elements, supports: model.supports,
-          loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro), groups: model.groups,
+          loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro, includeSelfWeight), groups: model.groups,
           plates: isPro ? model.plates : undefined,
           quads: isPro ? model.quads : undefined,
           constraints: isPro ? model.constraints : undefined,
           connectors: isPro ? model.connectors : undefined },
-        model.loadCases, model.combinations, includeSelfWeight, leftHand,
+        model.loadCases, model.combinations, includeSelfWeight, leftHand, spectral,
       );
       // The active list is a PRO definition; Basic keeps enveloping every combination.
       return isPro ? scopeBundle3D(r, model.resultScopes, model.combinations) : r;
     },
 
-    /** Compute influence line: move unit load P=1 (downward) across elements */
+    /** Compute influence line: move unit load P=1 (downward, or across) over the elements */
     computeInfluenceLine(
       quantity: InfluenceQuantity,
       targetNodeId?: number,
       targetElementId?: number,
       targetPosition: number = 0.5,
       nPointsPerElement: number = 20,
+      direction: InfluenceDirection = 'vertical',
     ): InfluenceLineResult | string {
       return computeInfluenceLineFn(
         { nodes: model.nodes, elements: model.elements, supports: model.supports,
           loads: model.loads, materials: model.materials, sections: model.sections, analysis: model.analysis, groups: model.groups },
-        quantity, targetNodeId, targetElementId, targetPosition, nPointsPerElement,
+        quantity, targetNodeId, targetElementId, targetPosition, nPointsPerElement, direction,
       );
     },
 
@@ -4250,8 +4444,9 @@ function createModelStore() {
 
       // A shipped example that states no self-weight rule is given the one it was built for, and
       // quietly: nothing of the user's changed. A project the user saved is migrated by the PRO
-      // panel instead, with a notice (`self-weight-migration.ts`).
-      if (uiStore.analysisMode === 'pro' && model.analysis?.selfWeight === undefined && model.elements.size > 0) {
+      // panel instead, with a notice (`self-weight-migration.ts`). Shells are structure too.
+      if (uiStore.analysisMode === 'pro' && model.analysis?.selfWeight === undefined
+        && (model.elements.size > 0 || model.quads.size > 0 || model.plates.size > 0)) {
         const plan = planSelfWeight(model.loadCases, uiStore.includeSelfWeight);
         let selfWeight = plan.selfWeight;
         if (uiStore.includeSelfWeight && plan.caseId === null) {
@@ -4259,6 +4454,9 @@ function createModelStore() {
         }
         model.analysis = { ...(model.analysis ?? {}), selfWeight };
       }
+
+      // Basic opens an example with load cases and combinations on when it uses more than one case.
+      uiStore.loadCasesEnabled = loadCasesInUse(model.loads);
 
       _undoBatching = false;
     },
@@ -4562,16 +4760,18 @@ function createModelStore() {
  * The existing case `ensureLoadCase` writes a planned case into, or none (it will be created): the
  * one named by id, else, for a case of a group of the plan's own, one of its type and group under
  * its name or a numbered one, else one of its type and name. Apart so the load plan's preview
- * finds the same cases apply will write into (`apply-load-plan.ts`).
+ * finds the same cases apply will write into (`apply-load-plan.ts`). Loads reduced already
+ * (`reduced`) are never found a case reduced by hand, by name: they would be reduced twice.
  */
-export function findPlannedCase<C extends Pick<LoadCase, 'id' | 'type' | 'name' | 'alternatives'>>(
-  cases: readonly C[], name: string, type: string, opts: { existingId?: number | null; alternatives?: string; own?: boolean } = {},
+export function findPlannedCase<C extends Pick<LoadCase, 'id' | 'type' | 'name' | 'alternatives'> & { reduction?: unknown }>(
+  cases: readonly C[], name: string, type: string, opts: { existingId?: number | null; alternatives?: string; own?: boolean; reduced?: boolean } = {},
 ): C | undefined {
   const numbered = (n: string) => n === name || (n.startsWith(`${name} (`) && /^\(\d+\)$/.test(n.slice(name.length + 1)));
+  const open = (c: C) => !(opts.reduced && c.reduction !== undefined);
   return (opts.existingId != null ? cases.find((c) => c.id === opts.existingId) : undefined)
     ?? (opts.own
-      ? cases.find((c) => c.type === type && c.alternatives === opts.alternatives && numbered(c.name))
-      : cases.find((c) => c.type === type && c.name === name));
+      ? cases.find((c) => c.type === type && c.alternatives === opts.alternatives && numbered(c.name) && open(c))
+      : cases.find((c) => c.type === type && c.name === name && open(c)));
 }
 
 export const modelStore = createModelStore();

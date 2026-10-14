@@ -1,7 +1,8 @@
 // UI state store
 
+import type { NodeStylePref } from '../three/nodes-instanced';
 import { DEFAULT_WORKING_PLANE, VERTICAL_AXIS, type ViewportPresentation3D } from '../geometry/coordinate-system';
-import type { UnitSystem } from '../utils/units';
+import { isUnitSystem, type UnitSystem } from '../utils/units';
 import type { Element3DMetadata } from '../model/element-3d-metadata';
 
 /**
@@ -49,13 +50,10 @@ export function isAnalysisMode(v: unknown): v is AnalysisMode {
 export type ILQuantity = 'Rz' | 'Ry' | 'Rx' | 'My' | 'Mz' | 'V' | 'M';
 export type SupportTool = 'fixed' | 'pinned' | 'roller' | 'spring';
 /**
- * Which creator a viewport node-pick is filling.
- *
- * Named rather than written inline in three places: `'stair'` is here because
- * a stair flight is built from the two nodes of its bottom edge, and adding it
- * to a union spelled out at each use site is how one of them gets missed.
+ * Which creator a viewport node-pick is filling. Named rather than written inline at each use
+ * site, which is how one of them gets missed when a creator is added.
  */
-export type ShellPickTarget = 'plate' | 'quad' | 'mesh' | 'stair';
+export type ShellPickTarget = 'plate' | 'quad' | 'mesh';
 export type LoadTool = 'nodal' | 'distributed' | 'thermal';
 export type NodalLoadDir = 'fz' | 'fx' | 'my';
 export type SelectMode = 'nodes' | 'elements' | 'shells' | 'loads' | 'stress' | 'supports';
@@ -114,6 +112,17 @@ if (hasLocalStorage()) {
   }
 }
 
+/**
+ * The 2D zoom's range, in pixels per metre: from a kilometre-long model on one
+ * screen to a millimetre a couple of centimetres wide, so a small part and a
+ * long bridge can both be drawn at true scale.
+ */
+export const ZOOM_2D_MIN = 0.5;
+export const ZOOM_2D_MAX = 50_000;
+export function clampZoom2D(v: number): number {
+  return Number.isFinite(v) ? Math.max(ZOOM_2D_MIN, Math.min(ZOOM_2D_MAX, v)) : 50;
+}
+
 function createUIStore() {
   const initialWindowWidth = typeof window !== 'undefined' ? window.innerWidth : 1440;
   let currentTool = $state<Tool>('pan');
@@ -140,6 +149,12 @@ function createUIStore() {
    * teaching, and remembered per browser because it is a preference about how
    * you work rather than a property of the model.
    */
+  /**
+   * Basic: load cases and combinations, switched on from the loads' Combinations fold. Off, a
+   * Basic model has one load case to the eye: no case picker, no case column, no results by case,
+   * combination or envelope. Set for each model that comes in (`loadCasesOnOpen`), not stored.
+   */
+  let loadCasesEnabled = $state(false);
   let eduInBasic = $state(
     hasLocalStorage() ? localStorage.getItem('stabileo-edu-in-basic') === '1' : false,
   );
@@ -148,6 +163,11 @@ function createUIStore() {
   let nodalLoadDir = $state<NodalLoadDir>('fz'); // direction for nodal load placement
   let loadValue = $state<number>(-10); // kN, negative = downward
   let loadValueJ = $state<number>(-10); // kN/m at node J (for trapezoidal)
+  // A distributed load on part of the member: from and to, in m from its node I. Null is the
+  // member's own end: from node I, to L.
+  let distLoadPartial = $state<boolean>(false);
+  let distLoadFrom = $state<number | null>(null);
+  let distLoadTo = $state<number | null>(null);
 
   // Spring stiffnesses for spring support tool
   let springKx = $state<number>(1000); // kN/m
@@ -270,7 +290,38 @@ function createUIStore() {
   let showLengths = $state<boolean>(false);
   let elementColorMode = $state<ElementColorMode>('uniform');
   let showLoads = $state<boolean>(true);
+  /*
+   * Supports drawn or not, like the loads: a reader checking a dense frame or
+   * reading values at the base may want them out of the way. Basic and PRO
+   * keep their own, as they do for loads.
+   */
+  let selfWeightCaseId = $state<number | null>(null);
+  /** Basic 3D distributed loads: along the global axes (default) or the member's local ones. */
+  let distLoadFrame3D = $state<'global' | 'local'>('global');
+  let showSupports_basic = $state<boolean>(true);
+  let showSupports_pro = $state<boolean>(true);
+  /** Size of the text on the drawing (ids, values, labels), 2D and 3D; persisted. */
+  const LABEL_SCALE_RANGE = [0.6, 2.5] as const;
+  let labelScale = $state<number>((() => {
+    if (!hasLocalStorage()) return 1;
+    const v = parseFloat(localStorage.getItem('stabileo-label-scale') ?? '');
+    return Number.isFinite(v) ? Math.max(LABEL_SCALE_RANGE[0], Math.min(LABEL_SCALE_RANGE[1], v)) : 1;
+  })());
   let hideLoadsWithDiagram = $state<boolean>(true);
+  /** Basic 3D node markers: dots, small balls, or dots that turn into balls while modelling (default). Persisted. */
+  let nodeStyle3D = $state<NodeStylePref>((() => {
+    if (!hasLocalStorage()) return 'auto';
+    const v = localStorage.getItem('stabileo-node-style-3d');
+    return v === 'points' || v === 'spheres' || v === 'auto' ? v : 'auto';
+  })());
+  /**
+   * Basic, desktop: the right panel's scrollbars always drawn where its content overflows, not
+   * only while scrolling. Not every mouse or touchpad scrolls sideways. Persisted; on by default.
+   */
+  let panelScrollbars = $state<boolean>((() => {
+    if (!hasLocalStorage()) return true;
+    return localStorage.getItem('stabileo-panel-scrollbars') !== '0';
+  })());
 
   // Result selector visibility
   let showPrimarySelector = $state<boolean>(true);
@@ -360,6 +411,8 @@ function createUIStore() {
 
   // Influence line quantity
   let ilQuantity = $state<ILQuantity>('Rz');
+  /** The influence line's unit load: down, or across to +X (a wall, a column). */
+  let ilDirection = $state<'vertical' | 'horizontal'>('vertical');
 
   // Help overlay
   let showHelp = $state<boolean>(false);
@@ -385,7 +438,7 @@ function createUIStore() {
 
   // Unit system — persisted in localStorage
   const savedUnitSystem = hasLocalStorage() ? localStorage.getItem('stabileo-unitSystem') : null;
-  let unitSystem = $state<UnitSystem>((savedUnitSystem === 'Imperial' || savedUnitSystem === 'MKS' ? savedUnitSystem : 'SI') as UnitSystem);
+  let unitSystem = $state<UnitSystem>(isUnitSystem(savedUnitSystem) ? savedUnitSystem : 'SI');
 
   /*
    * How big the controls INSIDE a panel are on a phone. Persisted.
@@ -583,8 +636,16 @@ function createUIStore() {
   let showShellLabels3D_pro = $state<boolean>(false);
   let showLengths3D_pro = $state<boolean>(false);
   let showLoads3D_pro = $state<boolean>(true);
-  /** The reader's factor on the length of every load arrow, beside the scale to the largest load. */
-  let loadArrowScale = $state<number>(1);
+  /**
+   * The reader's factor on the size of every load drawn (arrows, heads, moment arcs), 2D and 3D,
+   * beside the scale to the largest load. Persisted, like the label size.
+   */
+  const LOAD_SCALE_RANGE = [0.5, 3] as const;
+  let loadArrowScale = $state<number>((() => {
+    if (!hasLocalStorage()) return 1;
+    const v = parseFloat(localStorage.getItem('stabileo-load-scale') ?? '');
+    return Number.isFinite(v) && v > 0 ? Math.min(20, v) : 1;
+  })());
   let visibleLoadCases3D_pro = $state<number[] | null>(null);
   let showAxes3D_pro = $state<boolean>(true);
   let localAxesMode3D_pro = $state<LocalAxesDisplayMode>('selected');
@@ -638,7 +699,30 @@ function createUIStore() {
     else selectKinds = new Set([...selectKinds, v]);
   }
 
+  /**
+   * In PRO, what is selected of a kind no longer armed is let go when the kinds are changed by
+   * hand: Multi turned off, a kind ticked off or switched to in the selection panel, the kind set
+   * by a panel or a table row (`PickKind`, the tables). Left lit, a support selected with Multi on
+   * stayed selected after Multi went off, out of the panel's sight, and the next Delete removed
+   * it. A tab that switches the kind (`proActiveTab`, `specSection`) keeps the selection: the
+   * context menu selects a node and opens the supports or loads card on it. Basic keeps #264's
+   * behaviour.
+   */
+  function dropUnarmed() {
+    if (analysisMode !== 'pro') return;
+    const takes = (k: SelectMode) => (multiKindSelect ? selectKinds.has(k) : selectMode === k);
+    if (!takes('nodes') && selectedNodes.size) selectedNodes = new Set();
+    if (!takes('elements') && !takes('stress') && selectedElements.size) selectedElements = new Set();
+    if (!takes('shells') && selectedShells.size) selectedShells = new Set();
+    if (!takes('supports') && selectedSupports.size) selectedSupports = new Set();
+    if (!takes('loads') && selectedLoads.size) selectedLoads = new Set();
+  }
+
   return {
+    get loadCasesEnabled() { return loadCasesEnabled; },
+    set loadCasesEnabled(v: boolean) { loadCasesEnabled = v; },
+    /** Whether load cases show at all: always in PRO and EDU, in Basic when switched on. */
+    get showLoadCasePicker() { return analysisMode === 'pro' || analysisMode === 'edu' || loadCasesEnabled; },
     get eduInBasic() { return eduInBasic; },
     set eduInBasic(v: boolean) {
       eduInBasic = v;
@@ -692,6 +776,13 @@ function createUIStore() {
     get loadValueJ() { return loadValueJ; },
     set loadValueJ(v: number) { loadValueJ = v; },
 
+    get distLoadPartial() { return distLoadPartial; },
+    set distLoadPartial(v: boolean) { distLoadPartial = v; },
+    get distLoadFrom() { return distLoadFrom; },
+    set distLoadFrom(v: number | null) { distLoadFrom = v; },
+    get distLoadTo() { return distLoadTo; },
+    set distLoadTo(v: number | null) { distLoadTo = v; },
+
     get springKx() { return springKx; },
     set springKx(v: number) { springKx = v; },
     get springKy() { return springKy; },
@@ -736,7 +827,7 @@ function createUIStore() {
     set autoSplitOnNodePlace(v: boolean) { autoSplitOnNodePlace = v; },
 
     get zoom() { return zoom; },
-    set zoom(v: number) { zoom = Math.max(10, Math.min(200, v)); },
+    set zoom(v: number) { zoom = clampZoom2D(v); },
 
     get panX() { return panX; },
     set panX(v: number) { panX = v; },
@@ -748,7 +839,7 @@ function createUIStore() {
     onEditToolArmed(fn: () => void) { _onEditToolArmed = fn; },
 
     get selectMode() { return selectMode; },
-    set selectMode(v: SelectMode) { applySelectMode(v); },
+    set selectMode(v: SelectMode) { applySelectMode(v); dropUnarmed(); },
 
     get multiKindSelect() { return multiKindSelect; },
     /**
@@ -759,7 +850,7 @@ function createUIStore() {
      */
     set multiKindSelect(v: boolean) {
       multiKindSelect = v;
-      if (!v) selectKinds = new Set([selectMode]);
+      if (!v) { selectKinds = new Set([selectMode]); dropUnarmed(); }
     },
 
     get selectKinds() { return selectKinds; },
@@ -777,7 +868,7 @@ function createUIStore() {
      * ticking something is what brings it back.
      */
     toggleSelectKind(k: SelectMode): void {
-      if (!multiKindSelect) { applySelectMode(k); return; }
+      if (!multiKindSelect) { applySelectMode(k); dropUnarmed(); return; }
       const next = new Set(selectKinds);
       if (next.has(k)) {
         if (next.size === 1) return;
@@ -787,6 +878,7 @@ function createUIStore() {
         next.add(k);
       }
       selectKinds = next;
+      dropUnarmed();
     },
 
     get selectedNodes() { return selectedNodes; },
@@ -863,6 +955,24 @@ function createUIStore() {
     set showLengths(v: boolean) { showLengths = v; },
     get elementColorMode() { return elementColorMode; },
     set elementColorMode(v: ElementColorMode) { elementColorMode = v; },
+    get showSupports() { return analysisMode === 'pro' ? showSupports_pro : showSupports_basic; },
+    set showSupports(v: boolean) { if (analysisMode === 'pro') showSupports_pro = v; else showSupports_basic = v; },
+    get labelScale() { return labelScale; },
+    set labelScale(v: number) {
+      labelScale = Math.max(LABEL_SCALE_RANGE[0], Math.min(LABEL_SCALE_RANGE[1], Number.isFinite(v) ? v : 1));
+      if (hasLocalStorage()) { try { localStorage.setItem('stabileo-label-scale', String(labelScale)); } catch { /* private mode */ } }
+    },
+    labelScaleRange: LABEL_SCALE_RANGE,
+    get nodeStyle3D() { return nodeStyle3D; },
+    set nodeStyle3D(v: NodeStylePref) {
+      nodeStyle3D = v;
+      if (hasLocalStorage()) { try { localStorage.setItem('stabileo-node-style-3d', v); } catch { /* private mode */ } }
+    },
+    get panelScrollbars() { return panelScrollbars; },
+    set panelScrollbars(v: boolean) {
+      panelScrollbars = v;
+      if (hasLocalStorage()) { try { localStorage.setItem('stabileo-panel-scrollbars', v ? '1' : '0'); } catch { /* private mode */ } }
+    },
     get showLoads() { return showLoads; },
     set showLoads(v: boolean) { showLoads = v; },
     get hideLoadsWithDiagram() { return hideLoadsWithDiagram; },
@@ -904,6 +1014,17 @@ function createUIStore() {
       else if (analysisMode === 'edu') selfWeightEducativo = v;
       else selfWeightBasico = v;
     },
+
+    /**
+     * The load case Basic's self-weight goes in (Loads › Combinations). Null:
+     * the first dead-load case, or the first case when there is none. Once, in
+     * one case: with two dead-load cases it is no longer counted in both.
+     * Saved with the project, and reset for a new one.
+     */
+    get distLoadFrame3D() { return distLoadFrame3D; },
+    set distLoadFrame3D(v: 'global' | 'local') { distLoadFrame3D = v; },
+    get selfWeightCaseId() { return selfWeightCaseId; },
+    set selfWeightCaseId(v: number | null) { selfWeightCaseId = v; },
 
     get elementCreateType() { return elementCreateType; },
     set elementCreateType(v: 'frame' | 'truss') { elementCreateType = v; },
@@ -952,6 +1073,8 @@ function createUIStore() {
 
     get ilQuantity() { return ilQuantity; },
     set ilQuantity(v: ILQuantity) { ilQuantity = v; },
+    get ilDirection() { return ilDirection; },
+    set ilDirection(v: 'vertical' | 'horizontal') { ilDirection = v; },
 
     get showHelp() { return showHelp; },
     set showHelp(v: boolean) { showHelp = v; },
@@ -1218,7 +1341,12 @@ function createUIStore() {
     get showLengths3D() { return analysisMode === 'pro' ? showLengths3D_pro : showLengths3D_basic; },
     set showLengths3D(v: boolean) { if (analysisMode === 'pro') showLengths3D_pro = v; else showLengths3D_basic = v; },
     get loadArrowScale() { return loadArrowScale; },
-    set loadArrowScale(v: number) { loadArrowScale = Number.isFinite(v) && v > 0 ? Math.min(20, v) : 1; },
+    set loadArrowScale(v: number) {
+      loadArrowScale = Number.isFinite(v) && v > 0 ? Math.min(20, v) : 1;
+      if (hasLocalStorage()) { try { localStorage.setItem('stabileo-load-scale', String(loadArrowScale)); } catch { /* private mode */ } }
+    },
+    /** The Settings slider's reach; PRO's own list goes further, and the setter takes it. */
+    loadArrowScaleRange: LOAD_SCALE_RANGE,
     get showLoads3D() { return analysisMode === 'pro' ? showLoads3D_pro : showLoads3D_basic; },
     set showLoads3D(v: boolean) { if (analysisMode === 'pro') showLoads3D_pro = v; else showLoads3D_basic = v; },
     get visibleLoadCases3D() { return analysisMode === 'pro' ? visibleLoadCases3D_pro : visibleLoadCases3D_basic; },
@@ -1441,14 +1569,24 @@ function createUIStore() {
       }
       if (count === 0) return;
 
-      const padding = 120; // pixels — margin for distributed loads and labels
-      const worldW = maxX - minX || 1;
-      const worldH = maxY - minY || 1;
-      const availW = canvasWidth - padding * 2;
-      const availH = canvasHeight - padding * 2;
-
-      const newZoom = Math.min(availW / worldW, availH / worldH, 200);
-      zoom = Math.max(10, newZoom);
+      if (!(canvasWidth > 0 && canvasHeight > 0)) return;
+      // A margin for distributed loads and labels: 120 px, or a sixth of a side
+      // on a canvas too small for that (a phone in landscape), which left
+      // nothing to frame in and fell to the farthest zoom.
+      const availW = canvasWidth - 2 * Math.min(120, canvasWidth / 6);
+      const availH = canvasHeight - 2 * Math.min(120, canvasHeight / 6);
+      // A model with no width or no height (a beam, a column) frames on the other
+      // dimension alone, filling the screen as it did; framing it as a square of
+      // its length used half the width. A lone node has no size to frame: it
+      // keeps the old framing, a metre across at most 200 px/m, so the next
+      // click lands a grid square away.
+      const span = Math.max(maxX - minX, maxY - minY);
+      if (span < 1e-9) {
+        zoom = clampZoom2D(Math.min(availW, availH, 200));
+      } else {
+        const fit = (avail: number, extent: number) => (extent > span * 1e-6 ? avail / extent : Infinity);
+        zoom = clampZoom2D(Math.min(fit(availW, maxX - minX), fit(availH, maxY - minY)));
+      }
 
       const cx = (minX + maxX) / 2;
       const cy = (minY + maxY) / 2;

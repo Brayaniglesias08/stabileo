@@ -9,7 +9,8 @@
   import SelectedEntityPanel from './floating-tools/SelectedEntityPanel.svelte';
   import Icon from './ribbon/Icon.svelte';
   import { TOOL_KEYS, type ToolKeyId } from '../lib/tool-keys';
-  import { IL_QUANTITY_GROUPS } from '../lib/influence-line-quantities';
+  import { IL_QUANTITY_GROUPS, IL_DIRECTIONS } from '../lib/influence-line-quantities';
+  import { setInfluenceDirection } from '../lib/actions/influence-line';
 
   // If the active load case is deleted, reset to the first available case
   $effect(() => {
@@ -112,6 +113,14 @@
               {/each}
             </span>
           {/each}
+          <span class="ft-sep">|</span>
+          <span class="ft-il-group">
+            <span class="ft-il-label">{t('float.ilUnitLoad')}</span>
+            {#each IL_DIRECTIONS as d (d.id)}
+              <button class="ft-opt-btn" class:active={uiStore.ilDirection === d.id} title={t(d.tip)}
+                onclick={() => setInfluenceDirection(d.id)}>{t(d.key)}</button>
+            {/each}
+          </span>
           <span class="ft-hint">{t('float.ilHint')}</span>
         {/if}
       </div>

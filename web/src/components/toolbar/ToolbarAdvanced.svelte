@@ -1,4 +1,5 @@
 <script lang="ts" module>
+  import DespieceOptions from '../DespieceOptions.svelte';
   import { untrack } from 'svelte';
   import { uiStore, modelStore, resultsStore, dsmStepsStore, fmStepsStore } from '../../lib/store';
 
@@ -69,7 +70,7 @@
   import { formatPDeltaFactor } from '../../lib/engine/pdelta-result';
   import BucklingCertificate from '../advanced/BucklingCertificate.svelte';
   import { solvePDelta, solveBuckling, solveModal, solveModal3D as wasmModal3D, solveBuckling3D as wasmBuckling3D, initSolver, isWasmReady } from '../../lib/engine/wasm-solver';
-  import { solvePDelta3DCorrected as wasmPDelta3D } from '../../lib/engine/pdelta-forces';
+  import { solvePDelta3DCorrected as wasmPDelta3D, amplification } from '../../lib/engine/pdelta-forces';
   import { getPredefinedTrains, solveMovingLoadsAsync } from '../../lib/engine/moving-loads';
   import type { SectionMp } from '../../lib/engine/plastic-moments';
   import { runPlasticCollapse } from '../../lib/actions/plastic';
@@ -308,7 +309,31 @@
    * A P-Δ that is the linear solve (nothing deforms the model, or nothing is
    * free) says so, instead of the engine's "did not converge, unstable".
    */
-  function pdeltaToast(result: any, dt: number): void {
+  /**
+   * A P-Δ run is drawn only when it found an equilibrium. Unstable (by the
+   * engine's word or by the displacements, `amplification`) or not converged,
+   * the engine's results are the first-order ones: the panel reports the run
+   * and nothing is drawn as its result.
+   */
+  function publishPDelta(result: any, threeD: boolean, dt: number): void {
+    const asSpace = threeD ? result : {
+      ...result,
+      results: { ...result.results, displacements: (result.results?.displacements ?? []).map((d: any) => ({ ...d, uy: 0 })) },
+      linearResults: result.linearResults ? { ...result.linearResults, displacements: result.linearResults.displacements.map((d: any) => ({ ...d, uy: 0 })) } : undefined,
+    };
+    const stable = result.isStable !== false && amplification(asSpace).stable;
+    const noEquilibrium = !stable || !result.converged;
+    if (!noEquilibrium) {
+      if (threeD) resultsStore.setPDeltaResult3D(result); else resultsStore.setPDeltaResult(result);
+      pdeltaToast(result, dt);
+      return;
+    }
+    const reported = stable ? result : { ...result, isStable: false, b2Factor: Infinity };
+    resultsStore.setPDeltaWithoutEquilibrium(reported, threeD);
+    pdeltaToast(reported, dt, true);
+  }
+
+  function pdeltaToast(result: any, dt: number, notDrawn = false): void {
     if (result.notice === 'noLoads' || result.notice === 'noFreeDofs') {
       uiStore.toast(t(result.notice === 'noLoads' ? 'toast.pdeltaLinearNoLoads' : 'toast.pdeltaLinearNoFreeDofs'), 'info');
       return;
@@ -316,7 +341,7 @@
     const msg = !result.isStable ? t('toast.pdeltaUnstable') : result.converged
       ? t('toast.pdeltaConverged').replace('{iterations}', String(result.iterations)).replace('{b2}', formatPDeltaFactor(result.b2Factor, 2)).replace('{ms}', dt.toFixed(0))
       : t('toast.pdeltaNotConverged').replace('{iterations}', String(result.iterations));
-    uiStore.toast(msg, result.converged && result.isStable ? 'success' : 'error');
+    uiStore.toast(notDrawn ? `${msg}. ${t('toast.pdeltaNotDrawn')}` : msg, result.converged && result.isStable ? 'success' : 'error');
   }
 
   /* The plane engine names its vertical `uy` and its rotation `rz`; the app says Z and Y. */
@@ -386,8 +411,7 @@
       const result = solvePDelta(input);
       const dt = performance.now() - t0;
       if (typeof result === 'string') { uiStore.toast(result, 'error'); return; }
-      resultsStore.setPDeltaResult(result);
-      pdeltaToast(result, dt);
+      publishPDelta(result, false, dt);
     } catch (e: any) {
       uiStore.toast(errText(e, 'toast.pdeltaError'), 'error');
     }
@@ -511,8 +535,7 @@
       result = wasmPDelta3D(input);
       const dt = performance.now() - t0;
       if (typeof result === 'string') { uiStore.toast(result, 'error'); return; }
-      resultsStore.setPDeltaResult3D(result);
-      pdeltaToast(result, dt);
+      publishPDelta(result, true, dt);
     } catch (e: any) {
       uiStore.toast(errText(e, 'toast.pdeltaError'), 'error');
     }
@@ -655,41 +678,7 @@
     {@render helpPanel('despiece')}
       {/if}
     {#if resultsStore.diagramType === 'despiece'}
-      <div class="adv-btn-wrap" style="grid-column: span 2; flex-direction: column; align-items: stretch; gap: 4px;">
-        <div style="display:flex; gap:4px; align-items:center;">
-          <span style="font-size:0.7rem; color:var(--st-text-2);">{t('despiece.vectors')}</span>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceVectorMode === 'all'} onclick={() => uiStore.despieceVectorMode = 'all'}>{t('despiece.vAll')}</button>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceVectorMode === 'members'} onclick={() => uiStore.despieceVectorMode = 'members'}>{t('despiece.vMembers')}</button>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceVectorMode === 'nodes'} onclick={() => uiStore.despieceVectorMode = 'nodes'}>{t('despiece.vNodes')}</button>
-        </div>
-        <div style="display:flex; gap:4px; align-items:center;">
-          <span style="font-size:0.7rem; color:var(--st-text-2);">{t('despiece.basis')}</span>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceBasis === 'local'} onclick={() => uiStore.despieceBasis = 'local'} title={t('despiece.basisLocalHint')}>{t('despiece.basisLocal')}</button>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceBasis === 'global'} onclick={() => uiStore.despieceBasis = 'global'} title={t('despiece.basisGlobalHint')}>{t('despiece.basisGlobal')}</button>
-        </div>
-        <label style="display:flex; align-items:center; gap:6px; font-size:0.7rem; color:var(--st-text-2);">
-          <span style="min-width:70px;">{t('despiece.vectorSize')}</span>
-          <input type="range" min="0.5" max="2" step="0.1" bind:value={uiStore.despieceVectorSize} style="flex:1;" />
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; font-size:0.7rem; color:var(--st-text-2);">
-          <span style="min-width:70px;">{t('despiece.labelSize')}</span>
-          <input type="range" min="0.6" max="2" step="0.1" bind:value={uiStore.despieceLabelSize} style="flex:1;" />
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; font-size:0.72rem; color:var(--st-text-2); cursor:pointer;">
-          <input type="checkbox" bind:checked={resultsStore.showReactions} />
-          {t('despiece.reactions')}
-        </label>
-        <div style="display:flex; gap:4px; align-items:center;">
-          <span style="font-size:0.7rem; color:var(--st-text-2);">{t('despiece.loads')}</span>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceLoadMode === 'off'} onclick={() => uiStore.despieceLoadMode = 'off'}>{t('despiece.loadsOff')}</button>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceLoadMode === 'resultant'} onclick={() => uiStore.despieceLoadMode = 'resultant'}>{t('despiece.loadsResultant')}</button>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceLoadMode === 'all'} onclick={() => uiStore.despieceLoadMode = 'all'}>{t('despiece.loadsAll')}</button>
-        </div>
-        <label style="display:flex; align-items:center; gap:6px; font-size:0.72rem; color:var(--st-text-2); cursor:pointer;">
-          <input type="checkbox" bind:checked={uiStore.despieceCombineVectors} />
-          {t('despiece.combinedVectors')}
-        </label>
-      </div>
+      <DespieceOptions />
     {/if}
     {/if}
     {#if shown('stress')}

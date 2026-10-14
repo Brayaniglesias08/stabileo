@@ -3,6 +3,19 @@ import { transverseSign } from '../engine/transverse-sign-2d';
 import { createLabelCollector, type LabelCollector, type SegmentObstacle } from './label-layout';
 
 import { canvasTheme } from './theme';
+import { canvasUnitSystem, canvasLoadScale } from './canvas-units';
+import { fixedQuantity } from '../utils/unit-format';
+import { toDisplay, unitLabel } from '../utils/units';
+
+/**
+ * A temperature change as typed, signed, with no space before the degree sign.
+ * A difference, so 20 °C reads 36 °F (never 68 °F, which is a temperature).
+ */
+function temperatureDeltaText(v: number): string {
+  const us = canvasUnitSystem();
+  const shown = Number(toDisplay(v, 'temperatureDelta', us).toFixed(2));
+  return `${v > 0 ? '+' : ''}${shown === 0 ? 0 : shown}${unitLabel('temperatureDelta', us)}`;
+}
 
 interface DrawContext {
   ctx: CanvasRenderingContext2D;
@@ -132,6 +145,67 @@ function loadCaseRank(caseName?: string): number {
   return i < 0 ? LOAD_CASE_ORDER.length : i;
 }
 
+/**
+ * Where a distributed load runs on into the next member: the same case, collinear members meeting
+ * at a node, and the same force there. A load split at a node (or typed member by member, as a
+ * pressure down a wall) is one load to the reader, so its value is written once at such a joint,
+ * and not at all when the load also keeps its slope there.
+ *
+ * Returns the label ends to leave out (`index:i` / `index:j`) and the uniform loads whose value
+ * an earlier one already gives (by index).
+ */
+export function continuousLoadJoints(
+  loads: DistLoadInfo[],
+  getElement: DrawContext['getElement'],
+  getNode: DrawContext['getNode'],
+): { hideEnd: Set<string>; hideMid: Set<number> } {
+  const hideEnd = new Set<string>(), hideMid = new Set<number>();
+  type V = { x: number; y: number };
+  type Geo = { u: V; Fi: V; Fj: V; ni?: number; nj?: number; span: number; uniform: boolean };
+  const geo: Array<Geo | null> = loads.map((l) => {
+    const e = getElement(l.elementId);
+    const a = e && getNode(e.nodeI), b = e && getNode(e.nodeJ);
+    if (!e || !a || !b) return null;
+    const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy);
+    if (L < 1e-9) return null;
+    const c = dx / L, sn = dy / L;
+    const f = computeLoadDirection(l.angle ?? 0, l.isGlobal ?? false, c, sn);
+    const a0 = l.a ?? 0, b0 = l.b ?? L;
+    return {
+      u: { x: c, y: sn },
+      Fi: { x: f.dx * l.qI, y: f.dy * l.qI }, Fj: { x: f.dx * l.qJ, y: f.dy * l.qJ },
+      ni: a0 / L < 0.01 ? e.nodeI : undefined, nj: b0 / L > 0.99 ? e.nodeJ : undefined,
+      span: Math.max(b0 - a0, 1e-9), uniform: Math.abs(l.qI - l.qJ) < 1e-6,
+    };
+  });
+  const close = (p: V, q: V, scale: number, tol: number) => Math.hypot(p.x - q.x, p.y - q.y) <= tol * Math.max(1, scale);
+  for (let k = 0; k < loads.length; k++) {
+    const A = geo[k]; if (!A) continue;
+    for (let m = k + 1; m < loads.length; m++) {
+      const B = geo[m]; if (!B) continue;
+      if ((loads[k]!.caseName ?? '') !== (loads[m]!.caseName ?? '')) continue;
+      if (Math.abs(A.u.x * B.u.y - A.u.y * B.u.x) > 1e-3) continue;
+      const endsA = [['i', A.ni, A.Fi], ['j', A.nj, A.Fj]] as const;
+      const endsB = [['i', B.ni, B.Fi], ['j', B.nj, B.Fj]] as const;
+      for (const [ea, nA, FA] of endsA) {
+        for (const [eb, nB, FB] of endsB) {
+          if (nA === undefined || nA !== nB) continue;
+          if (!close(FA, FB, Math.max(Math.hypot(FA.x, FA.y), Math.hypot(FB.x, FB.y)), 1e-3)) continue;
+          if (A.uniform && B.uniform) { hideMid.add(m); continue; }
+          hideEnd.add(`${m}:${eb}`);
+          // The slope of each along A's direction: a load that goes on as one straight line
+          // carries no value at the joint at all.
+          const same = A.u.x * B.u.x + A.u.y * B.u.y > 0 ? 1 : -1;
+          const gA = { x: (A.Fj.x - A.Fi.x) / A.span, y: (A.Fj.y - A.Fi.y) / A.span };
+          const gB = { x: same * (B.Fj.x - B.Fi.x) / B.span, y: same * (B.Fj.y - B.Fi.y) / B.span };
+          if (close(gA, gB, Math.max(Math.hypot(gA.x, gA.y), Math.hypot(gB.x, gB.y)), 1e-3)) hideEnd.add(`${k}:${ea}`);
+        }
+      }
+    }
+  }
+  return { hideEnd, hideMid };
+}
+
 export function drawDistributedLoads(
   loads: DistLoadInfo[],
   dc: DrawContext,
@@ -146,7 +220,8 @@ export function drawDistributedLoads(
   }
   if (maxQ < 1e-10) return;
 
-  const ARROW_MAX_PX = 22; // max arrow length in screen px (shorter than point loads to visually distinguish)
+  const K = canvasLoadScale();
+  const ARROW_MAX_PX = 22 * K; // max arrow length in screen px (shorter than point loads to visually distinguish)
 
   /*
    * Labels go to the frame's collector when there is one, so they are laid out
@@ -162,8 +237,9 @@ export function drawDistributedLoads(
    */
   const labels = dc.labels ?? createLabelCollector();
   const ownsFlush = !dc.labels;
+  const joints = continuousLoadJoints(loads, dc.getElement, dc.getNode);
 
-  for (const load of loads) {
+  for (const [index, load] of loads.entries()) {
     const elem = dc.getElement(load.elementId);
     if (!elem) continue;
     const nodeI = dc.getNode(elem.nodeI);
@@ -253,10 +329,10 @@ export function drawDistributedLoads(
       ctx.stroke();
 
       // Arrowhead — perpendicular to arrow direction
-      const headLen = 6;
+      const headLen = 6 * K;
       // Use a direction orthogonal to the arrow shaft for wings
-      const wingX = -snY;
-      const wingY = snX;
+      const wingX = -snY * K;
+      const wingY = snX * K;
 
       ctx.beginPath();
       ctx.moveTo(base.x, base.y);
@@ -314,7 +390,9 @@ export function drawDistributedLoads(
      * out together after the loop instead, by magnitude, so the larger keeps
      * the spot nearest its arrows and the smaller stacks above it.
      */
-    if (isUniform) {
+    if (isUniform && joints.hideMid.has(index)) {
+      // The same value goes on from the member before: it is written there.
+    } else if (isUniform) {
       const midScreen = dc.worldToScreen(nodeI.x + tMid * dx, nodeI.y + tMid * dy);
       const tipW = dc.worldToScreen(
         nodeI.x + tMid * dx + arrowDirX * 0.01,
@@ -328,7 +406,7 @@ export function drawDistributedLoads(
        */
       const baseline = sn.y > 0 ? 12 : 0;
       labels.add({
-        text: `${casePrefix}${Math.abs(load.qI).toFixed(1)} kN/m${coordLabel}`,
+        text: `${casePrefix}${fixedQuantity(Math.abs(load.qI), 'distributedLoad', 1, canvasUnitSystem())}${coordLabel}`,
         colour: labelColor,
         font: '12px sans-serif',
         box: {
@@ -348,6 +426,7 @@ export function drawDistributedLoads(
       });
     } else {
       for (const [t, q, end] of [[tStart, load.qI, 'i'], [tEnd, load.qJ, 'j']] as [number, number, string][]) {
+        if (joints.hideEnd.has(`${index}:${end}`)) continue;
         const wx = nodeI.x + t * dx;
         const wy = nodeI.y + t * dy;
         const s = dc.worldToScreen(wx, wy);
@@ -355,7 +434,7 @@ export function drawDistributedLoads(
         const sn = normalize(tipW.x - s.x, tipW.y - s.y);
         const aLen = ARROW_MAX_PX * Math.abs(q) / maxQ;
         labels.add({
-          text: `${casePrefix}${Math.abs(q).toFixed(1)} kN/m${coordLabel}`,
+          text: `${casePrefix}${fixedQuantity(Math.abs(q), 'distributedLoad', 1, canvasUnitSystem())}${coordLabel}`,
           colour: labelColor,
           font: '11px sans-serif',
           box: {
@@ -401,9 +480,10 @@ function drawForceArrow(
   ctx.stroke();
 
   // Arrowhead
-  const headLen = 8;
-  const wingX = -snY;
-  const wingY = snX;
+  const K = canvasLoadScale();
+  const headLen = 8 * K;
+  const wingX = -snY * K;
+  const wingY = snX * K;
   ctx.beginPath();
   ctx.moveTo(baseX, baseY);
   ctx.lineTo(baseX + snX * headLen + wingX * 4, baseY + snY * headLen + wingY * 4);
@@ -428,6 +508,8 @@ export function drawMomentSymbol(
   mz: number,
   color: string,
   radius: number = 14,
+  /** Factor on the arrowhead, with a load drawn larger (`canvasLoadScale`). */
+  head: number = 1,
 ) {
   const R = radius;
   ctx.strokeStyle = color;
@@ -453,8 +535,8 @@ export function drawMomentSymbol(
   // ccw=false (mz<0): angle increasing → velocity = (-sinθ, cosθ)
   const tx = mz > 0 ? Math.sin(endAngle) : -Math.sin(endAngle);
   const ty = mz > 0 ? -Math.cos(endAngle) : Math.cos(endAngle);
-  const headLen = 7;
-  const nx = -ty, ny = tx; // normal to tangent
+  const headLen = 7 * head;
+  const nx = -ty * head, ny = tx * head; // normal to tangent, as long as the head is wide
   // Tip of arrowhead is ahead of arc end; base sits on the arc end
   const pointX = arcEndX + tx * headLen;
   const pointY = arcEndY + ty * headLen;
@@ -477,7 +559,7 @@ export function drawPointLoadsOnElements(
   const { ctx } = dc;
   if (loads.length === 0) return;
 
-  const ARROW_PX = 40;
+  const ARROW_PX = 40 * canvasLoadScale();
 
   const labels = dc.labels ?? createLabelCollector();
   const ownsFlush = !dc.labels;
@@ -526,7 +608,7 @@ export function drawPointLoadsOnElements(
       labels.block({ x1: base.x, y1: base.y, x2: fromX, y2: fromY });
 
       labels.add({
-        text: `${ptCasePrefix}${Math.abs(load.p).toFixed(1)} kN${coordLabel}`,
+        text: `${ptCasePrefix}${fixedQuantity(Math.abs(load.p), 'force', 1, canvasUnitSystem())}${coordLabel}`,
         colour: ptColor,
         font: '12px sans-serif',
         box: {
@@ -561,7 +643,7 @@ export function drawPointLoadsOnElements(
 
       const axLabel = loadIsGlobal ? 'Fx' : 'Fi';
       labels.add({
-        text: `${ptCasePrefix}${axLabel}=${Math.abs(px).toFixed(1)} kN`,
+        text: `${ptCasePrefix}${axLabel}=${fixedQuantity(Math.abs(px), 'force', 1, canvasUnitSystem())}`,
         colour: ptColor,
         font: '12px sans-serif',
         box: {
@@ -577,11 +659,11 @@ export function drawPointLoadsOnElements(
     // 3) Draw moment (My in the Z-up 2D contract; keep mz as legacy alias)
     const my = load.my ?? load.mz ?? 0;
     if (Math.abs(my) > 1e-10) {
-      drawMomentSymbol(ctx, base.x, base.y, my, ptColor);
+      drawMomentSymbol(ctx, base.x, base.y, my, ptColor, 14 * canvasLoadScale(), canvasLoadScale());
 
       const yOff = (Math.abs(load.p) > 1e-10 ? 14 : 0) + (Math.abs(px) > 1e-10 ? 14 : 0);
       labels.add({
-        text: `${ptCasePrefix}My=${Math.abs(my).toFixed(1)} kN·m`,
+        text: `${ptCasePrefix}My=${fixedQuantity(Math.abs(my), 'moment', 1, canvasUnitSystem())}`,
         colour: ptColor,
         font: '12px sans-serif',
         box: {
@@ -599,16 +681,16 @@ export function drawPointLoadsOnElements(
 
 interface ThermalLoadInfo {
   elementId: number;
-  dtUniform: number; // °C uniform ΔT
-  dtGradient: number; // °C gradient ΔTg
+  dtUniform: number; // °C uniform change (Basic calls it ΔTg)
+  dtGradient: number; // °C bottom-face minus top-face change (Basic calls it ∇T)
   caseName?: string;     // name prefix for labels
 }
 
 /**
  * Draw thermal loads as +/- symbols along elements.
  *
- * ΔT uniform: + on both sides (positive = expansion) or - on both sides (negative = contraction)
- * ΔTg gradient: + on one side, - on other side (top/bottom temperature difference → bending)
+ * ΔTg, the uniform change: + on both sides (lengthens) or − on both sides (shortens).
+ * ∇T, the gradient: + on the warmer face, − on the other (the faces' difference bends the member).
  */
 export function drawThermalLoads(
   loads: ThermalLoadInfo[],
@@ -620,8 +702,8 @@ export function drawThermalLoads(
   const labels = dc.labels ?? createLabelCollector();
   const ownsFlush = !dc.labels;
 
-  const OFFSET_PX = 14; // offset from element axis
-  const SYMBOL_SIZE = 5; // half-size of + or - symbol
+  const OFFSET_PX = 14 * canvasLoadScale(); // offset from element axis
+  const SYMBOL_SIZE = 5 * canvasLoadScale(); // half-size of + or - symbol
   const SYMBOL_SPACING_PX = 25; // screen px between symbols
 
   for (const load of loads) {
@@ -652,7 +734,7 @@ export function drawThermalLoads(
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // Draw uniform ΔT: same sign on both sides
+    // The uniform change (ΔTg): the same sign on both sides
     if (Math.abs(load.dtUniform) > 0.01) {
       const sign = load.dtUniform > 0 ? '+' : '−';
       ctx.fillStyle = load.dtUniform > 0 ? '#e5482a' : '#4a8fd4';
@@ -691,7 +773,7 @@ export function drawThermalLoads(
        */
       const thermPrefix = load.caseName ? `${load.caseName}: ` : '';
       labels.add({
-        text: `${thermPrefix}ΔT=${load.dtUniform > 0 ? '+' : ''}${load.dtUniform}°C`,
+        text: `${thermPrefix}ΔTg=${temperatureDeltaText(load.dtUniform)}`,
         colour: load.dtUniform > 0 ? '#e5482a' : '#4a8fd4',
         font: '11px sans-serif',
         box: {
@@ -704,10 +786,10 @@ export function drawThermalLoads(
       });
     }
 
-    // Draw gradient ΔTg: + on one side, - on other
+    // The gradient (∇T): + on the warmer face, − on the other
     if (Math.abs(load.dtGradient) > 0.01) {
       /*
-       * ΔTg = ΔT(bottom) − ΔT(top), top the drawn local z: the hot side of a
+       * ∇T = ΔT(bottom) − ΔT(top), top the drawn local z: the hot side of a
        * positive gradient is −z. `n` is that side for a member whose drawn z
        * is the solver's; the others turn it over (transverse-sign-2d.ts).
        */
@@ -752,7 +834,7 @@ export function drawThermalLoads(
       const labelOffset = Math.abs(load.dtUniform) > 0.01 ? gradOffset + 14 : OFFSET_PX + 14;
       const gradPrefix = load.caseName ? `${load.caseName}: ` : '';
       labels.add({
-        text: `${gradPrefix}ΔTg=${load.dtGradient > 0 ? '+' : ''}${load.dtGradient}°C`,
+        text: `${gradPrefix}∇T=${temperatureDeltaText(load.dtGradient)}`,
         colour: '#a88fd4',
         font: '11px sans-serif',
         box: {
@@ -870,7 +952,7 @@ export function drawMovingLoadAxles(
     ctx.fillStyle = AXLE_LABEL_COLOR();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${axle.weight.toFixed(0)} kN`, fromX + snX * 10, fromY + snY * 10);
+    ctx.fillText(fixedQuantity(axle.weight, 'force', 0, canvasUnitSystem()), fromX + snX * 10, fromY + snY * 10);
     ctx.textAlign = 'start'; // reset
     ctx.textBaseline = 'alphabetic';
   }

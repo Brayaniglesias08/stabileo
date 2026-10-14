@@ -247,6 +247,19 @@ function reverseTrain(train: LoadTrain): LoadTrain {
  * so the two place a load the same way.
  */
 export function verticalLoadOnMember(input: SolverInput, elementId: number, a: number, weight: number): SolverLoad[] {
+  return loadOnMember(input, elementId, a, weight, DOWN);
+}
+
+/** The global direction of a downward load: −Z. */
+const DOWN = { x: 0, z: -1 } as const;
+
+/**
+ * As `verticalLoadOnMember`, for a force `weight` along any global direction `dir` (a unit
+ * vector in X, Z): the influence line's unit load may also act across, as on a wall.
+ */
+export function loadOnMember(
+  input: SolverInput, elementId: number, a: number, weight: number, dir: { x: number; z: number },
+): SolverLoad[] {
   const elem = input.elements.get(elementId);
   if (!elem) return [];
   const ni = input.nodes.get(elem.nodeI);
@@ -259,20 +272,22 @@ export function verticalLoadOnMember(input: SolverInput, elementId: number, a: n
   const t = Math.min(1, Math.max(0, a / L));
   const c = dx / L;
   const s = dz / L;
+  const Fx = weight * dir.x, Fz = weight * dir.z;
 
   if (elem.type === 'truss') {
     return [
-      { type: 'nodal', data: { nodeId: elem.nodeI, fx: 0, fz: -weight * (1 - t), my: 0 } },
-      { type: 'nodal', data: { nodeId: elem.nodeJ, fx: 0, fz: -weight * t, my: 0 } },
+      { type: 'nodal', data: { nodeId: elem.nodeI, fx: Fx * (1 - t), fz: Fz * (1 - t), my: 0 } },
+      { type: 'nodal', data: { nodeId: elem.nodeJ, fx: Fx * t, fz: Fz * t, my: 0 } },
     ];
   }
 
   const out: SolverLoad[] = [];
-  const pPerp = -weight * c;
+  // Across the member (its local y, (−s, c)) and along it ((c, s)).
+  const pPerp = -s * Fx + c * Fz;
   if (Math.abs(pPerp) > 1e-10) {
     out.push({ type: 'pointOnElement', data: { elementId, a: t * L, p: pPerp } });
   }
-  const pAxial = -weight * s;
+  const pAxial = c * Fx + s * Fz;
   if (Math.abs(pAxial) > 1e-10) {
     const fI = pAxial * (1 - t);
     const fJ = pAxial * t;

@@ -12,14 +12,17 @@ import { modelStore } from './model.svelte';
 import { resultsStore } from './results.svelte';
 import { uiStore } from './ui.svelte';
 import { t } from '../i18n';
-import { activeComboIds, isServiceCombination, narrowPerCombo } from '../engine/result-scopes';
+import { activeComboIds, isMagnitudeCombination, isServiceCombination, narrowPerCombo } from '../engine/result-scopes';
 import { computeGoverning3D } from '../engine/governing-case';
 import type { AnalysisResults3D, FullEnvelope3D } from '../engine/types-3d';
 
-/** The ids design reads: the stated active list in PRO, every combination otherwise. */
+/**
+ * The ids design reads: the stated active list in PRO, every combination otherwise; never an SRSS
+ * or ABS one, a magnitude without a sign (`isMagnitudeCombination`), in either.
+ */
 export function activeCombinationIds(): number[] {
   const combos = modelStore.model.combinations;
-  return uiStore.analysisMode === 'pro' ? activeComboIds(modelStore.resultScopes, combos) : combos.map((c) => c.id);
+  return uiStore.analysisMode === 'pro' ? activeComboIds(modelStore.resultScopes, combos) : combos.filter((c) => !isMagnitudeCombination(c)).map((c) => c.id);
 }
 
 /**
@@ -29,9 +32,34 @@ export function activeCombinationIds(): number[] {
  */
 export function activePerCombo3D(): Map<number, AnalysisResults3D> {
   const all = resultsStore.perCombo3D;
-  if (uiStore.analysisMode !== 'pro') return all;
-  if (!modelStore.resultScopes?.active && !modelStore.model.combinations.some(isServiceCombination)) return all;
+  const combos = modelStore.model.combinations;
+  // An SRSS or ABS combination read as signed demands: a column in compression designed in tension.
+  const magnitude = combos.some(isMagnitudeCombination);
+  if (uiStore.analysisMode !== 'pro' && !magnitude) return all;
+  if (!modelStore.resultScopes?.active && !combos.some(isServiceCombination) && !magnitude) return all;
   return narrowPerCombo(all, activeCombinationIds());
+}
+
+/**
+ * The one result set footings, joints and floors read when no linear combination is active.
+ *
+ * With no combination solved it is the result on screen, as before. With combinations solved and
+ * none of them active and linear (every active one an SRSS or ABS, say), it is the solve of every
+ * load ("All loads", `singleResults3D`): the result on screen could be the magnitude, read as a
+ * signed state (a footing's 60,13 kN for 56,0). Never a result that is a magnitude; null when
+ * there is no other, and the caller says why (`noLinearCombinationActive`).
+ */
+export function activeResultSet3D(): AnalysisResults3D | null {
+  const shown = resultsStore.results3D;
+  if (resultsStore.perCombo3D.size === 0) return shown && !shown.magnitude ? shown : null;
+  const single = resultsStore.singleResults3D;
+  return single && !single.magnitude ? single : null;
+}
+
+/** Combinations are solved, none active and linear, and an SRSS or ABS one among them. */
+export function noLinearCombinationActive(): boolean {
+  if (resultsStore.perCombo3D.size === 0 || activePerCombo3D().size > 0) return false;
+  return modelStore.model.combinations.some((c) => isMagnitudeCombination(c) && resultsStore.perCombo3D.has(c.id));
 }
 
 /** The active combinations, as design consumers list them. */

@@ -19,7 +19,9 @@ export function planSnow(input: LoadPlanInput, sink: PlanSink, layout?: GravityL
     const sn = input.snow;
     const out = snowLoadCases({ model: input.model, snow: sn, tributaryWidth: input.tributaryWidth, layout });
     if (!out) {
-      unsupportedKeys.push(msg('snow.note.noRoof'));
+      // A roof chosen by a region that holds none (an empty box, group or zone, only columns) is
+      // said as such: it used to load the detected roof.
+      unsupportedKeys.push(msg(sn.roof ? 'snow.note.emptyRegion' : 'snow.note.noRoof'));
     } else if (out.result.refused) {
       blockedKeys.push(msg(out.result.refused));
     } else {

@@ -145,8 +145,8 @@ test.describe('@slow PRO project files', () => {
     // `includeSelfWeight` is saved since the file stopped reopening 31 % heavier: the switch
     // decides what the analysis weighs, so it belongs with the project.
     expect(Object.keys(saved).sort()).toEqual([
-      'analysisMode', 'appMode', 'axisConvention3D', 'includeSelfWeight', 'name', 'snapshot', 'timestamp',
-      'version', 'viewportPresentation3D',
+      'analysisMode', 'appMode', 'axisConvention3D', 'includeSelfWeight', 'name', 'selfWeightCaseId', 'snapshot',
+      'timestamp', 'version', 'viewportPresentation3D',
     ]);
 
     // The collections a PRO project is made of.

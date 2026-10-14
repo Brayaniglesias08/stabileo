@@ -64,8 +64,6 @@ const NODE_ANCHOR_FRAC = 0.18;
  *  AFTER the node-side vector at NODE_ANCHOR_FRAC, not under it) and runs to the
  *  shrunken member end. */
 const REMNANT_START_FRAC = 0.35;
-/** Small perpendicular stagger (screen px) so the member/node pair don't overlap. */
-const PERP_PX = 7;
 
 // ─── Pure geometry/force helpers (unit-tested) ──────────────────────
 
@@ -132,8 +130,7 @@ export function despieceScales(forces: Iterable<DespieceElementForces>): { maxF:
 // ─── Vector model (pure, unit-tested) ───────────────────────────────
 
 const COL = { axial: '#ff7070', shear: '#7fd4cc', moment: '#ffd166', reaction: '#00e676', member: '#9aa7c7', remnant: '#5a6478' };
-const AXIAL_PX = 34, SHEAR_PX = 34, ARC_R = 16;
-const ARC_A0 = -Math.PI * 0.75, ARC_A1 = Math.PI * 0.25;
+const ARC_A1 = Math.PI * 0.25;
 
 export interface DespieceVector {
   side: 'member' | 'node' | 'reaction';
@@ -165,7 +162,8 @@ interface ComputeArgs {
   basis: DespieceBasis;
   showReactions: boolean;
   resultant?: boolean;
-  fmt: (v: number) => string;
+  /** A value for a label; told whether it is a force or a moment so it can carry its unit. */
+  fmt: (v: number, q?: 'force' | 'moment') => string;
 }
 
 interface ForceComp { label: string; value: number; dirx: number; diry: number; }
@@ -244,8 +242,8 @@ export function computeDespieceVectors(args: ComputeArgs): DespieceVector[] {
       for (const c of comps) {
         if (Math.abs(c.value) <= 1e-6) continue;
         const color = c.label === 'V' ? COL.shear : COL.axial;
-        if (wantMember) out.push({ side: 'member', glyph: 'force', origin: memberEnd, dirx: c.dirx, diry: c.diry, outx: mOutx, outy: mOuty, perpSign: 1, value: c.value, labelText: `${c.label} ${fmt(c.value)}`, color, elementId: el.id, end, nodeId, component: c.label });
-        if (wantNode) out.push({ side: 'node', glyph: 'force', origin: nodeAnchor, dirx: -c.dirx, diry: -c.diry, outx: nOutx, outy: nOuty, perpSign: -1, value: c.value, labelText: labelNode ? `${c.label} ${fmt(c.value)}` : '', color, elementId: el.id, end, nodeId, component: c.label });
+        if (wantMember) out.push({ side: 'member', glyph: 'force', origin: memberEnd, dirx: c.dirx, diry: c.diry, outx: mOutx, outy: mOuty, perpSign: 1, value: c.value, labelText: `${c.label} ${fmt(c.value, 'force')}`, color, elementId: el.id, end, nodeId, component: c.label });
+        if (wantNode) out.push({ side: 'node', glyph: 'force', origin: nodeAnchor, dirx: -c.dirx, diry: -c.diry, outx: nOutx, outy: nOuty, perpSign: -1, value: c.value, labelText: labelNode ? `${c.label} ${fmt(c.value, 'force')}` : '', color, elementId: el.id, end, nodeId, component: c.label });
       }
 
       if (Math.abs(m) > 1e-6) {
@@ -255,8 +253,8 @@ export function computeDespieceVectors(args: ComputeArgs): DespieceVector[] {
         // balances); a member drawn against it flips both. Node-side is the
         // equal/opposite action on the joint.
         const memberCcw = endMomentCcw(ax, towardJ, m);
-        if (wantMember) out.push({ side: 'member', glyph: 'moment', origin: memberEnd, ccw: memberCcw, value: m, labelText: `M ${fmt(m)}`, color: COL.moment, elementId: el.id, end, nodeId, component: 'M' });
-        if (wantNode) out.push({ side: 'node', glyph: 'moment', origin: nodeAnchor, ccw: !memberCcw, value: m, labelText: labelNode ? `M ${fmt(m)}` : '', color: COL.moment, elementId: el.id, end, nodeId, component: 'M' });
+        if (wantMember) out.push({ side: 'member', glyph: 'moment', origin: memberEnd, ccw: memberCcw, value: m, labelText: `M ${fmt(m, 'moment')}`, color: COL.moment, elementId: el.id, end, nodeId, component: 'M' });
+        if (wantNode) out.push({ side: 'node', glyph: 'moment', origin: nodeAnchor, ccw: !memberCcw, value: m, labelText: labelNode ? `M ${fmt(m, 'moment')}` : '', color: COL.moment, elementId: el.id, end, nodeId, component: 'M' });
       }
     }
   }
@@ -266,9 +264,9 @@ export function computeDespieceVectors(args: ComputeArgs): DespieceVector[] {
     for (const [nodeId, r] of reactions) {
       const node = getNode(nodeId);
       if (!node) continue;
-      if (Math.abs(r.rx) > 1e-6) out.push({ side: 'reaction', glyph: 'force', origin: node, dirx: Math.sign(r.rx), diry: 0, perpSign: 0, value: r.rx, labelText: `Rx ${fmt(r.rx)}`, color: COL.reaction, nodeId, component: 'Rx' });
-      if (Math.abs(r.rz) > 1e-6) out.push({ side: 'reaction', glyph: 'force', origin: node, dirx: 0, diry: Math.sign(r.rz), perpSign: 0, value: r.rz, labelText: `Rz ${fmt(r.rz)}`, color: COL.reaction, nodeId, component: 'Rz' });
-      if (Math.abs(r.my) > 1e-6) out.push({ side: 'reaction', glyph: 'moment', origin: node, ccw: r.my > 0, value: r.my, labelText: `My ${fmt(r.my)}`, color: COL.reaction, nodeId, component: 'My' });
+      if (Math.abs(r.rx) > 1e-6) out.push({ side: 'reaction', glyph: 'force', origin: node, dirx: Math.sign(r.rx), diry: 0, perpSign: 0, value: r.rx, labelText: `Rx ${fmt(r.rx, 'force')}`, color: COL.reaction, nodeId, component: 'Rx' });
+      if (Math.abs(r.rz) > 1e-6) out.push({ side: 'reaction', glyph: 'force', origin: node, dirx: 0, diry: Math.sign(r.rz), perpSign: 0, value: r.rz, labelText: `Rz ${fmt(r.rz, 'force')}`, color: COL.reaction, nodeId, component: 'Rz' });
+      if (Math.abs(r.my) > 1e-6) out.push({ side: 'reaction', glyph: 'moment', origin: node, ccw: r.my > 0, value: r.my, labelText: `My ${fmt(r.my, 'moment')}`, color: COL.reaction, nodeId, component: 'My' });
     }
   }
   return out;
@@ -427,118 +425,5 @@ export function momentArrowhead(cx: number, cy: number, r: number, ccw: boolean)
   };
 }
 
-// ─── Drawing ────────────────────────────────────────────────────────
-
-export interface DespieceCtx {
-  ctx: CanvasRenderingContext2D;
-  worldToScreen: (wx: number, wy: number) => { x: number; y: number };
-  elements: Iterable<DespieceElement>;
-  getNode: (id: number) => DespieceNode | undefined;
-  getElementForces: (id: number) => DespieceElementForces | undefined;
-  reactions: Map<number, DespieceReaction>;
-  sep: number;
-  fmt: (v: number) => string;
-  vectorMode?: DespieceVectorMode;
-  basis?: DespieceBasis;
-  showReactions?: boolean;
-  resultant?: boolean;
-  vectorSize?: number;
-  labelSize?: number;
-}
-
-function arrow(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, color: string, headScale = 1) {
-  const dx = x1 - x0, dy = y1 - y0;
-  const d = Math.hypot(dx, dy);
-  if (d < 0.5) return;
-  const ux = dx / d, uy = dy / d, h = 6 * headScale;
-  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.8;
-  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-  const a = Math.atan2(uy, ux);
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x1 - h * Math.cos(a - 0.4), y1 - h * Math.sin(a - 0.4));
-  ctx.lineTo(x1 - h * Math.cos(a + 0.4), y1 - h * Math.sin(a + 0.4));
-  ctx.closePath(); ctx.fill();
-}
-
-function label(ctx: CanvasRenderingContext2D, txt: string, x: number, y: number, color: string, fontPx = 10) {
-  ctx.font = `bold ${fontPx}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(10,14,24,0.85)'; ctx.strokeText(txt, x, y);
-  ctx.fillStyle = color; ctx.fillText(txt, x, y);
-}
-
-/** Moment arc with a tangent arrowhead at the tip (no circular dot endpoint). */
-function momentArc(ctx: CanvasRenderingContext2D, cx: number, cy: number, ccw: boolean, color: string, r = ARC_R) {
-  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.8;
-  ctx.beginPath(); ctx.arc(cx, cy, r, ARC_A0, ARC_A1, ccw); ctx.stroke();
-  const { tip, barbs } = momentArrowhead(cx, cy, r, ccw);
-  ctx.beginPath();
-  ctx.moveTo(tip.x, tip.y); ctx.lineTo(barbs[0].x, barbs[0].y);
-  ctx.moveTo(tip.x, tip.y); ctx.lineTo(barbs[1].x, barbs[1].y);
-  ctx.stroke();
-}
-
-/** Render the full despiece view. */
-export function drawDespiece(d: DespieceCtx): void {
-  const vectorMode = d.vectorMode ?? 'all';
-  const basis = d.basis ?? 'local';
-  const showReactions = d.showReactions ?? true;
-  const resultant = d.resultant ?? false;
-  const vSize = Math.max(0.3, d.vectorSize ?? 1);
-  const lSize = Math.max(0.3, d.labelSize ?? 1);
-  const axialLen = AXIAL_PX * vSize, shearLen = SHEAR_PX * vSize, arcR = ARC_R * vSize;
-  const fontPx = 10 * lSize;
-
-  // Faint dashed remnants (original node → shrunken end). The normal solid member
-  // is suppressed by the caller while despiece is active, so the gap shows only
-  // this ghost connection.
-  const segments = computeDespieceSegments({ elements: d.elements, getNode: d.getNode, sep: d.sep });
-  d.ctx.save();
-  d.ctx.strokeStyle = COL.remnant; d.ctx.lineWidth = 1; d.ctx.setLineDash([3, 4]); d.ctx.globalAlpha = 0.5;
-  for (const seg of segments) {
-    const a = d.worldToScreen(seg.from.x, seg.from.y), b = d.worldToScreen(seg.to.x, seg.to.y);
-    d.ctx.beginPath(); d.ctx.moveTo(a.x, a.y); d.ctx.lineTo(b.x, b.y); d.ctx.stroke();
-  }
-  d.ctx.restore();
-  d.ctx.setLineDash([]);
-
-  // Solid separated members (between shrunken ends only).
-  for (const el of d.elements) {
-    const ni = d.getNode(el.nodeI), nj = d.getNode(el.nodeJ);
-    if (!ni || !nj) continue;
-    const { i: aI, j: aJ } = shrinkMember(ni, nj, d.sep);
-    const sI = d.worldToScreen(aI.x, aI.y), sJ = d.worldToScreen(aJ.x, aJ.y);
-    d.ctx.strokeStyle = COL.member; d.ctx.lineWidth = 2.5;
-    d.ctx.beginPath(); d.ctx.moveTo(sI.x, sI.y); d.ctx.lineTo(sJ.x, sJ.y); d.ctx.stroke();
-  }
-
-  // Force/moment vectors.
-  const vectors = computeDespieceVectors({
-    elements: d.elements, getNode: d.getNode, getElementForces: d.getElementForces,
-    reactions: d.reactions, sep: d.sep, vectorMode, basis, showReactions, resultant, fmt: d.fmt,
-  });
-  for (const vec of vectors) {
-    const s = d.worldToScreen(vec.origin.x, vec.origin.y);
-    if (vec.glyph === 'force') {
-      const len = (vec.component === 'V') ? shearLen : axialLen;
-      const ex = vec.dirx ?? 0, ey = -(vec.diry ?? 0);                 // screen force unit
-      const flen = Math.hypot(ex, ey) || 1;
-      // Small perpendicular stagger so the collinear member/node pair don't merge.
-      const ppx = -ey / flen, ppy = ex / flen;
-      const so = (vec.perpSign ?? 0) * PERP_PX;
-      const ax0 = s.x + ppx * so, ay0 = s.y + ppy * so;
-      // Keep the arrow on the OUTWARD (gap) side of the anchor: if the force points
-      // into the piece, draw it with the HEAD at the anchor (tail in the gap).
-      const ox = vec.outx ?? -ex, oy = vec.outx != null ? -(vec.outy ?? 0) : ey;
-      const pointsOut = (ex * ox + ey * oy) >= 0;
-      let tx0: number, ty0: number, tx1: number, ty1: number;
-      if (pointsOut) { tx0 = ax0; ty0 = ay0; tx1 = ax0 + ex * len; ty1 = ay0 + ey * len; }
-      else { tx0 = ax0 - ex * len; ty0 = ay0 - ey * len; tx1 = ax0; ty1 = ay0; }
-      arrow(d.ctx, tx0, ty0, tx1, ty1, vec.color, vSize);
-      if (vec.labelText) label(d.ctx, vec.labelText, tx1 + ex * 12, ty1 + ey * 12, vec.color, fontPx);
-    } else {
-      momentArc(d.ctx, s.x, s.y, !!vec.ccw, vec.color, arcR);
-      if (vec.labelText) label(d.ctx, vec.labelText, s.x, s.y - arcR - 8, vec.color, fontPx);
-    }
-  }
-}
+// The drawing itself is `free-body.ts`, shared with the 3D view and the exported figures; this
+// module computes what acts where.

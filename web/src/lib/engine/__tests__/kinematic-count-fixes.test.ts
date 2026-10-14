@@ -333,10 +333,12 @@ describe('D5: the Kinematic panel in 3D describes the space structure', () => {
   });
 
   it('the panel builds the 3D input and the 3D report in 3D mode', () => {
+    // The build lives in `kinematic-model.ts`, which the panel and the calculation report share.
+    const lib = readFileSync(fileURLToPath(new URL('../kinematic-model.ts', import.meta.url)), 'utf8');
+    const space = lib.slice(lib.indexOf('if (is3D) {'), lib.indexOf('const input = modelStore.buildSolverInput(false)'));
+    expect(space).toContain('modelStore.buildSolverInput3D(');
+    expect(space).toContain('generateKinematicReport3D(');
     const src = readFileSync(fileURLToPath(new URL('../../../components/KinematicPanel.svelte', import.meta.url)), 'utf8');
-    const recompute3D = src.slice(src.indexOf('function recompute3D'), src.indexOf('function recompute()'));
-    expect(recompute3D).toContain('modelStore.buildSolverInput3D(');
-    expect(recompute3D).toContain('generateKinematicReport3D(');
-    expect(src).toMatch(/if \(is3D\) \{ recompute3D\(\); return; \}/);
+    expect(src).toContain('kinematicReportOfModel(is3D)');
   });
 });

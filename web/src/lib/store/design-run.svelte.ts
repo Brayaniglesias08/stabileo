@@ -13,7 +13,7 @@
 // Reinforcement is written exclusively through `modelStore.reinforcementTransaction`,
 // so one command is one undo step, results survive, and no structural solve fires.
 
-import { activePerCombo3D, activeCombinations } from './active-results';
+import { activePerCombo3D, activeCombinations, noLinearCombinationActive } from './active-results';
 import { modelStore } from './model.svelte';
 import { requestAutosave } from './autosave-service';
 import { regulationsStore } from './regulations.svelte';
@@ -145,7 +145,9 @@ function createDesignRunStore() {
       );
       // Design follows the member's behaviour: inactive members out, one-way ones masked.
       const stationData = { ...computed, demands: designDemands(computed.demands, (id) => { const e = modelStore.elements.get(id); return isDesignedMember(e, modelStore.sections) ? e?.behaviour : 'inactive'; }) };
-      if (stationData.demands.size === 0) return fail('design.error.noDemands');
+      // With every active combination an SRSS or ABS one there is no signed demand to design for,
+      // and that is what is said: "no demands could be extracted" read as a fault of the results.
+      if (stationData.demands.size === 0) return fail(noLinearCombinationActive() ? 'design.error.noLinearCombination' : 'design.error.noDemands');
 
       const orient = runOrientationDiagnostic(md, stationData.demands, modelStore.model.loads as never);
       const contexts = buildAllMemberContexts(md, {

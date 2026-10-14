@@ -13,6 +13,7 @@ import { catalogueGradeFamily } from './steel/grade-family';
 import { semiRigidNotAligned } from './expand-semi-rigid-3d';
 import { variableRefusal } from '../section/variable';
 import { anchorEndsUnplaced } from './variable-members';
+import { caseOrder } from './case-effects';
 
 interface LoadEntry {
   type: string;
@@ -23,6 +24,8 @@ interface LoadCase {
   id: number;
   name: string;
   type: string;
+  includes?: ReadonlyArray<{ caseId: number; factor: number }>;
+  notional?: { sourceCaseId: number };
 }
 
 interface ModelData {
@@ -334,6 +337,15 @@ export function checkModel(m: ModelData): SolverDiagnostic[] {
     }
   }
 
+  // Cases that read themselves, through the cases they take in or a notional source: solved, a
+  // loop takes nothing in (`case-effects.ts`), so they came out empty and nothing said so.
+  const looped = caseOrder(m.loadCases as never).looped;
+  if (looped.size) {
+    out.push(diag('warning', 'MODEL_CASE_LOOP', 'diag.model.caseLoop', {
+      details: { cases: m.loadCases.filter((c) => looped.has(c.id)).map((c) => c.name).join(', ') },
+    }));
+  }
+
   // ─── Combinations ─────────────────────────────
   /*
    * A combination with no factor, or none on a case that exists, adds up nothing: its results
@@ -467,6 +479,49 @@ export function overlappingCollinearWarnings(
         }
       }
     }
+  }
+  return out;
+}
+
+/** Two members on the same stretch of line: one repeats or overlaps the other. */
+export interface OverlapPair {
+  /** The older member (lower id). */
+  a: number;
+  /** The newer member, the one a cleanup would remove. */
+  b: number;
+  /** True when both join the same two nodes. */
+  duplicate: boolean;
+  /** Length they share, in metres. */
+  length: number;
+}
+
+/**
+ * Every pair of members that lie over each other: the same node pair (what
+ * `checkModel` calls a duplicate) or the same stretch of one line with
+ * different ends (`overlappingCollinearWarnings`). One list for the editor's
+ * questions, from the same two tests the diagnostics use.
+ */
+export function overlappingMemberPairs(
+  elements: ModelData['elements'],
+  nodes: ModelData['nodes'],
+): OverlapPair[] {
+  const out: OverlapPair[] = [];
+  const firstOnEdge = new Map<string, number>();
+  const sorted = [...elements.values()].sort((x, y) => x.id - y.id);
+  for (const el of sorted) {
+    if (el.nodeI === el.nodeJ) continue;
+    const key = el.nodeI < el.nodeJ ? `${el.nodeI}-${el.nodeJ}` : `${el.nodeJ}-${el.nodeI}`;
+    const first = firstOnEdge.get(key);
+    if (first === undefined) { firstOnEdge.set(key, el.id); continue; }
+    const a = nodes.get(el.nodeI), b = nodes.get(el.nodeJ);
+    const length = a && b ? Math.hypot(b.x - a.x, b.y - a.y, (b.z ?? 0) - (a.z ?? 0)) : 0;
+    out.push({ a: first, b: el.id, duplicate: true, length });
+  }
+  for (const d of overlappingCollinearWarnings(elements, nodes)) {
+    const [i, j] = d.elementIds ?? [];
+    if (i === undefined || j === undefined) continue;
+    const length = Number((d.details as { overlapLength?: number } | undefined)?.overlapLength ?? 0);
+    out.push({ a: Math.min(i, j), b: Math.max(i, j), duplicate: false, length });
   }
   return out;
 }

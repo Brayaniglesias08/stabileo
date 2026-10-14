@@ -1,6 +1,7 @@
 /**
  * What a load goes on: the one choice every load form asks for, answered the same way for all.
  *
+ *   · everything of the kind (the self-weight of the whole model);
  *   · the selection;
  *   · the ids typed (a list: `1, 4, 7-12`);
  *   · a group of the model;
@@ -16,6 +17,7 @@ export type TargetEntity = 'nodes' | 'members' | 'quads' | 'plates';
 export type MemberKindFilter = 'column' | 'beam' | 'inclined' | 'truss';
 
 export type TargetSpec =
+  | { by: 'all' }
   | { by: 'selection' }
   | { by: 'ids'; text: string }
   | { by: 'group'; groupId: number }
@@ -94,6 +96,8 @@ export function resolveTargets(entity: TargetEntity, spec: TargetSpec, m: Target
   const has = (id: number) => (entity === 'nodes' ? m.nodes.has(id) : entity === 'members' ? m.elements.has(id) : !!shells?.has(id));
   const sorted = (ids: Iterable<number>) => [...new Set(ids)].filter(has).sort((a, b) => a - b);
   switch (spec.by) {
+    case 'all':
+      return sorted(entity === 'nodes' ? m.nodes.keys() : entity === 'members' ? m.elements.keys() : (shells?.keys() ?? []));
     case 'selection':
       return sorted(entity === 'nodes' ? sel.nodes : entity === 'members' ? sel.elements : entity === 'plates' ? (sel.plates ?? []) : (sel.quads ?? []));
     case 'ids':
@@ -117,4 +121,27 @@ export function resolveTargets(entity: TargetEntity, spec: TargetSpec, m: Target
     case 'kind':
       return entity === 'members' ? sorted([...m.elements.keys()].filter((id) => memberKindOf(m, id) === spec.kind)) : [];
   }
+}
+
+/**
+ * Whether a group is offered for `entity`: it holds some (a floor-load definition never is).
+ * `withShells`: the self-weight, which weighs a group's shells with its members
+ * (`engine/self-weight.ts` `selfWeightScope`), so a group of slabs alone is offered too.
+ */
+export function groupOffered(g: Pick<ModelGroup, 'kind' | 'members'>, entity: TargetEntity, withShells = false): boolean {
+  if (g.kind === 'floorLoad') return false;
+  const shells = (g.members.quads?.length ?? 0) + (g.members.plates?.length ?? 0);
+  if (entity === 'nodes') return (g.members.nodes?.length ?? 0) > 0;
+  if (entity === 'members') return (g.members.elements?.length ?? 0) > 0 || (withShells && shells > 0);
+  return shells > 0;
+}
+
+/**
+ * What the self-weight weighs on a target, as `selfWeightScope` reads the rule written for it: on
+ * the whole model or a group, the members and the shells; on any other target, the members alone.
+ */
+export function selfWeightReach(spec: TargetSpec, m: TargetModel, sel: TargetSelection): { members: number; slabs: number } {
+  const members = resolveTargets('members', spec, m, sel).length;
+  if (spec.by !== 'all' && spec.by !== 'group') return { members, slabs: 0 };
+  return { members, slabs: resolveTargets('quads', spec, m, sel).length + resolveTargets('plates', spec, m, sel).length };
 }

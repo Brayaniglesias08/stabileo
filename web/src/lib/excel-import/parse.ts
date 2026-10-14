@@ -32,6 +32,7 @@ import type { JSONModel } from '../templates/load-fixture';
 import { profileByName as catalogueProfile, profileToSectionFull } from '../data/steel-profiles';
 import { t, tp } from '../i18n';
 import { SHEETS, sheetSpec, keyFromHeader, LOAD_TYPES, type LoadTypeName } from './schema';
+import { unguardText } from '../export/workbook-cells';
 
 /**
  * A catalogue profile by the name a person would write.
@@ -329,10 +330,13 @@ export function parseWorkbook(sheets: Record<string, unknown[][]>): ParseResult 
     if (!firstNode(id, row)) continue;
     /* Flat: the height was given as Z, which is what it is called everywhere
        else. It is stored where a flat model keeps its height. */
+    // Written by `safeText`: a leading "-" went out as "−" and comes back as it was.
+    const nodeName = unguardText(str(row.cells.name));
     model.nodes.push({
       id, x,
       y: flatFromZ ? (zCell ?? 0) : (yCell ?? 0),
       z: flatFromZ ? 0 : (zCell ?? 0),
+      ...(nodeName ? { name: nodeName } : {}),
     });
   }
   counts.Nodes = model.nodes.length;
@@ -480,6 +484,7 @@ export function parseWorkbook(sheets: Record<string, unknown[][]>): ParseResult 
       hingeStart: truthy(row.cells.hingestart),
       hingeEnd: truthy(row.cells.hingeend),
       ...(num(row.cells.rollangle) !== null ? { rollAngle: num(row.cells.rollangle)! } : {}),
+      ...(unguardText(str(row.cells.name)) ? { name: unguardText(str(row.cells.name)) } : {}),
     });
   }
   counts.Members = model.elements.length;

@@ -66,6 +66,20 @@ interface ExcelExportOptions {
    * reaction tables makes it harder to use, not more complete.
    */
   onlyExtras?: boolean;
+  /**
+   * Why there are no results: the solve the export ran first failed with this message. The
+   * summary says so at the top, and every results sheet sends the reader to it instead of
+   * coming out empty without a word.
+   */
+  solveError?: string;
+}
+
+/** The current export's solve failure; set for the length of one `exportToExcel`. */
+let solveError: string | null = null;
+
+/** The line a results sheet carries in place of results the model could not produce. */
+function blockedRow(): string[] {
+  return [t('excel.resultsBlocked')];
 }
 
 /**
@@ -112,6 +126,13 @@ function createSummarySheet(): Xlsx.WorkSheet {
 
   data.push([`${t('excel.structuralAnalysis')} ${is3D ? '3D' : '2D'} - ${t('excel.summary')}`]);
   data.push([]);
+
+  if (solveError) {
+    data.push([t('excel.solveFailed')]);
+    data.push([solveError]);
+    data.push([t('excel.solveFailedHint')]);
+    data.push([]);
+  }
 
   data.push([t('excel.model')]);
   data.push([t('excel.nodes'), modelStore.nodes.size]);
@@ -278,6 +299,7 @@ function createElementsSheet(): Xlsx.WorkSheet {
 
     data.push(row);
   }
+  if (solveError) data.push([], blockedRow());
 
   const ws = XLSX.utils.aoa_to_sheet(data);
   ws['!cols'] = headers.map(() => ({ wch: 12 }));
@@ -335,6 +357,7 @@ function createNodesSheet(): Xlsx.WorkSheet {
 
     data.push(row);
   }
+  if (solveError) data.push([], blockedRow());
 
   const ws = XLSX.utils.aoa_to_sheet(data);
   ws['!cols'] = headers.map(() => ({ wch: 12 }));
@@ -347,7 +370,7 @@ function createReactionsSheet(): Xlsx.WorkSheet {
   const r2d = resultsStore.results;
 
   if (!r3d && !r2d) {
-    return XLSX.utils.aoa_to_sheet([[t('excel.noResults')]]);
+    return XLSX.utils.aoa_to_sheet([solveError ? blockedRow() : [t('excel.noResults')]]);
   }
 
   if (is3D && r3d) {
@@ -569,6 +592,7 @@ export async function exportToExcel(options: ExcelExportOptions = {}): Promise<v
     extraSheets = [],
     onlyExtras = false,
   } = options;
+  solveError = options.solveError ?? null;
 
   const is3D = uiStore.is3DWorkspace;
   const hasResults = is3D ? !!resultsStore.results3D : !!resultsStore.results;
@@ -582,7 +606,8 @@ export async function exportToExcel(options: ExcelExportOptions = {}): Promise<v
       XLSX.utils.book_append_sheet(wb, createNodesSheet(), t('excel.sheetNodes'));
     }
 
-    if (includeResults && hasResults) {
+    // A failed solve still gets its Reactions sheet, saying where the reason is.
+    if (includeResults && (hasResults || solveError)) {
       XLSX.utils.book_append_sheet(wb, createReactionsSheet(), t('excel.sheetReactions'));
     }
 
@@ -609,5 +634,6 @@ export async function exportToExcel(options: ExcelExportOptions = {}): Promise<v
       extra.name.slice(0, 31));
   }
 
+  solveError = null;
   XLSX.writeFile(wb, filename);
 }

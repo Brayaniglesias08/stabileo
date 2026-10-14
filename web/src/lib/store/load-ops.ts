@@ -11,7 +11,9 @@
  * user's (`userCopy`).
  */
 import { modelStore, type Load } from './model.svelte';
-import { scaledLoad } from '../model/loads/load-magnitudes';
+import { uiStore } from './ui.svelte';
+import { editLeavesNothing, scaledLoad } from '../model/loads/load-magnitudes';
+import { reframedMemberLoad, type LoadFrame } from '../model/loads/load-frame';
 import { isDefinedLoad } from '../model/loads/floor-definitions';
 
 /** The loads with these ids, in model order. */
@@ -36,6 +38,30 @@ export function addLoads(loads: readonly Load[]): number[] {
 export function addNodalLoadIfAny(nodeId: number, v: { fx: number; fy: number; fz: number; mx: number; my: number; mz: number }, caseId: number): number | null {
   if ([v.fx, v.fy, v.fz, v.mx, v.my, v.mz].every((x) => x === 0)) return null;
   return modelStore.addNodalLoad3D(nodeId, v.fx, v.fy, v.fz, v.mx, v.my, v.mz, caseId);
+}
+
+/**
+ * A thermal load on a member, or null and nothing added when both its changes are zero: the 3D
+ * thermal tool wrote ΔTg = ∇T = 0, where every other tool refuses a load of nothing.
+ */
+export function addThermalLoadIfAny(elementId: number, dtUniform: number, dtGradient: number, caseId: number): number | null {
+  if (dtUniform === 0 && dtGradient === 0) return null;
+  return modelStore.addThermalLoad(elementId, dtUniform, dtGradient, caseId);
+}
+
+/**
+ * What became of an edit from the edit card: made; refused because it would leave a load of
+ * nothing (`zero`); refused because it puts a member load off its member (`place`, the store's
+ * `editKeepsPlace`); or no such load (`gone`). A refused edit changes nothing, not even the
+ * version, so the card says why and keeps the results, where it used to say nothing and clear them.
+ */
+export type LoadEditOutcome = 'done' | 'zero' | 'place' | 'gone';
+
+export function editLoad(loadId: number, edit: Record<string, number | boolean | string | undefined>): LoadEditOutcome {
+  const load = modelStore.loads.find((l) => l.data.id === loadId);
+  if (!load) return 'gone';
+  if (editLeavesNothing(load, edit)) return 'zero';
+  return modelStore.updateLoad(loadId, edit) ? 'done' : 'place';
 }
 
 /** Whether the model has the case: loads written to one it does not have belong to no case. */
@@ -96,6 +122,11 @@ export function removeLoads(ids: Iterable<number>): void {
  * duplicate is a new case, not a replacement. Returns the new case's id, or null when there is no
  * such case. The category is what the action is (`codes/families/origin.ts`); a duplicate of the
  * dead load is still a permanent action, and it used to come out with none.
+ *
+ * And what the case is made of and how it is solved (`engine/case-effects.ts`): the cases it
+ * takes in and its notional loads, times `factor` as its loads are, its reduction, whether it is
+ * a reference or solved on its own. Without them a composite case came out as an empty one, a
+ * notional case as an empty one, and a reduced case unreduced.
  */
 export function duplicateCase(caseId: number, name: string, factor = 1): number | null {
   const lc = modelStore.model.loadCases.find((c) => c.id === caseId);
@@ -103,6 +134,13 @@ export function duplicateCase(caseId: number, name: string, factor = 1): number 
   let id = 0;
   modelStore.batch(() => {
     id = modelStore.addLoadCase(name, lc.type, { ...(lc.alternatives ? { alternatives: lc.alternatives } : {}), ...(lc.pattern ? { pattern: true } : {}), ...(lc.category ? { category: lc.category } : {}) });
+    modelStore.updateLoadCaseFields(id, {
+      ...(lc.includes?.length ? { includes: lc.includes.map((x) => ({ ...x, factor: x.factor * factor })) } : {}),
+      ...(lc.notional ? { notional: { ...lc.notional, ratio: lc.notional.ratio * factor } } : {}),
+      ...(lc.reduction ? { reduction: { ...lc.reduction } } : {}),
+      ...(lc.reference ? { reference: true } : {}),
+      ...(lc.solve === false ? { solve: false } : {}),
+    });
     const own = modelStore.loads.filter((l) => (l.data.caseId ?? 1) === caseId);
     for (const l of own) modelStore.addLoadEntry(userCopy(l, factor, id));
     const analysis = modelStore.model.analysis;
@@ -116,14 +154,34 @@ export function duplicateCase(caseId: number, name: string, factor = 1): number 
 
 /**
  * What deleting a case takes with it, as `removeLoadCase` takes it: its loads, the combinations
- * that use it, its self-weight rows, and its factor in a mass source written case by case.
+ * that use it, its self-weight rows, its factor in a mass source written case by case, its place
+ * in the composite cases that take it in, and the notional loads of the cases that read it (left
+ * with no source, and none of their own: empty).
  */
-export function caseDeletionScope(caseId: number): { loads: number; combinations: number; selfWeight: number; mass: boolean } {
+export function caseDeletionScope(caseId: number): { loads: number; combinations: number; selfWeight: number; mass: boolean; composites: string[]; notional: string[] } {
   const ms = modelStore.model.massSource;
+  const others = modelStore.model.loadCases.filter((c) => c.id !== caseId);
   return {
+    composites: others.filter((c) => c.includes?.some((x) => x.caseId === caseId)).map((c) => c.name),
+    notional: others.filter((c) => c.notional?.sourceCaseId === caseId).map((c) => c.name),
     loads: modelStore.loads.filter((l) => (l.data.caseId ?? 1) === caseId).length,
     combinations: modelStore.model.combinations.filter((c) => c.factors.some((f) => f.caseId === caseId && f.factor !== 0)).length,
     selfWeight: modelStore.model.analysis?.selfWeight?.filter((r) => r.caseId === caseId).length ?? 0,
     mass: ms?.kind === 'custom' && ms.factors.some((f) => f.caseId === caseId),
   };
+}
+
+/**
+ * A member load moved to frame `to` (the edit card's Global / Local), acting as it did: every
+ * component re-expressed (`model/loads/load-frame.ts`), not the frame alone, which turned a
+ * global sideways qX into an axial one. One undo step; false, and nothing changed, when the load
+ * is in that frame already, has no frame, or its member has no axes.
+ */
+export function setMemberLoadFrame(loadId: number, to: LoadFrame): boolean {
+  const load = modelStore.loads.find((l) => l.data.id === loadId);
+  if (!load) return false;
+  const now = (load.data as { frame?: string }).frame ?? 'local';
+  if (now === to) return false;
+  const edit = reframedMemberLoad(load, modelStore.model as never, to, uiStore.axisConvention3D === 'leftHand');
+  return edit ? modelStore.updateLoad(loadId, edit) : false;
 }

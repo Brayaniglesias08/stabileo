@@ -2,6 +2,7 @@
 // v1: LZ-String (legacy, still decoded for old links)
 // v2: compact JSON + fflate deflate + base64url (new default)
 
+import { adoptLoadCases } from '../store/load-cases-mode';
 import { defaultCodeSettings } from '../codes/project-code-settings';
 import { emptyDetailingStore } from '../engine/detailing/assembly';
 import { emptyGeotechnical } from '../model/geotechnical';
@@ -11,10 +12,11 @@ import { deflateSync, inflateSync } from 'fflate';
 import type { ModelSnapshot } from '../store/history.svelte';
 import type { DiagramType } from '../store/results.svelte';
 import { modelStore } from '../store/model.svelte';
+import { viewVisibility } from '../store/view-state.svelte';
 import { NO_RELEASE, type Release } from '../store/model.svelte';
 import { uiStore } from '../store/ui.svelte';
 import { resultsStore } from '../store/results.svelte';
-import { noteAxisConventionMigrationIfNeeded } from '../store/file';
+import { noteAxisConventionMigrationIfNeeded, noteBasicSelfWeightRuleIfNeeded, statedSelfWeightCaseId } from '../store/file';
 import { packJointDesigns, unpackJointDesigns } from '../connection/joint-share';
 import { CODE_HASH, readCodeFragment, codeShareUrl } from '../model/code/share';
 import { mergeCode } from '../model/code/apply';
@@ -184,6 +186,8 @@ export interface ShareMeta {
   axisConvention3D?: string;
   // Self-weight
   includeSelfWeight?: boolean;
+  /** `null`: the first dead-load case. Absent: an older link, which put it in every one. */
+  selfWeightCaseId?: number | null;
   // Live calc
   liveCalc?: boolean;
   // Viewport state (2D)
@@ -314,6 +318,9 @@ function toCompact(snapshot: ModelSnapshot, meta?: ShareMeta): Record<string, un
     const jj = (v as any).jointJ as { dof?: boolean[] } | undefined;
     if (ji?.dof?.some(Boolean)) opt.ji = ji.dof.map(d => (d ? 1 : 0));
     if (jj?.dof?.some(Boolean)) opt.jj = jj.dof.map(d => (d ? 1 : 0));
+    // "Keep both" on an overlap, so the link does not ask again (connection-questions.ts).
+    const ko = (v as { keptOver?: number[] }).keptOver;
+    if (ko?.length) opt.ko = ko;
     if (Object.keys(opt).length > 0) arr.push(opt);
     return arr;
   });
@@ -526,6 +533,7 @@ function fromCompact(c: Record<string, unknown>): ModelSnapshot {
         // would build a wrong-length releases mask straight into the solver.
         ...(Array.isArray(opt.ji) && opt.ji.length === 6 ? { jointI: { dof: (opt.ji as number[]).map(d => d === 1) } } : {}),
         ...(Array.isArray(opt.jj) && opt.jj.length === 6 ? { jointJ: { dof: (opt.jj as number[]).map(d => d === 1) } } : {}),
+        ...(Array.isArray(opt.ko) && opt.ko.every((x: unknown) => typeof x === 'number') ? { keptOver: opt.ko as number[] } : {}),
       }];
     }),
 
@@ -725,6 +733,8 @@ function buildShareMeta(includeViewport: boolean): ShareMeta {
     localAxesMode3D: uiStore.localAxesMode3D,
     axisConvention3D: uiStore.axisConvention3D,
     includeSelfWeight: uiStore.includeSelfWeight,
+    // Always written (`null` is not a default the compact form drops): see statedSelfWeightCaseId.
+    selfWeightCaseId: statedSelfWeightCaseId(),
     liveCalc: uiStore.liveCalc,
   };
   if (includeViewport) {
@@ -860,6 +870,9 @@ function restoreMeta(snapshot: ModelSnapshot): void {
   if (meta.axisConvention3D !== undefined) uiStore.axisConvention3D = meta.axisConvention3D as any;
   // Other settings
   if (meta.includeSelfWeight !== undefined) uiStore.includeSelfWeight = meta.includeSelfWeight;
+  uiStore.selfWeightCaseId = meta.selfWeightCaseId ?? null;
+  noteBasicSelfWeightRuleIfNeeded(meta.selfWeightCaseId !== undefined, uiStore.analysisMode);
+  viewVisibility.showAll();
   if (meta.liveCalc !== undefined) uiStore.liveCalc = meta.liveCalc;
   // Viewport state
   if (meta.zoom !== undefined) uiStore.zoom = meta.zoom;
@@ -893,6 +906,7 @@ export function loadFromURLHash(): 'data' | 'embed' | null {
     const { snapshot } = mergeCode(modelStore.snapshot(), r.snapshot);
     applyLinkMode(snapshot.analysisMode);
     modelStore.restore(snapshot);
+    adoptLoadCases();
     queueMicrotask(() => window.dispatchEvent(new Event('stabileo-restore-camera-3d')));
     history.replaceState(null, '', location.pathname + location.search);
     return 'data';
@@ -917,6 +931,7 @@ export function loadFromURLHash(): 'data' | 'embed' | null {
   const loadedMode = applyLinkMode(snapshot.analysisMode);
 
   modelStore.restore(snapshot);
+  adoptLoadCases();
   restoreMeta(snapshot);
   // Same pre-metadata convention note as a .ded open — a shared link is the most
   // common cross-machine entry point, so a legacy 3D model must not change axes
@@ -971,6 +986,7 @@ export function loadFromShareLink(url: string): boolean {
     const { snapshot } = mergeCode(modelStore.snapshot(), r.snapshot);
     applyLinkMode(snapshot.analysisMode);
     modelStore.restore(snapshot);
+    adoptLoadCases();
     queueMicrotask(() => window.dispatchEvent(new Event('stabileo-restore-camera-3d')));
     return true;
   }
@@ -983,6 +999,7 @@ export function loadFromShareLink(url: string): boolean {
   const loadedMode = applyLinkMode(snapshot.analysisMode);
 
   modelStore.restore(snapshot);
+  adoptLoadCases();
   restoreMeta(snapshot);
   // Same pre-metadata convention note as a .ded open — a shared link is the most
   // common cross-machine entry point, so a legacy 3D model must not change axes

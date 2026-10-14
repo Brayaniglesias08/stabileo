@@ -3,9 +3,10 @@
   import { uiStore } from '../../lib/store/ui.svelte';
   import { modelStore } from '../../lib/store/model.svelte';
   import { resultsStore } from '../../lib/store/results.svelte';
-  import SelectedEntityPanel from '../floating-tools/SelectedEntityPanel.svelte';
   import SelectionDeleteButton from './SelectionDeleteButton.svelte';
   import ToolOptions from './ToolOptions.svelte';
+  import ResultsViewPicker from '../toolbar/ResultsViewPicker.svelte';
+  import { activeQuantity, activeRepresentation } from '../../lib/store/result-view';
 
   /**
    * Contextual options for the armed tool, directly under the ribbon.
@@ -64,6 +65,19 @@
    * its read-out and the delete button.
    */
   const phone = $derived(uiStore.isMobile);
+
+  /*
+   * Basic with load cases and combinations on: which result the drawing shows (a case, a
+   * combination, the envelope) and what to compare it with, here beside the tools rather than
+   * down the results panel, while a result is drawn.
+   */
+  const resultsView = $derived(
+    uiStore.appMode === 'basico' && uiStore.loadCasesEnabled && resultsStore.hasCombinations
+    && uiStore.showPrimarySelector
+    && (activeQuantity() !== null || resultsStore.diagramType === 'deformed'),
+  );
+  const compares = $derived(resultsView && uiStore.showSecondarySelector
+    && resultsStore.diagramType !== 'deformed' && activeRepresentation() === 'diagram');
 </script>
 
 <!-- A phone shows nothing here: its options sit in the modelling sheet and its
@@ -78,11 +92,13 @@
   {/if}
 
   <!--
-    What is selected, restored. It lived in the floating strip, which desktop no
-    longer renders, so selecting a member stopped showing its properties — the
-    single most-used read-out in the app, silently gone.
+    A selected support or load is edited at the left, in the options row's edit
+    mode (ToolOptions), which carries its own delete; it is no longer repeated here.
   -->
-  <div class="tb-selection"><SelectedEntityPanel /></div>
+  {#if resultsView}
+    <ResultsViewPicker showsPrimary showsSecondary={compares} inBar />
+  {/if}
+
   <!-- Delete what is selected: present only while something is (a phone has no Delete key). -->
   <SelectionDeleteButton />
 
@@ -121,9 +137,7 @@
     min-width: 0;
   }
 
-  .tb-selection { display: flex; align-items: center; flex: none; }
   .tool-bar.phone { justify-content: space-between; }
-  .tool-bar.phone .tb-selection { flex: 1; min-width: 0; overflow-x: auto; }
 
   /* ── Model state ──────────────────────────────────────────────────── */
 

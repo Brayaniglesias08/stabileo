@@ -1,7 +1,43 @@
+<script lang="ts" module>
+  import type { Quantity } from '../../lib/utils/units';
+  /** What `uiStore.loadValue` was last shown as; kept while the toolbar is closed. */
+  let loadValueShownAs: Quantity | null = null;
+</script>
+
 <script lang="ts">
+  import { untrack } from 'svelte';
   import ToolGlyph from './ToolGlyph.svelte';
   import { uiStore, modelStore } from '../../lib/store';
   import { t } from '../../lib/i18n';
+  import UnitInput from '../UnitInput.svelte';
+  import { unitQ } from '../../lib/store/display-units.svelte';
+  import { keepTypedNumber } from '../../lib/utils/unit-input';
+
+  /*
+   * Values are typed in the unit system chosen under Settings and kept in SI
+   * (UnitInput). What the one value of a point load is depends on its direction.
+   */
+  const nodalQty3D = $derived<Quantity>(['mx', 'my', 'mz'].includes(uiStore.nodalLoadDir3D) ? 'moment' : 'force');
+  const nodalQty2D = $derived<Quantity>(uiStore.nodalLoadDir === 'my' ? 'moment' : 'force');
+
+  /*
+   * One value serves the point force, the moment and the 2D distributed load.
+   * Switching between them keeps the number on screen (2 kip becomes 2 kip/ft,
+   * not the 0.61 kip/ft the same SI value is): `keepTypedNumber`.
+   */
+  const loadValueQty = $derived<Quantity | null>(
+    uiStore.loadType === 'nodal' ? (uiStore.is3DWorkspace ? nodalQty3D : nodalQty2D)
+    : uiStore.loadType === 'distributed' && !uiStore.is3DWorkspace ? 'distributedLoad'
+    : null,
+  );
+  $effect(() => {
+    const q = loadValueQty;
+    if (!q) return;
+    untrack(() => {
+      if (loadValueShownAs && loadValueShownAs !== q) uiStore.loadValue = keepTypedNumber(uiStore.loadValue, loadValueShownAs, q, uiStore.unitSystem);
+      loadValueShownAs = q;
+    });
+  });
 
   const loadTypes = [
     { id: 'nodal', key: 'float.loadPoint' },
@@ -11,6 +47,36 @@
   const LOAD_GLYPH = { nodal: 'loadPoint', distributed: 'loadDistributed', thermal: 'loadThermal' } as const;
 </script>
 
+<!--
+  Where on the member a distributed load goes: all of it, or a stretch from and to, in m from the
+  member's node I. PRO places its member loads from its own draw bar.
+-->
+{#snippet stretch()}
+  {#if uiStore.appMode !== 'pro'}
+    <span class="ft-row" aria-hidden="true"></span>
+    <span class="ft-sep">|</span>
+    <button class="ft-opt-btn ft-coord-btn ft-span" class:active={!uiStore.distLoadPartial} onclick={() => (uiStore.distLoadPartial = false)}
+      title={t('float.distWholeTip')} data-testid="dist-span-whole">{t('float.distWhole')}</button>
+    <button class="ft-opt-btn ft-coord-btn ft-span" class:active={uiStore.distLoadPartial} onclick={() => (uiStore.distLoadPartial = true)}
+      title={t('float.distStretchTip')} data-testid="dist-span-stretch">{t('float.distStretch')}</button>
+    {#if uiStore.distLoadPartial}
+      <span class="ft-span-range">
+      <label class="ft-input-group" title={t('float.distStretchTip')}>
+        <span>{t('float.distFrom')}</span>
+        <UnitInput value={uiStore.distLoadFrom ?? NaN} qty={'length'} onchange={(v) => (uiStore.distLoadFrom = v)} onempty={() => (uiStore.distLoadFrom = null)}
+          placeholder="0" unit={false} live testid="dist-span-from" />
+      </label>
+      <label class="ft-input-group" title={t('float.distStretchTip')}>
+        <span>{t('float.distTo')}</span>
+        <UnitInput value={uiStore.distLoadTo ?? NaN} qty={'length'} onchange={(v) => (uiStore.distLoadTo = v)} onempty={() => (uiStore.distLoadTo = null)}
+          placeholder="L" unit={false} live testid="dist-span-to" />
+        <span class="ft-unit">{unitQ('length')}</span>
+      </label>
+      </span>
+    {/if}
+  {/if}
+{/snippet}
+
 <!-- Basic switches self-weight in its loads panel; PRO has no other switch. -->
 {#if uiStore.appMode !== 'basico'}
   <label class="ft-selfweight-toggle" title={t('float.loadSelfWeightTooltip')}>
@@ -19,16 +85,19 @@
   </label>
   <span class="ft-sep">|</span>
 {/if}
+<!-- The load case: in Basic only when asked for under Settings (every load goes to the first case). -->
+{#if uiStore.showLoadCasePicker}
 <span class="ft-case-dot" style="background: {modelStore.getLoadCaseColor(uiStore.activeLoadCaseId)}"></span>
 <select class="ft-case-select"
   value={String(uiStore.activeLoadCaseId)}
   onchange={(e) => uiStore.activeLoadCaseId = parseInt(e.currentTarget.value)}
-  title={t('float.activeLoadCase')}>
+  title={t('float.activeLoadCase')} data-testid="load-case-select">
   {#each modelStore.loadCases as lc}
     <option value={String(lc.id)}>{lc.type || lc.name}</option>
   {/each}
 </select>
 <span class="ft-sep">|</span>
+{/if}
 {#each loadTypes as lt}
   <button
     class="ft-opt-btn ft-primary"
@@ -55,8 +124,8 @@
       onclick={() => uiStore.nodalLoadDir3D = 'mz'} title={t('float.loadMomentZ3d')}>Mz</button>
     <label class="ft-input-group">
       <span>{['mx','my','mz'].includes(uiStore.nodalLoadDir3D) ? 'M:' : 'F:'}</span>
-      <input type="number" bind:value={uiStore.loadValue} step="1" />
-      <span class="ft-unit">{['mx','my','mz'].includes(uiStore.nodalLoadDir3D) ? 'kN\u00b7m' : 'kN'}</span>
+      <UnitInput value={uiStore.loadValue} qty={nodalQty3D} onchange={(v) => (uiStore.loadValue = v)} unit={false} live />
+      <span class="ft-unit">{unitQ(nodalQty3D)}</span>
     </label>
   {:else}
   <!-- 2D: 3 directions -->
@@ -74,8 +143,8 @@
   >My</button>
   <label class="ft-input-group">
     <span>{uiStore.nodalLoadDir === 'my' ? 'M:' : 'F:'}</span>
-    <input type="number" bind:value={uiStore.loadValue} step="1" />
-    <span class="ft-unit">{uiStore.nodalLoadDir === 'my' ? 'kN\u00b7m' : 'kN'}</span>
+    <UnitInput value={uiStore.loadValue} qty={nodalQty2D} onchange={(v) => (uiStore.loadValue = v)} unit={false} live />
+    <span class="ft-unit">{unitQ(nodalQty2D)}</span>
   </label>
   {#if uiStore.nodalLoadDir !== 'my'}
     <!--
@@ -98,51 +167,58 @@
   {/if}
   {/if}
 {:else if uiStore.loadType === 'thermal'}
-  <label class="ft-input-group">
-    <span>ΔT:</span>
-    <input type="number" bind:value={uiStore.thermalDT} step="5" />
-    <span class="ft-unit">°C</span>
-  </label>
-  <label class="ft-input-group">
+  <label class="ft-input-group" title={t('float.thermalUniformTip')}>
     <span>ΔTg:</span>
-    <input type="number" bind:value={uiStore.thermalDTg} step="5" />
-    <span class="ft-unit">°C</span>
+    <UnitInput value={uiStore.thermalDT} qty={'temperatureDelta'} onchange={(v) => (uiStore.thermalDT = v)} unit={false} live />
+    <span class="ft-unit">{unitQ('temperatureDelta')}</span>
+  </label>
+  <label class="ft-input-group" title={t('float.thermalGradientTip')}>
+    <span>∇T:</span>
+    <UnitInput value={uiStore.thermalDTg} qty={'temperatureDelta'} onchange={(v) => (uiStore.thermalDTg = v)} unit={false} live />
+    <span class="ft-unit">{unitQ('temperatureDelta')}</span>
   </label>
 {:else if uiStore.loadType === 'distributed'}
   {#if uiStore.is3DWorkspace}
     <label class="ft-input-group">
       <span>qYI:</span>
-      <input type="number" bind:value={uiStore.loadValueY3D} step="1" />
-      <span class="ft-unit">kN/m</span>
+      <UnitInput value={uiStore.loadValueY3D} qty={'distributedLoad'} onchange={(v) => (uiStore.loadValueY3D = v)} unit={false} live />
+      <span class="ft-unit">{unitQ('distributedLoad')}</span>
     </label>
     <label class="ft-input-group">
       <span>qYJ:</span>
-      <input type="number" bind:value={uiStore.loadValueYJ3D} step="1" />
-      <span class="ft-unit">kN/m</span>
+      <UnitInput value={uiStore.loadValueYJ3D} qty={'distributedLoad'} onchange={(v) => (uiStore.loadValueYJ3D = v)} unit={false} live />
+      <span class="ft-unit">{unitQ('distributedLoad')}</span>
     </label>
   {:else}
     <label class="ft-input-group">
       <span>qI:</span>
-      <input type="number" bind:value={uiStore.loadValue} step="1" />
-      <span class="ft-unit">kN/m</span>
+      <UnitInput value={uiStore.loadValue} qty={'distributedLoad'} onchange={(v) => (uiStore.loadValue = v)} unit={false} live />
+      <span class="ft-unit">{unitQ('distributedLoad')}</span>
     </label>
     <label class="ft-input-group">
       <span>qJ:</span>
-      <input type="number" bind:value={uiStore.loadValueJ} step="1" />
-      <span class="ft-unit">kN/m</span>
+      <UnitInput value={uiStore.loadValueJ} qty={'distributedLoad'} onchange={(v) => (uiStore.loadValueJ = v)} unit={false} live />
+      <span class="ft-unit">{unitQ('distributedLoad')}</span>
     </label>
   {/if}
   {#if uiStore.is3DWorkspace}
     <label class="ft-input-group">
       <span>qZI:</span>
-      <input type="number" bind:value={uiStore.loadValueZ} step="1" />
-      <span class="ft-unit">kN/m</span>
+      <UnitInput value={uiStore.loadValueZ} qty={'distributedLoad'} onchange={(v) => (uiStore.loadValueZ = v)} unit={false} live />
+      <span class="ft-unit">{unitQ('distributedLoad')}</span>
     </label>
     <label class="ft-input-group">
       <span>qZJ:</span>
-      <input type="number" bind:value={uiStore.loadValueZJ} step="1" />
-      <span class="ft-unit">kN/m</span>
+      <UnitInput value={uiStore.loadValueZJ} qty={'distributedLoad'} onchange={(v) => (uiStore.loadValueZJ = v)} unit={false} live />
+      <span class="ft-unit">{unitQ('distributedLoad')}</span>
     </label>
+    <!-- Which axes qY and qZ are along: the global ones (Z is the vertical) or the member's own. -->
+    <span class="ft-sep">|</span>
+    <button class="ft-opt-btn ft-coord-btn" class:active={uiStore.distLoadFrame3D === 'global'} onclick={() => (uiStore.distLoadFrame3D = 'global')}
+      title={t('float.distFrameGlobal3D')} data-testid="dist-frame-global">{t('float.frameGlobal')}</button>
+    <button class="ft-opt-btn ft-coord-btn" class:active={uiStore.distLoadFrame3D === 'local'} onclick={() => (uiStore.distLoadFrame3D = 'local')}
+      title={t('float.distFrameLocal3D')} data-testid="dist-frame-local">{t('float.frameLocal')}</button>
+    {@render stretch()}
   {:else}
   <span class="ft-sep">|</span>
   <button class="ft-opt-btn ft-coord-btn" class:active={uiStore.loadIsGlobal} onclick={() => uiStore.loadIsGlobal = true} title={t('float.loadGlobalYDir')}>Z</button>
@@ -152,12 +228,16 @@
     <input type="number" bind:value={uiStore.loadAngle} step="5" />
     <span class="ft-unit">°</span>
   </label>
+  {@render stretch()}
   {/if}
 {/if}
 
 <style>
-  /* A row break for the phone's layout (DataTable); nothing on a desktop. */
-  .ft-break { display: none; }
+  /* Row breaks for the phone's layout (DataTable); nothing on a desktop. */
+  .ft-break, .ft-row { display: none; }
+  .ft-span { font-weight: 500; letter-spacing: 0; }
+  /* "from … to … m" stays one piece when the bar wraps (the phone's sheet). */
+  .ft-span-range { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 
   .ft-opt-btn {
     padding: 2px 8px;
@@ -184,7 +264,8 @@
     border-color: var(--st-hair);
   }
 
-  .ft-opt-btn.active {
+  .ft-opt-btn.active,
+  .ft-opt-btn.active:hover:not(:disabled) {
     background: var(--st-accent);
     border-color: var(--st-danger);
     color: white;
@@ -240,7 +321,7 @@
     color: var(--st-text-2);
   }
 
-  .ft-input-group input {
+  .ft-input-group :global(input) {
     width: 55px;
     padding: 2px 4px;
     background: var(--st-surface-2);
@@ -251,8 +332,8 @@
   }
 
   .ft-unit {
-    font-size: 0.6rem;
-    color: var(--st-text-3);
+    font-size: 0.68rem;
+    color: var(--st-text-2);
     white-space: nowrap;
   }
 
@@ -277,7 +358,7 @@
       padding: 4px 6px;
     }
 
-    .ft-input-group input {
+    .ft-input-group :global(input) {
       width: 45px;
     }
 
@@ -286,7 +367,7 @@
     }
 
     .ft-unit {
-      font-size: 0.6rem;
+      font-size: 0.68rem;
     }
 
     .ft-dir-btn {

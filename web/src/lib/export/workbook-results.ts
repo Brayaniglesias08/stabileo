@@ -20,7 +20,15 @@ import { shellCentreRows, shellCornerRows, shellNodeRows, type ShellCentreRow, t
 import { safeText, type WorkbookSheet } from './workbook-cells';
 
 /** A result source; standalone solves and envelope views use id 0, not a load-case id. */
-export interface WorkbookSource { kind: 'case' | 'combination' | 'single' | 'envelope'; id: number; name: string; results: AnalysisResults3D }
+/**
+ * `magnitude`: an SRSS or ABS combination (`AnalysisResults3D.magnitude`), its rows magnitudes without
+ * a sign. Listed with its own rows under that kind, and left out of the maxima and the envelope,
+ * as every envelope leaves it out (`result-scopes.ts`).
+ */
+export interface WorkbookSource { kind: 'case' | 'combination' | 'magnitude' | 'single' | 'envelope'; id: number; name: string; results: AnalysisResults3D }
+
+/** The kind a solved combination is listed under. */
+export const combinationKind = (r: AnalysisResults3D): 'combination' | 'magnitude' => (r.magnitude ? 'magnitude' : 'combination');
 
 export interface ResultSheetsInput {
   sources: readonly WorkbookSource[];
@@ -182,10 +190,13 @@ function shellMaximaRows(input: ResultSheetsInput): WorkbookSheet['rows'] {
   return out;
 }
 
-/** The sources an envelope or a maximum is taken over: the combinations, or the cases when there are none. */
+/**
+ * The sources an envelope or a maximum is taken over: the linear combinations, or the cases when
+ * there are none; never an SRSS or ABS one.
+ */
 function governing(sources: readonly WorkbookSource[]): WorkbookSource[] {
   const combos = sources.filter((s) => s.kind === 'combination');
-  return combos.length > 0 ? combos : [...sources];
+  return combos.length > 0 ? combos : sources.filter((s) => s.kind !== 'magnitude');
 }
 const asSource = (s: WorkbookSource): Source & { kind: string } => ({ id: s.id, name: s.name, results: s.results, kind: s.kind });
 
@@ -265,22 +276,34 @@ function cablesSheet(sources: readonly WorkbookSource[]): WorkbookSheet | null {
   return { name: 'Cables', rows };
 }
 
-/** The result sheets, in the order the Conventions sheet lists them. */
-export function resultSheets(input: ResultSheetsInput): WorkbookSheet[] {
-  const all: Array<WorkbookSheet | null> = [
-    nodeSheet('Reactions', 'reactions', input.sources),
-    nodeSheet('Displacements', 'displacements', input.sources),
-    endForcesSheet(input.sources),
-    stationsSheet(input.sources, input.stations),
-    deflectionsSheet(input),
-    stressesSheet(input),
-    maximaSheet(input),
-    envelopeSheet(input),
-    ...(input.shells && hasShells(input) ? [shellCentresSheet(input), shellNodesSheet(input), shellCornersSheet(input)] : []),
-    staticsSheet(input.statics),
-    secondOrderSheet(input),
-    oneWaySheet(input.sources),
-    cablesSheet(input.sources),
+/** The result sheets' names, in the order `resultSheets` writes them. */
+export const RESULT_SHEET_NAMES = [
+  'Reactions', 'Displacements', 'EndForces', 'Stations', 'Deflections', 'Stresses', 'Maxima', 'Envelope',
+  'ShellCentres', 'ShellNodes', 'ShellCorners', 'Statics', 'SecondOrder', 'OneWay', 'Cables',
+] as const;
+
+/**
+ * The result sheets, in the order the Conventions sheet lists them. `want` leaves sheets out by
+ * name before they are built: the stations of a large model are the expensive part of the file.
+ */
+export function resultSheets(input: ResultSheetsInput, want: (name: string) => boolean = () => true): WorkbookSheet[] {
+  const shells = !!input.shells && hasShells(input);
+  const all: Array<[string, () => WorkbookSheet | null]> = [
+    ['Reactions', () => nodeSheet('Reactions', 'reactions', input.sources)],
+    ['Displacements', () => nodeSheet('Displacements', 'displacements', input.sources)],
+    ['EndForces', () => endForcesSheet(input.sources)],
+    ['Stations', () => stationsSheet(input.sources, input.stations)],
+    ['Deflections', () => deflectionsSheet(input)],
+    ['Stresses', () => stressesSheet(input)],
+    ['Maxima', () => maximaSheet(input)],
+    ['Envelope', () => envelopeSheet(input)],
+    ['ShellCentres', () => (shells ? shellCentresSheet(input) : null)],
+    ['ShellNodes', () => (shells ? shellNodesSheet(input) : null)],
+    ['ShellCorners', () => (shells ? shellCornersSheet(input) : null)],
+    ['Statics', () => staticsSheet(input.statics)],
+    ['SecondOrder', () => secondOrderSheet(input)],
+    ['OneWay', () => oneWaySheet(input.sources)],
+    ['Cables', () => cablesSheet(input.sources)],
   ];
-  return all.filter((s): s is WorkbookSheet => !!s);
+  return all.filter(([name]) => want(name)).map(([, build]) => build()).filter((s): s is WorkbookSheet => !!s);
 }

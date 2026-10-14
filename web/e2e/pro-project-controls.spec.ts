@@ -63,10 +63,10 @@ test.describe('@smoke PRO — the Project panel', () => {
   test('the report is offered with the other exports of the same numbers', async ({ pro: page }) => {
     /* It was reachable only from a command in ANALYSE, which put the three
        ways of getting the same results out of the application in two
-       different places. Disabled until there is something to report. */
+       different places. Disabled until there is a model; it solves first. */
     const btn = page.getByTestId('pp-export-report');
     await expect(btn).toBeVisible();
-    await expect(btn, 'nothing solved yet').toBeDisabled();
+    await expect(btn, 'no model yet').toBeDisabled();
   });
 
   test('the spreadsheet template downloads', async ({ pro: page }) => {

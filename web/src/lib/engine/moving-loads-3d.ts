@@ -27,6 +27,8 @@ import type { SolverInput3D, SolverLoad3D, AnalysisResults3D } from './types-3d'
 import type { LoadTrain } from './moving-loads';
 import { buildSolverInput3D, type ModelData } from './solver-service';
 import { withoutSettlement } from './settlement-case';
+// The position cases read the same symmetry and the same reversed train (`vehicles.ts`).
+import { isSymmetric, reversedTrain, usableStep } from './vehicles';
 
 export interface PathSegment3D {
   elementId: number;
@@ -117,15 +119,6 @@ export function trainLoads(input: SolverInput3D, path: PathSegment3D[], train: L
   return loads;
 }
 
-const isSymmetric = (train: LoadTrain) => {
-  const max = Math.max(...train.axles.map((a) => a.offset));
-  return train.axles.every((a) => train.axles.some((b) => Math.abs(b.offset - (max - a.offset)) < 1e-6 && Math.abs(b.weight - a.weight) < 1e-6));
-};
-const reversedTrain = (train: LoadTrain): LoadTrain => {
-  const max = Math.max(...train.axles.map((a) => a.offset));
-  return { name: train.name, axles: train.axles.map((a) => ({ offset: max - a.offset, weight: a.weight })) };
-};
-
 function blank(): Record<EnvelopeComponent, { max: Extreme; min: Extreme }> {
   const e = () => ({ max: { value: 0, x: 0, position: 0 }, min: { value: 0, x: 0, position: 0 } });
   return { n: e(), vy: e(), vz: e(), my: e(), mz: e(), torsion: e() };
@@ -149,8 +142,34 @@ export function foldPosition(env: MovingEnvelope3D['elements'], results: Analysi
 
 export interface MovingLoad3DOptions {
   step?: number;
+  /** A second line of members for the other wheel line: each axle half on each path. */
+  path2?: PathSegment3D[] | null;
   onProgress?: (done: number, total: number) => void;
   signal?: AbortSignal;
+}
+
+const half = (train: LoadTrain): LoadTrain => ({ name: train.name, axles: train.axles.map((a) => ({ offset: a.offset, weight: a.weight / 2 })) });
+
+/**
+ * Sweep each of `trains` (a vehicle's spacings, `vehicles.ts` `vehicleTrains`) and keep the
+ * extremes over all of them.
+ */
+export async function sweepTrains3D(base: SolverInput3D, path: PathSegment3D[], trains: readonly LoadTrain[], opts: MovingLoad3DOptions = {}): Promise<MovingEnvelope3D> {
+  let out: MovingEnvelope3D | null = null;
+  for (const train of trains) {
+    const r = await sweepMovingLoad3D(base, path, train, opts);
+    if (!out) { out = r; continue; }
+    for (const [id, rec] of r.elements) {
+      const mine = out.elements.get(id);
+      if (!mine) { out.elements.set(id, rec); continue; }
+      for (const c of ENVELOPE_COMPONENTS) {
+        if (rec[c].max.value > mine[c].max.value) mine[c].max = rec[c].max;
+        if (rec[c].min.value < mine[c].min.value) mine[c].min = rec[c].min;
+      }
+    }
+    out = { ...out, positions: out.positions + r.positions, failed: out.failed + r.failed };
+  }
+  return out!;
 }
 
 /**
@@ -168,7 +187,8 @@ export function movingLoadBase3D(model: ModelData, leftHand = false): SolverInpu
 export async function sweepMovingLoad3D(
   base: SolverInput3D, path: PathSegment3D[], train: LoadTrain, opts: MovingLoad3DOptions = {},
 ): Promise<MovingEnvelope3D> {
-  const step = opts.step && opts.step > 0 ? opts.step : 0.25;
+  // At least `MIN_STEP`: a step of a few micrometres ran for ever.
+  const step = usableStep(opts.step ?? 0, 0.25);
   const total = path.reduce((s, p) => s + p.length, 0);
   const maxOff = Math.max(0, ...train.axles.map((a) => a.offset));
   const forward: number[] = [];
@@ -184,7 +204,11 @@ export async function sweepMovingLoad3D(
       for (const r of p.refs) {
         if (opts.signal?.aborted) throw new DOMException('aborted', 'AbortError');
         try {
-          foldPosition(env, session.solve(trainLoads(base, path, p.train, r)), r);
+          // Two wheel lines: half the train on each path (`MovingLoad3DOptions.path2`).
+          const loads = opts.path2
+            ? [...trainLoads(base, path, half(p.train), r), ...trainLoads(base, opts.path2, half(p.train), r)]
+            : trainLoads(base, path, p.train, r);
+          foldPosition(env, session.solve(loads), r);
         } catch {
           failed++;
         }

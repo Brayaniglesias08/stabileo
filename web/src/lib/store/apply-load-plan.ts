@@ -7,7 +7,7 @@
  */
 import { modelStore } from './index';
 import { expandCombinations } from '../engine/loads/combination-cases';
-import { addGeneratedCombinations } from './generated-combinations';
+import { addGeneratedCombinations, takeBackCompositeCases } from './generated-combinations';
 import type { LoadPlan } from '../engine/loads/load-plan';
 import type { CurrentLoadState } from '../engine/loads/load-plan-delta';
 import { findPlannedCase, type Load } from './model.svelte';
@@ -57,7 +57,7 @@ export interface ReplaceScope {
   defined: { loads: number[] };
 }
 
-type ScopeCase = { id: number; type: string; name: string; alternatives?: string };
+type ScopeCase = { id: number; type: string; name: string; alternatives?: string; reduction?: unknown };
 type ScopeCombination = { id: number; origin?: { code?: string; edited?: boolean }; factors?: ReadonlyArray<{ caseId: number; factor: number }> };
 
 /** A combination a code wrote and nobody has edited since (`CombinationOrigin.edited`). */
@@ -73,7 +73,7 @@ export function replaceScope(
   const targets = new Set<number>();
   for (const pc of p.cases) {
     const found = nameOf
-      ? findPlannedCase(cases, nameOf(pc.nameKey, pc.nameParams), pc.type, { existingId: pc.existingId, alternatives: pc.alternatives, own: pc.own })
+      ? findPlannedCase(cases, nameOf(pc.nameKey, pc.nameParams), pc.type, { existingId: pc.existingId, alternatives: pc.alternatives, own: pc.own, reduced: pc.reduced })
       : cases.find((c) => c.id === pc.existingId);
     if (found) targets.add(found.id);
   }
@@ -147,6 +147,9 @@ export function applyLoadPlan(p: LoadPlan, opts: ApplyLoadPlanOptions): void {
       const ids = new Set(gone.loads);
       modelStore.replaceLoads(modelStore.loads.filter((l) => !ids.has(l.data.id)));
       for (const id of gone.combinations) modelStore.removeCombination(id);
+      // And the composite cases the generator wrote for them, which nothing takes now: they
+      // stayed, solved and listed (`takeBackCompositeCases`).
+      takeBackCompositeCases();
     }
     const firstNewLoad = Math.max(0, ...modelStore.loads.map((l) => l.data.id)) + 1;
 
@@ -157,7 +160,7 @@ export function applyLoadPlan(p: LoadPlan, opts: ApplyLoadPlanOptions): void {
     const caseIdByType = new Map<string, number[]>();
     for (const pc of p.cases) {
       const name = opts.nameOf(pc.nameKey, pc.nameParams);
-      const id = modelStore.ensureLoadCase(name, pc.type, { existingId: pc.existingId, alternatives: pc.alternatives, pattern: pc.pattern, category: pc.category, own: pc.own });
+      const id = modelStore.ensureLoadCase(name, pc.type, { existingId: pc.existingId, alternatives: pc.alternatives, pattern: pc.pattern, category: pc.category, own: pc.own, reduced: pc.reduced });
       caseIds.push(id);
       const list = caseIdByType.get(pc.type) ?? [];
       list.push(id);

@@ -31,8 +31,8 @@ const b = (v: boolean | undefined) => (v ? 1 : 0);
 const opt = (v: number | undefined | null) => (typeof v === 'number' && Number.isFinite(v) ? v : '');
 
 function nodesSheet(m: WorkbookModel): WorkbookSheet {
-  const rows: WorkbookSheet['rows'] = [['id', 'x [m]', 'y [m]', 'z [m]']];
-  for (const n of [...m.nodes.values()].sort((a, c) => a.id - c.id)) rows.push([n.id, n.x, n.y, n.z ?? 0]);
+  const rows: WorkbookSheet['rows'] = [['id', 'x [m]', 'y [m]', 'z [m]', 'name']];
+  for (const n of [...m.nodes.values()].sort((a, c) => a.id - c.id)) rows.push([n.id, n.x, n.y, n.z ?? 0, safeText((n as { name?: string }).name ?? '')]);
   return { name: 'Nodes', rows };
 }
 
@@ -42,7 +42,7 @@ function membersSheet(m: WorkbookModel): WorkbookSheet {
     'length [m]', 'releaseStartMy', 'releaseStartMz', 'releaseStartT', 'releaseEndMy', 'releaseEndMz', 'releaseEndT',
     'localYx', 'localYy', 'localYz', 'offsetFrame', 'offsetIx [m]', 'offsetIy [m]', 'offsetIz [m]', 'offsetJx [m]', 'offsetJy [m]', 'offsetJz [m]', 'behaviour',
     // A member of variable section: end J's section and the pieces the solve cuts it into.
-    'sectionJ', 'segments',
+    'sectionJ', 'segments', 'name',
   ]];
   for (const e of [...m.elements.values()].sort((a, c) => a.id - c.id)) {
     const ni = m.nodes.get(e.nodeI), nj = m.nodes.get(e.nodeJ);
@@ -58,6 +58,7 @@ function membersSheet(m: WorkbookModel): WorkbookSheet {
       typeof e.behaviour === 'string' ? e.behaviour : e.behaviour ? safeText(JSON.stringify(e.behaviour)) : '',
       opt((e as { variableSection?: { sectionJ: number } }).variableSection?.sectionJ),
       (e as { variableSection?: { segments?: number } }).variableSection ? ((e as { variableSection?: { segments?: number } }).variableSection!.segments ?? 12) : '',
+      safeText((e as { name?: string }).name ?? ''),
     ]);
   }
   return { name: 'Members', rows };
@@ -193,11 +194,19 @@ function selfWeightSheet(m: WorkbookModel): WorkbookSheet {
   return { name: 'SelfWeight', rows };
 }
 
-/** The model's sheets, in the order a reader looks for them. */
-export function modelSheets(m: WorkbookModel, solved: SolverInput3D | null): WorkbookSheet[] {
-  return [
-    nodesSheet(m), membersSheet(m), materialsSheet(m), sectionsSheet(m, solved), supportsSheet(m, solved),
-    ...shellSheets(m), casesSheet(m), loadsSheet(m), selfWeightSheet(m), combinationsSheet(m),
-    ...[constraintsSheet(m), groupsSheet(m)].filter((s): s is WorkbookSheet => !!s),
+/** The model's sheets' names, in the order `modelSheets` writes them (`Shells` stands for the shell sheets). */
+export const MODEL_SHEET_NAMES = [
+  'Nodes', 'Members', 'Materials', 'Sections', 'Supports', 'Shells', 'LoadCases', 'LoadData', 'SelfWeight', 'Combinations', 'Constraints', 'Groups',
+] as const;
+
+/** The model's sheets, in the order a reader looks for them; `want` leaves sheets out by name. */
+export function modelSheets(m: WorkbookModel, solved: SolverInput3D | null, want: (name: string) => boolean = () => true): WorkbookSheet[] {
+  const all: Array<[string, () => WorkbookSheet | WorkbookSheet[] | null]> = [
+    ['Nodes', () => nodesSheet(m)], ['Members', () => membersSheet(m)], ['Materials', () => materialsSheet(m)],
+    ['Sections', () => sectionsSheet(m, solved)], ['Supports', () => supportsSheet(m, solved)],
+    ['Shells', () => shellSheets(m)], ['LoadCases', () => casesSheet(m)], ['LoadData', () => loadsSheet(m)],
+    ['SelfWeight', () => selfWeightSheet(m)], ['Combinations', () => combinationsSheet(m)],
+    ['Constraints', () => constraintsSheet(m)], ['Groups', () => groupsSheet(m)],
   ];
+  return all.filter(([name]) => want(name)).flatMap(([, build]) => build() ?? []);
 }

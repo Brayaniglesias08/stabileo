@@ -4,13 +4,14 @@
   import QuickInfoCard from './viewport/QuickInfoCard.svelte';
   import { syncViewOverlays } from '../lib/viewport3d/view-overlays';
   import { deformedView } from '../lib/store/deformed-view.svelte';
-  import { viewState, selectionNodeIds, viewVisibility, visibleElements, visibleNodes, visiblePlates, visibleQuads } from '../lib/store/view-state.svelte';
+  import { focusNodeIds } from '../lib/model/select-like';
+  import { viewState, viewVisibility, visibleElements, visibleNodes, visiblePlates, visibleQuads } from '../lib/store/view-state.svelte';
   import { insidePolygon, extendLasso } from '../lib/viewport/lasso';
   import { timeHistoryView } from '../lib/store/time-history-view.svelte';
   import { contourOptions } from '../lib/store/contour-options.svelte';
   import { nextMember } from '../lib/store/next-member.svelte';
-  import { onMount, untrack } from 'svelte';
-  import { t } from '../lib/i18n';
+  import { onMount, onDestroy, untrack } from 'svelte';
+  import { t, tp } from '../lib/i18n';
   import * as THREE from 'three';
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   import { modelStore, uiStore, resultsStore, historyStore, dsmStepsStore, verificationStore } from '../lib/store';
@@ -20,24 +21,31 @@
   import { editPreview } from '../lib/store/edit-preview.svelte';
   import { snapToAxes } from '../lib/model/grid';
   import { addSupportFromTool3D } from '../lib/store/support-tool-3d';
-  import { nodeAtPlacement3D } from '../lib/viewport/node-placement';
+  import { nodeAtPlacement3D, resolveNodePlacement2D, memberParamOnRay, MIN_SPLIT_PX } from '../lib/viewport/node-placement';
+  import { toolStretch, loadedLength, loadedSegment } from '../lib/model/loads/load-stretch';
   import { boxSelect as boxSelectTargets, type BoxSelectMode } from '../lib/viewport/box-select';
-  import { memberNearPointer, nodeNearPointer } from '../lib/viewport3d/screen-pick';
+  import { membersNearPointer, membersNearPointerWithDistance, nodesNearPointer } from '../lib/viewport3d/screen-pick';
+  import { createPickCycle, mergeTargets, type PickTarget } from '../lib/viewport/pick-cycle';
+  import { setCanvasUnitSystem } from '../lib/canvas/canvas-units';
+  import { fixedQuantity } from '../lib/utils/unit-format';
+  import { fromDisplay } from '../lib/utils/units';
   import { quickEdit } from '../lib/store/pro-quick-edit.svelte';
-  import { pickLoadAt } from '../lib/viewport/load-pick';
+  import { pickLoadsWithDistance } from '../lib/viewport/load-pick';
   import { activeStretchHandles, handleUnder, stationOnRay, moveStretchEnd, handleMeshes, type StretchHandles } from '../lib/viewport3d/load-handles';
   import { drawState } from '../lib/store/draw-state.svelte';
   import { createDrawFeedback } from '../lib/viewport3d/draw-feedback';
   import PointerModeButton from './PointerModeButton.svelte';
   import SelectionDeleteButton from './ribbon/SelectionDeleteButton.svelte';
   import ConnectionPrompt from './ConnectionPrompt.svelte';
-  import { askToConnectMember } from '../lib/model/edit/connection-questions';
+  import { askAboutNewMember } from '../lib/model/edit/connection-questions';
+  import { addThermalLoadIfAny } from '../lib/store/load-ops';
   import Icon from './ribbon/Icon.svelte';
-  import { COLORS, setGroupColor, findUserData, disposeObject, createTextSprite } from '../lib/three/selection-helpers';
+  import { COLORS, setGroupColor, findUserData, disposeObject, createTextSprite, setLabelScale3D } from '../lib/three/selection-helpers';
+  import HiddenItemsChip from './viewport/HiddenItemsChip.svelte';
   import { paintShell, paintShellEdge, restoreShellColor } from '../lib/three/create-shell-mesh';
   import ShellContourLegend from './viewport/ShellContourLegend.svelte';
-  import { NodesInstanced } from '../lib/three/nodes-instanced';
-  import { nodeRadiusFor, diagonalOf } from '../lib/three/node-scale';
+  import { NodesInstanced, resolveNodeStyle } from '../lib/three/nodes-instanced';
+  import { nodeRadiusFor, diagonalOf, structureNodes } from '../lib/three/node-scale';
   import { jointSceneLayout, hasSceneContent } from '../lib/three/joint-layout';
   import { buildJointMeshes } from '../lib/three/joint-meshes';
   import { jointDesignStore } from '../lib/store/joint-design.svelte';
@@ -49,13 +57,22 @@
   import { currentLoadDrawView, isLoadDrawn } from '../lib/viewport3d/load-drawn';
   import { evaluateDiagramAt, formatDiagramValue3D, type Diagram3DKind } from '../lib/engine/diagrams-3d';
   import { getGroundIntersection as _getGroundIntersection, findNodeHit as _findNodeHit, findElementHit as _findElementHit, segmentIntersectsRect2D, worldPerPixel } from '../lib/viewport3d/picking';
-  import { getModelBounds as _getModelBounds, zoomToFit as _zoomToFit, setView as _setView, type PresetView, handleResize as _handleResize, syncOrthoFrustum as _syncOrthoFrustum } from '../lib/viewport3d/camera';
+  import { getModelBounds as _getModelBounds, zoomToFit as _zoomToFit, setView as _setView, type PresetView, handleResize as _handleResize, syncOrthoFrustum as _syncOrthoFrustum, nearPlaneFor, farPlaneFor } from '../lib/viewport3d/camera';
+  import { createFrameCoalescer } from '../lib/viewport3d/frame-coalesce';
   import { planeNormal, projectNodeToScene, setCameraUp, shouldProjectModelToXZ, GLOBAL_X, GLOBAL_Y, GLOBAL_Z } from '../lib/geometry/coordinate-system';
   import { setCameraProbe, setWorldProjector } from '../lib/viewport3d/camera-probe';
   import { updateGrid as _updateGrid, gridLayout, gridKey, createFatAxes as _createFatAxes, addAxisLabels as _addAxisLabels } from '../lib/viewport3d/grid';
   import { syncNodes as _syncNodes, syncElements as _syncElements, syncSupports as _syncSupports, syncLoads as _syncLoads, syncShells as _syncShells, syncSelection as _syncSelection, syncLocalAxes as _syncLocalAxes, syncMemberOffsets as _syncMemberOffsets, syncShellOffsets as _syncShellOffsets, applyElementVisibility, type SceneSyncContext } from '../lib/viewport3d/scene-sync';
-  import { syncDeformed as _syncDeformed, syncDiagrams3D as _syncDiagrams3D, syncColorMap3D as _syncColorMap3D, syncVerificationLabels as _syncVerificationLabels, syncReactions as _syncReactions, syncConstraintForces as _syncConstraintForces, syncLabels3D as _syncLabels3D, syncDespiece3D as _syncDespiece3D, DIAGRAM_3D_TYPES, type ResultsSyncContext } from '../lib/viewport3d/results-sync';
+  import { syncDeformed as _syncDeformed, syncDiagrams3D as _syncDiagrams3D, syncColorMap3D as _syncColorMap3D, syncVerificationLabels as _syncVerificationLabels, syncReactions as _syncReactions, syncConstraintForces as _syncConstraintForces, syncLabels3D as _syncLabels3D, DIAGRAM_3D_TYPES, type ResultsSyncContext } from '../lib/viewport3d/results-sync';
   import { applyLowDetail, isHeavyModel } from '../lib/viewport3d/lod';
+  import { buildTimelapse, FORMAT_SIZE } from '../lib/store/build-timelapse.svelte';
+  import { createTimelapseView } from '../lib/viewport3d/build-timelapse-view';
+  import { createTimelapseCompositor } from '../lib/viewport3d/timelapse-compositor';
+  import { timelapseSound } from '../lib/viewport3d/timelapse-sound';
+  import { setLineResolution } from '../lib/three/create-element-mesh';
+  import BuildTimelapsePanel from './BuildTimelapsePanel.svelte';
+  import { drawFreeBody, freeBodyFocus } from '../lib/canvas/free-body';
+  import { freeBodyActions3D } from '../lib/viewport3d/free-body-3d';
 
   let container: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -144,6 +161,15 @@
   // a 'solid' preference from Settings instead of always landing on wireframe.
   /** Whether the view-options menu is open. Closed on every mount. */
   let camMenuOpen = $state(false);
+  // The build timelapse (camera menu): draws the model going up piece by piece.
+  const timelapseView = createTimelapseView();
+  let timelapseProjectKey = '';
+  let timelapseProject = false;
+  // The picture the timelapse shows and records: the render plus its texts (see the compositor).
+  let timelapseFrame = $state<ReturnType<typeof createTimelapseCompositor> | null>(null);
+  /** The render's aspect while the timelapse draws at its own size; null otherwise. */
+  let timelapseAspect: number | null = null;
+  let toolBeforeTimelapse: typeof uiStore.currentTool | null = null;
   let renderModeBeforeSections: 'wireframe' | 'solid' = 'wireframe';
   let boxSelect3D = $state<{ startX: number; startY: number; endX: number; endY: number; additive: boolean } | null>(null);
   /** The lasso's outline while one is being drawn (`viewState.lasso`). */
@@ -240,16 +266,18 @@
   }
 
   function submitCoordDialog() {
-    const x = parseFloat(coordX);
-    const y = parseFloat(coordY);
-    const z = parseFloat(coordZ);
+    // Typed in the chosen unit system; the model is in metres.
+    const sys = uiStore.unitSystem;
+    const x = fromDisplay(parseFloat(coordX), 'length', sys);
+    const y = fromDisplay(parseFloat(coordY), 'length', sys);
+    const z = fromDisplay(parseFloat(coordZ), 'length', sys);
     if (isNaN(x) || isNaN(y) || isNaN(z)) return;
     // Welded: typing the coordinates of an existing node selects it rather than
     // stacking a twin on it.
     // No pushState here: the mutation below pushes its own undo step, and a second one made the first Ctrl+Z a no-op.
     const id = modelStore.addNodeWelded(x, y, z);
     uiStore.selectNode(id, false);
-    uiStore.toast(t('viewport3d.nodeCreatedAt').replace('{id}', String(id)).replace('{x}', String(x)).replace('{y}', String(y)).replace('{z}', String(z)), 'success');
+    uiStore.toast(t('viewport3d.nodeCreatedAt').replace('{id}', String(id)).replace('{x}', String(coordX)).replace('{y}', String(coordY)).replace('{z}', String(coordZ)), 'success');
     showCoordDialog = false;
   }
 
@@ -353,7 +381,7 @@
     publishMarkerState(drawn, drawn ? undefined : null);
     if (!drawn) return;
 
-    const extent = { diagonalM: diagonalOf([...modelStore.nodes.values()]) };
+    const extent = { diagonalM: diagonalOf(structureNodes(modelStore.nodes, modelStore.elements.values(), [...modelStore.plates.values(), ...modelStore.quads.values()])) };
     const base = nodeRadiusFor(extent);
 
     let floor = 0;
@@ -391,6 +419,23 @@
     void uiStore.renderMode3D;
     lastNodeDist = -1; // the model changed: recompute regardless of the camera
     applyNodeRadius();
+  });
+
+  /*
+   * The node markers are a fixed size on screen (`NodeMarkerStyle`), as the reader chose under
+   * Settings › Model: dots, small balls, or dots that turn into balls while something that clicks
+   * on nodes is under way. A sphere sized in metres, which PRO drew until now, grew with every
+   * node nearer the camera than the orbit's target and covered the members. In PRO, aiming at
+   * nodes is also picking a plate's corners or a mesh outline, placing a generated structure or a
+   * paste with its ghost, and the joints tab, where a click on a node picks the joint.
+   */
+  $effect(() => {
+    const aiming = uiStore.appMode === 'pro'
+      && (uiStore.shellNodePick.active || placementStore.active || uiStore.proActiveTab === 'connections');
+    const style = resolveNodeStyle(uiStore.nodeStyle3D, uiStore.currentTool, aiming);
+    nodesInstanced.setStyle(style);
+    (window as unknown as { __nodeMarkerStyle?: string }).__nodeMarkerStyle = style;
+    invalidate();
   });
 
   /**
@@ -520,7 +565,7 @@
     // Parent groups
     nodesParent = new THREE.Group();
     nodesParent.name = 'nodes';
-    nodesParent.add(nodesInstanced.mesh);
+    nodesParent.add(nodesInstanced.mesh, nodesInstanced.points);
 
     elementsParent = new THREE.Group();
     elementsParent.name = 'elements';
@@ -554,10 +599,11 @@
      * exactly how it was reported. At 10 km the whole floor sits beyond the
      * plane and nothing draws at all.
      *
-     * `syncCameraRange` sizes it from whatever has to be visible. The
-     * logarithmic depth buffer is what makes that affordable: spanning 0.1 m
-     * to 40 km on a linear 24-bit depth buffer puts almost all of the
-     * precision in the first few metres and z-fights everything past them.
+     * `syncCameraRange` sizes it from whatever has to be visible. The depth
+     * buffer is not logarithmic (the renderer never asked for one), so the
+     * perspective range is kept no wider than the view needs: near and far
+     * both follow the distance to what is looked at (`nearPlaneFor`,
+     * `farPlaneFor`).
      */
     perspCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
     setCameraUp(perspCamera);
@@ -583,6 +629,12 @@
     controls.enableDamping = true;
     controls.dampingFactor = 0.1;
     controls.target.set(0, 0, 0);
+    // The wheel zooms toward what is under the pointer, as in the 2D view and
+    // in CAD, rather than toward the orbit centre: a detail far from the
+    // middle of the model can be reached without panning to it first.
+    controls.zoomToCursor = true;
+    // Close in on a small part, the near plane follows (see nearPlaneFor).
+    controls.addEventListener('change', syncNearPlane);
 
     // ── Keyboard camera navigation ──
     // WASD = pan, Arrows = orbit, Q/E = up/down, Shift/Ctrl = speed boost
@@ -651,7 +703,7 @@
     addAxisLabels();
 
     // Handle resize
-    const ro = new ResizeObserver(() => { handleResize(); invalidate(); });
+    const ro = new ResizeObserver(() => { if (buildTimelapse.active) applyTimelapseSize(); else handleResize(); invalidate(); });
     ro.observe(container);
     handleResize();
 
@@ -687,7 +739,8 @@
       // Despiece is a one-shot pull-apart; keep rendering only while it plays.
       const animDespiece = dt === 'despiece' && !!resultsStore.results3D
         && (performance.now() - despieceStart) < DESPIECE_ANIM_MS + 80;
-      return animDeformed || animMode || animBuckling || animDespiece;
+      const animBuild = buildTimelapse.active && buildTimelapse.playing;
+      return animDeformed || animMode || animBuckling || animDespiece || animBuild;
     }
 
     /** Whether we need to keep the render loop running continuously */
@@ -695,11 +748,24 @@
       return uiStore.continuousRendering || keysPressed.size > 0 || isAnimating() || dampingFrames > 0;
     }
 
+    /*
+     * One frame pending at most. While the loop renders continuously it reschedules itself, and
+     * `needsRender` is false between frames, so an invalidate then used to start a second chain
+     * beside it: every effect that fired during an animation added one, and the scene was drawn
+     * that many times per frame.
+     */
+    let framePending = false;
+    function scheduleFrame() {
+      if (framePending) return;
+      framePending = true;
+      animFrameId = requestAnimationFrame(renderOnce);
+    }
+
     /** Mark the scene as needing a re-render. Schedules a frame if one isn't pending. */
     function _invalidate() {
       if (!needsRender) {
         needsRender = true;
-        animFrameId = requestAnimationFrame(renderOnce);
+        scheduleFrame();
       }
     }
     // Expose invalidate to the outer scope for use in $effect blocks
@@ -755,11 +821,24 @@
     }
 
     function renderOnce() {
+      framePending = false;
       if (!needsRender && !needsContinuous()) return;
       needsRender = false;
 
       // Keyboard camera movement
       handleKeyboardCamera();
+
+      let timelapseInfo: ReturnType<typeof timelapseView.frame> = null;
+      if (buildTimelapse.active) {
+        const key = `${modelStore.modelVersion}|${uiStore.analysisMode}|${uiStore.viewportPresentation3D}`;
+        if (key !== timelapseProjectKey) { timelapseProjectKey = key; timelapseProject = shouldProject2DModel(); }
+        timelapseInfo = timelapseView.frame({
+          scene, elementGroups, shellGroups: sceneCtx.shellGroups, supportGizmos,
+          keep: new Set<THREE.Object3D>([elementsParent, shellsParent, supportsParent]),
+          background: new Set<THREE.Object3D>([gridGroup, structuralGridGroup].filter((o): o is THREE.Object3D => !!o)),
+          project2D: timelapseProject,
+        }, camera, controls.target, performance.now());
+      }
 
       controls.update();
       /* Markers follow the camera: see `applyNodeRadius`. Throttled on a
@@ -803,7 +882,7 @@
       if (dampingFrames > 0) {
         dampingFrames--;
         if (dampingFrames === 0 && !isOrbiting) {
-          renderer.setPixelRatio(idlePixelRatio);
+          if (!buildTimelapse.active) renderer.setPixelRatio(idlePixelRatio);
           setLowDetail(false);
         }
       }
@@ -841,18 +920,18 @@
         const sep = 1 - Math.pow(1 - tNorm, 3);
         if (resultsCtx.lastDespieceSep === null || Math.abs(sep - resultsCtx.lastDespieceSep) > 0.01 || sep >= 1) {
           resultsCtx.lastDespieceSep = sep;
-          syncDespiece(sep);
+          fbSep = sep;
         }
-      } else if (resultsCtx.despieceGroup && resultsCtx.lastDespieceSep !== null) {
-        resultsParent.remove(resultsCtx.despieceGroup);
-        disposeObject(resultsCtx.despieceGroup);
-        resultsCtx.despieceGroup = null;
+      } else if (resultsCtx.lastDespieceSep !== null) {
         resultsCtx.lastDespieceSep = null;
       }
 
       const _perfT0 = perfHud.on ? performance.now() : 0;
+      nodesInstanced.setPixelRatio(renderer.getPixelRatio());
       renderer.render(scene, camera);
-      renderInset();
+      drawFreeBody3D();
+      if (timelapseInfo && timelapseFrame) composeTimelapse(timelapseInfo);
+      else renderInset();
       drawAxisGizmo();
       if (perfHud.on) {
         // GPU side: draw calls + triangles (renderer.info auto-resets per render,
@@ -886,7 +965,7 @@
 
       // Keep looping if continuous rendering is needed
       if (needsContinuous() || needsRender) {
-        animFrameId = requestAnimationFrame(renderOnce);
+        scheduleFrame();
       } else if (perfHud.on) {
         // The loop is about to STOP. This viewport renders on demand, so the next
         // frame may be seconds away — and without this, that idle gap would be
@@ -903,7 +982,7 @@
       }
     }
     // Kick off the first frame
-    animFrameId = requestAnimationFrame(renderOnce);
+    scheduleFrame();
 
     // When OrbitControls interaction ends, allow damping frames to settle
     // During camera manipulation, drop to pixelRatio=1 so the GPU pushes ~4× fewer
@@ -946,7 +1025,7 @@
     }
     exitOrbitLOD = () => {
       isOrbiting = false;
-      renderer.setPixelRatio(idlePixelRatio);
+      if (!buildTimelapse.active) renderer.setPixelRatio(idlePixelRatio);
       setLowDetail(false);
       invalidate();
     };
@@ -986,7 +1065,7 @@
     controls.addEventListener('start', () => {
       isOrbiting = true;
       dampingFrames = 0;
-      renderer.setPixelRatio(1);
+      if (!buildTimelapse.active) renderer.setPixelRatio(1);
       setLowDetail(true);
     });
     controls.addEventListener('end', () => {
@@ -1043,14 +1122,23 @@
 
     // Frame what is selected — the magnifier. Same fit as the whole model, over its nodes only.
     const handleZoomToSelection = () => {
-      const ids = selectionNodeIds(uiStore.selectedNodes, uiStore.selectedElements, modelStore.elements);
+      // Every kind frames by its nodes: members by their ends, plates by their corners, supports and loads by where they sit.
+      const ids = focusNodeIds(modelStore.model as never, {
+        nodes: uiStore.selectedNodes, elements: uiStore.selectedElements, shells: uiStore.selectedShells,
+        supports: uiStore.selectedSupports, loads: uiStore.selectedLoads,
+      });
       if (ids.size === 0) return;
       const subset = new Map([...modelStore.nodes].filter(([id]) => ids.has(id)));
       if (subset.size === 1) {
-        // One node has no extent to fit; give it a metre around it.
+        // One node has no extent to fit: about a third of the model around it (at least a metre),
+        // so that walking through supports, nodal loads or nodes one by one keeps what each holds
+        // in view.
         const [n] = subset.values();
-        subset.set(-1, { ...n!, id: -1, x: n!.x + 0.5 });
-        subset.set(-2, { ...n!, id: -2, x: n!.x - 0.5 });
+        const xs = [...modelStore.nodes.values()];
+        const span = (f: (p: { x: number; y: number; z?: number }) => number) => Math.max(...xs.map(f)) - Math.min(...xs.map(f));
+        const pad = Math.max(0.5, 0.3 * Math.hypot(span((p) => p.x), span((p) => p.y), span((p) => p.z ?? 0)));
+        subset.set(-1, { ...n!, id: -1, x: n!.x + pad });
+        subset.set(-2, { ...n!, id: -2, x: n!.x - pad });
       }
       _zoomToFit(camera, controls, subset as never, orthoCamera, container);
       invalidate();
@@ -1152,7 +1240,7 @@
       elementGroups,
       elementsBatched,
       shellGroups: sceneCtx.shellGroups,
-      deformedGroup: null, diagramGroup: null, overlayDiagramGroup: null, despieceGroup: null,
+      deformedGroup: null, diagramGroup: null, overlayDiagramGroup: null,
       reactionGroup: null, constraintForcesGroup: null, nodeLabelsGroup: null, elementLabelsGroup: null, lengthLabelsGroup: null, shellLabelsGroup: null, verificationLabelsGroup: null,
       lastDeformedAnimScale: null, lastDespieceSep: null,
       colorMapApplied: false,
@@ -1212,9 +1300,64 @@
       syncColorMap3D();
     }
   }
-  function syncDespiece(sep: number) {
-    _syncDespiece3D(resultsCtx, sep);
+  /*
+   * ── The despiece ───────────────────────────────────────────────
+   * Drawn on a 2D canvas over the scene, projected through the camera on every render, with the
+   * same drawing as the 2D view and the figures. The 3D glyphs it replaces (cones and arcs at
+   * world size) piled into blobs at every joint.
+   */
+  let fbCanvas: HTMLCanvasElement | null = $state(null);
+  // The layer mounts with the despiece: draw on it as soon as it is there.
+  $effect(() => { if (fbCanvas) invalidate(); });
+  let fbSep = 0;
+  let fbDrawn = false;
+  const fbV = new THREE.Vector3();
+  const fbView = new THREE.Vector3();
+  function drawFreeBody3D(): void {
+    if (!fbCanvas || !container) return;
+    const g = fbCanvas.getContext('2d');
+    if (!g) return;
+    const on = resultsStore.diagramType === 'despiece' && !!resultsStore.results3D && !buildTimelapse.active;
+    if (!on) {
+      if (fbDrawn) { g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, fbCanvas.width, fbCanvas.height); fbDrawn = false; }
+      return;
+    }
+    const w = container.clientWidth, h = container.clientHeight, dpr = window.devicePixelRatio || 1;
+    if (fbCanvas.width !== Math.round(w * dpr) || fbCanvas.height !== Math.round(h * dpr)) {
+      fbCanvas.width = Math.round(w * dpr); fbCanvas.height = Math.round(h * dpr);
+    }
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, fbCanvas.width, fbCanvas.height);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const r3d = resultsStore.results3D!;
+    const data = freeBodyActions3D({
+      elements: modelStore.elements, nodes: modelStore.nodes, forces: r3d.elementForces, reactions: r3d.reactions ?? [],
+      sections: modelStore.sections, project2D: shouldProject2DModel(), leftHand: uiStore.axisConvention3D === 'leftHand',
+      basis: uiStore.despieceBasis, resultant: uiStore.despieceCombineVectors, showReactions: resultsStore.showReactions,
+      loads: modelStore.loads,
+      loadText: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),
+      negligible: 0.02,
+      loadMode: uiStore.despieceLoadMode === 'resultant' ? 'resultant' : 'all',
+    });
+    camera.getWorldDirection(fbView);
+    drawFreeBody({
+      ctx: g,
+      toScreen: (p) => { fbV.set(p.x, p.y, p.z ?? 0).project(camera); return { x: (fbV.x + 1) / 2 * w, y: (1 - fbV.y) / 2 * h }; },
+      towardViewer: (d) => -(d.x * fbView.x + d.y * fbView.y + (d.z ?? 0) * fbView.z),
+      members: data.members, nodes: data.nodes, ends: data.ends, supports: data.supports,
+      loads: uiStore.despieceLoadMode !== 'off' ? data.loads : [],
+      mode: uiStore.despieceVectorMode,
+      sep: fbSep,
+      planar: false,
+      focus: freeBodyFocus(data.members, uiStore.selectedElements, uiStore.selectedNodes),
+      hint: t('despiece.selectToSee'),
+      fmt: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),
+      labelPx: 10.5 * Math.max(0.6, uiStore.despieceLabelSize),
+      arrowPx: 32 * Math.max(0.5, uiStore.despieceVectorSize),
+    });
+    fbDrawn = true;
   }
+
 
   function syncDeformed(scaleOverride?: number) {
     _syncDeformed(resultsCtx, scaleOverride);
@@ -1305,12 +1448,33 @@
 
   $effect(() => {
     modelStore.supports;
+    uiStore.showSupports;
+    void viewVisibility.version;
     syncSupports();
+    invalidate();
+  });
+
+  /*
+   * The labels drawn in the scene (loads, reactions, displacements, lengths) are written in
+   * the unit system chosen under Settings: they read it from canvas-units, set here, and are
+   * rebuilt when it changes (the effects that build them track it).
+   */
+  $effect(() => { setCanvasUnitSystem(uiStore.unitSystem); });
+
+  // The member tool's target ring belongs to that tool only.
+  $effect(() => {
+    if (uiStore.currentTool !== 'element') { drawFeedback.setTarget(null); invalidate(); }
+  });
+
+  // The reader's label size: one shader uniform every label sprite reads.
+  $effect(() => {
+    setLabelScale3D(uiStore.labelScale);
     invalidate();
   });
 
   $effect(() => {
     modelStore.loads;
+    uiStore.unitSystem;
     uiStore.showLoads3D;
     uiStore.hideLoadsWithDiagram;
     uiStore.momentStyle3D;
@@ -1323,6 +1487,7 @@
     resultsStore.results3D;
     resultsStore.diagramType;
     resultsStore.deformedScale;
+    uiStore.unitSystem;
     resultsStore.modalResult3D;
     resultsStore.activeModeIndex;
     // Quick/exact, and the displacement labels "show values" adds.
@@ -1378,9 +1543,140 @@
   $effect(() => {
     const hide = resultsStore.diagramType === 'despiece';
     modelStore.modelVersion; modelStore.nodes; modelStore.elements; // re-assert after re-sync
+    // …and after a selection, whose highlight restyles (and shows) the member meshes.
+    uiStore.selectedElements; uiStore.selectedNodes;
     applyElementVisibility(elementGroups, elementsBatched?.mesh, elementsParent, hide, uiStore.renderMode3D === 'wireframe');
     invalidate();
   });
+
+  /*
+   * The build timelapse opens on the sections, from an isometric view, with nothing selected
+   * and the pan tool armed (a click on the picture must not edit the model). It draws at its
+   * format's size into its own picture; closing it puts the render mode, the tool, the size and
+   * every mesh back. The camera is left where the turn ended, as after any other view change.
+   */
+  let renderModeBeforeTimelapse: typeof uiStore.renderMode3D | null = null;
+
+  /** The size the timelapse renders at: the viewport's, or the video format's. */
+  function timelapseSize(): { w: number; h: number } {
+    const f = buildTimelapse.format;
+    if (f !== 'screen') return FORMAT_SIZE[f];
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    return { w: Math.round(container.clientWidth * dpr), h: Math.round(container.clientHeight * dpr) };
+  }
+
+  function applyTimelapseSize(): void {
+    if (!renderer || !container || !timelapseFrame) return;
+    const { w, h } = timelapseSize();
+    if (!w || !h) return;
+    renderer.setPixelRatio(1);
+    renderer.setSize(w, h, false);
+    timelapseAspect = w / h;
+    perspCamera.aspect = timelapseAspect;
+    perspCamera.updateProjectionMatrix();
+    syncOrthoFrustum();
+    setLineResolution(w, h);
+    timelapseFrame.resize(w, h);
+    // Shown whole inside the viewport, at its own proportions (letterboxed).
+    const k = Math.min(container.clientWidth / w, container.clientHeight / h);
+    timelapseFrame.canvas.style.width = `${Math.floor(w * k)}px`;
+    timelapseFrame.canvas.style.height = `${Math.floor(h * k)}px`;
+  }
+
+  /**
+   * Iso view, framed for the timelapse's picture: the structure's bounding sphere fits the
+   * narrower of the two angles, so a tall 9:16 frame takes the model whole and a wide one is not
+   * left with the margin the fit keeps for labels and loads, which the timelapse does not draw.
+   */
+  function frameTimelapse(): void {
+    setView('iso');
+    const project = shouldProject2DModel();
+    const box = new THREE.Box3();
+    const add = (id: number) => {
+      const n = modelStore.nodes.get(id);
+      if (n) { const p = projectNodeToScene(n, project); box.expandByPoint(new THREE.Vector3(p.x, p.y, p.z)); }
+    };
+    for (const e of modelStore.elements.values()) { add(e.nodeI); add(e.nodeJ); }
+    for (const s of [...modelStore.plates.values(), ...modelStore.quads.values()]) for (const id of s.nodes) add(id);
+    if (box.isEmpty()) { controls.update(); return; }
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    const vfov = (perspCamera.fov * Math.PI) / 180;
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * (timelapseAspect ?? perspCamera.aspect));
+    // A sphere is generous upright (models are lower than they are long), so a wide frame can
+    // come in closer; a tall frame is limited across, where a long model is as wide as its sphere.
+    const dist = (Math.max(sphere.radius, 0.5) / Math.sin(Math.min(vfov, hfov) / 2)) * (hfov < vfov ? 1.02 : 0.88);
+    controls.target.copy(sphere.center);
+    camera.position.copy(sphere.center).addScaledVector(dir, dist);
+    if (camera === orthoCamera) syncOrthoFrustum();
+    controls.update();
+  }
+
+  function composeTimelapse(info: NonNullable<ReturnType<typeof timelapseView.frame>>): void {
+    timelapseFrame!.draw(renderer.domElement, {
+      title: buildTimelapse.title.trim() || modelStore.model.name || t('timelapse.title'),
+      subtitle: buildTimelapse.subtitle,
+      phase: info.phase,
+      counter: tp('timelapse.counter', { n: info.started, total: info.pieces }),
+      progress: info.progress,
+      closing: info.closing,
+      style: buildTimelapse.style,
+      texts: buildTimelapse.texts,
+    });
+  }
+
+  /** Puts the picture's canvas in the stage. */
+  function mountTimelapseFrame(node: HTMLElement) {
+    timelapseFrame ??= createTimelapseCompositor();
+    node.appendChild(timelapseFrame.canvas);
+    applyTimelapseSize();
+    return { destroy() { timelapseFrame?.canvas.remove(); } };
+  }
+
+  $effect(() => {
+    const on = buildTimelapse.active;
+    untrack(() => {
+      if (on && renderModeBeforeTimelapse === null) {
+        renderModeBeforeTimelapse = uiStore.renderMode3D;
+        toolBeforeTimelapse = uiStore.currentTool;
+        uiStore.renderMode3D = 'sections';
+        uiStore.currentTool = 'pan';
+        uiStore.clearSelection();
+        timelapseFrame ??= createTimelapseCompositor();
+        applyTimelapseSize();
+        frameTimelapse();
+      } else if (!on && renderModeBeforeTimelapse !== null) {
+        timelapseView.restore(scene);
+        uiStore.renderMode3D = renderModeBeforeTimelapse;
+        if (toolBeforeTimelapse) uiStore.currentTool = toolBeforeTimelapse;
+        renderModeBeforeTimelapse = null;
+        toolBeforeTimelapse = null;
+        timelapseAspect = null;
+        renderer.setPixelRatio(window.devicePixelRatio);
+        handleResize();
+        applyElementVisibility(elementGroups, elementsBatched?.mesh, elementsParent, resultsStore.diagramType === 'despiece', uiStore.renderMode3D === 'wireframe');
+      }
+    });
+    invalidate();
+  });
+  // A new format changes the picture's shape: render at its size and frame the model again.
+  $effect(() => {
+    buildTimelapse.format;
+    untrack(() => {
+      if (!buildTimelapse.active || renderModeBeforeTimelapse === null) return;
+      applyTimelapseSize();
+      frameTimelapse();
+    });
+    invalidate();
+  });
+  // A scrub or an option change while paused redraws the frame. Not while it plays: the loop
+  // is already drawing every frame, and an invalidate then starts a second frame chain.
+  $effect(() => {
+    buildTimelapse.shownTime; buildTimelapse.order; buildTimelapse.duration; buildTimelapse.cleanBackground;
+    buildTimelapse.style; buildTimelapse.texts; buildTimelapse.title; buildTimelapse.subtitle; buildTimelapse.highlight; buildTimelapse.entry;
+    if (!buildTimelapse.playing) invalidate();
+  });
+  onDestroy(() => { if (buildTimelapse.active) buildTimelapse.close(); });
 
   // Despiece option changes (vector mode / basis / sizes / reactions) must redraw
   // immediately — the render loop's despiece pass rebuilds when the signature
@@ -1441,6 +1737,7 @@
 
   $effect(() => {
     resultsStore.results3D;
+    uiStore.unitSystem;
     resultsStore.showReactions;
     syncReactions();
     invalidate();
@@ -1448,6 +1745,7 @@
 
   $effect(() => {
     resultsStore.constraintForces3D;
+    uiStore.unitSystem;
     resultsStore.showConstraintForces;
     syncConstraintForces();
     invalidate();
@@ -1509,6 +1807,7 @@
     uiStore.showNodeLabels3D;
     uiStore.showElementLabels3D;
     uiStore.showLengths3D;
+    uiStore.unitSystem;
     // What a member label says, and the names it may read.
     viewState.memberLabel;
     modelStore.sections;
@@ -1868,22 +2167,128 @@
     // 3D joint (relative-DOF release mask) at the nearest end.
     if (uiStore.nodeMode === 'hinge') { handleJoint3DPlacement(e); return; }
 
-    const pos = getGroundIntersection(e);
-    if (!pos) return;
-
-    // Full 3D snap: snap all coordinates to grid, then onto the structural grid's axes
-    const snapped = snapToStructure(pos);
-    // Duplicate-coincident-node guard (`viewport/node-placement.ts`): a click on a node of the
-    // working plane, or one the snap put the placement point on, selects it instead of a twin.
-    const onExisting = nodeAtPlacement3D(findNodeHit(e), snapped, uiStore.workingPlane, modelStore.nodes);
-    if (onExisting !== null) {
-      uiStore.selectNode(onExisting, e.shiftKey);
+    // The node tool only makes nodes: a click on one already there does nothing, and selects
+    // nothing (selecting is the selection tool's, and the panel's).
+    const place = nodePlacement3D(e);
+    if (!place || place.kind === 'onNode') return;
+    if (place.kind === 'onMember') {
+      if (modelStore.splitElementAtPoint(place.elementId, place.t)) {
+        uiStore.toast(t('viewport.barSubdivided'), 'info');
+        resultsStore.clear();
+      }
       return;
     }
     // No pushState here: the mutation below pushes its own undo step, and a second one made the first Ctrl+Z a no-op.
-    const id = modelStore.addNode(snapped.x, snapped.y, snapped.z);
-    uiStore.selectNode(id, false);
+    const id = modelStore.addNode(place.p.x, place.p.y, place.p.z);
     uiStore.toast(t('viewport3d.nodeCreated').replace('{id}', String(id)), 'success');
+  }
+
+  type NodePlacement3D =
+    | { kind: 'onNode'; nodeId: number; sx: number; sy: number }
+    | { kind: 'onMember'; elementId: number; t: number; midpoint: boolean; sx: number; sy: number; a: { x: number; y: number }; b: { x: number; y: number } }
+    | { kind: 'free'; p: { x: number; y: number; z: number }; sx: number; sy: number };
+
+  /**
+   * What a node-tool click at this pointer does, as in the plane (`resolveNodePlacement2D`), read
+   * on the screen: right on a drawn node, nothing; on a drawn member, a node splitting it where
+   * the pointer ray passes closest (on the grid along it, for a member in the working plane);
+   * elsewhere a new node on the working plane, unless one is already exactly there.
+   */
+  function nodePlacement3D(e: MouseEvent): NodePlacement3D | null {
+    if (!camera || !container) return null;
+    const rect = container.getBoundingClientRect();
+    const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const screen = new Map<number, { x: number; y: number }>();
+    const nodes: Array<{ id: number; x: number; y: number }> = [];
+    for (const n of visibleNodes().values()) {
+      const s = projectToScreen(n.x, n.y, n.z ?? 0);
+      screen.set(n.id, s); nodes.push({ id: n.id, ...s });
+    }
+    const members = [...visibleElements().values()];
+    const place = resolveNodePlacement2D({
+      cursor, snapped: cursor, pxPerM: 1, nodes, members, nodeAt: (id) => screen.get(id), split: uiStore.autoSplitOnNodePlace,
+    });
+    if (place.kind === 'onNode') return { kind: 'onNode', nodeId: place.nodeId, sx: place.x, sy: place.y };
+    if (place.kind === 'onMember') {
+      const el = modelStore.elements.get(place.elementId);
+      const A = el && modelStore.nodes.get(el.nodeI), B = el && modelStore.nodes.get(el.nodeJ);
+      if (!el || !A || !B) return null;
+      const a3 = { x: A.x, y: A.y, z: A.z ?? 0 }, b3 = { x: B.x, y: B.y, z: B.z ?? 0 };
+      let t = 0.5;
+      if (!place.midpoint) {
+        updateMouseNDC(e);
+        raycaster.setFromCamera(mouse, camera);
+        const plane = uiStore.workingPlane;
+        const acrossOf = (p: { x: number; y: number; z: number }) => plane === 'XY' ? p.z : plane === 'XZ' ? p.y : p.x;
+        const inPlane = Math.abs(acrossOf(a3) - uiStore.nodeCreateZ) < 1e-6 && Math.abs(acrossOf(b3) - uiStore.nodeCreateZ) < 1e-6;
+        const ground = inPlane ? getGroundIntersection(e) : null;
+        const L2 = (b3.x - a3.x) ** 2 + (b3.y - a3.y) ** 2 + (b3.z - a3.z) ** 2;
+        if (ground && L2 > 1e-12) {
+          const g = snapToStructure(ground);
+          t = ((g.x - a3.x) * (b3.x - a3.x) + (g.y - a3.y) * (b3.y - a3.y) + (g.z - a3.z) * (b3.z - a3.z)) / L2;
+        } else {
+          t = memberParamOnRay(raycaster.ray.origin, raycaster.ray.direction, a3, b3) ?? place.t;
+        }
+        // Kept off the ends by a few pixels, like the plane.
+        const ends = { a: screen.get(el.nodeI)!, b: screen.get(el.nodeJ)! };
+        const minT = Math.max(0.01, MIN_SPLIT_PX / Math.max(Math.hypot(ends.b.x - ends.a.x, ends.b.y - ends.a.y), 1e-9));
+        t = Math.min(1 - minT, Math.max(minT, t));
+      }
+      const p = projectToScreen(a3.x + t * (b3.x - a3.x), a3.y + t * (b3.y - a3.y), a3.z + t * (b3.z - a3.z));
+      return { kind: 'onMember', elementId: place.elementId, t, midpoint: place.midpoint, sx: p.x, sy: p.y, a: screen.get(el.nodeI)!, b: screen.get(el.nodeJ)! };
+    }
+    const pos = getGroundIntersection(e);
+    if (!pos) return null;
+    const snapped = snapToStructure(pos);
+    const there = nodeAtPlacement3D(null, snapped, uiStore.workingPlane, modelStore.nodes);
+    const s = projectToScreen(snapped.x, snapped.y, snapped.z);
+    if (there !== null) return { kind: 'onNode', nodeId: there, sx: s.x, sy: s.y };
+    return { kind: 'free', p: snapped, sx: s.x, sy: s.y };
+  }
+
+  /**
+   * The load tool set to a stretch: on the member under the pointer, the part the load would cover
+   * and its node I, where "from" and "to" are measured; in amber when it does not fit.
+   */
+  type StretchHint = { ok: boolean; p?: { x: number; y: number }; q?: { x: number; y: number }; I: { x: number; y: number }; J: { x: number; y: number }; text?: string; mx: number; my: number };
+  let stretchHint = $state<StretchHint | null>(null);
+  let stretchHintFrame = 0;
+  let stretchHintEvent: MouseEvent | null = null;
+  function scheduleStretchHint(e: MouseEvent) {
+    stretchHintEvent = e;
+    if (stretchHintFrame) return;
+    stretchHintFrame = requestAnimationFrame(() => {
+      stretchHintFrame = 0;
+      const ev = stretchHintEvent; stretchHintEvent = null;
+      stretchHint = ev && !isOrbiting ? stretchHintAt(ev) : null;
+    });
+  }
+  function stretchHintAt(e: MouseEvent): StretchHint | null {
+    if (!camera || !container) return null;
+    const id = loadToolMember(e);
+    const el = id !== null ? modelStore.elements.get(id) : undefined;
+    const seg = id !== null ? loadedSegment(modelStore.model as never, id) : null;
+    if (!el || !seg) return null;
+    const st = toolStretch(true, uiStore.distLoadFrom, uiStore.distLoadTo, seg.L);
+    const pt = (s: number) => projectToScreen(...(seg.I.map((v, k) => v + (seg.J[k]! - v) * s / seg.L) as [number, number, number]));
+    const rect = container.getBoundingClientRect();
+    const base = { I: pt(0), J: pt(seg.L), mx: e.clientX - rect.left, my: e.clientY - rect.top };
+    if (st.ok) return { ok: true, p: pt(st.a ?? 0), q: pt(st.b ?? seg.L), ...base };
+    return { ok: false, text: t('float.distStretchRefused').replace('{id}', String(id)).replace('{L}', fixedQuantity(seg.L, 'length', 2, uiStore.unitSystem)), ...base };
+  }
+
+  /** The node tool's marker under the pointer (mouse only: a touch has no hover). */
+  let nodeHint = $state<NodePlacement3D | null>(null);
+  let nodeHintFrame = 0;
+  let nodeHintEvent: MouseEvent | null = null;
+  function scheduleNodeHint(e: MouseEvent) {
+    nodeHintEvent = e;
+    if (nodeHintFrame) return;
+    nodeHintFrame = requestAnimationFrame(() => {
+      nodeHintFrame = 0;
+      const ev = nodeHintEvent; nodeHintEvent = null;
+      nodeHint = ev && uiStore.currentTool === 'node' && uiStore.nodeMode !== 'hinge' && !isOrbiting ? nodePlacement3D(ev) : null;
+    });
   }
 
   /** Apply the current 3D joint DOF mask to the nearest end of the clicked member. */
@@ -1919,8 +2324,24 @@
     }
   }
 
+  /*
+   * The node a member end goes to: the one under the pointer, or the nearest
+   * within MEMBER_SNAP_PX on the screen. Landing on a node's sphere, a few
+   * pixels across once a model is framed, was the only way to join two.
+   */
+  const MEMBER_SNAP_PX = 18;
+  function memberSnapNode(e: MouseEvent): number | null {
+    return findNodeHit(e) ?? screenPickAll(e, 'node', MEMBER_SNAP_PX)[0] ?? null;
+  }
+  function nodeScenePoint(id: number): THREE.Vector3 | null {
+    const n = modelStore.nodes.get(id);
+    if (!n) return null;
+    const p = projectNodeToScene(n, shouldProject2DModel());
+    return new THREE.Vector3(p.x, p.y, p.z);
+  }
+
   function handleElementTool(e: MouseEvent) {
-    const nodeId = findNodeHit(e);
+    const nodeId = memberSnapNode(e);
     if (nodeId === null) {
       // Clicked empty → cancel pending
       cancelPendingElement();
@@ -1948,7 +2369,7 @@
     uiStore.selectElement(elemId, false);
     uiStore.toast(t('viewport3d.elementCreated').replace('{id}', String(elemId)), 'success');
     // Across other members or over nodes without touching them: ask, as in 2D.
-    if (uiStore.appMode !== 'pro') askToConnectMember(elemId);
+    if (uiStore.appMode !== 'pro') askAboutNewMember(elemId);
     // Chained (PRO's drawing bar, Basic's polyline mode), the far end starts the next member;
     // otherwise the next click starts afresh.
     const chain = uiStore.appMode === 'pro' ? drawState.memberChain : uiStore.memberChains;
@@ -1973,9 +2394,9 @@
     // No pushState here: the mutation below pushes its own undo step, and a second one made the first Ctrl+Z a no-op.
 
     if (is3D) {
-      // PRO places the support its drawing bar describes; 3D Basic keeps its own strip.
-      const supId = uiStore.appMode === 'pro' ? drawState.addSupportAt(nodeId) : addSupportFromTool3D(nodeId);
-      uiStore.selectSupport(supId, false);
+      // Basic's support tool; PRO adds supports from its panel's Add card. Basic stays in create
+      // mode: selecting it would turn the options row into its editor.
+      const supId = addSupportFromTool3D(nodeId);
       uiStore.toast(t('viewport3d.supportCreated').replace('{id}', String(supId)).replace('{nid}', String(nodeId)), 'success');
     } else {
       // 2D support creation (unchanged)
@@ -1991,28 +2412,73 @@
       if (uiStore.supportDy !== 0) opts.dy = uiStore.supportDy;
       if (uiStore.supportDrz !== 0) opts.drz = uiStore.supportDrz;
       const supId = modelStore.addSupport(nodeId, type as any, springs, opts);
-      uiStore.selectSupport(supId, false);
+      if (uiStore.appMode === 'pro') uiStore.selectSupport(supId, false);
       uiStore.toast(t('viewport3d.supportCreated').replace('{id}', String(supId)).replace('{nid}', String(nodeId)), 'success');
     }
+  }
+
+  /*
+   * The load tool catches a node or a member within a few pixels, as the pointer does, instead
+   * of only on a ray through a member's thin picking cylinder: on a framed building most clicks
+   * aimed at a member passed beside it and nothing happened.
+   */
+  function loadToolNode(e: MouseEvent): number | null {
+    return findNodeHit(e) ?? screenPick(e, 'node');
+  }
+  function loadToolMember(e: MouseEvent): number | null {
+    return findElementHit(e) ?? screenPick(e, 'member');
+  }
+
+  /**
+   * Basic 3D: a point load where the click lands on a member, along the global direction the
+   * load bar names (a force or a moment), as the 2D tool makes one.
+   */
+  function addPointLoadOnMember3D(e: MouseEvent, elemId: number): boolean {
+    const dir = uiStore.nodalLoadDir3D;
+    const val = uiStore.loadValue;
+    const el = modelStore.elements.get(elemId);
+    const a0 = el ? nodeScenePoint(el.nodeI) : null, b0 = el ? nodeScenePoint(el.nodeJ) : null;
+    if (!el || !a0 || !b0) return false;
+    // Screen distance is not proportional to member distance in perspective.
+    // Use the same world-space projection as the load's dragging handles.
+    updateMouseNDC(e);
+    raycaster.setFromCamera(mouse, camera);
+    const a = stationOnRay({ I: a0, J: b0, L: a0.distanceTo(b0) }, raycaster.ray);
+    modelStore.batch(() => {
+      const id = modelStore.addPointLoadOnElement3D(elemId, a, 0, 0, uiStore.activeLoadCaseId);
+      modelStore.updateLoad(id, {
+        frame: 'global',
+        px: dir === 'fx' ? val : 0, py: dir === 'fy' ? val : 0, pz: dir === 'fz' ? val : 0,
+        mx: dir === 'mx' ? val : 0, my: dir === 'my' ? val : 0, mz: dir === 'mz' ? val : 0,
+      });
+    });
+    uiStore.toast(t('viewport3d.pointLoadOnMemberApplied').replace('{id}', String(elemId)), 'success');
+    return true;
   }
 
   function handleLoadTool(e: MouseEvent) {
     const is3D = uiStore.is3DWorkspace;
 
     if (uiStore.loadType === 'nodal') {
-      const nodeId = findNodeHit(e);
-      if (nodeId === null) return;
+      const nodeId = loadToolNode(e);
+      if (nodeId === null) {
+        // Basic 3D: a point load on a member, as the 2D tool makes one.
+        if (uiStore.appMode !== 'pro' && is3D) {
+          const elemId = loadToolMember(e);
+          if (elemId !== null) {
+            if (uiStore.loadValue === 0) { uiStore.toast(t('drawBar.loadIsZero'), 'info'); return; }
+            addPointLoadOnMember3D(e, elemId);
+          }
+        }
+        return;
+      }
 
       // No pushState here: the mutation below pushes its own undo step, and a second one made the first Ctrl+Z a no-op.
-      if (uiStore.appMode === 'pro') {
-        // PRO: all six components, as the drawing bar and the Loads table hold them.
-        const v = drawState.nodalLoad;
-        if ([v.fx, v.fy, v.fz, v.mx, v.my, v.mz].every((x) => x === 0)) { uiStore.toast(t('drawBar.loadIsZero'), 'info'); return; }
-        modelStore.addNodalLoad3D(nodeId, v.fx, v.fy, v.fz, v.mx, v.my, v.mz, uiStore.activeLoadCaseId);
-      } else if (is3D) {
+      if (is3D) {
         // Build 3D nodal load from direction + value
         const dir = uiStore.nodalLoadDir3D;
         const val = uiStore.loadValue;
+        if (val === 0) { uiStore.toast(t('drawBar.loadIsZero'), 'info'); return; }
         const fx = dir === 'fx' ? val : 0;
         const fy = dir === 'fy' ? val : 0;
         const fz = dir === 'fz' ? val : 0;
@@ -2031,27 +2497,37 @@
       }
       uiStore.toast(t('viewport3d.pointLoadApplied').replace('{id}', String(nodeId)), 'success');
     } else if (uiStore.loadType === 'distributed') {
-      const elemId = findElementHit(e);
+      const elemId = loadToolMember(e);
       if (elemId === null) return;
 
       // No pushState here: the mutation below pushes its own undo step, and a second one made the first Ctrl+Z a no-op.
-      if (uiStore.appMode === 'pro') {
-        // PRO: uniform, along the axes the drawing bar names.
-        const q = drawState.memberLoad;
-        if (q.qx === 0 && q.qy === 0 && q.qz === 0) { uiStore.toast(t('drawBar.loadIsZero'), 'info'); return; }
-        modelStore.addDistributedLoad3D(elemId, q.qy, q.qy, q.qz, q.qz, undefined, undefined, uiStore.activeLoadCaseId, { frame: q.frame, qXI: q.qx, qXJ: q.qx });
-      } else if (is3D) {
-        modelStore.addDistributedLoad3D(elemId, uiStore.loadValueY3D, uiStore.loadValueYJ3D, uiStore.loadValueZ, uiStore.loadValueZJ, undefined, undefined, uiStore.activeLoadCaseId);
+      if (is3D) {
+        if ([uiStore.loadValueY3D, uiStore.loadValueYJ3D, uiStore.loadValueZ, uiStore.loadValueZJ].every((x) => x === 0)) {
+          uiStore.toast(t('drawBar.loadIsZero'), 'info'); return;
+        }
+        // Global by default: "qZ" on the bar reads as the vertical, gravity on a beam, a column
+        // or a rafter alike. Local follows the member's own axes.
+        const frame = uiStore.distLoadFrame3D === 'global' ? { frame: 'global' as const } : {};
+        const L = loadedLength(modelStore.model as never, elemId);
+        const st = toolStretch(uiStore.distLoadPartial, uiStore.distLoadFrom, uiStore.distLoadTo, L);
+        if (!st.ok) { uiStore.toast(t('float.distStretchRefused').replace('{id}', String(elemId)).replace('{L}', fixedQuantity(L, 'length', 2, uiStore.unitSystem)), 'error'); return; }
+        modelStore.addDistributedLoad3D(elemId, uiStore.loadValueY3D, uiStore.loadValueYJ3D, uiStore.loadValueZ, uiStore.loadValueZJ, st.a, st.b, uiStore.activeLoadCaseId, frame);
       } else {
-        modelStore.addDistributedLoad(elemId, uiStore.loadValue, uiStore.loadValueJ, undefined, undefined, uiStore.activeLoadCaseId);
+        const L = modelStore.getElementLength(elemId);
+        const st = toolStretch(uiStore.distLoadPartial, uiStore.distLoadFrom, uiStore.distLoadTo, L);
+        if (!st.ok) { uiStore.toast(t('float.distStretchRefused').replace('{id}', String(elemId)).replace('{L}', fixedQuantity(L, 'length', 2, uiStore.unitSystem)), 'error'); return; }
+        modelStore.addDistributedLoad(elemId, uiStore.loadValue, uiStore.loadValueJ, undefined, undefined, uiStore.activeLoadCaseId, st.a, st.b);
       }
       uiStore.toast(t('viewport3d.distLoadApplied').replace('{id}', String(elemId)), 'success');
     } else if (uiStore.loadType === 'thermal') {
       // The button was offered in 3D with no branch here: a click did nothing.
-      const elemId = findElementHit(e);
+      const elemId = loadToolMember(e);
       if (elemId === null) return;
-      historyStore.pushState();
-      modelStore.addThermalLoad(elemId, uiStore.thermalDT, uiStore.thermalDTg, uiStore.activeLoadCaseId);
+      // No pushState: addThermalLoad pushes its own undo step, and a second one made the first Ctrl+Z a no-op.
+      // ΔTg = ∇T = 0 is a load of nothing, refused as the other tools refuse one.
+      if (addThermalLoadIfAny(elemId, uiStore.thermalDT, uiStore.thermalDTg, uiStore.activeLoadCaseId) === null) {
+        uiStore.toast(t('drawBar.loadIsZero'), 'info'); return;
+      }
       uiStore.toast(t('viewport3d.thermalLoadApplied').replace('{id}', String(elemId)), 'success');
     }
   }
@@ -2182,7 +2658,7 @@
       // Compute model-size-relative scale for the label
       const box = new THREE.Box3();
       const project2D = shouldProject2DModel();
-      for (const [, node] of modelStore.nodes) {
+      for (const node of structureNodes(modelStore.nodes, modelStore.elements.values())) {
         const pos = projectNodeToScene(node, project2D);
         box.expandByPoint(new THREE.Vector3(pos.x, pos.y, pos.z));
       }
@@ -2190,26 +2666,28 @@
       const modelSize = Math.max(size.x, size.y, size.z, 1);
       const spriteScale = modelSize * 0.04;
 
-      const label = createTextSprite(`${dist.toFixed(3)} m`, '#ff4444', 32);
+      const label = createTextSprite(fixedQuantity(dist, 'length', 3, uiStore.unitSystem), '#ff4444', 32);
       label.position.set(mx, my, mz + spriteScale * 0.5);
       label.scale.set(spriteScale, spriteScale, 1);
       label.renderOrder = 1000;
       measureGroup.add(label);
 
       // Toast with distance
-      uiStore.toast(t('viewport3d.distance').replace('{dist}', dist.toFixed(3)), 'info');
+      uiStore.toast(t('viewport3d.distance').replace('{dist}', fixedQuantity(dist, 'length', 3, uiStore.unitSystem)), 'info');
     }
     invalidate();
   }
 
   // ─── Helper: project a 3D world point to screen coords ────
-  function projectToScreen(wx: number, wy: number, wz: number): { x: number; y: number } {
+  // With its depth (`z`, smaller nearer): picking a load by its fill takes the nearer slab.
+  function projectToScreen(wx: number, wy: number, wz: number): { x: number; y: number; z: number } {
     const v = new THREE.Vector3(wx, wy, wz);
     v.project(camera);
     const rect = container.getBoundingClientRect();
     return {
       x: (v.x * 0.5 + 0.5) * rect.width,
       y: (-v.y * 0.5 + 0.5) * rect.height,
+      z: v.z,
     };
   }
 
@@ -2502,35 +2980,107 @@
   }
 
   /** The load whose drawn arrows are nearest the pointer, within a few pixels. */
-  function loadUnderPointer(e: MouseEvent): number | null {
+  /** Every load whose drawing is within a few pixels of the pointer, with its distance, nearest first. */
+  function loadsNearPointer(e: MouseEvent): { id: number; d: number }[] {
     const fp = sceneCtx?.loadFootprints;
-    if (!fp || fp.size === 0) return null;
+    if (!fp || fp.size === 0) return [];
     const rect = container.getBoundingClientRect();
     const pointLoads = new Set<number>();
     for (const l of modelStore.loads) if (l.type === 'nodal' || l.type === 'nodal3d' || l.type === 'pointOnElement' || l.type === 'pointOnElement3d') pointLoads.add(l.data.id);
-    return pickLoadAt(e.clientX - rect.left, e.clientY - rect.top, fp, projectToScreen, 10, pointLoads);
+    return pickLoadsWithDistance(e.clientX - rect.left, e.clientY - rect.top, fp, projectToScreen, 10, pointLoads, sceneCtx?.loadAreas);
+  }
+  /**
+   * The load a click selects. Loads drawn on top of each other (the same load twice on a member,
+   * two cases on one beam) are all candidates, and a click again on the same spot steps to the next.
+   */
+  function loadUnderPointer(e: MouseEvent): number | null {
+    const rect = container.getBoundingClientRect();
+    const pick = pickCycle.pick(loadsNearPointer(e).map((h): PickTarget => ({ kind: 'load', id: h.id })),
+      e.clientX - rect.left, e.clientY - rect.top, cycledToast, e.detail);
+    return pick?.id ?? null;
   }
 
   /** How far a press may wander and still be a click. PRO allows a hand's tremor; Basic keeps its 3 px. */
   function clickSlop(): number { return uiStore.analysisMode === 'pro' ? 6 : 3; }
 
   /**
-   * In PRO, a click whose ray hit nothing takes the nearest node or member on the screen
+   * A click whose ray hit nothing takes the nearest node or member on the screen
    * (`viewport3d/screen-pick.ts`): the picking cylinder of a member is a pixel or two wide once a
-   * building is framed whole.
+   * building is framed whole. Basic and PRO alike; a plane model drawn in 3D is measured where
+   * it is drawn.
    */
-  function screenPick(e: MouseEvent, kind: 'node' | 'member'): number | null {
-    if (uiStore.analysisMode !== 'pro' || !camera) return null;
+  function screenPickAll(e: MouseEvent, kind: 'node' | 'member', tolPx?: number): number[] {
+    if (!camera) return [];
     const rect = container.getBoundingClientRect();
     const px = e.clientX - rect.left, py = e.clientY - rect.top;
+    const project2D = shouldProject2DModel();
     const v = new THREE.Vector3();
     const project = (x: number, y: number, z: number) => {
-      v.set(x, y, z).project(camera);
+      const p = projectNodeToScene({ x, y, z }, project2D);
+      v.set(p.x, p.y, p.z).project(camera);
       if (v.z < -1 || v.z > 1) return null;
       return { x: (v.x * 0.5 + 0.5) * rect.width, y: (-v.y * 0.5 + 0.5) * rect.height };
     };
-    if (kind === 'node') return nodeNearPointer(px, py, [...visibleNodes().values()], project, 9);
-    return memberNearPointer(px, py, [...visibleElements().values()], (id) => modelStore.nodes.get(id), project, 7);
+    if (kind === 'node') return nodesNearPointer(px, py, [...visibleNodes().values()], project, tolPx ?? 9);
+    return membersNearPointer(px, py, [...visibleElements().values()], (id) => modelStore.nodes.get(id), project, tolPx ?? 7);
+  }
+  function screenPick(e: MouseEvent, kind: 'node' | 'member'): number | null {
+    return screenPickAll(e, kind)[0] ?? null;
+  }
+  /** How far a member is drawn from the pointer, in pixels. */
+  function memberDistance(e: MouseEvent, id: number): number {
+    if (!camera) return Infinity;
+    const el = modelStore.elements.get(id);
+    if (!el) return Infinity;
+    const rect = container.getBoundingClientRect();
+    const project2D = shouldProject2DModel();
+    const v = new THREE.Vector3();
+    const project = (x: number, y: number, z: number) => {
+      const p = projectNodeToScene({ x, y, z }, project2D);
+      v.set(p.x, p.y, p.z).project(camera);
+      if (v.z < -1 || v.z > 1) return null;
+      return { x: (v.x * 0.5 + 0.5) * rect.width, y: (-v.y * 0.5 + 0.5) * rect.height };
+    };
+    return membersNearPointerWithDistance(e.clientX - rect.left, e.clientY - rect.top, [el], (nid) => modelStore.nodes.get(nid), project, Infinity)[0]?.d ?? Infinity;
+  }
+
+  /*
+   * A click again on the same spot steps to the next node or member under the
+   * pointer (`viewport/pick-cycle.ts`): what the ray hit, nearest first, then
+   * what lies within a few pixels on the screen. It steps only while what the
+   * last click took is still selected.
+   */
+  const pickCycle = createPickCycle({
+    isSelected: (p) => p.kind === 'node' ? uiStore.selectedNodes.has(p.id)
+      : p.kind === 'element' ? uiStore.selectedElements.has(p.id) : uiStore.selectedLoads.has(p.id),
+  });
+  const cycledToast = (at: number, of: number) =>
+    uiStore.toast(t('select.cycled').replace('{i}', String(at)).replace('{n}', String(of)), 'info');
+  function pickUnderPointer(e: MouseEvent, kinds: { nodes: boolean; elements: boolean; loads?: boolean }): PickTarget | null {
+    const rayHits = (parent: THREE.Object3D, type: 'node' | 'element'): PickTarget[] => {
+      const out: PickTarget[] = [];
+      for (const h of raycaster.intersectObjects(parent.children, true)) {
+        const ud = resolveHitUserData(h);
+        if (ud?.type === type) out.push({ kind: type, id: ud.id });
+      }
+      return out;
+    };
+    const asTargets = (ids: number[], kind: 'node' | 'element' | 'load') => ids.map((id): PickTarget => ({ kind, id }));
+    const nodeT = kinds.nodes ? mergeTargets(rayHits(nodesParent, 'node'), asTargets(screenPickAll(e, 'node'), 'node')) : [];
+    const memberRay = kinds.elements ? rayHits(elementsParent, 'element') : [];
+    const memberT = kinds.elements ? mergeTargets(memberRay, asTargets(screenPickAll(e, 'member'), 'element')) : [];
+    const loadHits = kinds.loads ? loadsNearPointer(e) : [];
+    const loadT = asTargets(loadHits.map((h) => h.id), 'load');
+    /*
+     * Load arrows are drawn over everything, so a click on one means the load, even where the
+     * arrow crosses a member or ends on it: the load goes first when its drawing is nearer the
+     * pointer than any member's (a ray through a member's cylinder counts as on it).
+     */
+    const nearestMember = memberRay.length ? 0 : (memberT.length ? memberDistance(e, memberT[0]!.id) : Infinity);
+    const loadsFirst = loadHits.length > 0 && loadHits[0]!.d + 1 < nearestMember && nodeT.length === 0;
+    const targets = loadsFirst ? mergeTargets(loadT, nodeT, memberT) : mergeTargets(nodeT, memberT, loadT);
+    const rect = container.getBoundingClientRect();
+    return pickCycle.pick(targets, e.clientX - rect.left, e.clientY - rect.top, cycledToast, e.detail);
   }
 
   /**
@@ -2541,6 +3091,13 @@
   function handleDoubleClick3D(e: MouseEvent) {
     if (uiStore.analysisMode !== 'pro' || uiStore.currentTool !== 'select' || !camera) return;
     if (uiStore.shellNodePick.active || drawState.active) return;
+    // A node or member the clicks on this spot stepped to (see pick-cycle) is what is lit, and what opens.
+    const rect = container.getBoundingClientRect();
+    const picked = pickCycle.steppedTo(e.clientX - rect.left, e.clientY - rect.top);
+    if (picked?.kind === 'node' || picked?.kind === 'element') {
+      quickEdit.open({ kind: picked.kind === 'node' ? 'node' : 'member', id: picked.id }, e.clientX, e.clientY);
+      return;
+    }
     updateMouseNDC(e);
     raycaster.setFromCamera(mouse, camera);
     raycaster.camera = camera;
@@ -2690,39 +3247,18 @@
        * reset the node/element/shell channels, so a hit on one kind would
        * otherwise leave another kind's selection stale — still highlighted,
        * still what Delete removes. The trailing clear-on-miss the single-kind
-       * branches need is covered by this.
+       * branches need is covered by this. The pick is asked first: a click
+       * again steps on only from what is still selected.
        */
+      const pick = pickUnderPointer(e, { nodes: uiStore.selectsKind('nodes'), elements: uiStore.selectsKind('elements'), loads: uiStore.selectsKind('loads') });
       if (!addToSel) uiStore.clearSelection();
       let hit = false;
-      if (uiStore.selectsKind('nodes')) {
-        for (const h of raycaster.intersectObjects(nodesParent.children, true)) {
-          const ud = resolveHitUserData(h);
-          if (ud?.type === 'node') {
-            uiStore.selectNode(ud.id, addToSel);
-            hit = true;
-            break;
-          }
-        }
-      }
-      if (!hit && uiStore.selectsKind('nodes')) {
-        const id = screenPick(e, 'node');
-        if (id !== null) { uiStore.selectNode(id, addToSel); hit = true; }
-      }
-      if (!hit && uiStore.selectsKind('elements')) {
-        for (const h of raycaster.intersectObjects(elementsParent.children, true)) {
-          const ud = resolveHitUserData(h);
-          if (ud?.type === 'element') {
-            uiStore.selectElement(ud.id, addToSel);
-            if (dsmStepsStore.isOpen) dsmStepsStore.selectElement(ud.id);
-            hit = true;
-            break;
-          }
-        }
-      }
-      if (!hit && uiStore.selectsKind('elements')) {
-        const id = screenPick(e, 'member');
-        if (id !== null) { uiStore.selectElement(id, addToSel); hit = true; }
-      }
+      if (pick?.kind === 'node') { uiStore.selectNode(pick.id, addToSel); hit = true; }
+      else if (pick?.kind === 'element') {
+        uiStore.selectElement(pick.id, addToSel);
+        if (dsmStepsStore.isOpen) dsmStepsStore.selectElement(pick.id);
+        hit = true;
+      } else if (pick?.kind === 'load') { uiStore.selectLoad(pick.id, addToSel); hit = true; }
       if (!hit && uiStore.selectsKind('supports')) {
         for (const h of raycaster.intersectObjects(supportsParent.children, true)) {
           const ud = findUserData(h.object);
@@ -2733,24 +3269,12 @@
           }
         }
       }
-      if (!hit && uiStore.selectsKind('loads')) {
-        const id = loadUnderPointer(e);
-        if (id !== null) uiStore.selectLoad(id, addToSel);
-      }
       return;
     }
 
     if (sm === 'nodes') {
-      const nodeHits = raycaster.intersectObjects(nodesParent.children, true);
-      for (const hit of nodeHits) {
-        const ud = resolveHitUserData(hit);
-        if (ud?.type === 'node') {
-          uiStore.selectNode(ud.id, addToSel);
-          return;
-        }
-      }
-      const nearNode = screenPick(e, 'node');
-      if (nearNode !== null) { uiStore.selectNode(nearNode, addToSel); return; }
+      const pick = pickUnderPointer(e, { nodes: true, elements: false });
+      if (pick) { uiStore.selectNode(pick.id, addToSel); return; }
       if (!addToSel) uiStore.clearSelection();
       return;
     }
@@ -2782,18 +3306,13 @@
      * then a support or a shell, so a click near a joint took whatever lay there, and what
      * Delete would then remove was not what the mode promised.
      */
-    for (const hit of raycaster.intersectObjects(elementsParent.children, true)) {
-      const ud = resolveHitUserData(hit);
-      if (ud?.type === 'element') {
-        uiStore.selectElement(ud.id, addToSel);
-        // Sync with DSM Matrix Explorer if wizard is open
-        if (dsmStepsStore.isOpen) dsmStepsStore.selectElement(ud.id);
-        return;
-      }
+    const pick = pickUnderPointer(e, { nodes: false, elements: true });
+    if (pick) {
+      uiStore.selectElement(pick.id, addToSel);
+      // Sync with DSM Matrix Explorer if wizard is open
+      if (dsmStepsStore.isOpen) dsmStepsStore.selectElement(pick.id);
+      return;
     }
-
-    const nearMember = screenPick(e, 'member');
-    if (nearMember !== null) { uiStore.selectElement(nearMember, addToSel); return; }
 
     // Clicked on empty space → clear selection
     if (!addToSel) {
@@ -2824,6 +3343,11 @@
     }
 
     if (placementStore.active) { if (placementStore.follow) schedulePlacementHover(e); return; }
+
+    if (uiStore.currentTool === 'node' && uiStore.nodeMode !== 'hinge') scheduleNodeHint(e);
+    else if (nodeHint) nodeHint = null;
+    if (uiStore.currentTool === 'load' && uiStore.loadType === 'distributed' && uiStore.distLoadPartial && uiStore.appMode !== 'pro') scheduleStretchHint(e);
+    else if (stretchHint) stretchHint = null;
 
     // Schedule the expensive hover/diagram raycast on the next animation frame.
     // During orbit we clear any stale hover and skip entirely — recursive raycasts
@@ -2899,20 +3423,30 @@
     }
 
     // ─── Preview while drawing a member or a plate: from what is picked to the pointer ──
-    // Uses cached hoveredData (may lag ≤1 frame behind mouse) so this stays cheap.
-    {
-      const pick = uiStore.shellNodePick;
-      const picked = uiStore.currentTool === 'element' && drawState.memberStart !== null ? [drawState.memberStart]
-        : pick.active && pick.target === 'quad' ? pick.picked : [];
-      if (picked.length > 0) {
-        const at = (id: number) => { const n = modelStore.nodes.get(id); return n ? new THREE.Vector3(n.x, n.y, n.z ?? 0) : null; };
-        const pts = picked.map(at).filter((v): v is THREE.Vector3 => v !== null);
-        const hovered = hoveredData?.type === 'node' ? at(hoveredData.id) : null;
-        drawFeedback.setPreview(pts, hovered ?? getGroundIntersection(e));
-        invalidate();
-      }
-    }
+    // Once a frame, on the latest move (the snap raycasts and projects every node).
+    if (uiStore.currentTool === 'element' || uiStore.shellNodePick.active) drawPreviewFrame.schedule(e);
   }
+
+  const drawPreviewFrame = createFrameCoalescer<MouseEvent>((e) => {
+    if (!camera || !initialized) return;
+    // Uses cached hoveredData (may lag ≤1 frame behind mouse) so this stays cheap.
+    const pick = uiStore.shellNodePick;
+    const picked = uiStore.currentTool === 'element' && drawState.memberStart !== null ? [drawState.memberStart]
+      : pick.active && pick.target === 'quad' ? pick.picked : [];
+    // Drawing a member: the node the next click takes, caught within a few pixels, is ringed,
+    // and the preview line ends on it rather than on the floor under the pointer.
+    const drawingMember = uiStore.currentTool === 'element' && uiStore.elementMode !== 'hinge';
+    const snapId = drawingMember ? memberSnapNode(e) : null;
+    const snapAt = snapId !== null && snapId !== drawState.memberStart ? nodeScenePoint(snapId) : null;
+    // A frame only when the ring moved, appeared or went.
+    if (drawingMember && drawFeedback.setTarget(snapAt)) invalidate();
+    if (picked.length > 0) {
+      const pts = picked.map(nodeScenePoint).filter((v): v is THREE.Vector3 => v !== null);
+      const hovered = hoveredData?.type === 'node' ? nodeScenePoint(hoveredData.id) : null;
+      drawFeedback.setPreview(pts, snapAt ?? hovered ?? getGroundIntersection(e));
+      invalidate();
+    }
+  });
 
   /**
    * rAF-coalesce the expensive hover raycast so a burst of mousemove events
@@ -3056,6 +3590,9 @@
   }
 
   function handleMouseLeave() {
+    drawFeedback.setTarget(null);
+    nodeHint = null;
+    stretchHint = null;
     if (hoverRafId !== null) {
       cancelAnimationFrame(hoverRafId);
       hoverRafId = null;
@@ -3363,8 +3900,8 @@
 
   function syncOrthoFrustum(aspect?: number) {
     if (!orthoCamera || !controls) return;
-    const containerAspect = container ? container.clientWidth / container.clientHeight : 1;
-    _syncOrthoFrustum(orthoCamera, camera.position, controls.target, containerAspect, aspect);
+    const containerAspect = timelapseAspect ?? (container ? container.clientWidth / container.clientHeight : 1);
+    _syncOrthoFrustum(orthoCamera, camera.position, controls.target, containerAspect, aspect ?? timelapseAspect ?? undefined);
   }
 
   /** Where the camera is looking, in the working plane, and how wide the view is. */
@@ -3402,20 +3939,45 @@
    * The far plane was a literal 1000 from when the grid was 50 m across; see
    * the note where the cameras are built. A grid of extent E reaches E/2 from
    * the centre, and the camera can be that far out again, so the diagonal a
-   * frustum has to contain is comfortably a few times E. Generous rather than
-   * tight: the cost of too much range is depth precision, and the logarithmic
-   * buffer is what pays for it; the cost of too little is a floor that
-   * disappears in pieces while you orbit.
-   *
-   * The near plane stays at 0.1 m so zooming into a connection still works.
+   * frustum has to contain is comfortably a few times E. The cost of too
+   * little is a floor that disappears in pieces while you orbit; the cost of
+   * too much is depth precision (the depth buffer is not logarithmic), so the
+   * perspective camera's far plane follows the distance too (farPlaneFor,
+   * kept by syncNearPlane); the orthographic one, whose depth is linear,
+   * keeps the generous range.
    */
+  /**
+   * The near plane follows the distance to what is looked at, so zooming in on a
+   * part a few millimetres across does not cut it away, and a whole building
+   * keeps the depth precision of the old fixed 0.1 m. The far plane follows it
+   * as well, still reaching the grid's far corner.
+   */
+  function syncNearPlane() {
+    if (!camera || !(camera as THREE.PerspectiveCamera).isPerspectiveCamera) return;
+    const cam = camera as THREE.PerspectiveCamera;
+    const dist = cam.position.distanceTo(controls.target);
+    const near = nearPlaneFor(dist);
+    const far = farPlaneFor(dist, uiStore.gridExtent3D);
+    if (Math.abs(cam.near - near) > near * 0.05 || Math.abs(cam.far - far) > far * 0.05) {
+      cam.near = near;
+      cam.far = far;
+      cam.updateProjectionMatrix();
+    }
+  }
+
   function syncCameraRange() {
     const reach = Math.max(uiStore.gridExtent3D, 50);
     const far = Math.max(2000, reach * 4);
-    for (const cam of [perspCamera, orthoCamera]) {
-      if (!cam || cam.far === far) continue;
-      cam.far = far;
-      cam.updateProjectionMatrix();
+    if (orthoCamera && orthoCamera.far !== far) {
+      orthoCamera.far = far;
+      orthoCamera.updateProjectionMatrix();
+    }
+    if (perspCamera && controls) {
+      const pf = farPlaneFor(perspCamera.position.distanceTo(controls.target), uiStore.gridExtent3D);
+      if (perspCamera.far !== pf) {
+        perspCamera.far = pf;
+        perspCamera.updateProjectionMatrix();
+      }
     }
   }
 
@@ -3440,9 +4002,48 @@
   onmouseleave={handleMouseLeave}
   oncontextmenu={handleContextMenu3D}
 >
+  <!-- The despiece, drawn over the scene in screen space (`canvas/free-body.ts`); only while it is on. -->
+  {#if resultsStore.diagramType === 'despiece'}
+    <canvas class="fb-overlay" bind:this={fbCanvas} aria-hidden="true"></canvas>
+  {/if}
+  {#if stretchHint && uiStore.currentTool === 'load'}
+    {@const h = stretchHint}
+    {@const dx = h.I.x - h.J.x}
+    {@const dy = h.I.y - h.J.y}
+    {@const n = Math.hypot(dx, dy) || 1}
+    <svg class="node-hint" aria-hidden="true" data-testid="stretch-hint-3d" data-ok={h.ok}>
+      {#if h.ok && h.p && h.q}
+        <line class="nh-member" x1={h.p.x} y1={h.p.y} x2={h.q.x} y2={h.q.y} />
+        <circle class="nh-free" cx={h.p.x} cy={h.p.y} r="3.5" />
+        <circle class="nh-free" cx={h.q.x} cy={h.q.y} r="3.5" />
+      {:else if h.text}
+        <text class="nh-text nh-warn" x={h.mx + 12} y={h.my - 14}>{h.text}</text>
+      {/if}
+      <text class="nh-text nh-end" class:nh-warn={!h.ok} x={h.I.x + dx / n * 14 + dy / n * 10} y={h.I.y + dy / n * 14 - dx / n * 10}>I</text>
+    </svg>
+  {/if}
+  {#if nodeHint && uiStore.currentTool === 'node'}
+    {@const h = nodeHint}
+    <svg class="node-hint" aria-hidden="true" data-testid="node-hint-3d" data-kind={h.kind}>
+      {#if h.kind === 'onMember'}
+        <line class="nh-member" x1={h.a.x} y1={h.a.y} x2={h.b.x} y2={h.b.y} />
+        <circle class="nh-split" cx={h.sx} cy={h.sy} r="6" />
+        <path class="nh-plus" d={`M${h.sx - 3} ${h.sy}h6M${h.sx} ${h.sy - 3}v6`} />
+        <text class="nh-text" x={h.sx + 12} y={h.sy - 12}>{t(h.midpoint ? 'viewport.nodeSplitsMid' : 'viewport.nodeSplits').replace('{id}', String(h.elementId))}</text>
+      {:else if h.kind === 'onNode'}
+        <circle class="nh-there" cx={h.sx} cy={h.sy} r="11" />
+        <text class="nh-text nh-warn" x={h.sx + 14} y={h.sy - 12}>{t('viewport.nodeAlreadyThere')}</text>
+      {:else}
+        <circle class="nh-free" cx={h.sx} cy={h.sy} r="5" />
+      {/if}
+    </svg>
+  {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="vp-prompt" onmousedown={(e) => e.stopPropagation()} onpointerdown={(e) => e.stopPropagation()}
     ontouchstart={(e) => e.stopPropagation()}><ConnectionPrompt /></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="vp-hidden-chip" onmousedown={(e) => e.stopPropagation()} onpointerdown={(e) => e.stopPropagation()}
+    ontouchstart={(e) => e.stopPropagation()}><HiddenItemsChip /></div>
   {#if uiStore.isMobile && uiStore.appMode === 'basico'}
     <!-- The phone's delete button: over the model's lower right corner, level
          with the axes; the canvas shrinks for the sheet, so it rises with it.
@@ -3570,10 +4171,24 @@
             <span>{uiStore.renderMode3D === 'sections'
               ? t('config.wireframe') : t('config.sections')}</span>
           </button>
+          <div class="cam-sep"></div>
+          <button
+            class="cam-item" class:on={buildTimelapse.active} data-testid="cam-build-timelapse"
+            onclick={() => { if (buildTimelapse.active) buildTimelapse.close(); else { timelapseSound.unlock(); buildTimelapse.open(); } camMenuOpen = false; }}
+          >
+            <span class="cam-glyph">▶</span>
+            <span>{t('timelapse.menu')}</span>
+          </button>
         </div>
       {/if}
     </div>
   </div>
+  {/if}
+
+  {#if buildTimelapse.active}
+    <!-- What the timelapse records, shown as it will be: the picture, fitted and letterboxed. -->
+    <div class="tl-stage" class:studio={buildTimelapse.style === 'studio'} use:mountTimelapseFrame></div>
+    <BuildTimelapsePanel picture={timelapseFrame?.canvas ?? null} stage={container} />
   {/if}
 
   <!-- Clipping plane controls -->
@@ -3607,20 +4222,20 @@
       <div class="coord-dialog">
         <div class="coord-title">{t('viewport3d.createNodeCoords')}</div>
         <div class="coord-row">
-          <label>X (m)</label>
+          <label>X ({unitQ('length')})</label>
           <!-- svelte-ignore a11y_autofocus -->
           <input type="number" step="any" bind:value={coordX} autofocus
             onkeydown={(e) => { if (e.key === 'Enter') submitCoordDialog(); }}
           />
         </div>
         <div class="coord-row">
-          <label>Y (m)</label>
+          <label>Y ({unitQ('length')})</label>
           <input type="number" step="any" bind:value={coordY}
             onkeydown={(e) => { if (e.key === 'Enter') submitCoordDialog(); }}
           />
         </div>
         <div class="coord-row">
-          <label>Z (m)</label>
+          <label>Z ({unitQ('length')})</label>
           <input type="number" step="any" bind:value={coordZ}
             onkeydown={(e) => { if (e.key === 'Enter') submitCoordDialog(); }}
           />
@@ -3773,7 +4388,23 @@
   }
   .perf-hud b { color: #fff; }
 
-  .viewport3d-wrapper :global(canvas:not(.axis-gizmo)) {
+  /* The scene's canvas fills the viewport; the timelapse picture sizes itself (letterboxed). */
+  .fb-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .node-hint { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
+  .nh-member { stroke: var(--st-accent); stroke-width: 6; stroke-linecap: round; opacity: 0.45; }
+  .nh-split { fill: var(--st-surface); stroke: var(--st-accent); stroke-width: 2; }
+  .nh-plus { stroke: var(--st-accent); stroke-width: 2; }
+  .nh-free { fill: none; stroke: var(--st-accent); stroke-width: 1.5; opacity: 0.85; }
+  .nh-there { fill: none; stroke: var(--st-amber, #e0a030); stroke-width: 1.5; stroke-dasharray: 3 3; }
+  .nh-text { font: 11px sans-serif; fill: var(--st-accent); paint-order: stroke; stroke: var(--st-bg, #0b1220); stroke-width: 3px; }
+  .nh-warn { fill: var(--st-amber, #e0a030); }
+  .nh-end { font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+  .viewport3d-wrapper :global(canvas:not(.axis-gizmo):not(.tl-frame)) {
     display: block;
     width: 100% !important;
     height: 100% !important;
@@ -3798,7 +4429,7 @@
   .lasso-path polygon { fill: rgba(127, 212, 204, 0.12); stroke: #7fd4cc; stroke-width: 1.5; stroke-dasharray: 4 3; }
 
   /* The card positions itself; this only keeps presses on it off the model. */
-  .vp-prompt { display: contents; }
+  .vp-prompt, .vp-hidden-chip { display: contents; }
 
   .vp-delete {
     position: absolute;
@@ -4187,5 +4818,22 @@
   .box-select-rect.crossing-mode {
     border: 1px dashed #44bb44;
     background: rgba(68, 187, 68, 0.06);
+  }
+  .tl-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 21;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #04070b;
+    /* Drags pass through to the camera beneath. */
+    pointer-events: none;
+  }
+  .tl-stage.studio { background: #2a323c; }
+  .tl-stage :global(canvas.tl-frame) {
+    display: block;
+    flex: none;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
   }
 </style>

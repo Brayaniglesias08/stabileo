@@ -43,6 +43,15 @@ export function checkStretch(a: number | undefined, b: number | undefined, L: nu
   return { ok: true, a: A > STRETCH_TOL ? A : undefined, b: B < L - STRETCH_TOL ? B : undefined };
 }
 
+/**
+ * The stretch the load tool puts a distributed load on: the whole member, or its "from" and "to"
+ * (m from node I) when the tool is set to a stretch, each left unset (null) at the member's own
+ * end, node I and L. Refused like any other stretch that does not fit the member, never cut to it.
+ */
+export function toolStretch(partial: boolean, from: number | null, to: number | null, L: number): StretchVerdict {
+  return partial ? checkStretch(from ?? undefined, to ?? undefined, L) : { ok: true, a: undefined, b: undefined };
+}
+
 /** A point load's position on a member of length `L`, or null when it is off the member. */
 export function checkPosition(a: number, L: number): number | null {
   if (!Number.isFinite(a) || a < -STRETCH_TOL || a > L + STRETCH_TOL) return null;

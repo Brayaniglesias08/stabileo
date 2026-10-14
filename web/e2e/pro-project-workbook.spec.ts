@@ -1,11 +1,13 @@
 /**
- * The project workbook from the Project tab: an example solved, 13 stations asked for,
- * and the file that arrives holds the cover, the model and every combination's stations.
- * The sheets themselves are checked in `project-workbook.test.ts`; this checks the button
- * reaches them with the stations chosen.
+ * The project workbook from the Project tab: an example solved, Excel opens its dialog, 13 points
+ * per member asked for, and the file that arrives holds the cover, the model and every
+ * combination's stations. A CSV of one sheet is a zip of that sheet, the cover and the conventions.
+ * The sheets themselves are checked in `project-workbook.test.ts`; this checks the dialog reaches
+ * them with the choices made.
  */
 import { readFileSync } from 'node:fs';
 import * as XLSX from 'xlsx';
+import { strFromU8, unzipSync } from 'fflate';
 import { test, expect } from './fixtures';
 
 test.describe('@smoke PRO project workbook', () => {
@@ -20,9 +22,13 @@ test.describe('@smoke PRO project workbook', () => {
     await page.evaluate(() => window.__stabileoActions.solve());
 
     await page.getByTestId('pr-project').click();
-    await page.getByTestId('project-workbook-stations').selectOption('13');
-    const wait = page.waitForEvent('download');
     await page.getByTestId('project-workbook').click();
+    const dialog = page.getByTestId('pro-data-export-dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByTestId('pro-data-export-stations').locator('summary').click();
+    await dialog.getByTestId('pro-data-stations-13').check();
+    const wait = page.waitForEvent('download');
+    await dialog.getByTestId('pro-data-export-download').click();
     const dl = await wait;
     expect(dl.suggestedFilename()).toMatch(/\.xlsx$/);
 
@@ -36,5 +42,25 @@ test.describe('@smoke PRO project workbook', () => {
     const perResult = new Map<string, number>();
     for (const r of stations as Array<{ source: string; sourceId: number }>) perResult.set(`${r.source}:${r.sourceId}`, (perResult.get(`${r.source}:${r.sourceId}`) ?? 0) + 1);
     for (const n of perResult.values()) expect(n).toBe(13 * members);
+  });
+
+  test('CSV of a single sheet is that sheet, with the cover and the conventions', async ({ pro: page }) => {
+    await page.getByTestId('pr-project').click();
+    await page.getByTestId('pp-examples').click();
+    await page.getByTestId('pp-gallery').locator('[data-example="pro-plane-frame-seismic"] .pp-ex').click();
+    await expect.poll(() => page.evaluate(() => window.__stabileo.elementIds().length), { timeout: 60_000 }).toBe(28);
+    await page.getByTestId('pr-project').click();
+    await page.getByTestId('pp-export-csv').click();
+    const dialog = page.getByTestId('pro-data-export-dialog');
+    // Everything off but the nodes.
+    for (const b of await dialog.getByRole('button', { name: /^(Nada|None)$/ }).all()) await b.click();
+    await dialog.getByTestId('pro-data-sheet-Nodes').check();
+    const wait = page.waitForEvent('download');
+    await dialog.getByTestId('pro-data-export-download').click();
+    const dl = await wait;
+    expect(dl.suggestedFilename()).toMatch(/_Nodes_csv\.zip$/);
+    const files = unzipSync(new Uint8Array(readFileSync((await dl.path())!)));
+    expect(Object.keys(files)).toEqual(['01-Cover.csv', '02-Conventions.csv', '03-Nodes.csv']);
+    expect(strFromU8(files['03-Nodes.csv']!).split('\n')[0]).toContain('id');
   });
 });
