@@ -1,7 +1,6 @@
 <script lang="ts">
   import { modelStore, uiStore } from '../../lib/store';
   import DataTable from '../DataTable.svelte';
-  import ProStairSection from './ProStairSection.svelte';
   import { t, tp } from '../../lib/i18n';
   import { selectShellFamily } from '../../lib/engine/shell-family-selector';
   import ProMesher from './ProMesher.svelte';
@@ -12,6 +11,7 @@
   import WriteInPanelButton from './WriteInPanelButton.svelte';
   import WriteCard from './WriteCard.svelte';
   import Icon from '../ribbon/Icon.svelte';
+  import QuantityInput from './loads/QuantityInput.svelte';
 
   /* The two creators' state is gone with them — see the note on `newNodeIds`.
      Three corners make a triangle and four make a quad, so one set serves. */
@@ -262,11 +262,11 @@
             {/each}
           </select>
         </label>
-        <label>{t('pro.thickness')}
+        <label>{t('pro.thicknessLabel')}
           <!-- An empty or non-positive thickness keeps the last one: it used to become 0, and the
-               next shell was drawn with no thickness. The unit is in the label. -->
-          <input type="number" value={drawState.plateThickness} onchange={(e) => { const v = Number(e.currentTarget.value); if (v > 0) drawState.plateThickness = v; else e.currentTarget.value = String(drawState.plateThickness); }} step="any" min="0.001" class="thick-input"
-                 data-testid="shell-thickness" />
+               next shell was drawn with no thickness. The unit follows the unit system. -->
+          <QuantityInput min={0.001} value={drawState.plateThickness} quantity="length" cls="thick-input"
+                 onchange={(v) => { if (v > 0) drawState.plateThickness = v; }} testid="shell-thickness" />
         </label>
 
         <!--
@@ -309,8 +309,10 @@
       </button>
     {/if}
 
-    <!-- Stairs: the same plate, with its far edge lifted -->
-    <ProStairSection />
+    <!--
+      Stairs are not modelled here: they belong to the design desk, where a stair is stated by its
+      flight, landings and supports and designed (roadmap, review at the close of stage 1).
+    -->
 
     <!-- Quick mesh generator -->
     <div class="section">
@@ -488,7 +490,7 @@
     outline: none;
   }
 
-  .thick-input {
+  .pro-shells :global(input.thick-input) {
     width: 75px;
     padding: 4px 6px;
     background: var(--st-surface);
@@ -499,7 +501,7 @@
     font-family: monospace;
   }
 
-  .thick-input:focus {
+  .pro-shells :global(input.thick-input:focus) {
     border-color: var(--st-surface-3);
     outline: none;
   }

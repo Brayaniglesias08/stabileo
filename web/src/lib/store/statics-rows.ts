@@ -14,7 +14,11 @@
  * weight once per dead-load case.
  *
  * An SRSS or ABS combination is a magnitude, in no equilibrium by nature: it is not checked, and
- * named as such (`magnitude`), rather than flagged as out of balance.
+ * named as such (`magnitude`), rather than flagged as out of balance. So is a spectral case
+ * (`spectral-case.ts`): its reactions are each combined over the modes on its own, with no loads to
+ * balance, and a linear combination taking one adds it to the rest; neither is checked, both are
+ * named (`spectral`). Checked, the case read a relative residual of 1 and the combination the
+ * spectral part as its residual.
  */
 import { modelStore } from './model.svelte';
 import { resultsStore } from './results.svelte';
@@ -32,6 +36,8 @@ export interface StaticsRows {
   combos: ComboStaticsRow[];
   /** The solved SRSS and ABS combinations, not checked: magnitudes, in no equilibrium. */
   magnitude?: Array<{ comboId: number; name: string; method: 'srss' | 'abs' }>;
+  /** The solved spectral cases, then the solved linear combinations taking one, not checked. */
+  spectral?: string[];
 }
 
 /** The rows of the last solve, or null before one. */
@@ -43,6 +49,8 @@ export function staticsRows(): StaticsRows | null {
     (perCase.size > 0 ? [...perCase].map(([id, r]) => [id, r.reactions]) : [[null, single!.reactions]]) as never,
   );
   const loadCases = modelStore.model.loadCases;
+  const spectralIds = new Set(loadCases.filter((c) => c.spectral).map((c) => c.id));
+  const checked = spectralIds.size ? new Map([...reactionsByCase].filter(([id]) => id === null || !spectralIds.has(id))) : reactionsByCase;
   const base = {
     nodes: modelStore.nodes, elements: modelStore.elements, supports: modelStore.supports,
     loads: modelStore.loads, materials: modelStore.materials, sections: modelStore.sections,
@@ -61,16 +69,21 @@ export function staticsRows(): StaticsRows | null {
     caseTypes: new Map(loadCases.map((c) => [c.id, c.type])),
     caseNames: new Map(loadCases.map((c) => [c.id, c.name])),
   });
-  const cases = check(reactionsByCase);
+  const cases = check(checked);
   if (perCase.size === 0) return { cases, combos: [] };
-  const linear = modelStore.combinations.filter((c) => !isMagnitudeCombination(c));
+  const takesSpectral = (c: { factors: Array<{ caseId: number; factor: number }> }) => c.factors.some((f) => f.factor !== 0 && spectralIds.has(f.caseId));
+  const linear = modelStore.combinations.filter((c) => !isMagnitudeCombination(c) && !takesSpectral(c));
   // The applied side of the cases a combination takes but the results do not list.
   const unlisted = [...new Set(linear.flatMap((c) => c.factors.map((f) => f.caseId)))].filter((id) => !perCase.has(id) && loadCases.some((c) => c.id === id));
   const applied = unlisted.length ? [...cases, ...check(new Map(unlisted.map((id) => [id, [] as never])))] : cases;
   const combos = combinationStatics(applied, linear, new Map([...resultsStore.perCombo3D].map(([id, r]) => [id, r.reactions])), modelStore.nodes);
   const magnitude = modelStore.combinations.filter((c) => isMagnitudeCombination(c) && resultsStore.perCombo3D.has(c.id))
     .map((c) => ({ comboId: c.id, name: c.name, method: c.method as 'srss' | 'abs' }));
-  return { cases, combos, ...(magnitude.length ? { magnitude } : {}) };
+  const spectral = [
+    ...loadCases.filter((c) => spectralIds.has(c.id) && perCase.has(c.id)).map((c) => c.name),
+    ...modelStore.combinations.filter((c) => !isMagnitudeCombination(c) && takesSpectral(c) && resultsStore.perCombo3D.has(c.id)).map((c) => c.name),
+  ];
+  return { cases, combos, ...(magnitude.length ? { magnitude } : {}), ...(spectral.length ? { spectral } : {}) };
 }
 
 const K = ['fx', 'fy', 'fz', 'mx', 'my', 'mz'] as const;

@@ -42,24 +42,35 @@ function workbookModel(): WorkbookModel {
   } as WorkbookModel;
 }
 
+/** Which solved sets go in: the cases and the combinations by id; absent means all of them. */
+export interface SourcePick { cases?: ReadonlySet<number>; combinations?: ReadonlySet<number> }
+
 /** Every solved case and combination; the single result on screen when nothing else was solved. */
-function workbookSources(): WorkbookSource[] {
+function workbookSources(pick: SourcePick = {}): WorkbookSource[] {
   const caseName = new Map(modelStore.model.loadCases.map((c) => [c.id, c.name]));
   const comboName = new Map(modelStore.combinations.map((c) => [c.id, c.name]));
   const out: WorkbookSource[] = [
-    ...[...resultsStore.perCase3D].map(([id, results]) => ({ kind: 'case' as const, id, name: caseName.get(id) ?? String(id), results })),
+    ...[...resultsStore.perCase3D].filter(([id]) => !pick.cases || pick.cases.has(id))
+      .map(([id, results]) => ({ kind: 'case' as const, id, name: caseName.get(id) ?? String(id), results })),
     // An SRSS or ABS combination under its own kind: magnitudes, not signed forces (`combinationKind`).
-    ...[...resultsStore.perCombo3D].map(([id, results]) => ({ kind: combinationKind(results), id, name: comboName.get(id) ?? String(id), results })),
+    ...[...resultsStore.perCombo3D].filter(([id]) => !pick.combinations || pick.combinations.has(id))
+      .map(([id, results]) => ({ kind: combinationKind(results), id, name: comboName.get(id) ?? String(id), results })),
   ];
-  if (out.length === 0 && resultsStore.results3D) {
+  if (out.length === 0 && !pick.cases && !pick.combinations && resultsStore.results3D) {
     out.push({ kind: 'single', id: 0, name: t('pro.statics.singleSolve'), results: resultsStore.results3D });
   }
   return out;
 }
 
 /** The workbook's sheets for the project as it stands. Exported for the tests. */
-/** What a caller can narrow: the model's sheets, the results', and sheets of its own. */
-export interface WorkbookOptions { model?: boolean; results?: boolean; extra?: readonly WorkbookSheet[] }
+/**
+ * What a caller can narrow: the model's sheets, the results', sheets of its own, which sheets by
+ * name (`sheets`) and which solved sets (`sources`).
+ */
+export interface WorkbookOptions {
+  model?: boolean; results?: boolean; extra?: readonly WorkbookSheet[];
+  sheets?: ReadonlySet<string>; sources?: SourcePick;
+}
 
 export function currentWorkbookSheets(stations: StationSpec, opts: WorkbookOptions = {}): WorkbookSheet[] {
   const model = workbookModel();
@@ -70,7 +81,7 @@ export function currentWorkbookSheets(stations: StationSpec, opts: WorkbookOptio
     projectInfo: modelStore.projectInfo,
     meta: { exported: new Date().toISOString(), commit: BUILD_COMMIT },
     results: {
-      sources: workbookSources(),
+      sources: workbookSources(opts.sources),
       stations,
       statics: staticsRows(),
       unstable: unstableCombinations(),
@@ -84,7 +95,7 @@ export function currentWorkbookSheets(stations: StationSpec, opts: WorkbookOptio
       },
     },
     tr: t,
-    include: { model: opts.model, results: opts.results },
+    include: { model: opts.model, results: opts.results, sheets: opts.sheets },
     // The model's specifications, grouped by value as Specifications › List shows them; the
     // fields themselves are already in the Members, Supports and Quads sheets.
     extra: [...(opts.model === false ? [] : [specificationsSheet()]), ...(opts.extra ?? [])],
@@ -105,6 +116,19 @@ export function workbookZip(sheets: readonly WorkbookSheet[]): Uint8Array {
     files[`${String(i + 1).padStart(2, '0')}-${s.name}.csv`] = strToU8(toCsv(s.rows[0]!.map(String), s.rows.slice(1)));
   });
   return zipSync(files, { level: 6 });
+}
+
+/**
+ * The chosen sheets as CSV: a zip with one file per sheet, the cover and the conventions always
+ * included, as the dialog says (`proExport.dataAlways`). One sheet of data used to come as that
+ * sheet alone, without the units and the signs its numbers are in.
+ */
+export function downloadProjectCsv(stations: StationSpec, opts: WorkbookOptions = {}): void {
+  const safeName = modelStore.model.name.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ _-]/g, '').trim() || t('file.defaultAnalysis');
+  const sheets = currentWorkbookSheets(stations, opts);
+  const data = sheets.filter((s) => s.name !== 'Cover' && s.name !== 'Conventions');
+  const name = data.length === 1 ? `${safeName}_${data[0]!.name}_csv.zip` : `${safeName}_csv.zip`;
+  downloadBlob(new Blob([workbookZip(sheets) as BlobPart], { type: 'application/zip' }), name);
 }
 
 /** Write the project workbook: xlsx when it fits, a zip of CSVs otherwise. */

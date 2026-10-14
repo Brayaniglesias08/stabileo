@@ -5,23 +5,33 @@
  *
  * It was, and the 600-line ceiling on that component is what said it should
  * not be. The panel is a layout shell: which tab is showing, how wide it is,
- * what the header says. Assembling a report — deciding whether the reader
- * asked for a workbook or a printable document, reading the canvas for a
- * screenshot, gathering verifications and advanced results — is a job, and a
- * job in a layout shell is how a layout shell stops being one.
+ * what the header says. Assembling a report — drawing its figures, gathering
+ * verifications and advanced results — is a job, and a job in a layout shell is
+ * how a layout shell stops being one.
  *
- * The screenshot is taken HERE rather than in `pro-report-inputs.ts` because
- * it is a reading of the DOM at the instant the button was pressed — the
- * canvas as it is on screen, not a property of the model. A tainted canvas
- * throws on `toDataURL`; the report goes out without the picture rather than
- * not going out.
+ * The report is the printable document only: the same data as a spreadsheet is
+ * Project › Export › Excel, which chooses its own sheets.
+ *
+ * The figures are drawn from the model (`export/view-figure.ts`), the vector
+ * figures "Exportar imagen" makes. The screen is captured only when they cannot
+ * be drawn, and that capture is taken HERE rather than in `pro-report-inputs.ts`
+ * because it is a reading of the DOM at the instant the button was pressed. A
+ * tainted canvas throws on `toDataURL`; the report goes out without the picture
+ * rather than not going out.
  */
 
+import { tick } from 'svelte';
 import { viewportCanvas } from '../utils/viewport-canvas';
+import { uiStore } from '../store/ui.svelte';
+import { viewState } from '../store/view-state.svelte';
 import { buildProReportData } from '../engine/pro-report-inputs';
 import { openReport } from '../engine/pro-report';
-import type { ReportConfig, ReportData } from '../engine/pro-report';
-import { downloadProjectWorkbook } from '../store/project-workbook';
+import type { ReportConfig, ReportData, ReportResult, ReportResultFigures } from '../engine/pro-report';
+import type { ReportFigure } from '../engine/report/project-sections';
+import { DEFAULT_FIGURE_OPTIONS, figureTitle, plan2D, toSvg, type FigureContent, type FigureOptions, type FigureView } from '../export/view-figure';
+import type { InkStyle } from '../export/paper-ink';
+import type { ShellContourComponent } from '../engine/shell-stress';
+import { t as tr } from '../i18n';
 import { modelStore, resultsStore } from '../store';
 import { verificationStore } from '../store/verification.svelte';
 import { activePerCombo3D, activeCombinations } from '../store/active-results';
@@ -33,6 +43,8 @@ export interface ReportExportInputs {
   verifications: ReportData['verifications'];
   advancedResults: Record<string, unknown>;
   t: (key: string) => string;
+  /** How the figures are drawn; without it the report captures the screen for the model. */
+  figureOptions?: ReportFigureChoices;
 }
 
 /** The canvas as it is on screen, or nothing if the browser refuses it. */
@@ -44,14 +56,35 @@ function screenshotOfCanvas(): string | undefined {
   try { return (canvas as HTMLCanvasElement).toDataURL('image/png'); } catch { return undefined; }
 }
 
+/** The next painted frame. */
+const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
 /**
- * Produce whichever document the dialog asked for.
- *
- * The workbook is the same results in another form, so it is the project workbook
- * (`store/project-workbook.ts`), the one the Project tab writes, narrowed to the sections the
- * dialog chose. One exporter with two doors, rather than a second one here that could come to
- * disagree with it.
+ * The canvas with every node and member number on, whatever the reader shows: the report's tables
+ * name nodes and members by number, and the picture is where a reader finds them. What the reader
+ * had on is put back after the picture, also when it fails.
  */
+async function screenshotWithNumbers(): Promise<string | undefined> {
+  const had = { nodes: uiStore.showNodeLabels3D, members: uiStore.showElementLabels3D, label: viewState.memberLabel, onSelection: viewState.labelsOnSelection };
+  const changes = !had.nodes || !had.members || had.label !== 'id' || had.onSelection;
+  if (!changes) return screenshotOfCanvas();
+  try {
+    uiStore.showNodeLabels3D = true;
+    uiStore.showElementLabels3D = true;
+    viewState.memberLabel = 'id';
+    viewState.labelsOnSelection = false;
+    await tick();
+    // The viewport redraws on the frame after it is invalidated; two leave room for the labels.
+    await frame(); await frame(); await frame();
+    return screenshotOfCanvas();
+  } finally {
+    uiStore.showNodeLabels3D = had.nodes;
+    uiStore.showElementLabels3D = had.members;
+    viewState.memberLabel = had.label;
+    viewState.labelsOnSelection = had.onSelection;
+  }
+}
+
 /**
  * The concrete design as the Design panel verified it, member by member, for the report.
  *
@@ -75,60 +108,55 @@ export function reportDesignChecks(): NonNullable<ReportData['designChecks']> {
   return out.sort((a, b) => a.elementId - b.elementId);
 }
 
-export function exportReportAs(input: ReportExportInputs): void {
-  if (input.config.format === 'xlsx') {
-    const o = workbookOptions(input);
-    void downloadProjectWorkbook(5, { model: o.includeModel, results: o.includeResults, extra: o.extraSheets });
-    return;
-  }
-
+export async function exportReportAs(input: ReportExportInputs): Promise<void> {
+  const figures = input.figureOptions ? reportResultFigures(input.config, input.figureOptions) : {};
+  // The model's figure is drawn; a capture of the screen only when it cannot be.
+  const capture = input.config.sections?.modelData !== false && !figures.model;
   const data = buildProReportData({
     config: input.config,
     verifications: [],
     advancedResults: Object.keys(input.advancedResults).length > 0
       ? input.advancedResults as ReportData['advancedResults']
       : undefined,
-    screenshot: screenshotOfCanvas(),
+    screenshot: capture ? await screenshotWithNumbers() : undefined,
     t: input.t,
   });
   if (!data) return;
+  data.resultFigures = figures;
   data.designChecks = reportDesignChecks();
   openReport(data);
 }
 
+/** How the report's figures are drawn: the dialog's choices. */
+export interface ReportFigureChoices { style: InkStyle; values: boolean; view: FigureView; shellComponent: ShellContourComponent }
+
+/** A figure as the report embeds it: an SVG in a data URL, with its caption. */
+function asReportFigure(content: FigureContent, o: FigureOptions, caption: string): ReportFigure | undefined {
+  const plan = plan2D(content, o);
+  return plan ? { dataUrl: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(toSvg(plan))}`, caption } : undefined;
+}
+
 /**
- * The workbook for the sections the dialog chose.
- *
- * The dialog says its choices apply to both formats, and the workbook ignored them: it was the
- * whole base export whatever was ticked. Model data and results map to the base sheets; the
- * verification and the story drift, which the base export does not have, go as sheets of their
- * own, read from the same report data the printable document uses.
+ * The report's figures, drawn from the model like "Exportar imagen" draws them (`view-figure.ts`):
+ * the numbered model, the loaded model under the loads, and for each result printed as a figure
+ * its figures (reactions; the deformed shape; M, V and N; the shells' result).
  */
-export function workbookOptions(input: ReportExportInputs): { includeModel: boolean; includeResults: boolean; extraSheets: Array<{ name: string; rows: (string | number)[][] }> } {
-  const s = input.config.sections;
-  const extraSheets: Array<{ name: string; rows: (string | number)[][] }> = [];
-  const checks = s.verification ? reportDesignChecks() : [];
-  if (checks.length > 0) {
-    extraSheets.push({
-      name: input.t('report.verificationTitle') || 'Verification',
-      // Demand and capacity mix kN, kN·m and MPa down one column: each row says its unit, as the
-      // HTML report does.
-      rows: [['ID', input.t('report.type') || 'Type', input.t('report.sectionLabel') || 'Section', input.t('report.design.governing'), input.t('report.design.demand'), input.t('report.design.capacity'), input.t('report.unit') || 'Unit', 'u', input.t('report.status') || 'Status'],
-        ...checks.map((c) => [c.elementId, c.elementType, c.section, c.governing ?? '', c.demand ?? '', c.capacity ?? '', c.unit ?? '', c.worstUtilization, c.status])],
-    });
+export function reportResultFigures(config: ReportConfig, c: ReportFigureChoices): ReportResultFigures {
+  const s = config.sections;
+  const o: FigureOptions = { ...DEFAULT_FIGURE_OPTIONS, style: c.style, values: c.values, titles: false, view: c.view, shells: true, shellComponent: c.shellComponent };
+  const out: ReportResultFigures = {};
+  if (s.modelData) {
+    out.model = asReportFigure('model', { ...o, loads: false, numbering: true }, tr('report.modelFigureCaption'));
+    if (s.loads) out.loads = asReportFigure('model', { ...o, loads: true, numbering: false }, tr('figures.modelLoaded'));
   }
-  if (s.storyDrift) {
-    const data = buildProReportData({ config: input.config, verifications: [], advancedResults: undefined, screenshot: undefined, t: input.t });
-    const drifts = data?.storyDrifts ?? [];
-    if (drifts.length > 0) {
-      extraSheets.push({
-        name: input.t('report.storyDrift') || 'Story drift',
-        rows: [['z (m)', 'h (m)', 'Δx (mm)', 'Δy (mm)', 'Δx/h', 'Δy/h', input.t('report.status') || 'Status'],
-          ...drifts.map((d) => [d.level, d.height, d.driftX * 1000, d.driftY * 1000, d.ratioX, d.ratioY, d.status])],
-      });
-    }
-  }
-  return { includeModel: s.modelData, includeResults: s.results, extraSheets };
+  if (!s.results || !resultsStore.results3D) return out;
+  const wants = (k: ReportResult) => (config.resultModes?.[k] ?? 'both') !== 'table';
+  const many = (contents: FigureContent[]) => contents.map((f) => asReportFigure(f, o, figureTitle(f, o))).filter((f): f is ReportFigure => !!f);
+  if (wants('reactions')) out.reactions = many(['reactions']);
+  if (wants('displacements')) out.displacements = many(['deformed']);
+  if (wants('forces')) out.forces = many(['moment', 'shear', 'axial']);
+  if (wants('shells') && modelStore.plates.size + modelStore.quads.size > 0) out.shells = many(['shellMap']);
+  return out;
 }
 
 /**

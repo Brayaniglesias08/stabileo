@@ -6,7 +6,6 @@
   import { addSupportFromTool3D } from '../lib/store/support-tool-3d';
   import { viewVisibility } from '../lib/store/view-state.svelte';
   import { drawState } from '../lib/store/draw-state.svelte';
-  import { addNodalLoadIfAny } from '../lib/store/load-ops';
 
   let subdivCount = $state(2);
   const is3D = () => uiStore.is3DWorkspace;
@@ -31,20 +30,19 @@
     } else if (action === 'edit-element' && ctx.elementId != null) {
       uiStore.editingElementId = ctx.elementId;
       uiStore.editScreenPos = { x: ctx.x, y: ctx.y };
+    } else if ((action === 'add-support' || action === 'add-load') && ctx.nodeId != null && uiStore.analysisMode === 'pro') {
+      /* PRO adds supports and loads in one place, its panels' Add card: opened on this node. */
+      uiStore.setSelection(new Set([ctx.nodeId]), new Set());
+      uiStore.proActiveTab = action === 'add-support' ? 'supports' : 'loads';
+      uiStore.proPanelVisible = true;
+      drawState.writeOnSelection(action === 'add-support' ? 'support' : 'load');
     } else if (action === 'add-support' && ctx.nodeId != null) {
       /* In 3D the 2D tool's 'pinned' meant restraining ux, uy, uz, rx and ry — nearly fixed. */
       if (is3D()) addSupportFromTool3D(ctx.nodeId);
       else modelStore.addSupport(ctx.nodeId, uiStore.supportType as any);
       resultsStore.clear();
     } else if (action === 'add-load' && ctx.nodeId != null) {
-      if (uiStore.analysisMode === 'pro') {
-        /* PRO's own draw bar: its six components, as a click with the load tool places them; six
-           zeros are no load, refused as the tool refuses them. */
-        if (addNodalLoadIfAny(ctx.nodeId, drawState.nodalLoad, uiStore.activeLoadCaseId) === null) {
-          uiStore.toast(t('drawBar.loadIsZero'), 'info');
-          return;
-        }
-      } else if (is3D()) {
+      if (is3D()) {
         /* As the load tool would place it; a 2D nodal load became a horizontal fy in 3D. */
         const d = uiStore.nodalLoadDir3D, v = uiStore.loadValue;
         modelStore.addNodalLoad3D(ctx.nodeId, d === 'fx' ? v : 0, d === 'fy' ? v : 0, d === 'fz' ? v : 0,

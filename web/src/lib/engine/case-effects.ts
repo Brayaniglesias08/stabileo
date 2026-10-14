@@ -193,7 +193,7 @@ function sourceGravity(model: ModelData, srcLoads: Load[], srcRows: SelfWeightLo
   return out;
 }
 
-type SingleCase = CaseLike & Pick<LoadCase, 'reference' | 'solve'>;
+type SingleCase = CaseLike & Pick<LoadCase, 'reference' | 'solve' | 'spectral'>;
 
 /**
  * The rule of a solve of every load at once, without combinations, case by case: what each case
@@ -309,5 +309,8 @@ export function singleSolveFactors(cases: readonly SingleCase[], opts: { legacyS
     const total = [...factors].reduce((s, [id, k]) => s + k * weightOf(id), 0);
     if (Math.abs(total - 1) > 1e-9) return null;
   }
+  // A spectral case is no load of the single solve: its result is a response, signed by its
+  // dominant mode, that only a combination takes (`spectral-case.ts`). At 1 it was in "All loads".
+  for (const c of cases) if (c.spectral) factors.set(c.id, 0);
   return factors;
 }

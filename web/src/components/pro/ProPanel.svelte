@@ -36,8 +36,9 @@
    * `canSolve` is about, and a gate that lives away from the command it gates is the riddle this
    * branch has already fixed twice.
    */
+  import { onDestroy } from 'svelte';
   import { t } from '../../lib/i18n';
-  import { selfWeightRuleEffect } from '../../lib/store/self-weight-migration';
+  import { leaveSelfWeightRule, selfWeightRuleEffect } from '../../lib/store/self-weight-migration';
   import SelectionPanel from '../SelectionPanel.svelte';
   import ToolbarConfig from '../toolbar/ToolbarConfig.svelte';
   import ProTransformPanel from './ProTransformPanel.svelte';
@@ -51,7 +52,7 @@
   import { modelStore, resultsStore, uiStore, verificationStore, tabManager, historyStore } from '../../lib/store';
   import AiDrawer from '../AiDrawer.svelte';
   import type { ReportConfig, ReportData } from '../../lib/engine/pro-report';
-  import { exportReportAs } from '../../lib/pro/report-export';
+  import { exportReportAs, type ReportFigureChoices } from '../../lib/pro/report-export';
   import { runGlobalSolve } from '../../lib/engine/live-calc';
   import { proExampleGroups, type ProExample } from '../../lib/data/pro-examples';
   import ProReportDialog from './ProReportDialog.svelte';
@@ -173,19 +174,22 @@
 
   /* The assembly lives in `lib/pro/report-export.ts`: this component is a
      layout shell, and the 600-line ceiling on it is what said so. */
-  function exportReport(config: ReportConfig) {
+  function exportReport(config: ReportConfig, figureOptions: ReportFigureChoices) {
     showReportDialog = false;
-    exportReportAs({
+    void exportReportAs({
       config,
       // The report prints the Design panel's verification (`reportDesignChecks`), not a design of its own.
       verifications: [],
       advancedResults: advancedResultsRef,
       t,
+      figureOptions,
     });
   }
 
   // A model without a self-weight rule (older file, link, tab, first member) is given one.
   $effect(selfWeightRuleEffect);
+  // What is drawn in another mode is not drawn in PRO: a model seen empty here is migrated on return.
+  onDestroy(leaveSelfWeightRule);
 
   async function loadProExample(ex: ProExample) {
     // The example states its own self-weight and combinations (`lib/data/pro-examples.ts`).
@@ -252,7 +256,7 @@
   };
 </script>
 
-<div class="pro-panel">
+<div class="pro-panel" data-testid="pro-panel" class:st-panel-scrollbars={uiStore.panelScrollbars && !uiStore.isMobile}>
   {#if uiStore.isMobile}
     <ProPhoneNav {shell} />
   {/if}
@@ -385,14 +389,13 @@
 </div>
 
 <ProReportDialog
-  open={showReportDialog}
+  bind:open={showReportDialog}
   hasResults={!!resultsStore.results3D}
   hasAdvanced={Object.keys(advancedResultsRef).length > 0}
   advancedRan={Object.keys(advancedResultsRef)}
   hasDiagnostics={resultsStore.diagnostics3D.length > 0}
   hasQuantities={hasLoadCarrying3D(modelStore.model)}
   ongenerate={exportReport}
-  onclose={() => { showReportDialog = false; }}
 />
 
 <style>

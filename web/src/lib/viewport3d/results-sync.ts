@@ -16,16 +16,13 @@ import { colourScaleSource } from '../store/result-view';
 import { createDeformedLines, createDeformedShells, type ElementEI } from '../three/deformed-shape-3d';
 import { eiOf } from '../engine/member-deflection';
 import { deformedView, nodesToLabel } from '../store/deformed-view.svelte';
-import { viewState, memberLabelText, viewVisibility, visibleElements, visiblePlates, visibleQuads, visibleNodes } from '../store/view-state.svelte';
+import { viewState, memberLabelText, nodeLabelText, viewVisibility, visibleElements, visiblePlates, visibleQuads, visibleNodes } from '../store/view-state.svelte';
 import { createDiagramGroup3D, createEnvelopeDiagramGroup3D } from '../three/diagram-render-3d';
-import { createDespiece3DGroup } from '../three/despiece-3d';
 import { structureNodes } from '../three/node-scale';
 import { COLORS, setGroupColor, disposeObject, axialForceColor, verificationStateColor, createTextSpriteCached, heatmapColor } from '../three/selection-helpers';
 import { verificationStore } from '../store/verification.svelte';
 import { createReactionArrow, createConstraintForceArrow } from '../three/create-load-arrow';
 import { dofQuantity } from '../utils/units';
-import { forceMomentFormat } from '../utils/load-tag-text';
-import { displayUnits } from '../store/display-units.svelte';
 import type { Diagram3DKind } from '../engine/diagrams-3d';
 import type { Displacement3D } from '../engine/types-3d';
 import { timeHistoryView } from '../store/time-history-view.svelte';
@@ -103,7 +100,6 @@ export interface ResultsSyncContext {
   deformedGroup: THREE.Group | null;
   diagramGroup: THREE.Group | null;
   overlayDiagramGroup: THREE.Group | null;
-  despieceGroup: THREE.Group | null;
   reactionGroup: THREE.Group | null;
   constraintForcesGroup: THREE.Group | null;
   nodeLabelsGroup: THREE.Group | null;
@@ -962,60 +958,7 @@ export function syncReactions(ctx: ResultsSyncContext): void {
 }
 
 // ─── Despiece / Free-body view (3D) ──────────────────────────
-
-/** Sync the 3D despiece overlay to separation `sep` (0..1). The overlay is built
- *  ONCE (per results/model change) and the pull-apart is animated in place via
- *  the group's `despieceUpdate` hook — so animation frames do no allocation (no
- *  rebuilt geometries/materials/text-sprites). No-op without solved results. */
-export function syncDespiece3D(ctx: ResultsSyncContext, sep: number): void {
-  if (!ctx.initialized) return;
-  const r3d = resultsStore.results3D;
-  if (!r3d || !r3d.elementForces?.length) {
-    if (ctx.despieceGroup) {
-      ctx.resultsParent.remove(ctx.despieceGroup);
-      disposeObject(ctx.despieceGroup);
-      ctx.despieceGroup = null;
-    }
-    return;
-  }
-
-  const ver = modelStore.modelVersion;
-  // Options that change WHAT is drawn → rebuild (they're infrequent user actions);
-  // the pull-apart itself is animated cheaply via despieceUpdate.
-  // The labels are written in the project's units with the reader's decimals, as the inspector.
-  const optSig = `${uiStore.despieceVectorMode}|${uiStore.despieceBasis}|${uiStore.despieceVectorSize}|${uiStore.despieceLabelSize}|${resultsStore.showReactions ? 1 : 0}|${uiStore.axisConvention3D}|${uiStore.despieceCombineVectors ? 1 : 0}|${uiStore.despieceLoadMode}|${uiStore.unitSystem}|${displayUnits.decimals.force}|${displayUnits.decimals.moment}`;
-  const g = ctx.despieceGroup;
-  const stale = !g || g.userData.despieceResultsRef !== r3d || g.userData.despieceModelVer !== ver || g.userData.despieceOptSig !== optSig;
-  if (stale) {
-    if (g) { ctx.resultsParent.remove(g); disposeObject(g); }
-    const ng = createDespiece3DGroup({
-      elements: modelStore.elements,
-      nodes: modelStore.nodes,
-      forces: r3d.elementForces,
-      reactions: r3d.reactions ?? [],
-      sep,
-      sections: modelStore.sections,
-      leftHand: uiStore.axisConvention3D === 'leftHand',
-      project2D: projectFlag(),
-      vectorMode: uiStore.despieceVectorMode,
-      basis: uiStore.despieceBasis,
-      vectorSize: uiStore.despieceVectorSize,
-      labelSize: uiStore.despieceLabelSize,
-      showReactions: resultsStore.showReactions,
-      resultant: uiStore.despieceCombineVectors,
-      loads: modelStore.loads,
-      loadMode: uiStore.despieceLoadMode,
-      format: forceMomentFormat(uiStore.unitSystem, displayUnits.decimals),
-    });
-    ng.userData.despieceResultsRef = r3d;
-    ng.userData.despieceModelVer = ver;
-    ng.userData.despieceOptSig = optSig;
-    ctx.resultsParent.add(ng);
-    ctx.despieceGroup = ng;
-  }
-  // Cheap per-frame pose update (transforms + 2 line vertices per member).
-  (ctx.despieceGroup as import('../three/despiece-3d').DespieceGroup).userData.despieceUpdate(sep);
-}
+// Drawn over the scene by the viewport (`canvas/free-body.ts`), not as scene objects.
 
 // ─── Constraint Forces ───────────────────────────────────────
 
@@ -1115,7 +1058,7 @@ export function syncLabels3D(ctx: ResultsSyncContext): void {
     for (const [id, node] of visibleNodes()) {
       if (only && !uiStore.selectedNodes.has(id)) continue;
       const pos = projectNodeToScene(node, project2D);
-      const sprite = createTextSpriteCached(String(id), '#ffffff', 28, true);
+      const sprite = createTextSpriteCached(nodeLabelText(viewState.memberLabel, node), '#ffffff', 28, true);
       sprite.position.set(pos.x, pos.y, pos.z);
       sprite.center.set(-0.05, -0.15);
       sprite.scale.set(LABEL_SCREEN, LABEL_SCREEN, 1);

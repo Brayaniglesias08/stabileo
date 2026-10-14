@@ -15,8 +15,8 @@ import { shouldProjectModelToXZ } from '../geometry/coordinate-system';
 import '../engine/design/adapters/cirsoc201-adapter';
 import '../engine/design/adapters/unsupported-adapter';
 import { connectionPrompt } from './connection-prompt.svelte';
-import { viewVisibility } from './view-state.svelte';
 import { scheduleDefinedLoadsSync, flushDefinedLoadsSync } from './defined-loads';
+import { viewVisibility } from './view-state.svelte';
 
 // Wire model mutations to automatically clear stale results.
 // This ensures results never persist after the model changes,

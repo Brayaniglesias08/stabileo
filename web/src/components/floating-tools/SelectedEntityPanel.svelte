@@ -4,11 +4,6 @@
   import type { NodalLoad, DistributedLoad, PointLoadOnElement, NodalLoad3D, DistributedLoad3D, PointLoadOnElement3D } from '../../lib/store/model.svelte.ts';
   import { get2DDisplayNodalLoadMoment, get2DDisplayNodalLoadVertical } from '../../lib/geometry/coordinate-system';
   import { memberLoadPerpComponent } from '../../lib/engine/model-diagnostics';
-  import Icon from '../ribbon/Icon.svelte';
-  // Values are typed in the unit system chosen under Settings and kept in SI.
-  import UnitInput from '../UnitInput.svelte';
-  import { unitQ } from '../../lib/store/display-units.svelte';
-  import { editLoad, setMemberLoadFrame } from '../../lib/store/load-ops';
   import { isDefinedLoad } from '../../lib/model/loads/floor-definitions';
 
   /**
@@ -21,6 +16,11 @@
     uiStore.toast(t('floorLoad.readOnlyLoad'), 'info');
     return true;
   }
+  import Icon from '../ribbon/Icon.svelte';
+  // Values are typed in the unit system chosen under Settings and kept in SI.
+  import UnitInput from '../UnitInput.svelte';
+  import { unitQ } from '../../lib/store/display-units.svelte';
+  import { editLoad, setMemberLoadFrame } from '../../lib/store/load-ops';
 
   /**
    * `inBar`: shown in the options bar's edit mode (ToolOptions), whose own
@@ -168,6 +168,7 @@
 {#if selectedLoad}
   <div class="ft-load-edit" class:in-bar={inBar}>
     {#if !inBar}<span class="ft-load-tag">{t('selEntity.editingLoad')}</span>{/if}
+    {#if uiStore.showLoadCasePicker}
     <span class="ft-case-dot" style="background: {modelStore.getLoadCaseColor((selectedLoad.data as any).caseId ?? 1)}"></span>
     <select class="ft-case-select"
       value={String((selectedLoad.data as any).caseId ?? 1)}
@@ -178,6 +179,7 @@
       {/each}
     </select>
     <span class="ft-sep">|</span>
+    {/if}
     {#if selectedLoad.type === 'nodal'}
       {@const nl = selectedLoad.data as NodalLoad}
       <label class="ft-input-group">

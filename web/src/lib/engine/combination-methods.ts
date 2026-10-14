@@ -24,6 +24,17 @@
  * is given for one with no second-order equilibrium; a nonlinear model refuses it
  * (`magnitudeRefusal`), since its cases do not superpose.
  *
+ *   spectral       a spectral case's result is its own (`spectral-case.ts`): no loads, so the solve
+ *                  of a linear combination that takes it solves the rest of the combination, and the
+ *                  spectral part is added to that, factor by factor (`superposed`): to the linear
+ *                  result, or under P-Delta per combination to the second-order one. The spectral
+ *                  part stays first order, as the modal analysis it comes from is linear; a
+ *                  combination with no second-order equilibrium gets no result, spectral part or
+ *                  not. A nonlinear model refuses these combinations by name (`spectralRefusal`):
+ *                  a linear spectral part added to a nonlinear state is no state of the structure.
+ *                  Rebuilding them from the first-order cases lost the P-Delta of the rest, gave a
+ *                  buckled combination results, and the engine's combiner dropped the shells.
+ *
  * Pure, over the engine's results.
  */
 import type { AnalysisResults3D, ElementForces3D, FullEnvelope3D, PlateStress, QuadStress } from './types-3d';
@@ -31,6 +42,7 @@ import type { LoadCase, LoadCombination } from '../store/model.svelte';
 import type { ResultPiece } from './variable-members';
 import { envelopeOver, isMagnitudeCombination } from './result-scopes';
 import { SETTLEMENT_CASE_ID } from './settlement-case';
+import { combineShellStresses, type PlateThickness } from './shell-combos';
 
 export type MagnitudeMethod = 'srss' | 'abs';
 
@@ -53,19 +65,44 @@ export function magnitudeRefusal(nonlinear: boolean, combinations: ReadonlyArray
   return named.length ? named : null;
 }
 
+/** Whether a combination takes one of `spectralIds` (`LoadCase.spectral`). */
+export const takesSpectral = (c: Pick<LoadCombination, 'factors'>, spectralIds: ReadonlySet<number>) =>
+  c.factors.some((f) => f.factor !== 0 && spectralIds.has(f.caseId));
+
+/**
+ * A nonlinear model's linear combinations that take a spectral case, by name: the spectral part is
+ * a linear result, and the rest of the combination a nonlinear state it cannot be added to. Null
+ * when there is none, or the model is linear. (Its SRSS and ABS ones `magnitudeRefusal` names.)
+ */
+export function spectralRefusal(
+  nonlinear: boolean,
+  cases: ReadonlyArray<Pick<LoadCase, 'id' | 'spectral'>>,
+  combinations: ReadonlyArray<Pick<LoadCombination, 'name' | 'method' | 'factors'>>,
+): string[] | null {
+  if (!nonlinear) return null;
+  const ids = new Set(cases.filter((c) => c.spectral).map((c) => c.id));
+  const named = combinations.filter((c) => !isMagnitudeCombination(c) && takesSpectral(c, ids)).map((c) => c.name);
+  return named.length ? named : null;
+}
+
 const combine = (method: MagnitudeMethod, vs: readonly number[]) =>
   method === 'srss' ? Math.sqrt(vs.reduce((s, v) => s + v * v, 0)) : vs.reduce((s, v) => s + Math.abs(v), 0);
 
-/** Every numeric field of a row (and every number of an array field) combined over the rows. */
-function combineRows<T extends object>(method: MagnitudeMethod, rows: readonly T[], keep: ReadonlySet<string>): T {
+/** Every numeric field of a row (and every number of an array field) combined over the rows by `reduce`. */
+export function reduceRows<T extends object>(reduce: (vs: readonly number[]) => number, rows: readonly T[], keep: ReadonlySet<string>): T {
   const first = rows[0]! as Record<string, unknown>;
   const out: Record<string, unknown> = { ...first };
   for (const [k, v] of Object.entries(first)) {
     if (keep.has(k)) continue;
-    if (typeof v === 'number') out[k] = combine(method, rows.map((r) => ((r as Record<string, unknown>)[k] as number) ?? 0));
-    else if (Array.isArray(v) && v.every((x) => typeof x === 'number')) out[k] = v.map((_, i) => combine(method, rows.map((r) => (((r as Record<string, unknown>)[k] as number[] | undefined)?.[i]) ?? 0)));
+    if (typeof v === 'number') out[k] = reduce(rows.map((r) => ((r as Record<string, unknown>)[k] as number) ?? 0));
+    else if (Array.isArray(v) && v.every((x) => typeof x === 'number')) out[k] = v.map((_, i) => reduce(rows.map((r) => (((r as Record<string, unknown>)[k] as number[] | undefined)?.[i]) ?? 0)));
   }
   return out as T;
+}
+
+/** Every numeric field of a row (and every number of an array field) combined over the rows. */
+function combineRows<T extends object>(method: MagnitudeMethod, rows: readonly T[], keep: ReadonlySet<string>): T {
+  return reduceRows((vs) => combine(method, vs), rows, keep);
 }
 
 /** Rows keyed by an id, grouped across results. */
@@ -83,7 +120,28 @@ function byId<T extends object>(method: MagnitudeMethod, lists: ReadonlyArray<re
   return groupById(lists, idKey).map((rows) => combineRows(method, rows, keep));
 }
 
-const ELEMENT_KEEP = new Set(['elementId', 'length', 'releaseMyStart', 'releaseMyEnd', 'releaseMzStart', 'releaseMzEnd', 'releaseTStart', 'releaseTEnd']);
+/**
+ * Rows keyed by an id, combined across results in their order; a row missing from a result counts
+ * as zero there, so the reducer always sees one value per result (a spectral case's modes, whose
+ * combination pairs them by position: `spectral-case.ts`).
+ */
+export function reduceById<T extends object>(reduce: (vs: readonly number[]) => number, lists: ReadonlyArray<readonly T[] | undefined>, idKey: string, keep: ReadonlySet<string>): T[] {
+  const ids = new Map<number, Array<T | undefined>>();
+  lists.forEach((list, i) => {
+    for (const r of list ?? []) {
+      const id = (r as Record<string, unknown>)[idKey] as number;
+      const row = ids.get(id) ?? ids.set(id, new Array<T | undefined>(lists.length).fill(undefined)).get(id)!;
+      row[i] = r;
+    }
+  });
+  return [...ids.values()].map((rows) => {
+    const present = rows.find((r): r is T => !!r)!;
+    const zero = Object.fromEntries(Object.entries(present).map(([k, v]) => [k, typeof v === 'number' && !keep.has(k) ? 0 : v])) as T;
+    return reduceRows(reduce, rows.map((r) => r ?? zero), keep);
+  });
+}
+
+export const ELEMENT_KEEP = new Set(['elementId', 'length', 'releaseMyStart', 'releaseMyEnd', 'releaseMzStart', 'releaseMzEnd', 'releaseTStart', 'releaseTEnd']);
 const NODE_KEEP = new Set(['nodeId']);
 const SHELL_KEEP = new Set(['elementId']);
 
@@ -142,6 +200,78 @@ function scaledResult(r: AnalysisResults3D, f: number): AnalysisResults3D {
     elementForces: r.elementForces.map((ef) => scaledForces(ef, f)),
     ...(r.plateStresses ? { plateStresses: r.plateStresses.map((s) => scaledShell(s, f)) } : {}),
     ...(r.quadStresses ? { quadStresses: r.quadStresses.map((s) => scaledShell(s, f)) } : {}),
+  };
+}
+
+/**
+ * A member's part between x0 and x1, of a result with no loads along the member (a spectral case's):
+ * each end field read off the straight line between the member's ends.
+ */
+function spanOf(ef: ElementForces3D, x0: number, x1: number, length: number): ElementForces3D {
+  const out: Record<string, unknown> = { ...ef, length: x1 - x0 };
+  for (const k of Object.keys(ef)) {
+    if (!k.endsWith('Start')) continue;
+    const base = k.slice(0, -5), a = (ef as unknown as Record<string, unknown>)[k], b = (ef as unknown as Record<string, unknown>)[base + 'End'];
+    if (typeof a !== 'number' || typeof b !== 'number') continue;
+    const at = (x: number) => a + (b - a) * (length > 0 ? x / length : 0);
+    out[k] = at(x0); out[base + 'End'] = at(x1);
+  }
+  return out as unknown as ElementForces3D;
+}
+
+/** Members' forces added, each part times its factor: the ends, every part's loads, the pieces. */
+function summedForces(parts: ReadonlyArray<{ ef: ElementForces3D; f: number }>): ElementForces3D {
+  const scaled = parts.map(({ ef, f }) => scaledForces(ef, f));
+  const ends = reduceRows((vs) => vs.reduce((s, v) => s + v, 0), scaled, ELEMENT_KEEP);
+  const withPieces = scaled.find((e) => e.pieces?.length);
+  // A variable member's pieces: each part's own piece, or its straight line over the piece's span.
+  const pieces = withPieces?.pieces?.map((pc, i): ResultPiece => {
+    const own = scaled.map((e) => (e.pieces?.[i] ? e.pieces[i]!.forces : spanOf(e, pc.x0, pc.x1, e.length)));
+    const all = scaled.every((e) => e.pieces?.[i]);
+    return {
+      ...pc, forces: summedForces(own.map((ef) => ({ ef, f: 1 }))),
+      // Displacements along the member only where every part has them.
+      dI: all && pc.dI ? reduceRows((vs) => vs.reduce((s, v) => s + v, 0), scaled.map((e) => e.pieces![i]!.dI!), NODE_KEEP) : undefined,
+      dJ: all && pc.dJ ? reduceRows((vs) => vs.reduce((s, v) => s + v, 0), scaled.map((e) => e.pieces![i]!.dJ!), NODE_KEEP) : undefined,
+    };
+  });
+  return {
+    ...ends,
+    distributedLoadsY: scaled.flatMap((e) => e.distributedLoadsY), distributedLoadsZ: scaled.flatMap((e) => e.distributedLoadsZ),
+    distributedLoadsX: scaled.flatMap((e) => e.distributedLoadsX ?? []),
+    pointLoadsY: scaled.flatMap((e) => e.pointLoadsY), pointLoadsZ: scaled.flatMap((e) => e.pointLoadsZ),
+    pieces, combined: undefined,
+  };
+}
+
+/**
+ * Results added, each times its factor: displacements, reactions, member forces with their loads
+ * and pieces (`summedForces`), and shell stresses, whose components add and whose Von Mises, σ1
+ * and σ2 are worked out from the sums as the engine does for its element (`combineShellStresses`).
+ * The first part's own fields (a second-order result's `secondOrder`) are kept. The engine's
+ * combiner, which this replaces for a combination taking a spectral case, drops the shells.
+ */
+export function superposed(parts: ReadonlyArray<{ r: AnalysisResults3D; f: number }>, plates: PlateThickness = new Map()): AnalysisResults3D {
+  const sum = (vs: readonly number[]) => vs.reduce((s, v, i) => s + parts[i]!.f * v, 0);
+  const elements = new Map<number, Array<{ ef: ElementForces3D; f: number }>>();
+  for (const { r, f } of parts) for (const ef of r.elementForces) (elements.get(ef.elementId) ?? elements.set(ef.elementId, []).get(ef.elementId)!).push({ ef, f });
+  const shells = parts.some(({ r }) => r.plateStresses?.length || r.quadStresses?.length)
+    ? combineShellStresses(
+        parts.map(({ f }, i) => ({ caseId: i, factor: f })),
+        new Map(parts.map(({ r }, i) => [i, new Map((r.plateStresses ?? []).map((s) => [s.elementId, s]))])),
+        new Map(parts.map(({ r }, i) => [i, new Map((r.quadStresses ?? []).map((s) => [s.elementId, s]))])),
+        plates,
+      )
+    : null;
+  // The rest's own fields kept (`secondOrder`), never a magnitude's mark: the sum has a sign.
+  const first: AnalysisResults3D = { ...parts[0]!.r };
+  delete first.magnitude;
+  return {
+    ...first,
+    displacements: reduceById(sum, parts.map(({ r }) => r.displacements), 'nodeId', NODE_KEEP),
+    reactions: reduceById(sum, parts.map(({ r }) => r.reactions), 'nodeId', NODE_KEEP),
+    elementForces: [...elements.values()].map(summedForces),
+    ...(shells ? { plateStresses: shells.plateStresses, quadStresses: shells.quadStresses } : {}),
   };
 }
 
@@ -234,23 +364,55 @@ export interface CombinationBundle { perCase: Map<number, AnalysisResults3D>; pe
  * linear cases' magnitude, said on its result; one the P-Delta solve found with no second-order
  * equilibrium at its summed load gets no result, as a linear one does not. It got the magnitude
  * back, and an unstable combination read as one with results.
+ *
+ * `plates`: the plates' thicknesses, for the stresses of a combination taking a spectral case.
  */
 export function finishBundle<B extends CombinationBundle>(
   bundle: B | string | null,
-  cases: ReadonlyArray<Pick<LoadCase, 'id' | 'reference' | 'solve'>>,
+  cases: ReadonlyArray<Pick<LoadCase, 'id' | 'reference' | 'solve' | 'spectral'>>,
   combinations: ReadonlyArray<Pick<LoadCombination, 'id' | 'factors' | 'method'>>,
-  opts: { firstOrder?: boolean } = {},
+  opts: { firstOrder?: boolean; plates?: PlateThickness } = {},
+  /** The spectral cases' results; a spectral case without one is left out, with what takes it. */
+  spectral?: ReadonlyMap<number, AnalysisResults3D>,
 ): B | string | null {
   if (!bundle || typeof bundle === 'string') return bundle;
   const magnitude = combinations.filter(isMagnitudeCombination);
   const hidden = new Set(cases.filter((c) => !listed(c)).map((c) => c.id));
-  const perCase = hidden.size ? new Map([...bundle.perCase].filter(([id]) => !hidden.has(id))) : bundle.perCase;
   let { perCombo, envelope } = bundle;
-  if (magnitude.length) {
+  // A spectral case's result is its own; a linear combination that takes it is the rest of the
+  // combination as the solve gave it (linear, or second order), with the spectral part added.
+  const spectralIds = cases.filter((c) => c.spectral).map((c) => c.id);
+  const spectralSet = new Set(spectralIds);
+  const unstable = new Set(bundle.unstable ?? []);
+  let basePerCase = bundle.perCase;
+  if (spectralIds.length) {
+    basePerCase = new Map(bundle.perCase);
     perCombo = new Map(perCombo);
-    const unstable = new Set(bundle.unstable ?? []);
+    for (const id of spectralIds) {
+      const r = spectral?.get(id);
+      if (r) basePerCase.set(id, r); else basePerCase.delete(id);
+    }
+    for (const c of combinations) {
+      if (!takesSpectral(c, spectralSet)) continue;
+      if (c.factors.some((f) => f.factor !== 0 && spectralSet.has(f.caseId) && !basePerCase.has(f.caseId))) { perCombo.delete(c.id); continue; }
+      if (isMagnitudeCombination(c)) continue;
+      // No second-order equilibrium at its load: no result, as for any combination.
+      if (unstable.has(c.id)) { perCombo.delete(c.id); continue; }
+      // The rest is absent when the combination takes nothing but spectral cases.
+      const rest = bundle.perCombo.get(c.id);
+      const parts = [
+        ...(rest ? [{ r: rest, f: 1 }] : []),
+        ...c.factors.filter((f) => f.factor !== 0 && spectralSet.has(f.caseId)).map((f) => ({ r: basePerCase.get(f.caseId)!, f: f.factor })),
+      ];
+      perCombo.set(c.id, superposed(parts, opts.plates));
+    }
+  }
+  const perCase = hidden.size ? new Map([...basePerCase].filter(([id]) => !hidden.has(id))) : basePerCase;
+  if (magnitude.length || spectralIds.length) {
+    perCombo = new Map(perCombo);
     for (const c of magnitude) {
-      const r = unstable.has(c.id) ? null : magnitudeCombination(c.method as MagnitudeMethod, c.factors, bundle.perCase);
+      if (!perCombo.has(c.id) && c.factors.some((f) => f.factor !== 0 && spectralSet.has(f.caseId) && !basePerCase.has(f.caseId))) continue;
+      const r = unstable.has(c.id) ? null : magnitudeCombination(c.method as MagnitudeMethod, c.factors, basePerCase);
       if (r) perCombo.set(c.id, opts.firstOrder ? { ...r, magnitude: { method: r.magnitude!.method, firstOrder: true } } : r);
       else perCombo.delete(c.id);
     }

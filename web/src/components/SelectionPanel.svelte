@@ -15,11 +15,11 @@
    * disagreeing.
    */
   import { uiStore, modelStore } from '../lib/store';
-  import { selectAll, invertSelection, selectByIds, loadedInCase, parallelToGlobal, seedMembersOf, membersAsKinds, type GlobalDirection } from '../lib/model/select-ops';
+  import { selectAll, invertSelection, loadedInCase, parallelToGlobal, seedMembersOf, membersAsKinds, type GlobalDirection } from '../lib/model/select-ops';
+  import { likeSelection, likeSeedCount, likeMembers, shellsParallelToGlobal, allOfKind, selectShownByIds, LIKE_OPS, ALL_LIKE_OPS, type LikeOp, type SelKind } from '../lib/model/select-like';
   import { selectionHistory, trackSelectionHistory } from '../lib/store/selection-history.svelte';
   import { viewState, visibleModel } from '../lib/store/view-state.svelte';
-  import { selectWalkItem } from '../lib/actions/selection-walk';
-  import { groupByParallel, groupByConnectivity, groupBySection, groupByMaterial, groupByElevation, groupByPlane, groupByFrameLine, groupByKind, memberKindOf } from '../lib/engine/design/member-grouping';
+  import { selectWalkItem, type WalkKind } from '../lib/actions/selection-walk';
   import { t, tp } from '../lib/i18n';
 
   /**
@@ -49,12 +49,21 @@
   const KIND_LABEL = Object.fromEntries(ALL_MODES.map((m) => [m.id, m.key])) as Record<string, string>;
 
   // ── Operating on the selection as a set ──────────────────────────
-  let byIdKind = $state<'nodes' | 'elements' | 'plates' | 'quads'>('elements');
+  /*
+   * PRO's by id names one kind at a time, and follows the kind armed above: arm supports and the
+   * list reads support ids. Naming another kind arms it, so what is selected is always what the
+   * panel says is being selected. (Basic looks a number up in every armed kind, below.)
+   */
+  let byIdKind = $state<SelKind>('elements');
+  $effect(() => {
+    const m = uiStore.selectMode;
+    if (MODES.some((x) => x.id === m)) byIdKind = m as SelKind;
+  });
   let byIdText = $state('');
   let byIdNote = $state('');
 
   /** The kinds currently being selected, as the set the operations take. */
-  const armedKinds = $derived(new Set(MODES.filter((m) => uiStore.selectsKind(m.id)).map((m) => m.id)));
+  const armedKinds = $derived(new Set<SelKind>(MODES.filter((m) => uiStore.selectsKind(m.id)).map((m) => m.id)));
 
   /*
    * Basic keeps the operations it can explain: the whole set (all, none, invert), "like the
@@ -77,50 +86,83 @@
     uiStore.selectedLoads = sel.loads ?? new Set();
   }
 
+  /**
+   * A whole selection, kind by kind: the armed kinds take what `pick` gives them (their current
+   * selection when it gives nothing), the others are emptied. PRO's operations end here, so none
+   * of them can leave lit a kind the panel is not selecting.
+   */
+  function applyArmed(pick: Partial<{ nodes: Set<number>; elements: Set<number>; shells: Set<string>; supports: Set<number>; loads: Set<number> }>) {
+    const take = <T,>(k: SelKind, cur: Set<T>, v: Set<T> | undefined): Set<T> => (armedKinds.has(k) ? (v ?? new Set(cur)) : new Set());
+    apply({
+      nodes: take('nodes', uiStore.selectedNodes, pick.nodes),
+      elements: take('elements', uiStore.selectedElements, pick.elements),
+      shells: take('shells', uiStore.selectedShells, pick.shells),
+      supports: take('supports', uiStore.selectedSupports, pick.supports),
+      loads: take('loads', uiStore.selectedLoads, pick.loads),
+    });
+  }
+
   trackSelectionHistory();
 
-  // ── More ways to select ──────────────────────────────────────────
+  /*
+   * In PRO, changing the armed kinds drops what was selected of the kinds no longer armed. The
+   * store does it (`uiStore` `dropUnarmed`), so Multi turned off, a kind button, a table row and
+   * a panel's "pick" button all do.
+   */
+
+  /*
+   * Every operation reads the model as the view shows it, as All and Invert do (below): a hidden
+   * member, a support on a hidden node, a load on a hidden member are not taken. "Parallel" from
+   * beam 1 with beam 2 hidden took beam 2, and the Delete that followed removed it unseen.
+   */
+  const shown = () => ({ ...modelStore.model, ...visibleModel() });
+
+  // ── More ways to select (PRO) ────────────────────────────────────
   let loadCase = $state<number | null>(null);
   const cases = $derived(modelStore.loadCases);
   function selectLoaded() {
     const id = loadCase ?? cases[0]?.id;
     if (id === undefined) return;
-    const sel = loadedInCase(modelStore.loads as never, id);
-    // With loads armed it takes the loads themselves; otherwise what they sit on.
-    if (uiStore.selectsKind('loads')) apply({ nodes: new Set(), elements: new Set(), shells: new Set(), loads: sel.loads });
-    else apply({ ...sel, loads: undefined });
+    const sel = loadedInCase(visibleModel().loads as never, id);
+    // Each armed kind takes its part: the loads themselves, or the nodes, members and plates they sit on.
+    applyArmed({ nodes: sel.nodes, elements: sel.elements, shells: sel.shells, loads: sel.loads, supports: new Set() });
   }
+  /** Loads sit on nodes, members and plates; a support is not loaded. */
+  const loadedApplies = $derived(['nodes', 'elements', 'shells', 'loads'].some((k) => armedKinds.has(k as SelKind)));
   let globalDir = $state<GlobalDirection>('Z');
+  /** Members along the axis or in the plane; plates whose plane holds the axis or lies in the plane. */
+  const parallelApplies = $derived(armedKinds.has('elements') || armedKinds.has('shells'));
   function selectParallel() {
-    apply({ nodes: new Set(), elements: parallelToGlobal(modelStore.nodes, modelStore.elements, globalDir), shells: new Set() });
+    const m = shown();
+    applyArmed({
+      elements: parallelToGlobal(m.nodes, m.elements, globalDir),
+      shells: shellsParallelToGlobal(m as never, globalDir),
+    });
   }
 
   // ── Walking through a set, one at a time, framed ─────────────────
   /*
    * The walk goes through what is selected, in the kinds armed above, one at a time, framing
-   * each: members, nodes, supports or loads. With nothing selected, through all of the first
-   * armed kind.
+   * each: members, nodes, plates, supports or loads. With nothing selected, through all of the
+   * first armed kind that the view shows (`allOfKind`). Each step selects that item alone
+   * (`selectWalkItem`); the armed kinds stay.
    */
-  type WalkKind = 'elements' | 'nodes' | 'supports' | 'loads';
-  let walk = $state<{ items: { kind: WalkKind; id: number }[] } | null>(null);
+  type WalkId = number | string;
+  let walk = $state<{ items: { kind: WalkKind; id: WalkId }[] } | null>(null);
   let walkAt = $state(0);
-  const WALK_ORDER: WalkKind[] = ['elements', 'nodes', 'supports', 'loads'];
+  const WALK_ORDER: WalkKind[] = ['elements', 'nodes', 'shells', 'supports', 'loads'];
+  /** A plate's key in its numbering: q3 after p3. */
+  const order = (v: WalkId) => (typeof v === 'number' ? v : Number(v.slice(1)) + (v[0] === 'q' ? 0.5 : 0));
   function startWalk() {
-    const sel: Record<WalkKind, Iterable<number>> = {
-      elements: uiStore.selectedElements, nodes: uiStore.selectedNodes,
+    const sel: Record<WalkKind, Iterable<WalkId>> = {
+      elements: uiStore.selectedElements, nodes: uiStore.selectedNodes, shells: uiStore.selectedShells,
       supports: uiStore.selectedSupports, loads: uiStore.selectedLoads,
     };
-    // PRO walks members, or nodes when only nodes are selected, as it always has.
-    const kinds = basic ? WALK_ORDER.filter((k) => armedKinds.has(k))
-      : [[...uiStore.selectedElements].length || ![...uiStore.selectedNodes].length ? 'elements' : 'nodes'] as WalkKind[];
-    let items = kinds.flatMap((k) => [...sel[k]].sort((a, b) => a - b).map((id) => ({ kind: k, id })));
+    const kinds = WALK_ORDER.filter((k) => armedKinds.has(k as SelKind));
+    let items = kinds.flatMap((k) => [...sel[k]].sort((a, b) => order(a) - order(b)).map((id) => ({ kind: k, id })));
     if (!items.length) {
       const k = kinds[0] ?? 'elements';
-      const all: Record<WalkKind, () => number[]> = {
-        elements: () => [...modelStore.elements.keys()], nodes: () => [...modelStore.nodes.keys()],
-        supports: () => [...modelStore.supports.keys()], loads: () => modelStore.loads.map((l) => l.data.id),
-      };
-      items = all[k]().sort((a, b) => a - b).map((id) => ({ kind: k, id }));
+      items = allOfKind(shown() as never, k).map((id) => ({ kind: k, id }));
     }
     walk = { items };
     walkAt = -1;
@@ -130,8 +172,6 @@
     if (!walk || walk.items.length === 0) return;
     walkAt = (walkAt + by + walk.items.length) % walk.items.length;
     const { kind, id } = walk.items[walkAt]!;
-    // In Basic the armed kinds stay as they are; the item is selected in its own channel.
-    if (!basic) uiStore.selectMode = kind === 'nodes' ? 'nodes' : 'elements';
     selectWalkItem(kind, id);
     window.dispatchEvent(new CustomEvent('stabileo-zoom-to-selection'));
   }
@@ -158,55 +198,55 @@
 
   /*
    * ── Like what is selected ─────────────────────────────────────────
-   * The member groupings design already has (`member-grouping.ts`), offered where selection
-   * lives: members parallel to, connected to, or sharing the section or material of the
-   * selected ones. Seeded by the selection, so "every beam running this way" is two clicks.
+   * Basic: the members the selection stands for (`seedMembersOf`), grouped by direction,
+   * connection, section or material, and given back as the kinds armed above (`membersAsKinds`).
+   * PRO: each armed kind seeded by its own selection and answered in that kind (`select-like.ts`):
+   * every beam running this way, every plate in this plane, every support of this type, every load
+   * of this case. The buttons are the operations the armed kinds have.
    */
-  const seedMembers = $derived(basic
-    ? seedMembersOf(modelStore.model as never, current())
-    : [...uiStore.selectedElements].filter((id) => modelStore.elements.has(id)));
-  function like(kind: 'parallel' | 'connected' | 'section' | 'material' | 'level' | 'plane' | 'frame' | 'kind') {
-    const model = modelStore.model as never;
-    let ids: number[] = [];
-    const seeds = new Set(seedMembers);
-    const refuse = (key?: string) => { byIdNote = t(key ?? 'selection.likeNone'); };
-    if (kind === 'parallel') ids = groupByParallel(model, seedMembers);
-    else if (kind === 'connected') ids = groupByConnectivity(model, seedMembers, 1, false);
-    else if (kind === 'level') {
-      // The storey the selected members sit on: its beams, and the columns rising from it.
-      const g = groupByElevation(model);
-      if (!g.available) return refuse(g.refusedKey);
-      const bands = g.bands.filter((b) => [...b.beamIds, ...b.columnsRisingIds].some((id) => seeds.has(id)));
-      ids = [...new Set(bands.flatMap((b) => [...b.beamIds, ...b.columnsRisingIds, ...b.slopedBeamIds]))];
-    } else if (kind === 'plane') {
-      const g = groupByPlane(model);
-      if (!g.available) return refuse(g.refusedKey);
-      ids = [...new Set(g.planes.filter((p) => p.elementIds.some((id) => seeds.has(id))).flatMap((p) => p.elementIds))];
-    } else if (kind === 'frame') {
-      const g = groupByFrameLine(model);
-      if (!g.available) return refuse(g.refusedKey);
-      ids = [...new Set(g.lines.filter((l) => l.elementIds.some((id) => seeds.has(id))).flatMap((l) => l.elementIds))];
-    } else if (kind === 'kind') {
-      const kinds = new Set(seedMembers.map((id) => memberKindOf(model, id)).filter((k) => k !== null));
-      ids = [...new Set([...kinds].flatMap((k) => groupByKind(model, k!)))];
-    } else {
-      const set = new Set<number>();
-      for (const id of seedMembers) {
-        const e = modelStore.elements.get(id)!;
-        for (const x of kind === 'section' ? groupBySection(model, e.sectionId) : groupByMaterial(model, e.materialId)) set.add(x);
-      }
-      ids = [...set];
-    }
+  const BASIC_LIKE: readonly LikeOp[] = ['parallel', 'connected', 'section', 'material'];
+  const seedMembers = $derived(basic ? seedMembersOf(modelStore.model as never, current()) : []);
+  const seeds = $derived({
+    nodes: [...uiStore.selectedNodes].filter((id) => modelStore.nodes.has(id)),
+    elements: [...uiStore.selectedElements].filter((id) => modelStore.elements.has(id)),
+    shells: [...uiStore.selectedShells],
+    supports: [...uiStore.selectedSupports],
+    loads: [...uiStore.selectedLoads],
+  });
+  const likeOps = $derived(basic ? BASIC_LIKE : ALL_LIKE_OPS.filter((op) => [...armedKinds].some((k) => LIKE_OPS[k].includes(op))));
+  const onlyMembers = $derived(armedKinds.size === 1 && armedKinds.has('elements'));
+  const seedCount = $derived(basic ? seedMembers.length : likeSeedCount(armedKinds, seeds));
+  const likeEnabled = (op: LikeOp) => (basic ? seedMembers.length > 0 : likeSeedCount(armedKinds, seeds, op) > 0);
+  const LIKE_LABEL: Record<LikeOp, string> = {
+    parallel: 'selection.likeParallel', connected: 'selection.likeConnected', section: 'selection.likeSection',
+    material: 'selection.likeMaterial', kind: 'selection.likeKind', level: 'selection.likeLevel',
+    plane: 'selection.likePlane', frame: 'selection.likeFrame', case: 'selection.likeCase',
+  };
+  function likeLabel(op: LikeOp): string {
+    // Plates have a thickness where members have a section; nodes are "connected" in the masculine.
+    if (!basic && op === 'section' && armedKinds.has('shells') && !armedKinds.has('elements')) return t('selection.likeThickness');
+    if (!basic && op === 'connected' && !armedKinds.has('elements') && !armedKinds.has('shells')) return t('selection.likeConnectedNodes');
+    return t(LIKE_LABEL[op]);
+  }
+  function like(op: LikeOp) {
     if (basic) {
+      const r = likeMembers(shown() as never, seedMembers, op);
+      if (r.refusedKey && r.ids.length === 0) { byIdNote = t(r.refusedKey); return; }
       // As the kinds armed above: the members, their nodes, the supports and loads on them.
-      const sel = membersAsKinds(modelStore.model as never, ids, armedKinds);
+      const sel = membersAsKinds(shown() as never, r.ids, armedKinds);
       apply(sel);
       const n = sel.nodes.size + sel.elements.size + (sel.supports?.size ?? 0) + (sel.loads?.size ?? 0);
       byIdNote = tp('selection.likeCount', { n });
       return;
     }
-    uiStore.setSelection(new Set(), new Set(ids), true);
-    byIdNote = tp('selection.likeCount', { n: ids.length });
+    const answers = likeSelection(shown() as never, armedKinds, seeds, op, uiStore.is3DWorkspace);
+    const refused = answers.find((a) => a.refusedKey && a.ids.size === 0);
+    if (refused && answers.every((a) => a.ids.size === 0)) { byIdNote = t(refused.refusedKey ?? 'selection.likeNone'); return; }
+    const pick: Parameters<typeof applyArmed>[0] = {};
+    for (const a of answers) (pick as Record<string, unknown>)[a.kind] = a.ids;
+    applyArmed(pick);
+    const n = answers.reduce((s, a) => s + a.ids.size, 0);
+    byIdNote = onlyMembers ? tp('selection.likeCount', { n }) : tp('selection.likeCountAny', { n });
   }
 
   /** The kinds a number is looked up in, in Basic: the ones armed above. */
@@ -220,27 +260,33 @@
       const sel = { nodes: new Set<number>(), elements: new Set<number>(), shells: new Set<string>(), supports: new Set<number>(), loads: new Set<number>() };
       const notes: string[] = [];
       const missing: string[] = [];
+      const hidden: string[] = [];
       let bad: string[] = [];
       for (const k of byIdKinds) {
-        const r = selectByIds(modelStore.model as never, k, byIdText);
+        const r = selectShownByIds(modelStore.model as never, shown() as never, k, byIdText);
         for (const ch of ['nodes', 'elements', 'supports', 'loads'] as const) for (const id of r.selection[ch] ?? []) sel[ch].add(id);
         if (r.missing.length) missing.push(`${t(KIND_LABEL[k]).toLowerCase()} ${r.missing.join(', ')}`);
+        if (r.hidden.length) hidden.push(`${t(KIND_LABEL[k]).toLowerCase()} ${r.hidden.join(', ')}`);
         bad = r.bad;
       }
       apply(sel);
       if (missing.length) notes.push(tp('selection.missingIds', { ids: missing.join('; ') }));
+      if (hidden.length) notes.push(tp('selection.hiddenIds', { ids: hidden.join('; ') }));
       if (bad.length) notes.push(tp('selection.badIds', { text: bad.join(', ') }));
       byIdNote = notes.join(' ');
       return;
     }
-    const r = selectByIds(modelStore.model as never, byIdKind, byIdText);
+    const r = selectShownByIds(modelStore.model as never, shown() as never, byIdKind, byIdText);
+    if (!uiStore.selectsKind(byIdKind)) uiStore.toggleSelectKind(byIdKind);
     apply(r.selection);
     /* Reported, not dropped: "select 1, 2, 9" quietly giving two of three is
        the kind of quiet wrongness that ends with a member missing from a
        design run. */
     const parts: string[] = [];
     if (r.missing.length) parts.push(tp('selection.missingIds', { ids: r.missing.join(', ') }));
+    if (r.hidden.length) parts.push(tp('selection.hiddenIds', { ids: r.hidden.join(', ') }));
     if (r.bad.length) parts.push(tp('selection.badIds', { text: r.bad.join(', ') }));
+    if (r.both.length) parts.push(tp('selection.bothShells', { ids: r.both.join(', ') }));
     byIdNote = parts.join(' ');
   }
 </script>
@@ -312,18 +358,11 @@
     <button class="sel-op" onclick={doInvert} data-testid="sel-invert">{t('selection.invert')}</button>
   </div>
   <div class="sel-like" data-testid="sel-like">
-    <span class="sel-like-label">{tp(basic ? 'selection.likeBasic' : 'selection.like', { n: seedMembers.length })}</span>
+    <span class="sel-like-label">{basic ? tp('selection.likeBasic', { n: seedCount }) : onlyMembers ? tp('selection.like', { n: seedCount }) : tp('selection.likeAny', { n: seedCount })}</span>
     <div class="sel-ops">
-      <button class="sel-op" disabled={seedMembers.length === 0} onclick={() => like('parallel')} data-testid="sel-like-parallel">{t('selection.likeParallel')}</button>
-      <button class="sel-op" disabled={seedMembers.length === 0} onclick={() => like('connected')} data-testid="sel-like-connected">{t('selection.likeConnected')}</button>
-      <button class="sel-op" disabled={seedMembers.length === 0} onclick={() => like('section')} data-testid="sel-like-section">{t('selection.likeSection')}</button>
-      <button class="sel-op" disabled={seedMembers.length === 0} onclick={() => like('material')} data-testid="sel-like-material">{t('selection.likeMaterial')}</button>
-      {#if !basic}
-        <button class="sel-op" disabled={seedMembers.length === 0} onclick={() => like('kind')} data-testid="sel-like-kind">{t('selection.likeKind')}</button>
-        <button class="sel-op" disabled={seedMembers.length === 0} onclick={() => like('level')} data-testid="sel-like-level">{t('selection.likeLevel')}</button>
-        <button class="sel-op" disabled={seedMembers.length === 0} onclick={() => like('plane')} data-testid="sel-like-plane">{t('selection.likePlane')}</button>
-        <button class="sel-op" disabled={seedMembers.length === 0} onclick={() => like('frame')} data-testid="sel-like-frame">{t('selection.likeFrame')}</button>
-      {/if}
+      {#each likeOps as op (op)}
+        <button class="sel-op" disabled={!likeEnabled(op)} onclick={() => like(op)} data-testid="sel-like-{op}">{likeLabel(op)}</button>
+      {/each}
     </div>
   </div>
 
@@ -337,18 +376,19 @@
       <select value={loadCase ?? cases[0]?.id} onchange={(e) => (loadCase = Number(e.currentTarget.value))} data-testid="sel-loaded-case" aria-label={t('selection.loadedIn')}>
         {#each cases as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
       </select>
-      <button class="sel-op" disabled={cases.length === 0} onclick={selectLoaded} data-testid="sel-loaded-go">{t('selection.go')}</button>
+      <button class="sel-op" disabled={cases.length === 0 || !loadedApplies} onclick={selectLoaded} data-testid="sel-loaded-go">{t('selection.go')}</button>
     </div>
     <div class="sel-byid-row">
       <span class="sel-like-label">{t('selection.parallelTo')}</span>
       <select bind:value={globalDir} data-testid="sel-parallel-dir" aria-label={t('selection.parallelTo')}>
         {#each ['X', 'Y', 'Z', 'XY', 'XZ', 'YZ'] as d (d)}<option value={d}>{d.length === 1 ? tp('selection.axis', { d }) : tp('selection.plane', { d })}</option>{/each}
       </select>
-      <button class="sel-op" onclick={selectParallel} data-testid="sel-parallel-go">{t('selection.go')}</button>
+      <button class="sel-op" disabled={!parallelApplies} onclick={selectParallel} data-testid="sel-parallel-go">{t('selection.go')}</button>
     </div>
     {/if}
-    <div class="sel-ops" class:sel-ops-walk={basic && walk}>
-      <button class="sel-op" disabled={selectionHistory.previous.length === 0} onclick={() => selectionHistory.back()} data-testid="sel-previous">{t('selection.previous')}</button>
+    <div class="sel-ops" class:sel-ops-walk={!!walk}>
+      <!-- PRO gives back the last selection of the armed kinds; Basic the last one. -->
+      <button class="sel-op" disabled={!selectionHistory.canGoBack(basic ? undefined : armedKinds)} onclick={() => selectionHistory.back(basic ? undefined : armedKinds)} data-testid="sel-previous">{t('selection.previous')}</button>
       {#if walk}
         <button class="sel-op" onclick={() => step(-1)} aria-label={t('selection.walkPrev')} data-testid="sel-walk-prev">◀</button>
         <span class="sel-like-label" data-testid="sel-walk-at">{walkAt + 1} / {walk.items.length}</span>
@@ -365,10 +405,7 @@
     <div class="sel-byid-row">
       {#if !basic}
         <select class="sel-field" bind:value={byIdKind} data-testid="sel-id-kind" aria-label={t('selection.byId')}>
-          <option value="nodes">{t('float.selectNodes')}</option>
-          <option value="elements">{t('float.selectElements')}</option>
-          <option value="plates">{t('pro.plates')}</option>
-          <option value="quads">{t('pro.quads')}</option>
+          {#each MODES as m (m.id)}<option value={m.id}>{t(m.key)}</option>{/each}
         </select>
       {/if}
       <input

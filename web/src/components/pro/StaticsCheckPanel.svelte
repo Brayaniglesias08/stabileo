@@ -107,6 +107,10 @@
       <!-- SRSS and ABS combinations: magnitudes, in no equilibrium by nature, so not checked (`statics-rows.ts`). -->
       <div class="sc-hint" data-testid="statics-magnitude">{tp('pro.statics.magnitude', { names: all.magnitude.map((m) => m.name).join(', ') })}</div>
     {/if}
+    {#if all?.spectral?.length}
+      <!-- Spectral cases and the combinations taking them: responses, not loads to balance (`statics-rows.ts`). -->
+      <div class="sc-hint" data-testid="statics-spectral">{tp('pro.statics.spectral', { names: all.spectral.join(', ') })}</div>
+    {/if}
     <div class="sc-hint">{t('pro.statics.selfWeightNote')}</div>
   {/if}
 </div>

@@ -51,7 +51,7 @@ describe('a temperature change is not a temperature', () => {
     expect(toDisplay(20, 'temperatureDelta', 'MKS')).toBe(20);
   });
   it('labelled as a temperature is', () => {
-    expect(UNIT_SYSTEMS.map((us) => unitLabel('temperatureDelta', us))).toEqual(['°C', '°C', '°F']);
+    expect(Object.fromEntries(UNIT_SYSTEMS.map((us) => [us, unitLabel('temperatureDelta', us)]))).toEqual({ SI: '°C', SImm: '°C', MKS: '°C', Imperial: '°F' });
     expect(formatValue(20, 'temperatureDelta', 'Imperial')).toBe('36.00');
   });
 });

@@ -24,10 +24,30 @@ export function planWind(input: LoadPlanInput, levels: LevelMass[], sink: PlanSi
   let windQh: ProvenancedValue<number> | undefined;
   const windGust: Partial<Record<'x' | 'y', GustResult>> = {};
   if (input.wind?.enabled) {
+    /*
+     * A part of the model only: its nodes make the levels and the front. A region that holds no
+     * node (an empty box or group, a zone without an outline) is no wind, and the plan says so:
+     * it used to be read as the whole model.
+     */
+    const region = input.wind.region ? new Set(input.wind.region) : null;
+    /** Every level's elevation before the region narrows them: the band under its lowest level. */
+    const modelElevations = levels.map((l) => l.elevation);
+    if (region) levels = levels.map((l) => ({ ...l, nodeIds: l.nodeIds.filter((id) => region.has(id)) })).filter((l) => l.nodeIds.length > 0);
+    const inRegion = [...input.model.nodes.entries()].filter(([id]) => !region || region.has(id)).map(([, n]) => n);
+    if (!inRegion.length) {
+      if (region) unsupportedKeys.push(msg('loadPlan.note.windEmptyRegion'));
+      return { windQh };
+    }
     const elevations = levels.map((l) => l.elevation);
     const h = Math.max(...elevations, 0);
-    const xs = [...input.model.nodes.values()].map((n) => n.x);
-    const ys = [...input.model.nodes.values()].map((n) => n.y);
+    const xs = inRegion.map((n) => n.x);
+    const ys = inRegion.map((n) => n.y);
+    const profile = input.wind.profile?.length ? [...input.wind.profile].sort((a, b) => a[0] - b[0]) : null;
+    const inMembers = (id: number) => { const e = input.model.elements.get(id); return !!e && region!.has(e.nodeI) && region!.has(e.nodeJ); };
+    /** A roof line load goes on: none with a profile, only the region's members with a region. */
+    const roofLoaded = (id: number) => !profile && (!region || inMembers(id));
+    /** With a profile there is no roof: the two internal pressures give the same case, kept once. */
+    const onceWithProfile = <C extends { nameParams: Record<string, string | number> }>(list: C[]) => (profile ? list.filter((c) => c.nameParams.gcpi !== '−') : list);
     const bx = Math.max(...xs) - Math.min(...xs);
     const by = Math.max(...ys) - Math.min(...ys);
 
@@ -142,8 +162,15 @@ export function planWind(input: LoadPlanInput, levels: LevelMass[], sink: PlanSi
         const cpWw = res.pressures.find((p) => p.surface === 'windwardWall')?.cp ?? 0;
         const cpLw = res.pressures.find((p) => p.surface === 'leewardWall')?.cp ?? 0;
         const qz = (z: number) => velocityPressure(Math.max(z, 0), project);
-        /** Net lateral pressure on the band [z0, z1], averaged over it, kPa. */
-        const bandNet = (z0: number, z1: number) => {
+        /**
+         * Net lateral pressure on the band [z0, z1], averaged over it, kPa. A profile of the user's
+         * is the design wind's; Wa takes it times (V_service / V)², the ratio of the code's velocity
+         * pressures at the two speeds (q_z ∝ V²; G is not read again). It used to be the profile
+         * itself, so Wa was W.
+         */
+        const profileScale = service ? (speed / input.wind!.basicSpeed) ** 2 : 1;
+        const bandNet = (z0: number, z1: number) => profile ? profileScale * profileMean(profile, z0, z1) : codeBandNet(z0, z1);
+        const codeBandNet = (z0: number, z1: number) => {
           if (z1 <= z0) return (qz(z0) * G * cpWw - res.qhNm2 * G * cpLw) / 1000;
           // Simpson over the band: q_z is smooth in z (a power law of height past 5 m).
           const n = 8, hh = (z1 - z0) / n;
@@ -158,7 +185,12 @@ export function planWind(input: LoadPlanInput, levels: LevelMass[], sink: PlanSi
         const windLevels: WindLevel[] = [];
         for (let i = 0; i < elevated.length; i++) {
           const lv = elevated[i];
-          const below = i === 0 ? 0 : elevated[i - 1].elevation;
+          /*
+           * Under a region's lowest level, the model's level below it: a box over the upper
+           * storeys gave its lowest level the wall down to the ground (90 kN at +6 m of a 3 m
+           * storey tower for the 60 of its band).
+           */
+          const below = i === 0 ? Math.max(0, ...modelElevations.filter((z) => z < lv.elevation - 1e-6)) : elevated[i - 1].elevation;
           const above = i === elevated.length - 1 ? lv.elevation : elevated[i + 1].elevation;
           // The lower half of the first storey goes straight to the foundation, as before.
           const z0 = (below + lv.elevation) / 2;
@@ -170,7 +202,8 @@ export function planWind(input: LoadPlanInput, levels: LevelMass[], sink: PlanSi
             dir: dir.toUpperCase(), level: round(lv.elevation, 2),
             z0: round(z0, 2), z1: round(z1, 2), net: round(levelNet, 3), force: round(force, 1),
           }));
-          const min = applyMinimumWindLoad(force * 1000, across * tribH, 0);
+          // A profile of the user's is the design pressure itself: the code's minimum is the code's.
+          const min = profile ? { totalN: force * 1000, governedByMinimum: false, refs: [] } : applyMinimumWindLoad(force * 1000, across * tribH, 0);
           const applied = min.totalN / 1000;
           if (!service && min.governedByMinimum) {
             unsupportedKeys.push(msg('loadPlan.note.windMinimumGoverns', {
@@ -195,6 +228,9 @@ export function planWind(input: LoadPlanInput, levels: LevelMass[], sink: PlanSi
     };
     const other = input.wind.structure && input.wind.structure.kind !== 'building' ? input.wind.structure : null;
     if (other) {
+      // A profile is a building's net lateral pressure: this structure takes the code's
+      // coefficients, and the profile is not used. Said, not left out without a word.
+      if (profile) unsupportedKeys.push(msg('loadPlan.note.windProfileOther'));
       // Not a closed building: the coefficients of §2.4.3, §4.4 or §4.5 (`wind-other.ts`).
       // Tabla 1.6-1: hexagonal 0,95, octagonal 1,00. Figura 4.5-1 has one row for both, so the
       // section does not say which: the larger Kd, the octagon's, is the one never short.
@@ -241,19 +277,22 @@ export function planWind(input: LoadPlanInput, levels: LevelMass[], sink: PlanSi
       }
     } else windAxes.push(...axesFor(input.wind.basicSpeed, false));
     if (windAxes.length > 0) {
-      const set = input.wind.caseSet ?? 'all';
+      // A profile is a net lateral pressure: case 1, without the code's roof pressures.
+      const set = profile ? 'case1' : input.wind.caseSet ?? 'all';
+      if (profile) derivation.push(msg('loadPlan.derivation.windProfile', { n: profile.length, h: round(Math.max(...profile.map(([z]) => z)), 2) }));
       const generated = windLoadCases({
         model: input.model, axes: windAxes, set, directions: windDirs,
         tributaryWidth: input.tributaryWidth, speed: input.wind.basicSpeed,
       });
       unsupportedKeys.push(...generated.notes);
       refs.push(R102('2.4.6', 'casos de carga de viento de diseño'));
-      derivation.push(msg('loadPlan.derivation.windCases', { set, count: generated.cases.length }));
-      for (const c of generated.cases) {
+      const generatedCases = onceWithProfile(generated.cases);
+      derivation.push(msg('loadPlan.derivation.windCases', { set, count: generatedCases.length }));
+      for (const c of generatedCases) {
         const index = cases.length;
         cases.push({ existingId: null, type: 'W', nameKey: c.nameKey, nameParams: c.nameParams });
         for (const n of c.nodal) nodal.push({ nodeId: n.nodeId, caseType: 'W', caseIndex: index, fx: n.fx, fy: n.fy, fz: 0, mz: n.mz });
-        for (const d of c.distributed) distributed.push({ elementId: d.elementId, caseType: 'W', caseIndex: index, q: d.q });
+        for (const d of c.distributed) if (roofLoaded(d.elementId)) distributed.push({ elementId: d.elementId, caseType: 'W', caseIndex: index, q: d.q });
       }
     }
 
@@ -263,7 +302,8 @@ export function planWind(input: LoadPlanInput, levels: LevelMass[], sink: PlanSi
      * each direction and sense: the torsional and simultaneous cases are for strength.
      */
     const sw = input.wind.service;
-    // Service wind Wa is the building procedure's; another structure has none here.
+    // Service wind Wa is the building procedure's; another structure has none here. It takes the
+    // profile and the region as W does (`roofLoaded`, `onceWithProfile`): it used to take neither.
     if (sw?.enabled && sw.v50 > 0 && !other) {
       const factor = SERVICE_WIND_FACTOR[sw.mri];
       const speed = sw.v50 * factor;
@@ -274,12 +314,14 @@ export function planWind(input: LoadPlanInput, levels: LevelMass[], sink: PlanSi
           tributaryWidth: input.tributaryWidth, speed: round(speed, 1),
         });
         refs.push(R102('B.4.2', 'servicio'));
-        derivation.push(msg('loadPlan.derivation.windService', { v50: sw.v50, mri: sw.mri, factor, v: round(speed, 1), count: generated.cases.length }));
-        for (const c of generated.cases) {
+        const waCases = onceWithProfile(generated.cases);
+        derivation.push(msg('loadPlan.derivation.windService', { v50: sw.v50, mri: sw.mri, factor, v: round(speed, 1), count: waCases.length }));
+        if (profile) derivation.push(msg('loadPlan.derivation.windServiceProfile', { k: round((speed / input.wind.basicSpeed) ** 2, 3) }));
+        for (const c of waCases) {
           const index = cases.length;
           cases.push({ existingId: null, type: 'Wa', nameKey: c.nameKey.replace('windCase1', 'windCaseWa'), nameParams: { ...c.nameParams, mri: sw.mri } });
           for (const n of c.nodal) nodal.push({ nodeId: n.nodeId, caseType: 'Wa', caseIndex: index, fx: n.fx, fy: n.fy, fz: 0, mz: n.mz });
-          for (const d of c.distributed) distributed.push({ elementId: d.elementId, caseType: 'Wa', caseIndex: index, q: d.q });
+          for (const d of c.distributed) if (roofLoaded(d.elementId)) distributed.push({ elementId: d.elementId, caseType: 'Wa', caseIndex: index, q: d.q });
         }
       }
     }
@@ -295,4 +337,21 @@ function gustLine(dir: 'x' | 'y', g: GustResult) {
     zBar: round(g.steps.zBar, 1), iz: round(g.steps.iz, 3), q: round(g.steps.q, 3),
     r: g.steps.resonant ? round(g.steps.resonant.r, 3) : '—', gR: g.steps.resonant ? round(g.steps.resonant.gR, 3) : '—',
   });
+}
+
+/** The mean of a piecewise-linear profile [z, p] over [z0, z1] (held flat beyond its ends), exactly. */
+export function profileMean(profile: ReadonlyArray<readonly [number, number]>, z0: number, z1: number): number {
+  const at = (z: number) => {
+    if (z <= profile[0]![0]) return profile[0]![1];
+    if (z >= profile[profile.length - 1]![0]) return profile[profile.length - 1]![1];
+    let i = 0;
+    while (profile[i + 1]![0] < z) i++;
+    const [za, pa] = profile[i]!, [zb, pb] = profile[i + 1]!;
+    return pa + (pb - pa) * (z - za) / (zb - za);
+  };
+  if (z1 <= z0) return at(z0);
+  const cuts = [z0, ...profile.map(([z]) => z).filter((z) => z > z0 && z < z1), z1];
+  let area = 0;
+  for (let i = 0; i + 1 < cuts.length; i++) area += (at(cuts[i]!) + at(cuts[i + 1]!)) / 2 * (cuts[i + 1]! - cuts[i]!);
+  return area / (z1 - z0);
 }

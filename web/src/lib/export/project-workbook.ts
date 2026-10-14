@@ -24,8 +24,11 @@ export interface ProjectWorkbookInput {
   results: ResultSheetsInput;
   /** Translation, for the cover's and the conventions' text. */
   tr: (key: string) => string;
-  /** The model's sheets and the results', each included unless false. */
-  include?: { model?: boolean; results?: boolean };
+  /**
+   * The model's sheets and the results', each included unless false; `sheets`, when given, keeps
+   * only the sheets it names (the cover and the conventions always go).
+   */
+  include?: { model?: boolean; results?: boolean; sheets?: ReadonlySet<string> };
   /** Further sheets, appended as they are (a report's verification, its story drift). */
   extra?: readonly WorkbookSheet[];
 }
@@ -70,10 +73,12 @@ function conventionsSheet(tr: (key: string) => string): WorkbookSheet {
 
 /** Every sheet of the workbook, in order. */
 export function projectWorkbookSheets(input: ProjectWorkbookInput): WorkbookSheet[] {
+  const only = input.include?.sheets;
+  const want = (name: string) => !only || only.has(name);
   return [
     coverSheet(input), conventionsSheet(input.tr),
-    ...(input.include?.model === false ? [] : modelSheets(input.model, input.solved)),
-    ...(input.include?.results === false ? [] : resultSheets(input.results)),
-    ...(input.extra ?? []),
+    ...(input.include?.model === false ? [] : modelSheets(input.model, input.solved, want)),
+    ...(input.include?.results === false ? [] : resultSheets(input.results, want)),
+    ...(input.extra ?? []).filter((s) => want(s.name)),
   ];
 }

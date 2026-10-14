@@ -8,16 +8,18 @@
   let regulationsEl: HTMLElement | undefined = $state();
   $effect(() => { if (proNav.regulationsOpen) regulationsEl?.scrollIntoView({ block: 'start', behavior: 'smooth' }); });
   import { t, tp } from '../../lib/i18n';
-  import { uiStore, modelStore, resultsStore } from '../../lib/store';
+  import { uiStore, modelStore } from '../../lib/store';
   import {
-    loadFile, downloadResultsCSV, downloadDXF, downloadSVG,
+    loadFile,
     saveTextTo, canChooseSaveLocation, projectPayload, sessionPayload,
   } from '../../lib/store/file';
   import HelpTip from '../HelpTip.svelte';
   import { portal } from '../../lib/utils/portal';
   import ExcelImportReport from '../ExcelImportReport.svelte';
-  import { downloadProjectWorkbook } from '../../lib/store/project-workbook';
-  import type { StationSpec } from '../../lib/engine/station-forces';
+  import ProDataExportDialog from './export/ProDataExportDialog.svelte';
+  import ProDxfExportDialog from './export/ProDxfExportDialog.svelte';
+  import ProViewExportDialog from './export/ProViewExportDialog.svelte';
+  import type { ViewFormat } from '../../lib/export/view-export';
   import { MAX_URL_SAFE } from '../../lib/utils/url-sharing';
   import { codeShareUrl } from '../../lib/model/code/share';
   import { autosaveStatus, autosaveRevisions } from '../../lib/store/autosave-db';
@@ -178,10 +180,16 @@
    */
   let showExamples = $state(false);
 
-  const solved = $derived(resultsStore.results3D != null || resultsStore.results != null);
   const hasModel = $derived(modelStore.nodes.size > 0);
   /** Where the project workbook reads each member. */
-  let wbStations = $state<StationSpec>(5);
+  /* The export dialogs: each button opens one, with its format chosen. */
+  let dataOpen = $state(false);
+  let dataFormat = $state<'xlsx' | 'csv'>('xlsx');
+  let dxfOpen = $state(false);
+  let imageOpen = $state(false);
+  let imageFormat = $state<ViewFormat>('svg');
+  function openData(f: 'xlsx' | 'csv') { dataFormat = f; dataOpen = true; }
+  function openImage(f: ViewFormat) { imageFormat = f; imageOpen = true; }
 
   async function handleLoad(e: Event) {
     const input = e.target as HTMLInputElement;
@@ -398,47 +406,45 @@
     </div>
 
     <span class="pp-sub">{t('project.export')}</span>
+    <!--
+      ── Export groups by what comes out, and every button opens its dialog ──
+      Data (the workbook, as Excel or as CSV), the report (a PDF) and drawings (DXF and
+      pictures). Each dialog says what goes in, with everything on by default: the panel used to
+      carry a bare "Estaciones 5 / 13 / Críticas" beside the workbook, which said nothing about
+      what it changed, and two buttons whose content had to be guessed.
+    -->
     <div class="pp-group">
-      <span class="pp-group-label">{t('project.exportResults')}</span>
+      <span class="pp-group-label">{t('proExport.groupData')}</span>
       <div class="pp-grid">
-        <HelpTip text={t('wb.tooltip')}>
-          <button class="pp-btn" data-testid="project-workbook" onclick={() => downloadProjectWorkbook(wbStations)} disabled={!hasModel}>{t('wb.button')}</button>
+        <HelpTip text={t('proExport.excelTip')}>
+          <button class="pp-btn" data-testid="project-workbook" onclick={() => openData('xlsx')} disabled={!hasModel}>Excel</button>
         </HelpTip>
-        <label class="pp-wb-stations">
-          <span>{t('wb.stations')}</span>
-          <select data-testid="project-workbook-stations" bind:value={wbStations}>
-            <option value={5}>{t('wb.stations5')}</option>
-            <option value={13}>{t('wb.stations13')}</option>
-            <option value="critical">{t('wb.stationsCriticalShort')}</option>
-          </select>
-        </label>
-        <HelpTip text={t('project.exportCsvTooltip')}>
-          <button class="pp-btn" onclick={() => downloadResultsCSV()} disabled={!solved}>CSV</button>
-        </HelpTip>
-        <!--
-          The report is an export of the results, so it is offered with them.
-          ─────────────────────────────────────────────────────────────────
-          It was reachable only from a command in ANALYSE, which put the
-          three ways of getting the same numbers out of the application in
-          two different places. Same dialog, same data — what differs is the
-          document it comes out as.
-        -->
-        <HelpTip text={t('project.exportReportTooltip')}>
-          <button class="pp-btn" data-testid="pp-export-report" disabled={!solved}
-                  onclick={() => window.dispatchEvent(new Event('stabileo-open-report'))}
-          >{t('pro.reportBtn')}</button>
+        <HelpTip text={t('proExport.csvTip')}>
+          <button class="pp-btn" data-testid="pp-export-csv" onclick={() => openData('csv')} disabled={!hasModel}>CSV</button>
         </HelpTip>
       </div>
     </div>
     <div class="pp-group">
-      <span class="pp-group-label">{t('project.exportView')}</span>
+      <span class="pp-group-label">{t('proExport.groupReport')}</span>
       <div class="pp-grid">
-        <HelpTip text={t('project.exportDxfTooltip')}>
-          <button class="pp-btn" onclick={() => downloadDXF()}>DXF</button>
+        <HelpTip text={t('proExport.reportTip')}>
+          <button class="pp-btn pp-btn-wide" data-testid="pp-export-report" disabled={!hasModel}
+                  onclick={() => window.dispatchEvent(new Event('stabileo-open-report'))}
+          >{t('proExport.reportBtn')}</button>
         </HelpTip>
-        <HelpTip text={t('project.exportSvgTooltip')}>
-          <button class="pp-btn" onclick={() => downloadSVG()}>SVG</button>
+      </div>
+    </div>
+    <div class="pp-group">
+      <span class="pp-group-label">{t('proExport.groupDrawings')}</span>
+      <div class="pp-grid">
+        <HelpTip text={t('proExport.dxfTip')}>
+          <button class="pp-btn" data-testid="pp-export-dxf" onclick={() => (dxfOpen = true)} disabled={!hasModel}>DXF</button>
         </HelpTip>
+        {#each (['svg', 'png', 'jpg'] as const) as f (f)}
+          <HelpTip text={t(`proExport.${f}Tip`)}>
+            <button class="pp-btn" data-testid={`pp-export-${f}`} onclick={() => openImage(f)} disabled={!hasModel}>{f.toUpperCase()}</button>
+          </HelpTip>
+        {/each}
       </div>
     </div>
   </section>
@@ -515,6 +521,13 @@
     parallel route that had to be kept in step with them.
   -->
 
+
+<!-- The export dialogs, over the whole application rather than inside the panel. -->
+<div use:portal>
+  <ProDataExportDialog bind:open={dataOpen} bind:format={dataFormat} />
+  <ProDxfExportDialog bind:open={dxfOpen} />
+  <ProViewExportDialog bind:open={imageOpen} bind:format={imageFormat} />
+</div>
 </div>
 
 <!--
@@ -720,8 +733,6 @@
   }
 
   .pp-btn-wide { grid-column: 1 / -1; }
-  .pp-wb-stations { display: flex; align-items: center; gap: 4px; font-size: 0.66rem; color: var(--st-text-2); }
-  .pp-wb-stations select { font-size: 0.66rem; }
 
   .pp-btn {
     display: flex;

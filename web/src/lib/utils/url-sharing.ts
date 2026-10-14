@@ -2,6 +2,7 @@
 // v1: LZ-String (legacy, still decoded for old links)
 // v2: compact JSON + fflate deflate + base64url (new default)
 
+import { adoptLoadCases } from '../store/load-cases-mode';
 import { defaultCodeSettings } from '../codes/project-code-settings';
 import { emptyDetailingStore } from '../engine/detailing/assembly';
 import { emptyGeotechnical } from '../model/geotechnical';
@@ -905,6 +906,7 @@ export function loadFromURLHash(): 'data' | 'embed' | null {
     const { snapshot } = mergeCode(modelStore.snapshot(), r.snapshot);
     applyLinkMode(snapshot.analysisMode);
     modelStore.restore(snapshot);
+    adoptLoadCases();
     queueMicrotask(() => window.dispatchEvent(new Event('stabileo-restore-camera-3d')));
     history.replaceState(null, '', location.pathname + location.search);
     return 'data';
@@ -929,6 +931,7 @@ export function loadFromURLHash(): 'data' | 'embed' | null {
   const loadedMode = applyLinkMode(snapshot.analysisMode);
 
   modelStore.restore(snapshot);
+  adoptLoadCases();
   restoreMeta(snapshot);
   // Same pre-metadata convention note as a .ded open — a shared link is the most
   // common cross-machine entry point, so a legacy 3D model must not change axes
@@ -983,6 +986,7 @@ export function loadFromShareLink(url: string): boolean {
     const { snapshot } = mergeCode(modelStore.snapshot(), r.snapshot);
     applyLinkMode(snapshot.analysisMode);
     modelStore.restore(snapshot);
+    adoptLoadCases();
     queueMicrotask(() => window.dispatchEvent(new Event('stabileo-restore-camera-3d')));
     return true;
   }
@@ -995,6 +999,7 @@ export function loadFromShareLink(url: string): boolean {
   const loadedMode = applyLinkMode(snapshot.analysisMode);
 
   modelStore.restore(snapshot);
+  adoptLoadCases();
   restoreMeta(snapshot);
   // Same pre-metadata convention note as a .ded open — a shared link is the most
   // common cross-machine entry point, so a legacy 3D model must not change axes

@@ -4,7 +4,7 @@
 // These functions reconcile the Three.js scene graph with the model store:
 //   - syncNodes(), syncElements(), syncSupports(), syncLoads(), syncSelection()
 
-import { shellLoadSamples } from '../engine/shell-load-integration';
+import { shellLoadExtent, shellLoadSamples } from '../engine/shell-load-integration';
 import { distributedGlobalEnds } from '../engine/member-loads';
 import { pointGlobal } from '../engine/member-point-loads';
 import { tendonEccentricity } from '../engine/prestress';
@@ -121,6 +121,8 @@ export interface SceneSyncContext {
   lastLoadsSig?: string;
   /** The world segments each drawn load occupies, by load id: what a click in loads mode picks from. */
   loadFootprints?: Map<number, number[]>;
+  /** The faces a load on a plate covers, by load id: a click on its fill picks it too. */
+  loadAreas?: Map<number, number[][]>;
 }
 
 // ─── 3D internal-joint glyph ──────────────────────────────────
@@ -879,6 +881,10 @@ export function syncLoads(ctx: SceneSyncContext): void {
       if (!shell) continue;
       const ns = shell.nodes.map((nid: number) => modelStore.nodes.get(nid));
       if (ns.some((n: any) => !n)) continue;
+      // The fill a click takes is the part the load covers (a rectangle, a range), not the whole
+      // shell: a load on a rectangle of a slab claimed every click on the slab.
+      const cornersInScene = (ns as Array<{ x: number; y: number; z?: number }>).map((n) => projectNodeToScene(n as never, project2D));
+      for (const piece of shellLoadExtent(onPlate ? 'plate' : 'quad', cornersInScene, d)) batch.markArea(piece.map(([x, y, z]) => ({ x, y, z })));
       if (!onPlate && !d.frame && !d.qNodes && !d.vary && !d.region) {
         batch.addSurfaceLoad(ns as Array<{ x: number; y: number; z: number }>, d.q, maxQ, cc);
       } else {
@@ -1001,6 +1007,7 @@ export function syncLoads(ctx: SceneSyncContext): void {
       const ns = quad?.nodes.map((nid: number) => modelStore.nodes.get(nid));
       if (!quad || !ns || ns.some((n) => !n)) continue;
       const ps = (ns as Array<{ x: number; y: number; z?: number }>).map((n) => projectNodeToScene(n as never, project2D));
+      batch.markArea(ps);
       const c = ps.reduce((acc, p) => ({ x: acc.x + p.x / ps.length, y: acc.y + p.y / ps.length, z: acc.z + p.z / ps.length }), { x: 0, y: 0, z: 0 });
       // Changes, not temperatures (no 32 °F offset), as on a member.
       const text = slabTemperatureTag(load.data.dtUniform, load.data.dtGradient, sys, displayUnits.decimals);
@@ -1041,8 +1048,10 @@ export function syncLoads(ctx: SceneSyncContext): void {
   // stamped per object inside build() — no traverse needed.
   loadGrp.add(batch.build());
   ctx.loadFootprints = batch.footprints;
+  ctx.loadAreas = batch.areas;
   // Read by the browser tests, which click a load where it is drawn.
   (window as unknown as { __loadFootprints?: Map<number, number[]> }).__loadFootprints = batch.footprints;
+  (window as unknown as { __loadAreas?: Map<number, number[][]> }).__loadAreas = batch.areas;
 }
 
 // ─── Selection highlight ─────────────────────────────────────

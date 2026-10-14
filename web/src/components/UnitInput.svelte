@@ -33,8 +33,12 @@
     testid?: string;
     /** Commit on every keystroke rather than on change (a toolbar value read when clicking). */
     live?: boolean;
+    /** Shown in an empty field: a value that is NaN shows empty. */
+    placeholder?: string;
+    /** Called when the field is emptied; without it an empty field commits nothing. */
+    onempty?: () => void;
   }
-  let { value, qty, onchange, unit = true, inputClass = '', step = 'any', min, title, disabled = false, testid, live = false }: Props = $props();
+  let { value, qty, onchange, unit = true, inputClass = '', step = 'any', min, title, disabled = false, testid, live = false, placeholder, onempty }: Props = $props();
 
   // Six significant figures, and a length to the millimetre however large it is.
   const shown = $derived(unitInputText(value, qty, uiStore.unitSystem));
@@ -50,6 +54,7 @@
   $effect(() => { const s = shown; if (!focused) text = s; });
 
   function commit(raw: string) {
+    if (onempty && raw.trim() === '') { onempty(); return; }
     const si = unitInputCommit(raw, value, qty, uiStore.unitSystem);
     if (si !== null) onchange(si);
   }
@@ -62,12 +67,13 @@
   {step}
   {min}
   {title}
+  {placeholder}
   {disabled}
   data-testid={testid}
   onfocus={() => (focused = true)}
   onblur={() => { focused = false; text = shown; }}
-  oninput={live ? () => commit(String(text)) : undefined}
-  onchange={() => commit(String(text))}
+  oninput={live ? () => commit(String(text ?? '')) : undefined}
+  onchange={() => commit(String(text ?? ''))}
 />{#if unit}<span class="ft-unit unit-label">{label}</span>{/if}
 
 <style>

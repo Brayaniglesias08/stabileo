@@ -9,12 +9,14 @@
  */
 import { uiStore } from '../store';
 
-export type WalkKind = 'elements' | 'nodes' | 'supports' | 'loads';
+export type WalkKind = 'elements' | 'nodes' | 'supports' | 'loads' | 'shells';
 
-export function selectWalkItem(kind: WalkKind, id: number): void {
-  if (kind === 'supports') { uiStore.selectSupport(id); return; }
-  if (kind === 'loads') { uiStore.selectLoad(id); return; }
-  uiStore.setSelection(kind === 'nodes' ? new Set([id]) : new Set(), kind === 'elements' ? new Set([id]) : new Set(), true);
+/** `id`: a number, or a plate's key (`p3`, `q7`) for `shells`. */
+export function selectWalkItem(kind: WalkKind, id: number | string): void {
+  if (kind === 'shells') { uiStore.selectShell(String(id)); return; }
+  if (kind === 'supports') { uiStore.selectSupport(Number(id)); return; }
+  if (kind === 'loads') { uiStore.selectLoad(Number(id)); return; }
+  uiStore.setSelection(kind === 'nodes' ? new Set([Number(id)]) : new Set(), kind === 'elements' ? new Set([Number(id)]) : new Set(), true);
   uiStore.clearSelectedSupports();
   uiStore.clearSelectedLoads();
 }

@@ -2,7 +2,7 @@
 // Each function takes a ModelData parameter instead of accessing reactive store state.
 
 import { withCaseEffects } from './case-effects';
-import { casesToSolve, finishBundle, magnitudeRefusal } from './combination-methods';
+import { casesToSolve, finishBundle, magnitudeRefusal, spectralRefusal } from './combination-methods';
 import { isMagnitudeCombination } from './result-scopes';
 import { collapseVariableResults, collapseVariableEnvelope, variableExpansionFor, isVariableMember } from './variable-members';
 import { nodesOnMembers } from './nodes-on-members';
@@ -2073,8 +2073,11 @@ setAdvancedGuards({
   text: (key, params) => tp(key, params),
 });
 
-/** Post-solve 3D result enrichment: shell stresses + helper-node pruning. */
-function finalizeSolve3DResults(results: AnalysisResults3D, model: ModelData): AnalysisResults3D {
+/**
+ * Post-solve 3D result enrichment: shell stresses + helper-node pruning. Also the spectral
+ * cases' imposed mode shapes (`store/spectral-cases.ts`), solved on the dynamic input.
+ */
+export function finalizeSolve3DResults(results: AnalysisResults3D, model: ModelData): AnalysisResults3D {
   // Variable members first, while their interior nodes are still in the result.
   results = collapseVariableResults(results, variableExpansionFor(model));
   results = withDeclaredInactive(results, model);
@@ -2240,15 +2243,24 @@ function withDeclaredInactiveBundle<B extends { perCase: Map<number, AnalysisRes
  * SRSS and ABS combinations on a nonlinear model, refused by name: its cases do not superpose
  * (`combination-methods.ts` `magnitudeRefusal`). They were the magnitude of the nonlinear cases.
  */
-function magnitudeRefusal3D(model: ModelData, combinations: LoadCombination[]): string | null {
-  // Without an SRSS or ABS combination there is nothing to refuse, and no model to look through.
-  if (!combinations.some(isMagnitudeCombination)) return null;
-  const named = magnitudeRefusal(hasNonlinearBehaviour(solvableModel(model)), combinations);
-  return named ? t('svc.magnitudeNonlinear').replace('{names}', named.join(', ')) : null;
+function magnitudeRefusal3D(model: ModelData, combinations: LoadCombination[], loadCases: LoadCase[]): string | null {
+  // Without an SRSS or ABS combination, or one taking a spectral case, there is nothing to
+  // refuse, and no model to look through.
+  const spectral = loadCases.some((c) => c.spectral);
+  if (!combinations.some(isMagnitudeCombination) && !spectral) return null;
+  const nonlinear = hasNonlinearBehaviour(solvableModel(model));
+  const named = magnitudeRefusal(nonlinear, combinations);
+  if (named) return t('svc.magnitudeNonlinear').replace('{names}', named.join(', '));
+  // A linear spectral part added to a nonlinear state (`combination-methods.ts` `spectralRefusal`).
+  const withSpectral = spectral ? spectralRefusal(nonlinear, loadCases, combinations) : null;
+  return withSpectral ? t('svc.spectralNonlinear').replace('{names}', withSpectral.join(', ')) : null;
 }
 
-/** What `finishBundle` needs of the model: whether P-Delta solved the combinations. */
-const magnitudeOptions = (model: ModelData) => ({ firstOrder: model.analysis?.perCombination === 'pdelta' });
+/**
+ * What `finishBundle` needs of the model: whether P-Delta solved the combinations, and the plates'
+ * thicknesses for the stresses of a combination taking a spectral case.
+ */
+const magnitudeOptions = (model: ModelData) => ({ firstOrder: model.analysis?.perCombination === 'pdelta', plates: model.plates });
 
 export function solveCombinations3D(
   model: ModelData,
@@ -2256,6 +2268,8 @@ export function solveCombinations3D(
   combinations: LoadCombination[],
   includeSelfWeight = false,
   leftHand = false,
+  /** The spectral cases' results (`store/spectral-cases.ts`), by case id. */
+  spectral?: Map<number, AnalysisResults3D>,
 ): Bundle3D | string | null {
   const imposed = imposedRefusal(model);
   if (imposed) return imposed;
@@ -2263,12 +2277,12 @@ export function solveCombinations3D(
   // only the cases listed or taken by a combination solved (`combination-methods.ts`).
   model = withCaseEffects(model, loadCases, { includeSelfWeight, leftHand });
   const solving = casesToSolve(loadCases, combinations);
-  const magnitude = magnitudeRefusal3D(model, combinations);
+  const magnitude = magnitudeRefusal3D(model, combinations, loadCases);
   if (magnitude) return magnitude;
   try {
     const plan = combinationsPlan3D(solvableModel(model), solving, combinations, includeSelfWeight, leftHand);
     const solved = 'done' in plan ? plan.done : plan.finish(solveCombinations3DCore(plan.forces, solving, combinations, includeSelfWeight, leftHand));
-    return finishBundle(withDeclaredInactiveBundle(solved, model), loadCases, combinations, magnitudeOptions(model));
+    return finishBundle(withDeclaredInactiveBundle(solved, model), loadCases, combinations, magnitudeOptions(model), spectral);
   } catch (err) {
     const said = loadRefusal(err);
     if (said) return said;
@@ -2750,6 +2764,7 @@ export async function solveCombinations3DParallel(
   combinations: LoadCombination[],
   includeSelfWeight = false,
   leftHand = false,
+  spectral?: Map<number, AnalysisResults3D>,
 ): Promise<Bundle3D | string | null> {
   // The sequential entry's refusals, case effects and plan (`combinationsPlan3D`); only the linear
   // core runs on the workers.
@@ -2757,12 +2772,12 @@ export async function solveCombinations3DParallel(
   if (imposed) return imposed;
   model = withCaseEffects(model, loadCases, { includeSelfWeight, leftHand });
   const solving = casesToSolve(loadCases, combinations);
-  const magnitude = magnitudeRefusal3D(model, combinations);
+  const magnitude = magnitudeRefusal3D(model, combinations, loadCases);
   if (magnitude) return magnitude;
   try {
     const plan = combinationsPlan3D(solvableModel(model), solving, combinations, includeSelfWeight, leftHand);
     const solved = 'done' in plan ? plan.done : plan.finish(await solveCombinations3DParallelCore(plan.forces, solving, combinations, includeSelfWeight, leftHand));
-    return finishBundle(withDeclaredInactiveBundle(solved, model), loadCases, combinations, magnitudeOptions(model));
+    return finishBundle(withDeclaredInactiveBundle(solved, model), loadCases, combinations, magnitudeOptions(model), spectral);
   } catch (err) {
     const said = loadRefusal(err);
     if (said) return said;

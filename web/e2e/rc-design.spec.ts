@@ -79,7 +79,8 @@ test.describe('@smoke RC design workflow', () => {
     await page.getByTestId(`row-expand-${beam}`).click();
     await page.getByTestId(`count-bottomSpanLayers-0-${beam}`).fill('5');
     await page.getByTestId(`count-bottomSpanLayers-0-${beam}`).blur();
-    await page.getByTestId(`stir-spacing-stirrupsSpan-${beam}`).fill('0.125');
+    // A spacing is typed as a section's dimension: cm in SI.
+    await page.getByTestId(`stir-spacing-stirrupsSpan-${beam}`).fill('12.5');
     await page.getByTestId(`stir-spacing-stirrupsSpan-${beam}`).blur();
     await expect.poll(() => page.evaluate((id) => window.__stabileo.rebarSummary(id), beam))
       .toContain('b5');

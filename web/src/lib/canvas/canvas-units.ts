@@ -18,3 +18,18 @@ export function setCanvasUnitSystem(us: UnitSystem): void {
 export function canvasUnitSystem(): UnitSystem {
   return system;
 }
+
+/**
+ * The reader's factor on the size of the loads drawn (arrows, their heads, moment arcs, thermal
+ * marks): `uiStore.loadArrowScale`, the one the 3D arrows take, set by the viewport each frame the
+ * same way. The text keeps its own size (the label scale).
+ */
+let loadScale = 1;
+
+export function setCanvasLoadScale(k: number): void {
+  loadScale = Number.isFinite(k) && k > 0 ? k : 1;
+}
+
+export function canvasLoadScale(): number {
+  return loadScale;
+}

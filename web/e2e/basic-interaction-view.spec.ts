@@ -89,6 +89,14 @@ test.describe('@smoke Basic interaction and view', () => {
     await expect(supports).not.toBeChecked();
     await page.getByTestId('cfg-label-size').fill('1.5');
     await expect.poll(() => page.evaluate(() => localStorage.getItem('stabileo-label-scale'))).toBe('1.5');
+    // The load size sits under it, its name on the same row as the slider.
+    await page.getByTestId('cfg-load-size').fill('2');
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('stabileo-load-scale'))).toBe('2');
+    const row = await page.getByTestId('cfg-load-size').evaluate((el) => {
+      const label = el.parentElement!.querySelector('label')!.getBoundingClientRect(), r = el.getBoundingClientRect();
+      return { sameRow: Math.abs((label.top + label.bottom) / 2 - (r.top + r.bottom) / 2) < 6, left: label.right <= r.left };
+    });
+    expect(row).toEqual({ sameRow: true, left: true });
   });
 
   test('panel scrollbars are on by default and switch off; node style is remembered', async ({ page }) => {
@@ -96,9 +104,9 @@ test.describe('@smoke Basic interaction and view', () => {
     await page.evaluate(() => window.__stabileoActions.loadExample('3d-portal-frame'));
     await page.getByTestId('rb-settings').click();
     const panel = page.getByTestId('basic-panel');
-    await expect(panel).toHaveClass(/bp-scrollbars/);
+    await expect(panel).toHaveClass(/st-panel-scrollbars/);
     await page.getByTestId('cfg-panel-scrollbars').uncheck();
-    await expect(panel).not.toHaveClass(/bp-scrollbars/);
+    await expect(panel).not.toHaveClass(/st-panel-scrollbars/);
     await expect.poll(() => page.evaluate(() => localStorage.getItem('stabileo-panel-scrollbars'))).toBe('0');
     const style = page.getByTestId('cfg-node-style');
     await expect(style).toHaveValue('auto');
@@ -139,12 +147,43 @@ test.describe('@smoke Basic interaction and view', () => {
     await expect(page.getByTestId('tool-mode-create')).toBeVisible();
   });
 
-  test('self-weight sits first in the combinations fold, with the case it goes in', async ({ page }) => {
+  test('the combinations fold leads with the load cases switch; self-weight counts either way', async ({ page }) => {
     await boot(page);
     await page.getByTestId('rb-cmd-load').click();
     await page.locator('.combos-fold > summary').click();
+    // A new model has one case in use: no cases, no case column, no case picker.
+    const cases = page.getByTestId('load-cases-toggle');
+    await expect(cases).not.toBeChecked();
     await page.getByTestId('selfweight-toggle').check();
+    await expect(page.getByTestId('selfweight-case')).toHaveCount(0);
+    await expect(page.getByTestId('load-case-select')).toHaveCount(0);
+    // On: the case self-weight goes in, the case picker in the load bar, the case tables.
+    await cases.check();
     await expect(page.getByTestId('selfweight-case')).toBeEnabled();
+    await expect(page.getByTestId('load-case-select')).toBeVisible();
+    await expect(page.locator('.combos-section')).toBeVisible();
+  });
+
+  test('an example with loads in several cases opens with them on, and its results by combination up top', async ({ page }) => {
+    await boot(page);
+    await page.evaluate(() => window.__stabileoActions.loadExample('frame-cirsoc-dl'));
+    await page.evaluate(() => window.__stabileoActions.solve());
+    await page.getByTestId('rb-cmd-momentY').click();
+    const picker = page.getByTestId('results-view-bar');
+    await expect(picker).toBeVisible();
+    await picker.locator('select').first().selectOption({ label: '1.2D + 1.6L' });
+    await page.getByTestId('rb-cmd-load').click();
+    await page.locator('.combos-fold > summary').click();
+    await page.getByTestId('load-cases-toggle').uncheck();
+    await expect(page.getByTestId('load-case-select')).toHaveCount(0);
+    await expect(page.locator('.combos-section')).toHaveCount(0);
+    await page.getByTestId('rb-cmd-momentY').click();
+    await expect(page.getByTestId('results-view-bar')).toHaveCount(0);
+    // A model with one case opens with them off.
+    await page.evaluate(() => window.__stabileoActions.loadExample('portal-frame'));
+    await page.getByTestId('rb-cmd-load').click();
+    await page.locator('.combos-fold > summary').click();
+    await expect(page.getByTestId('load-cases-toggle')).not.toBeChecked();
   });
 });
 

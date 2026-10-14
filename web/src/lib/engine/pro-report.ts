@@ -49,8 +49,6 @@ export interface ReportConfig {
   revision?: string;
   /** Figures the user added from the viewport, in order. */
   figures?: ReportFigure[];
-  /** Which document to produce from the same choices: the printable report or the workbook. */
-  format?: 'pdf' | 'xlsx';
   /** False when the letterhead was left blank — no project block is printed. */
   hasProjectInfo?: boolean;
   /** Which advanced analyses to print, by result key. Absent means all of them. */
@@ -69,7 +67,29 @@ export interface ReportConfig {
     statics?: boolean;
     deflections?: boolean;
     figures?: boolean;
+    /** The model data's tables, each printed unless false. */
+    parts?: Partial<Record<ReportPart, boolean>>;
   };
+  /** Per result, whether it is printed as its table, its figures or both (`both` when absent). */
+  resultModes?: Partial<Record<ReportResult, ResultMode>>;
+}
+
+/** The model data's tables the report can leave out. */
+export type ReportPart = 'nodes' | 'materials' | 'sections' | 'members' | 'supports' | 'shells' | 'combinations';
+/** The results printed as a table, figures, or both. */
+export type ReportResult = 'reactions' | 'displacements' | 'forces' | 'shells';
+export type ResultMode = 'table' | 'figure' | 'both';
+
+/** The figures drawn for the report, by where they go (`pro/report-export.ts`). */
+export interface ReportResultFigures {
+  /** The model with its numbering: the report's first figure, in place of a screen capture. */
+  model?: ReportFigure;
+  /** The model with its loads, under the loads' table. */
+  loads?: ReportFigure;
+  reactions?: ReportFigure[];
+  displacements?: ReportFigure[];
+  forces?: ReportFigure[];
+  shells?: ReportFigure[];
 }
 
 export interface ReportData {
@@ -145,6 +165,8 @@ export interface ReportData {
   diagnostics?: SolverDiagnostic[];
   // Viewport screenshot (data URL)
   screenshot?: string;
+  /** Figures drawn from the model, placed in their sections. */
+  resultFigures?: ReportResultFigures;
   // Translation function (defaults to identity)
   t?: TFunc;
   // Report configuration (project info + section toggles)
@@ -485,6 +507,14 @@ export function generateReportHtml(data: ReportData): string {
   html.push(`</div>`);
 
   const showSection = (key: keyof NonNullable<ReportConfig['sections']>) => !cfg?.sections || cfg.sections[key];
+  const showPart = (key: ReportPart) => cfg?.sections?.parts?.[key] !== false;
+  const modeOf = (key: ReportResult): ResultMode => cfg?.resultModes?.[key] ?? 'both';
+  const showTable = (key: ReportResult) => modeOf(key) !== 'figure';
+  const rf = data.resultFigures ?? {};
+  // Figures are numbered in the order they appear, wherever they are.
+  let figureNo = 0;
+  const figureHtml = (f: ReportFigure) => `<figure style="margin:12px 0;page-break-inside:avoid"><img class="screenshot" src="${f.dataUrl}" alt="${escHtml(f.caption)}" /><figcaption style="font-size:11px;color:#444">${escHtml(tr('report.figure'))} ${++figureNo}. ${escHtml(f.caption)}</figcaption></figure>`;
+  const figuresOf = (key: ReportResult) => (modeOf(key) === 'table' ? [] : (rf[key] ?? [])).map(figureHtml);
 
   // Sub-section numbers in the order the sections appear: written by hand, they came out as
   // 1.5, 1.7, 1.6 and repeated 3.4 and 3.6 when optional sections were present.
@@ -627,30 +657,36 @@ export function generateReportHtml(data: ReportData): string {
   html.push(`<div class="page-break"></div>`);
   html.push(`<h1 id="sec-model-data">${escHtml(tr('report.modelData'))}</h1>`);
 
-  if (screenshot) {
+  if (rf.model || screenshot) {
     html.push(`<h2>${escHtml(tr('report.view3d'))}</h2>`);
-    html.push(`<img class="screenshot" src="${screenshot}" alt="${escHtml(tr('report.viewAlt'))}" />`);
+    // The model with its node and member numbers, as Figure 1: drawn from the model, or captured.
+    html.push(figureHtml(rf.model ?? { dataUrl: screenshot!, caption: tr('report.modelFigureCaption') }));
   }
 
   // Nodes table
+  if (showPart('nodes')) {
   html.push(`<h2>${subNo(1)} ${escHtml(tr('report.nodes'))} (${nodes.length})</h2>`);
-  {
-    html.push(`<table><thead><tr><th>ID</th><th>${km('X')} (m)</th><th>${km('Y')} (m)</th><th>${km('Z')} (m)</th></tr></thead><tbody>`);
+    // The name column only when some node has one.
+    const named = nodes.some((n) => n.name);
+    html.push(`<table><thead><tr><th>ID</th>${named ? `<th>${escHtml(tr('pro.thName'))}</th>` : ''}<th>${km('X')} (m)</th><th>${km('Y')} (m)</th><th>${km('Z')} (m)</th></tr></thead><tbody>`);
     for (const n of nodes) {
-      html.push(`<tr><td>${n.id}</td><td class="num">${fmtNum(n.x, 3)}</td><td class="num">${fmtNum(n.y, 3)}</td><td class="num">${fmtNum(n.z ?? 0, 3)}</td></tr>`);
+      html.push(`<tr><td>${n.id}</td>${named ? `<td>${escHtml(n.name ?? '')}</td>` : ''}<td class="num">${fmtNum(n.x, 3)}</td><td class="num">${fmtNum(n.y, 3)}</td><td class="num">${fmtNum(n.z ?? 0, 3)}</td></tr>`);
     }
     html.push(`</tbody></table>`);
   }
 
   // Materials table
+  if (showPart('materials')) {
   html.push(`<h2>${subNo(1)} ${escHtml(tr('report.materials'))} (${materials.length})</h2>`);
   html.push(`<table><thead><tr><th>ID</th><th>${escHtml(tr('report.name'))}</th><th>${km('E')} (MPa)</th><th>${km('\\nu')}</th><th>${km('\\gamma')} (kN/m³)</th><th>${km("f'_c / f_y")} (MPa)</th></tr></thead><tbody>`);
   for (const m of materials) {
     html.push(`<tr><td>${m.id}</td><td>${escHtml(m.name)}</td><td class="num">${plainNumber(m.e, 0)}</td><td class="num">${m.nu}</td><td class="num">${m.rho}</td><td class="num">${m.fy ?? '—'}</td></tr>`);
   }
   html.push(`</tbody></table>`);
+  }
 
   // Sections table
+  if (showPart('sections')) {
   html.push(`<h2>${subNo(1)} ${escHtml(tr('report.sections'))} (${sections.length})</h2>`);
   html.push(`<table><thead><tr><th>ID</th><th>${escHtml(tr('report.name'))}</th><th>${km('A')} (m²)</th><th>${km('I_y')} (m⁴)</th><th>${km('I_z')} (m⁴)</th><th>${km('J')} (m⁴)</th><th>${km('A_{s,y}')} / ${km('A_{s,z}')}</th><th>${km('b')} (m)</th><th>${km('h')} (m)</th></tr></thead><tbody>`);
   for (const s of sections) {
@@ -659,26 +695,30 @@ export function generateReportHtml(data: ReportData): string {
     html.push(`<tr><td>${s.id}</td><td>${escHtml(s.name)}</td><td class="num">${fmtNum(s.a, 6)}</td><td class="num">${s.iy !== undefined ? fmtNum(s.iy, 8) : '—'}</td><td class="num">${fmtNum(s.iz, 8)}</td><td class="num">${s.j !== undefined ? fmtNum(s.j, 8) : '—'}</td><td class="num">${shear}</td><td class="num">${s.b ? fmtNum(s.b, 3) : '—'}</td><td class="num">${s.h ? fmtNum(s.h, 3) : '—'}</td></tr>`);
   }
   html.push(`</tbody></table>`);
+  }
 
   // Elements table
+  if (showPart('members')) {
   html.push(`<h2>${subNo(1)} ${escHtml(tr('report.elements'))} (${elements.length})</h2>`);
-  {
-    html.push(`<table><thead><tr><th>ID</th><th>${escHtml(tr('report.nodeI'))}</th><th>${escHtml(tr('report.nodeJ'))}</th><th>${escHtml(tr('report.material'))}</th><th>${escHtml(tr('report.sections'))}</th></tr></thead><tbody>`);
+    const named = elements.some((e) => e.name);
+    html.push(`<table><thead><tr><th>ID</th>${named ? `<th>${escHtml(tr('pro.thName'))}</th>` : ''}<th>${escHtml(tr('report.nodeI'))}</th><th>${escHtml(tr('report.nodeJ'))}</th><th>${escHtml(tr('report.material'))}</th><th>${escHtml(tr('report.sections'))}</th></tr></thead><tbody>`);
     for (const e of elements) {
       const matName = materials.find(m => m.id === e.materialId)?.name ?? String(e.materialId);
       const secName = memberSectionLabel(sections, e as never);
-      html.push(`<tr><td>${e.id}</td><td>${e.nodeI}</td><td>${e.nodeJ}</td><td>${escHtml(matName)}</td><td>${escHtml(secName)}</td></tr>`);
+      html.push(`<tr><td>${e.id}</td>${named ? `<td>${escHtml(e.name ?? '')}</td>` : ''}<td>${e.nodeI}</td><td>${e.nodeJ}</td><td>${escHtml(matName)}</td><td>${escHtml(secName)}</td></tr>`);
     }
     html.push(`</tbody></table>`);
   }
 
   // Supports
+  if (showPart('supports')) {
   html.push(`<h2>${subNo(1)} ${escHtml(tr('report.supports'))} (${supports.length})</h2>`);
   html.push(`<table><thead><tr><th>ID</th><th>${escHtml(tr('report.nodes'))}</th><th>${escHtml(tr('report.type'))}</th></tr></thead><tbody>`);
   for (const s of supports) {
     html.push(`<tr><td>${s.id}</td><td>${s.nodeId}</td><td>${s.type}</td></tr>`);
   }
   html.push(`</tbody></table>`);
+  }
 
   html.push(`<p>${escHtml(interp(tr('report.loadsCount'), { n: loadCount }))}</p>`);
 
@@ -691,10 +731,11 @@ export function generateReportHtml(data: ReportData): string {
       html.push(`<tr><td>${i + 1}</td><td>${escHtml(ld.type)}</td><td>${escHtml(ld.target)}</td><td>${escHtml(ld.values)}</td></tr>`);
     }
     html.push(`</tbody></table>`);
+    if (rf.loads) html.push(figureHtml(rf.loads));
   }
 
   // Quads (losas y tabiques)
-  if (data.quads && data.quads.length > 0) {
+  if (showPart('shells') && data.quads && data.quads.length > 0) {
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
     const matMap = new Map(materials.map(m => [m.id, m]));
 
@@ -782,7 +823,7 @@ export function generateReportHtml(data: ReportData): string {
     html.push(`<p>${escHtml(interp(tr('report.wallTotalArea'), { area: totalTabArea.toFixed(1), vol: totalTabVol.toFixed(2) }))}</p>`);
   }
   // Load combinations reference table (inside modelData section)
-  if (showSection('modelData') && data.combinations && data.combinations.length > 0) {
+  if (showSection('modelData') && showPart('combinations') && data.combinations && data.combinations.length > 0) {
     html.push(`<h2>${subNo(1)} ${escHtml(tr('report.loadCombinations') || 'Load Combinations')} (${data.combinations.length})</h2>`);
     html.push(`<table><thead><tr><th>#</th><th>${escHtml(tr('report.name') || 'Name')}</th><th>${escHtml(tr('report.factors') || 'Factors')}</th></tr></thead><tbody>`);
     for (const c of data.combinations) {
@@ -813,15 +854,18 @@ export function generateReportHtml(data: ReportData): string {
 
   // Reactions
   html.push(`<h2>${subNo(2)} ${escHtml(tr('report.reactions'))}</h2>`);
+  if (showTable('reactions')) {
   html.push(`<table><thead><tr><th>Nodo</th><th>${km('F_x')} (kN)</th><th>${km('F_y')} (kN)</th><th>${km('F_z')} (kN)</th><th>${km('M_x')} (kN·m)</th><th>${km('M_y')} (kN·m)</th><th>${km('M_z')} (kN·m)</th></tr></thead><tbody>`);
   for (const r of results.reactions) {
     html.push(`<tr><td>${r.nodeId}</td><td class="num">${fmtNum(r.fx)}</td><td class="num">${fmtNum(r.fy)}</td><td class="num">${fmtNum(r.fz)}</td><td class="num">${fmtNum(r.mx)}</td><td class="num">${fmtNum(r.my)}</td><td class="num">${fmtNum(r.mz)}</td></tr>`);
   }
   html.push(`</tbody></table>`);
+  }
+  html.push(...figuresOf('reactions'));
 
   // Element forces
   html.push(`<h2>${subNo(2)} ${escHtml(tr('report.forces'))}</h2>`);
-  {
+  if (showTable('forces')) {
     html.push(`<table><thead><tr><th>Elem</th><th>${escHtml(tr('report.ext'))}</th><th>${km('N')} (kN)</th><th>${km('V_y')} (kN)</th><th>${km('V_z')} (kN)</th><th>${km('M_x')} (kN·m)</th><th>${km('M_y')} (kN·m)</th><th>${km('M_z')} (kN·m)</th></tr></thead><tbody>`);
     for (const ef of results.elementForces) {
       html.push(`<tr><td rowspan="2">${ef.elementId}</td><td>i</td><td class="num">${fmtNum(ef.nStart)}</td><td class="num">${fmtNum(ef.vyStart)}</td><td class="num">${fmtNum(ef.vzStart)}</td><td class="num">${fmtNum(ef.mxStart)}</td><td class="num">${fmtNum(ef.myStart)}</td><td class="num">${fmtNum(ef.mzStart)}</td></tr>`);
@@ -829,16 +873,18 @@ export function generateReportHtml(data: ReportData): string {
     }
     html.push(`</tbody></table>`);
   }
+  html.push(...figuresOf('forces'));
 
   // Displacements
   html.push(`<h2>${subNo(2)} ${escHtml(tr('report.displacements'))}</h2>`);
-  {
+  if (showTable('displacements')) {
     html.push(`<table><thead><tr><th>Nodo</th><th>${km('u_x')} (m)</th><th>${km('u_y')} (m)</th><th>${km('u_z')} (m)</th><th>${km('\\theta_x')} (rad)</th><th>${km('\\theta_y')} (rad)</th><th>${km('\\theta_z')} (rad)</th></tr></thead><tbody>`);
     for (const d of results.displacements) {
       html.push(`<tr><td>${d.nodeId}</td><td class="num">${fmtNum(d.ux, 6)}</td><td class="num">${fmtNum(d.uy, 6)}</td><td class="num">${fmtNum(d.uz, 6)}</td><td class="num">${fmtNum(d.rx, 6)}</td><td class="num">${fmtNum(d.ry, 6)}</td><td class="num">${fmtNum(d.rz, 6)}</td></tr>`);
     }
     html.push(`</tbody></table>`);
   }
+  html.push(...figuresOf('displacements'));
 
   // 2.4 Shell results (slabs/walls) — built from plate/quad stresses
   {
@@ -846,6 +892,7 @@ export function generateReportHtml(data: ReportData): string {
     const qsList = results.quadStresses ?? [];
     if (psList.length || qsList.length) {
       html.push(`<h2>${subNo(2)} ${escHtml(tr('report.shellResults'))} (${psList.length + qsList.length})</h2>`);
+      html.push(...figuresOf('shells'));
       html.push(`<p class="assumption">${escHtml(tr('report.shellResultsAssumptions'))}</p>`);
 
       interface ShellRow {
@@ -869,9 +916,9 @@ export function generateReportHtml(data: ReportData): string {
         s1: fmtNum(g1.s1), s1El: `${g1.kind} ${g1.id}`,
       }))}</p>`);
 
-      const shown = rows;
+      const shown = showTable('shells') ? rows : [];
 
-      html.push(`<table><thead><tr><th>Elem</th>`
+      if (shown.length) html.push(`<table><thead><tr><th>Elem</th>`
         + `<th>${km('\\sigma_{xx}')}</th><th>${km('\\sigma_{yy}')}</th><th>${km('\\tau_{xy}')}</th>`
         + `<th>${km('\\sigma_{1}')}</th><th>${km('\\sigma_{2}')}</th>`
         + `<th>${km('m_x')}</th><th>${km('m_y')}</th><th>${km('m_{xy}')}</th>`
@@ -883,7 +930,7 @@ export function generateReportHtml(data: ReportData): string {
           + `<td class="num">${fmtNum(r.mx)}</td><td class="num">${fmtNum(r.my)}</td><td class="num">${fmtNum(r.mxy)}</td>`
           + `<td class="num">${fmtNum(r.vm)}</td></tr>`);
       }
-      html.push(`</tbody></table>`);
+      if (shown.length) html.push(`</tbody></table>`);
       html.push(`<p class="note">${escHtml(tr('report.shellUnitsNote'))}</p>`);
     }
   }
@@ -1340,7 +1387,7 @@ export function generateReportHtml(data: ReportData): string {
   }
 
   // ─── Figures ────────────────────────────────────────────
-  if (showSection('figures') && cfg?.figures?.length) html.push(...figuresSectionHtml(cfg.figures, tr, tr('report.figures')));
+  if (showSection('figures') && cfg?.figures?.length) html.push(...figuresSectionHtml(cfg.figures, tr, tr('report.figures'), figureNo + 1));
 
   // ─── Quantities ─────────────────────────────────────────
   if (showSection('quantities') && quantities) {

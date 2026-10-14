@@ -57,6 +57,13 @@ export const isServiceCombination = (c: { origin?: { purpose: string } }): boole
  */
 export const isMagnitudeCombination = (c: { method?: string }): boolean => c.method === 'srss' || c.method === 'abs';
 
+/**
+ * How an export names such a result beside its set ("SRSS, magnitudes without a sign"), '' for a
+ * result with signs: the choices, the figure titles and the DXF say what the numbers are.
+ */
+export const magnitudeLabel = (r: Pick<AnalysisResults3D, 'magnitude'> | null | undefined, tr: (key: string) => string): string =>
+  r?.magnitude ? `${r.magnitude.method.toUpperCase()}, ${tr('figures.magnitudes')}` : '';
+
 /** A result that is such a magnitude (`AnalysisResults3D.magnitude`): what an envelope over results reads. */
 const isMagnitudeResult = (r: AnalysisResults3D | undefined): boolean => !!r?.magnitude;
 

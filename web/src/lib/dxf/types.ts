@@ -106,25 +106,3 @@ export interface DxfMappingResult {
   materialName: string | null;
   warnings: string[];
 }
-
-// ─── Export options ─────────────────────────────────────────────
-
-export interface DxfExportOptions {
-  includeResults: boolean;
-  diagramScale: number;
-  deformedScale: number;
-  includeValues: boolean;
-  includeSummary: boolean;
-}
-
-/** ACI color indices for DXF export layers */
-export const DXF_COLORS = {
-  ESTRUCTURA: 7,    // white
-  APOYOS_OUT: 1,    // red
-  MOMENTOS: 5,      // blue
-  CORTANTES: 3,     // green
-  AXILES: 6,        // magenta
-  DEFORMADA: 4,     // cyan
-  REACCIONES: 2,    // yellow
-  RESULTADOS: 7,    // white
-} as const;

@@ -25,3 +25,9 @@ export const IL_QUANTITY_GROUPS = [
 ] as const;
 
 export type IlQuantityId = (typeof IL_QUANTITY_GROUPS)[number]['quantities'][number]['id'];
+
+/** The unit load's two directions, offered beside the quantities. */
+export const IL_DIRECTIONS = [
+  { id: 'vertical', key: 'float.ilVertical', tip: 'float.ilVerticalTip' },
+  { id: 'horizontal', key: 'float.ilHorizontal', tip: 'float.ilHorizontalTip' },
+] as const;

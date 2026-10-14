@@ -276,22 +276,34 @@ function cablesSheet(sources: readonly WorkbookSource[]): WorkbookSheet | null {
   return { name: 'Cables', rows };
 }
 
-/** The result sheets, in the order the Conventions sheet lists them. */
-export function resultSheets(input: ResultSheetsInput): WorkbookSheet[] {
-  const all: Array<WorkbookSheet | null> = [
-    nodeSheet('Reactions', 'reactions', input.sources),
-    nodeSheet('Displacements', 'displacements', input.sources),
-    endForcesSheet(input.sources),
-    stationsSheet(input.sources, input.stations),
-    deflectionsSheet(input),
-    stressesSheet(input),
-    maximaSheet(input),
-    envelopeSheet(input),
-    ...(input.shells && hasShells(input) ? [shellCentresSheet(input), shellNodesSheet(input), shellCornersSheet(input)] : []),
-    staticsSheet(input.statics),
-    secondOrderSheet(input),
-    oneWaySheet(input.sources),
-    cablesSheet(input.sources),
+/** The result sheets' names, in the order `resultSheets` writes them. */
+export const RESULT_SHEET_NAMES = [
+  'Reactions', 'Displacements', 'EndForces', 'Stations', 'Deflections', 'Stresses', 'Maxima', 'Envelope',
+  'ShellCentres', 'ShellNodes', 'ShellCorners', 'Statics', 'SecondOrder', 'OneWay', 'Cables',
+] as const;
+
+/**
+ * The result sheets, in the order the Conventions sheet lists them. `want` leaves sheets out by
+ * name before they are built: the stations of a large model are the expensive part of the file.
+ */
+export function resultSheets(input: ResultSheetsInput, want: (name: string) => boolean = () => true): WorkbookSheet[] {
+  const shells = !!input.shells && hasShells(input);
+  const all: Array<[string, () => WorkbookSheet | null]> = [
+    ['Reactions', () => nodeSheet('Reactions', 'reactions', input.sources)],
+    ['Displacements', () => nodeSheet('Displacements', 'displacements', input.sources)],
+    ['EndForces', () => endForcesSheet(input.sources)],
+    ['Stations', () => stationsSheet(input.sources, input.stations)],
+    ['Deflections', () => deflectionsSheet(input)],
+    ['Stresses', () => stressesSheet(input)],
+    ['Maxima', () => maximaSheet(input)],
+    ['Envelope', () => envelopeSheet(input)],
+    ['ShellCentres', () => (shells ? shellCentresSheet(input) : null)],
+    ['ShellNodes', () => (shells ? shellNodesSheet(input) : null)],
+    ['ShellCorners', () => (shells ? shellCornersSheet(input) : null)],
+    ['Statics', () => staticsSheet(input.statics)],
+    ['SecondOrder', () => secondOrderSheet(input)],
+    ['OneWay', () => oneWaySheet(input.sources)],
+    ['Cables', () => cablesSheet(input.sources)],
   ];
-  return all.filter((s): s is WorkbookSheet => !!s);
+  return all.filter(([name]) => want(name)).map(([, build]) => build()).filter((s): s is WorkbookSheet => !!s);
 }

@@ -28,21 +28,35 @@ Para empezar:
   (DXF) o un modelo IFC.
 
 **Proyecto** tiene también, como en Básico, **Guardar**, **Abrir**, **Compartir link** y
-**Exportar** (los resultados en Excel o CSV, el reporte, y la vista en DXF o SVG). Ver el
-[capítulo 1](01-primeros-pasos.md#guardar-abrir-y-compartir).
+**Exportar**. Ver el [capítulo 1](01-primeros-pasos.md#guardar-abrir-y-compartir). Cada botón de
+**Exportar** abre un diálogo que dice qué sale, con todo prendido por defecto; lo que apagues se
+recuerda en este navegador:
+- **Datos y resultados: Excel y CSV.** El libro del proyecto (abajo). Elegís las hojas del modelo y
+  de resultados, los casos y combinaciones, y cuántos puntos por barra leen las hojas a lo largo de
+  las barras. En CSV, un zip con un archivo por hoja, siempre con la portada y las convenciones;
+  los campos van separados por comas y los decimales con punto, en cualquier idioma.
+- **Memoria: Reporte PDF.** Ver [Reporte](#reporte).
+- **Dibujos e imágenes: DXF, SVG, PNG y JPG.** El DXF lleva el modelo en 3D o proyectado (planta,
+  frente XZ, lateral YZ), en m, cm o mm, con una capa por contenido: barras, nodos, apoyos, placas
+  como caras 3D, numeración, cargas (una capa por caso, con temperaturas, tendones y desplazamientos
+  impuestos), deformada, M, V, N y reacciones. Una combinación SRSS o ABS se nombra como tal en las
+  opciones, los títulos de las figuras y el DXF, y sus valores van sin signo. Las
+  imágenes son las figuras vectoriales del Básico más las placas: dibujadas como caras y, como
+  figura propia, un resultado de placa en colores con su escala. Se dibujan desde la vista de la
+  pantalla o desde una fija (planta, frente, lateral, isométrica). Los resultados pueden ser los de
+  la pantalla o los de cualquier caso, combinación o la envolvente, sin cambiar lo que se ve.
 
 **Libro del proyecto.** **Exportar → Libro del proyecto** escribe un archivo de Excel con una
 carátula (los datos del proyecto, la fecha, la versión y las unidades), las convenciones, el modelo
 y todos los casos y combinaciones: reacciones, desplazamientos, esfuerzos de extremo, esfuerzos,
-flechas y tensiones en las **estaciones** que elijas (5, 13 o las críticas: cuartos, posiciones de
-carga y corte nulo), los máximos con el lugar donde ocurren, la envolvente de cada nudo y extremo de
-barra con la combinación que la gobierna, las placas en su centro, sus nudos y sus esquinas, la
+flechas y tensiones en los **puntos a lo largo de las barras** que elijas (5, 13 o los críticos:
+extremos, cuartos, cargas puntuales y corte nulo), los máximos con el lugar donde ocurren, la envolvente de cada nodo y extremo de
+barra con la combinación que la gobierna, las placas en su centro, sus nodos y sus esquinas, la
 estática y el estado de segundo orden. Los números van con todos sus dígitos y con el signo del
 solver, que es el que muestran los diagramas. Las hojas del modelo usan los nombres y columnas de la
 importación desde Excel, así que se pueden volver a leer. Si el libro es más grande de lo que un
 archivo de Excel maneja bien (una hoja con más filas de las que admite, o más de cuatro millones de
-celdas), sale como un zip con un CSV por hoja. El Excel del diálogo de reporte es el mismo libro,
-con las secciones que marques.
+celdas), sale como un zip con un CSV por hoja.
 
 **Datos del proyecto.** Comitente, obra, número de obra, ubicación, las revisiones con su fecha
 y descripción, y quién proyectó, revisó y aprobó, con fechas. Se guardan con el proyecto y los
@@ -65,8 +79,14 @@ rehacer.
 
 ### Dibujar
 
-**Nodos.** Una tabla editable de coordenadas X, Y, Z en metros. Se puede **pegar desde Excel**
-(columnas X, Y y opcionalmente Z).
+**Nodos.** Una tabla editable de coordenadas X, Y, Z en las unidades elegidas, y un **nombre**
+opcional (por ejemplo A1) junto al número. Se puede **pegar desde Excel** (columnas X, Y y
+opcionalmente Z). Un doble clic en una fila encuadra ese nodo en el modelo.
+
+Las barras también llevan un **nombre** opcional en su tabla, y un doble clic en la fila las
+encuadra. Los nombres se guardan en el archivo, van y vienen en el Excel del modelo, aparecen en
+las tablas del reporte y en las etiquetas cuando **Vista › Las etiquetas muestran** dice
+**nombre**. Cambiar un nombre se deshace en un paso y no borra los resultados.
 
 **Barras.** Una tabla con nodo inicial y final, material y sección, y las columnas **Vinc. i** y
 **Vinc. j**. En una barra que se está agregando alternan entre **Art** (los dos momentos de flexión
@@ -80,7 +100,8 @@ semirrígido o liberado en parte) y abren sus condiciones de extremo en
   ejemplo para que una viga cuelgue de la losa. Se define en **Especificaciones › Barras**.
 - Con clic derecho sobre una barra: **editar** su material y su sección, abrir sus
   **Especificaciones…** o **dividirla** en N partes (de 2 a 20). Con clic derecho sobre un nodo con
-  apoyo se abren las especificaciones del apoyo. Con nodos seleccionados, clic derecho en un
+  apoyo se abren las especificaciones del apoyo; **Agregar apoyo** y **Agregar carga** abren la
+  tarjeta de su panel sobre ese nodo. Con nodos seleccionados, clic derecho en un
   espacio vacío los refleja en X o en Y o los gira 90°.
 
 Las barras que se dibujan son de pórtico; en **Especificaciones › Barras** se hacen de reticulado,
@@ -101,7 +122,6 @@ cuadrilátero**. Se le asigna material y espesor.
 - **Cáscara (con curvatura):** para cuadriláteros cuyos cuatro nodos no están en un mismo plano.
   El panel mide cuánto se aparta el cuarto nodo y sugiere cuándo usarla; se activa en
   **Especificaciones › Superficies**.
-- **Escalera:** una losa inclinada con los escalones aplicados como carga.
 - **Offset de losa/muro (excéntrico):** desplaza el plano medio de la placa, por ejemplo para
   alinear la cara superior de la losa con el nivel de piso. Se define en
   **Especificaciones › Superficies**.
@@ -155,7 +175,9 @@ seleccionadas antes de dividir.
 - **Renumerar** nodos, barras y placas por posición, todo el modelo o sólo la selección, y desde un
   número. Si ese número ya lo usa algo que no está seleccionado, no se renumera y se dice cuál.
 - **Limpieza:** nodos coincidentes (con la **tolerancia de soldado**, que se puede cambiar y usan
-  todas las soldaduras del modelo), barras repetidas o de largo nulo, nodos sueltos, y además
+  todas las soldaduras del modelo), barras repetidas (los mismos dos nodos, que se eliminan) o de
+  largo nulo, nodos sueltos, **barras colineales superpuestas** con nodos distintos en los extremos
+  (se listan por par con el tramo que comparten y se seleccionan, para elegir cuál queda), y además
   **partes sueltas** sin ningún apoyo, **bordes libres** de placas que no están sobre una barra,
   **barras que se cruzan sin nodo** y **propiedades repetidas** (materiales o secciones iguales con
   otro número), que se unifican.
@@ -168,9 +190,31 @@ seleccionadas antes de dividir.
   exacta.
 
 **Seleccionar.** Además de las opciones de Básico: arrastrar puede dibujar un **lazo** en lugar de
-un rectángulo; se seleccionan las barras **paralelas a un eje o a un plano global**, lo que está
-**cargado en un caso**, y se vuelve a la **selección anterior**. **Recorrer con zoom** pasa por las
-barras o nodos seleccionados de a uno, encuadrando cada uno.
+un rectángulo. Cada herramienta del panel trabaja sobre el tipo elegido arriba (barras, nodos,
+placas, apoyos o cargas, o varios a la vez) y nunca deja seleccionado otro tipo; al cambiar de tipo
+(también al apagar la selección de múltiples tipos), se suelta lo seleccionado del anterior, así
+Suprimir borra sólo lo que el panel dice. Lo que la vista oculta nunca se toma: cada herramienta
+trabaja sobre lo que se ve, y Por id nombra los números ocultos que no seleccionó.
+
+- **Como lo seleccionado:** para barras, paralelas, conectadas, misma sección, material, tipo,
+  nivel, plano o pórtico; para nodos, conectados y mismo nivel; para placas, paralelas, mismo plano,
+  conectadas, mismo espesor, material y nivel; para apoyos, mismo tipo y nivel; para cargas, mismo
+  tipo y mismo caso. Mismo nivel es una sola banda para todos los tipos: dentro de 0,15 m, la banda
+  con que el diseño agrupa las barras en pisos.
+- **Paralelas a un eje o a un plano global:** barras, y placas (las que contienen el eje o yacen en
+  el plano).
+- **Cargados en un caso:** las cargas mismas, o los nodos, barras y placas donde están.
+- **Selección anterior:** la última del tipo elegido.
+- **Recorrer con zoom:** pasa de a uno por lo seleccionado del tipo elegido (o por todo ese tipo),
+  encuadrando cada uno.
+- **Por id:** nodos, barras, placas, apoyos o cargas, con los números de sus tablas. Las placas son
+  un solo tipo: si un triángulo y un cuadrilátero comparten número, se toman los dos y se avisa.
+
+**Nodos y paneles.** En 3D los nodos se dibujan de un tamaño fijo en pantalla: puntos para mirar y esferas mientras algo apunta a un nodo (dibujar, elegir las esquinas de una placa, colocar una estructura generada o un pegado, la pestaña de uniones). En Configuración se elige siempre puntos, siempre esferas o automático, y si el panel derecho muestra sus barras de desplazamiento todo el tiempo.
+
+**Cargas sobre placas.** Una carga de superficie o una temperatura de losa se elige con un clic en cualquier parte de su relleno. Al elegir una carga en el modelo, las tablas de cargas pasan a su caso y muestran su fila.
+
+**Modelos grandes.** Las tablas de nodos, barras, placas y cargas dibujan sus primeras filas al abrir y el resto en tandas, y sus listas desplegables se arman al usarlas; una fila elegida en el modelo se dibuja y se muestra enseguida.
 
 **Vista.** Las vistas guardadas conservan la proyección, el zoom ortográfico, lo oculto, las
 etiquetas y los colores. Además:
@@ -181,8 +225,11 @@ etiquetas y los colores. Además:
 - **Color de las barras** por sección, material o grupo, con su leyenda.
 - **Dibujar** los vínculos y diafragmas como líneas entre sus nodos, y los extremos I y J.
 - **Notas** de texto en un punto del modelo, que se guardan con el proyecto.
-- **Unidades:** SI (kN, m), técnico (tf, tf·m, kgf/cm², cm) o imperial, y los **decimales** de cada
-  magnitud. El modelo se guarda siempre en kN y m.
+- **Unidades:** SI (kN, m), **SI con milímetros** (kN, mm: coordenadas, desplazamientos y
+  propiedades de sección en mm), técnico (tf, tf·m, kgf/cm², cm) o imperial, y los **decimales** de
+  cada magnitud. Todo campo con una magnitud se escribe en las unidades elegidas y muestra la
+  unidad al lado; el modelo se guarda siempre en kN y m. Las propiedades de una sección se leen en
+  cm², cm⁴ y cm³ en SI.
 
 ### Propiedades
 
@@ -251,7 +298,7 @@ Las barras inactivas y los modificadores de rigidez valen en todos los análisis
 compresión exclusivas se resuelven en **Calcular**: una barra que trabaja al revés de lo indicado
 sale del modelo y se vuelve a calcular, hasta que ninguna cambia de estado. Mientras trabaja, una
 barra de un solo sentido lleva sólo esfuerzo axil, y las cargas que tenga a lo largo pasan a sus
-nudos como las reacciones de una viga simplemente apoyada. Una barra que salió del modelo informa
+nodos como las reacciones de una viga simplemente apoyada. Una barra que salió del modelo informa
 esfuerzos nulos. Los resultados dicen cuántas iteraciones hicieron falta y qué barras quedaron
 afuera, y si alguna oscila entre los dos estados.
 
@@ -308,7 +355,7 @@ también la nombran y dan el diseño por incompleto, porque leen las combinacion
 esfuerzos. Con barras de un solo sentido, cables o apoyos que se levantan, las combinaciones se
 resuelven lineales. Los modelos grandes
 pasan por el mismo solver disperso que el análisis lineal: las catorce combinaciones de un edificio
-de mil nudos y dos mil quinientas barras tardan unos segundos.
+de mil nodos y dos mil quinientas barras tardan unos segundos.
 
 El P-Delta se repite hasta que los desplazamientos dejan de cambiar. Algunos programas, en cambio,
 cortan después de un número fijo de iteraciones, haya convergido o no el
@@ -334,8 +381,14 @@ actúa sobre nodos o barras seleccionados y su puntero elige otra cosa, un botó
 lo que hace falta. Los resortes, el
 levantamiento y la terna inclinada se definen en **Especificaciones › Apoyos**.
 
-**Cargas.** El panel tiene tres pestañas (casos de carga, con la regla de peso propio adentro;
-combinaciones; cargas de piso), la tarjeta para escribir una carga y las tablas de cargas:
+Un apoyo se agrega con **Agregar apoyo**: se marcan los grados de libertad que restringe (o se
+elige uno de los tipos de arriba) y, abajo, **Aplicar a**, la misma elección que en las cargas: la
+selección, una lista de números (`1, 4, 7-12`), un grupo o un rango de coordenadas, con la cuenta de
+nodos a los que va. Todo entra en un solo paso de deshacer, y un nodo que ya tenía apoyo toma el
+nuevo en su lugar.
+
+**Cargas.** El panel tiene tres pestañas (casos de carga; combinaciones; cargas de piso), la
+tarjeta para agregar una carga y las tablas de cargas:
 
 - **Casos de carga:** cada caso con su tipo (D permanente, L sobrecarga de uso, Wa viento de servicio, Lr sobrecarga de
   cubierta, W viento, E sismo, S nieve, R lluvia, T temperatura, F fluidos, H empuje del suelo; y, para
@@ -351,7 +404,7 @@ combinaciones; cargas de piso), la tarjeta para escribir una carga y las tablas 
   - un **grupo de alternativas** (las combinaciones toman un caso del grupo por vez) y **patrón**
     (varía sólo donde su acción es la principal), marcados en la tabla;
   - en un caso N, sus **cargas nocionales**: una fracción (0,002 por defecto) de la carga vertical
-    que un caso de origen pone en cada nudo, horizontal según ±X o ±Y;
+    que un caso de origen pone en cada nodo, horizontal según ±X o ±Y;
   - en una sobrecarga (L) escrita a mano, su **reducción** por destino, área tributaria, tipo de
     elemento y pisos, con la fórmula de la norma asignada: Lo y las exclusiones (sobrecargas
     pesadas, garajes de autos, lugares de reunión, filas que la tabla marca no reducibles) salen del
@@ -369,14 +422,22 @@ combinaciones; cargas de piso), la tarjeta para escribir una carga y las tablas 
   listadas ya están. Las cargas nocionales no se calculan ahí. La verificación de estática de ese
   cálculo, y el diseño de uniones y bases que lo leen cuando no hay ninguna combinación lineal
   activa, toman las mismas cargas.
-- **Peso propio:** es una carga de un caso. Cada fila dice en qué caso entra, en qué dirección
-  global, con qué factor (−1 en Z es la gravedad) y sobre qué: todo el modelo, una lista de barras
-  o un grupo. En las barras es ρ·A a lo largo de la barra, así que una viga toma su propio wL²/8;
+- **Peso propio:** es una carga de un caso. Se agrega desde **Agregar carga › General › Peso
+  propio**: dirección global, factor (−1 en Z es la gravedad) y, en **Aplicar a**, todo el modelo,
+  un grupo o barras (por selección, números, rango, sección o tipo). Uno en el mismo caso, con la
+  misma dirección y sobre lo mismo toma el factor nuevo en su lugar. Las tablas de cargas lo listan
+  arriba de todo, una fila por regla, donde se cambia el caso, la dirección o el factor y se quita.
+  Sobre todo el modelo o un grupo incluye sus placas; sobre barras elegidas, sólo esas barras. En las barras es ρ·A a lo largo de la barra, así que una viga toma su propio wL²/8;
   en una columna o una barra inclinada la parte a lo largo de la barra queda en ella, así que su
   axil crece hacia el extremo de abajo. En las placas es ρ·t por el área. Entra una vez, en ese caso, y cada combinación lo toma con el
-  factor de ese caso. Un proyecto guardado antes de esta regla se abre con el peso propio en su
-  primer caso D, y un aviso lo dice; si tenía varios casos D, el aviso recuerda que antes el peso
-  se contaba en cada uno.
+  factor de ese caso. Un proyecto nuevo no tiene peso propio hasta que se agrega: su primera
+  barra o placa dibujada en PRO lo empieza sin él. Un proyecto guardado antes de esta regla, o un
+  modelo dibujado en Básico, se abre en PRO con el peso propio sobre todo el modelo, barras y
+  placas (también un proyecto sólo de placas), en su primer caso D: en el caso que Básico le
+  asignó cuando lo tiene, en un caso D nuevo cuando no tiene ninguno, y sin peso propio si estaba
+  apagado. Si ya tenía cargas, un aviso lo dice; si tenía varios casos D, el aviso recuerda que
+  antes el peso se contaba en cada uno. Una fila cuyo caso o dirección se cambia al de otra fila
+  (sobre lo mismo) pasa a ser esa fila, con el factor de la fila cambiada, y un aviso lo dice.
 - **Combinaciones:** manuales, o generadas automáticamente. Las de resistencia (últimas) son las de CIRSOC
   101-2025 (§2.3.2), con el viento a 1,0 W o 0,5 W. Las de servicio son una alternativa que se
   genera aparte: las gravitatorias a factor 1,0 y, con viento, las de CIRSOC 102-2025 B.4.2
@@ -412,21 +473,31 @@ combinaciones; cargas de piso), la tarjeta para escribir una carga y las tablas 
   llegan. Un anillo de vigas dentro de un paño es una abertura: sus vigas toman su parte, y su propio
   paño se carga una vez. Cada viga recibe cargas lineales parciales cuya suma es la carga por el
   área; junto a una esquina entrante, la parte de la región que pasa del extremo de su viga va a ese
-  nudo. Un piso en un plano inclinado recibe la carga vertical, por área real o por área en planta;
+  nodo. Un piso en un plano inclinado recibe la carga vertical, por área real o por área en planta;
   una carga negativa levanta. Una planta muestra los paños antes de agregar. La carga de piso **se
   guarda como definición**: sus cargas se marcan ⟲ en las tablas y se rehacen antes de calcular si el
   modelo cambió; la lista de abajo muestra cada una con su total, para quitarla. Las **zonas** se
-  dibujan eligiendo en orden los nudos del contorno; las barras elegidas con ellos quedan afuera, y
+  dibujan eligiendo en orden los nodos del contorno; las barras elegidas con ellos quedan afuera, y
   otras zonas pueden ser sus aberturas.
-- **Escribir carga:** se elige el tipo, los valores y a qué se aplica. Los números aceptan coma o
+- **Agregar carga:** arriba, el caso y el tipo (una lista agrupada en Nodo, Barra, Placa y
+  General); debajo, con sangría, los valores del tipo, cada uno junto a su nombre y las componentes
+  en columnas X, Y, Z (o I, J); al final, a qué se aplica. A la derecha de los valores, un esquema
+  muestra qué representa cada uno, con sus ejes y sus cotas (a, b, la posición del pico, las
+  excentricidades), y se redibuja con lo que se escribe: el signo da vuelta la flecha y un campo
+  vacío muestra su símbolo. Las barras se dibujan inclinadas, así se distinguen los ejes locales,
+  los globales y la proyección horizontal; las placas, de costado (dirección, área real o
+  proyectada) y en planta (cómo se reparte el valor); la temperatura, como su diagrama en la sección.
+  El botón de su esquina lo muestra en grande sobre el modelo (en el celular, en toda la pantalla).
+  En el celular el esquema va debajo de los valores. Los números aceptan coma o
   punto decimal; un campo J vacío toma el valor de I, y un cero escrito en J es cero.
-  - En **nudos**: una fuerza de seis componentes en ejes globales, o una fuerza inclinada hacia
-    otro nudo o un punto (se guarda por componentes); y un **desplazamiento impuesto** del caso,
-    en mm o rad, sobre nudos con un apoyo que restrinja esa dirección. A diferencia del
+  - En **nodos**: una fuerza de seis componentes en ejes globales, o una fuerza inclinada hacia
+    el nodo cargado desde un origen, un nodo o un punto: el destino es cada nodo de «Aplicar a» y no
+    se escribe (se guarda por componentes); y un **desplazamiento impuesto** del caso,
+    en mm o rad, sobre nodos con un apoyo que restrinja esa dirección. A diferencia del
     asentamiento de un apoyo, que entra una sola vez, éste se multiplica por el factor del caso en
     cada combinación.
   - En **barras**: una **distribuida** en ejes locales, globales o proyectados, sobre toda la barra
-    o sobre un tramo a–b medido desde el nudo I; también **triangular con pico** (dos trapecios que
+    o sobre un tramo a–b medido desde el nodo I; también **triangular con pico** (dos trapecios que
     se encuentran en el pico) e **hidrostática** (w₁ en la cota más baja de las barras elegidas y w₂
     en la más alta, según un eje global). Una **concentrada** con fuerza axial, transversal y
     momentos, en ejes locales o globales: un momento o una fuerza axial dentro de la barra se
@@ -439,17 +510,19 @@ combinaciones; cargas de piso), la tarjeta para escribir una carga y las tablas 
     equivalentes sobre la estructura conectada.
   - En **losas** (cuadriláteros y triángulos): una carga por superficie hacia abajo, según el eje
     local z de la losa o según un eje global por área real o proyectada; uniforme, con un valor por
-    nudo o variable según un eje entre dos valores (fuera de ellos, nada); en toda la losa o sólo
+    nodo o variable según un eje entre dos valores (fuera de ellos, nada); en toda la losa o sólo
     dentro de un rectángulo. Un **fluido** hasta un nivel, que empuja cada losa por debajo hacia
-    afuera del fluido. Una fuerza **concentrada** en un punto de una losa, repartida a sus nudos con
+    afuera del fluido. Una fuerza **concentrada** en un punto de una losa, repartida a sus nodos con
     sus funciones de forma. La temperatura de losa.
 
   **Aplicar a** es la misma elección para todos los tipos: la selección, una lista de números
   (`1, 4, 7-12`), un grupo, un rango de coordenadas en X, Y o Z, una sección o un tipo de barra
   (vigas, columnas, inclinadas, reticuladas). Para las cargas de barra está además la **barra
   física**: las barras elegidas tomadas como una sola barra recta, con las distancias medidas sobre
-  el total. El panel dice a cuántos elementos va antes de agregar, y todo entra en un solo paso de
-  deshacer.
+  el total. Al lado del botón **Agregar carga** se lee a cuántos elementos va, y todo entra en un
+  solo paso de deshacer. Con **Selección**, si el puntero está en otra herramienta aparece al lado
+  **Activar selección con el mouse**: el clic en el modelo pasa a seleccionar, y nada se agrega
+  hasta tocar Agregar.
 - **Tablas de cargas:** una tabla por tipo, del caso activo o de todos los casos, con los tramos
   a–b, las temperaturas y deformaciones, los cables y los desplazamientos impuestos; cada celda se
   edita en el lugar. Al pie, los **totales de cada caso** respecto del origen (ΣF y ΣM, con el peso
@@ -479,6 +552,15 @@ argentina:
   Para las combinaciones de servicio se puede agregar el **viento de servicio Wa** de B.4.2: la
   velocidad de 50 años del mapa de la Figura C AB.4.2-1 y una recurrencia (5 a 500 años), que la
   convierte con el factor de esa figura.
+  El viento puede actuar sobre una **zona, un grupo o una caja de coordenadas** en lugar de todo el
+  modelo (sus nodos arman los niveles y el frente), y puede tomar un **perfil de presión** propio en
+  lugar del de la norma: una presión lateral neta según la altura, dibujada al lado, que cubre el
+  viento de cualquier norma leído de sus tablas (sólo el caso 1, sin presiones de cubierta ni el
+  mínimo de la norma). Sobre una región, el nivel más bajo toma su propia banda (la mitad del piso
+  de abajo) y las cargas de cubierta van sólo a las barras de la región. Una región sin nodos no
+  genera viento, y el diálogo lo dice. El viento de servicio Wa sigue la misma región y el mismo
+  perfil; sobre un perfil es el perfil por (V_servicio / V)². El perfil es para edificios: otra
+  estructura toma los coeficientes de la norma, y el diálogo avisa que el perfil no se usa.
   El **factor de efecto de ráfaga** sigue el §1.9. La frecuencia fundamental de cada dirección
   sale del análisis modal del modelo (con las masas del plan), de valores que escribís, de las
   fórmulas aproximadas del §1.9.3, o de declarar la estructura rígida. Por encima de 1 Hz el
@@ -489,7 +571,11 @@ argentina:
 - **Nieve** según CIRSOC 104-2005: pg de la localidad (Tablas 1.1 a 1.15) o del lugar, pf con
   sus mínimos para cubiertas de baja pendiente, Cs según la pendiente y la condición térmica,
   lluvia sobre nieve, y la carga no balanceada en cubiertas a dos aguas, un caso por cada sentido
-  del viento. Las acumulaciones por arrastre, las cargas parciales y el hielo no se generan.
+  del viento. Las acumulaciones por arrastre, las cargas parciales y el hielo no se generan. La
+  cubierta se puede elegir (una zona, un grupo o una caja) en lugar de la que muestra la geometría:
+  sus barras de cubierta son las de tipo viga (30° de pendiente como mucho) que nada de lo elegido
+  cubre, así quedan afuera las columnas de una caja y los pisos bajo la cubierta. Una región sin
+  barras de cubierta no genera nieve, y el plan lo dice.
 - **Sismo** según INPRES-CIRSOC 103 (método estático). Esta parte se habilita cuando el proyecto
   tiene asignado un reglamento sísmico; si no lo tiene, el diálogo lo indica.
 
@@ -530,6 +616,14 @@ quedan y el plan se agrega al lado.
 - **Estructuras:** pórtico espacial por vanos (X, Y y pisos), pórtico plano, emparrillado, viga
   continua, reticulado espacial, viga reticulada en X o en K, cabriada Howe, diente de sierra,
   bóveda cilíndrica, viga circular y cúpula. Los vanos se escriben como "6; 7,5; 6".
+
+El formulario se ordena en secciones desplegables, que arrancan cerradas para ver de un vistazo
+todo lo que se puede editar; cerrada, cada una muestra en su título lo que tiene definido (por
+ejemplo, "10 m × 6 m · 6 pórticos cada 5 m"). Una nave se divide en Pórticos, Columnas, Cubierta y
+Arriostramientos; una cercha, en Forma y Barras del alma; después vienen **Perfiles y material** y
+**Dónde**. Al pasar el mouse por un parámetro, o al escribir en él, la línea junto al botón que fija
+la vista previa dice qué controla. El botón que coloca la estructura queda siempre al pie del panel; en el
+teléfono la vista previa arranca sin fijar y va al final del formulario.
 
 Asigna un perfil a cada tipo de barra, un acero y los apoyos (los del generador, ninguno,
 articulados o empotrados). La estructura puede ir:
@@ -656,7 +750,9 @@ Los análisis avanzados de PRO:
 - **P-Delta**, **modal**, **espectral** y **pandeo**, con las reglas del proyecto tal como las lee
   **Calcular** (peso propio declarado, el interruptor de corte). Este P-Delta toma todas las cargas
   del modelo juntas, sin factores; el de cada combinación con sus factores se pide en
-  **Especificaciones › Análisis**. El modal puede pedir modos **hasta el 90 % de la masa**: agrega
+  **Especificaciones › Análisis**. Si con esas cargas no hay equilibrio de segundo orden, o no
+  converge, el resultado no se publica como P-Delta y el panel dice por qué, con el mismo
+  criterio que las combinaciones. El modal puede pedir modos **hasta el 90 % de la masa**: agrega
   modos hasta que la masa participante acumulada llega al 90 % en X y en Y, o avisa si el modelo no
   tiene más. Las masas salen de la **fuente de masas** (sólo peso propio, o casos elegidos con sus
   factores). Con uniones entre nodos, las razones de masa del motor no son confiables: el modal da
@@ -664,7 +760,29 @@ Los análisis avanzados de PRO:
   ofrece. El espectral arma el espectro de INPRES-CIRSOC 103 con la zona, la clase de sitio y sus
   parámetros (ca, cv, T1 a T3, γr, R y ξ), combina los modos por CQC (combinación cuadrática
   completa, con el ξ que se indica) o SRSS (raíz cuadrada de la suma de los cuadrados) y requiere
-  haber corrido antes el modal.
+  haber corrido antes el modal. También puede usar uno de los **espectros del proyecto**: tablas de
+  Sa (en g o m/s²) o Sd según el período, pegadas o escritas, leídas en forma lineal o en ejes
+  logarítmicos, que se guardan con el proyecto. La fuente de masas puede llevar **pesos propios**,
+  aparte de los casos de carga: kN/m en barras, kN/m² en losas, o kN/m² en un piso repartido a sus
+  vigas, sobre una zona, un grupo o una caja de coordenadas. Las losas son las cáscaras con 30° de
+  pendiente como mucho (los muros quedan afuera); un peso de piso en todo el modelo va a cada nivel
+  que forman las barras horizontales.
+- **Caso de carga espectral:** un caso E puede tomar como resultado un espectro (el de la norma o
+  uno del proyecto), con los factores X/Y/Z de las direcciones, la regla (SRSS, CQC o ABS), ξ, una
+  escala (γr/R para el de la norma) y cómo se suman las direcciones. Cada dirección con factor se
+  calcula por separado: cada modo se resuelve con su forma impuesta (en forma lineal y sobre el eje,
+  como la estructura del análisis modal) y los modos se combinan valor por valor, cada uno con el
+  signo del modo dominante. Después las direcciones, valor por valor: por porcentajes,
+  |E1| + 0,3·|E2| con factores 1 y 0,3 (la regla 100/30), o por SRSS; con el signo de la dirección
+  principal. Se piden modos hasta que se mueva el 90 % de la masa en cada dirección (también Z), y
+  la resolución avisa cuando no se llega. Las reacciones son las de los apoyos (la de un resorte es
+  su fuerza). Se calcula al resolver las combinaciones; una combinación lineal que lo toma es el
+  resto de la combinación como se resolvió (de segundo orden con P-Delta por combinación, la parte
+  espectral sumada en primer orden) más la parte espectral, con ± si se piden los dos sentidos del
+  sismo. No entra en "Todas las cargas" ni en el control de estática; un modelo con barras de un
+  solo sentido o apoyos que se levantan rechaza las combinaciones que lo toman. Fuera de una tabla
+  del usuario, Sa se mantiene en los valores de los extremos, también en una tabla de Sd, como la
+  lee el análisis espectral.
 - **Historia en el tiempo**, con los métodos de Newmark o HHT-α. La configuración se guarda con el
   proyecto y viaja en el código de modelo. Cada dirección (X, Y y Z, a la vez) tiene su propia
   aceleración de base, con un factor de escala: senoidal, un registro leído de un archivo (PEER
@@ -684,8 +802,12 @@ Los análisis avanzados de PRO:
   punto por cada rótula que se forma. Un deslizador recorre los pasos; en cada uno se ven las
   rótulas nuevas, con sus momentos, y en el modelo la deformada y todas las rótulas formadas hasta
   ese paso. Cuando el análisis se detiene porque plastificaron a la vez todos los extremos que
-  llegan a un nudo, el panel lo avisa: la estructura puede resistir más y el factor de colapso se
-  toma como un mínimo.
+  llegan a un nodo, el panel lo avisa: la estructura puede resistir más y el factor de colapso se
+  toma como un mínimo. Empuja con las cargas del modelo, las de un caso, o un patrón lateral según X
+  o Y repartido por el peso permanente de cada nodo (uniforme, triangular por altura o con la forma
+  del modo dominante); un patrón suma 1 kN, así el factor de carga es el corte basal, y se empuja sin
+  la gravedad. Llega hasta el mecanismo o hasta un corte basal o un desplazamiento del nodo de
+  control indicados.
 - **Imperfecciones geométricas:** cargas nocionales iguales al desplome elegido por la carga vertical
   total de cada nodo (cargas nodales, cargas de barra y peso propio). Como análisis
   **experimentales** cuyos datos quedan en el panel, **fundación sobre resortes de Winkler**, con ky
@@ -702,10 +824,22 @@ Los análisis avanzados de PRO:
   y el cemento son del panel.
 - **Líneas de influencia 3D** y el **analizador de sección**; la J del analizador sale de la
   solución de Saint-Venant sobre la malla de la sección.
-- **Cargas móviles:** un tren de ejes (predefinido o propio) recorre las barras seleccionadas, en
-  orden, y cada barra guarda sus esfuerzos máximos y mínimos con la posición del tren. La carga de
-  carril se crea como un caso de carga común sobre las mismas barras. La envolvente no entra en las
-  combinaciones ni en el diseño.
+- **Cargas móviles:** un tren de ejes (predefinido, propio o del catálogo AASHTO: HS20-44, HS15-44,
+  H20-44, H15-44, y el camión y el tándem HL-93) recorre las barras seleccionadas, en orden, y cada barra
+  guarda sus esfuerzos máximos y mínimos con la posición del tren. Un vehículo puede tener una
+  separación variable entre dos ejes (se corre cada separación del rango), una trocha con una
+  segunda línea de barras para la otra línea de ruedas (mitad de cada eje en cada una) y un factor
+  dinámico; se guarda y se abre como archivo, y un archivo que no cierra (una separación antes de
+  ningún eje, un rango desde 0 o de más de 100 m, una trocha o un factor no positivos) se rechaza.
+  La segunda línea se recorre en el sentido de la primera, se haya elegido como se haya elegido, y
+  el panel avisa si no es paralela, si no está a la trocha o si no mide lo mismo. Un vehículo que no
+  es simétrico también se corre en el otro sentido. La carga de carril se crea como un caso de carga común
+  sobre las mismas barras. La envolvente no entra en las combinaciones ni en el diseño; para eso el
+  vehículo se escribe como **casos estáticos por posición**, casos de tránsito que son alternativas
+  de un grupo, así cada combinación toma una posición por vez: cada separación, en ambos sentidos si
+  el vehículo no es simétrico, las posiciones del barrido (como máximo 150 casos por vez; agrandá el
+  paso de los casos o el de la separación). Los casos de dos vehículos multiplican las
+  combinaciones, y el panel dice cuánto.
 
 Salvo que el análisis diga otra cosa, estos análisis cargan la suma de todos los casos, sin
 mayorar. Usan el eje de las barras, sin su excentricidad, y las articulaciones de las
@@ -717,18 +851,23 @@ con ellos da frecuencias y formas pero no razones de masa confiables.
 
 ### Reporte
 
-**Reporte** arma una **memoria de cálculo** imprimible: datos del modelo con todas las propiedades,
-detalle de cargas, resultados, el resumen de extremos (a lo largo de las barras) y la envolvente
+**Reporte PDF** arma una **memoria de cálculo** para imprimir o guardar en PDF. El diálogo tiene tres
+secciones plegables: el membrete, el contenido y las figuras. Lleva datos del modelo (cada tabla se
+puede dejar afuera) y el modelo dibujado como **Figura 1** con los números de nodos y barras,
+detalle de cargas con el modelo cargado, resultados, el resumen de extremos (a lo largo de las barras) y la envolvente
 sobre las combinaciones, la estática, las flechas, la **verificación del diseño** tal como la hizo
 el panel de Diseño (cada barra con su armadura, la verificación que gobierna, solicitación,
 capacidad y utilización; el reporte no dimensiona por su cuenta), la **deriva de piso** con el mismo
 cálculo del panel, en condición D, los análisis avanzados que hayas corrido (cada uno se puede dejar
 afuera), las **figuras** que agregues desde la vista (cada una con su epígrafe y
-su escala), el cómputo de materiales y los diagnósticos. Las tablas van completas cualquiera sea el
+su escala), el cómputo de materiales y los diagnósticos. Cada resultado (reacciones,
+desplazamientos, esfuerzos en barras, resultados en placas) va como **tabla, figura o ambas**. Las
+figuras se dibujan desde el modelo como las de Exportar imagen, en color o blanco y negro, desde la
+vista que elijas, y se numeran en orden. Las tablas van completas cualquiera sea el
 tamaño del modelo. La carátula imprime los datos del proyecto, a los que el diálogo lleva; el
-membrete de la oficina (logo y empresa) queda en el diálogo. También se exporta a Excel. Las
-figuras y las elecciones del reporte son de la sesión: al abrir otro proyecto o un ejemplo empiezan
-de nuevo.
+membrete de la oficina (logo y empresa) queda en el diálogo. Lo elegido se recuerda en este
+navegador; las figuras agregadas desde la vista son de la sesión. Los mismos datos en planilla son
+**Exportar › Excel**.
 
 El **cómputo** (también en Documentos) toma el hormigón y el acero estructural de la geometría y
 la armadura del **despiece**, por diámetro; la cuantía se calcula sobre las barras despiezadas.
@@ -759,7 +898,7 @@ incompleta, nunca como cumplida. El hormigón se verifica con la armadura cargad
 Con **AISC 360** los esfuerzos pueden venir del **análisis directo** (capítulo C): segundo orden en
 cada combinación, sobre la rigidez reducida (0,8 en todo y τb en la flexión de las barras de acero,
 iterado o con τb = 1 y la carga nocional adicional), con cargas nocionales de 0,002 de la carga
-gravitatoria de cada nudo. En las combinaciones sólo gravitatorias se prueban las cuatro
+gravitatoria de cada nodo. En las combinaciones sólo gravitatorias se prueban las cuatro
 direcciones y queda la de mayor desplazamiento; en las que tienen carga lateral, las nocionales se
 suman si la amplificación supera 1,7. Una combinación que toma casos nocionales (N) tiene en ellos
 sus cargas nocionales: no se suman otras, sea cual sea la amplificación, y las suyas no cuentan como

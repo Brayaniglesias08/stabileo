@@ -6,7 +6,8 @@
    * DataTable). One component, so the two places cannot drift apart.
    */
   import { t } from '../../lib/i18n';
-  import { IL_QUANTITY_GROUPS } from '../../lib/influence-line-quantities';
+  import { IL_QUANTITY_GROUPS, IL_DIRECTIONS } from '../../lib/influence-line-quantities';
+  import { setInfluenceDirection } from '../../lib/actions/influence-line';
   import { uiStore } from '../../lib/store/ui.svelte';
   import { editingKind } from '../../lib/store/selection-prune';
   import ToolNodeOptions from '../floating-tools/ToolNodeOptions.svelte';
@@ -64,6 +65,12 @@
       {#each group.quantities as q}
         <button class="tb-btn" class:on={uiStore.ilQuantity === q.id} onclick={() => (uiStore.ilQuantity = q.id)}>{t(q.labelKey)}</button>
       {/each}
+    {/each}
+    <span class="tb-sep" aria-hidden="true"></span>
+    <span class="tb-group-label">{t('float.ilUnitLoad')}</span>
+    {#each IL_DIRECTIONS as d (d.id)}
+      <button class="tb-btn" class:on={uiStore.ilDirection === d.id} title={t(d.tip)} data-testid={`il-dir-${d.id}`}
+        onclick={() => setInfluenceDirection(d.id)}>{t(d.key)}</button>
     {/each}
   {/if}
 {:else}

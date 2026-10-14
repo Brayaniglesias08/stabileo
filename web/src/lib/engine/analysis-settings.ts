@@ -44,6 +44,25 @@ export interface AnalysisSettings {
 /** The self-weight rule a gravity case gets when none is written: the whole model, downward. */
 export const GRAVITY_SELF_WEIGHT = { direction: 'Z' as const, factor: -1 };
 
+/** The same case, direction and reach: two such rules would count the same weight twice. */
+export function sameSelfWeightRule(a: SelfWeightLoad, b: SelfWeightLoad): boolean {
+  const reach = (r: SelfWeightLoad) => (r.groupId !== undefined ? `g${r.groupId}`
+    : r.elements ? `e${[...new Set(r.elements)].sort((x, y) => x - y).join(',')}` : 'all');
+  return a.caseId === b.caseId && a.direction === b.direction && reach(a) === reach(b);
+}
+
+/**
+ * The rules with rule `i` changed by `patch` (the load tables' case, direction or factor). A
+ * change that makes it the same as another rule makes the two one, in the other's place and with
+ * the edited rule's factor, as the Add load card replaces one: never the weight counted twice.
+ */
+export function editSelfWeightRule(rules: readonly SelfWeightLoad[], i: number, patch: Partial<SelfWeightLoad>): { rules: SelfWeightLoad[]; merged: boolean } {
+  const edited = { ...rules[i]!, ...patch };
+  const same = rules.findIndex((r, k) => k !== i && sameSelfWeightRule(r, edited));
+  if (same < 0) return { rules: rules.map((r, k) => (k === i ? edited : r)), merged: false };
+  return { rules: rules.flatMap((r, k) => (k === i ? [] : k === same ? [edited] : [r])), merged: true };
+}
+
 /** Whether settings say anything; an empty object is stored as absent. */
 export function isEmptyAnalysis(a: AnalysisSettings | undefined): boolean {
   return !a || ((a.selfWeight === undefined) && a.combinationMethod === undefined && a.perCombination === undefined && a.shearDeformation === undefined);

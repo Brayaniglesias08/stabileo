@@ -9,6 +9,18 @@
   import type { DistributedLoad, PointLoadOnElement, PointLoadOnElement3D, NodalLoad, ThermalLoad, NodalLoad3D, DistributedLoad3D } from '../../lib/store/model.svelte.ts';
   import { get2DDisplayNodalLoadMoment, get2DDisplayNodalLoadVertical } from '../../lib/geometry/coordinate-system';
   import { pruneStaleSelection } from '../../lib/store/selection-prune';
+  import { setLoadCasesEnabled } from '../../lib/actions/load-cases';
+
+  // Load cases and combinations: switched in Basic from the top of the fold, always on elsewhere.
+  const casesShown = $derived(uiStore.showLoadCasePicker);
+  const inBasic = $derived(uiStore.appMode === 'basico');
+  /** The fold's summary line: what it holds while closed. */
+  const foldSummary = $derived.by(() => {
+    const parts: string[] = [];
+    if (casesShown) parts.push(t('loads.casesSummary').replace('{c}', String(modelStore.loadCases.length)).replace('{k}', String(modelStore.combinations.length)));
+    if (uiStore.includeSelfWeight) parts.push(t('table.selfWeight'));
+    return parts.join(' · ') || t('loads.casesOff');
+  });
 
   /** The case self-weight goes in: the one chosen, else the first dead-load case, else the first. */
   const selfWeightCase = $derived.by(() => {
@@ -43,30 +55,43 @@
   next to the loads is reading it in the only place it makes sense.
 -->
 <details class="combos-fold">
-  <summary>{t('data.combinations')}</summary>
+  <summary>{t('data.combinations')} <span class="fold-sum">{foldSummary}</span></summary>
   <div class="combos-body">
-    <!-- Self-weight first: whether it counts, and in which load case. -->
+    <!--
+      Basic: load cases and combinations, first in the fold. Off, the model reads as one load case
+      (no case picker, no case column, no results by case, combination or envelope). Self-weight
+      stands apart: it counts with them on or off.
+    -->
+    {#if inBasic}
+      <label class="cases-switch" title={t('loads.casesSwitchTip')}>
+        <input type="checkbox" checked={uiStore.loadCasesEnabled} onchange={(e) => setLoadCasesEnabled(e.currentTarget.checked)} data-testid="load-cases-toggle" />
+        <span>{t('loads.casesSwitch')}</span>
+      </label>
+    {/if}
+    <!-- Self-weight: whether it counts, and (with load cases shown) in which case. -->
     <div class="selfweight-row" title={t('table.selfWeightTooltip')}>
       <label class="sw-check">
         <input type="checkbox" bind:checked={uiStore.includeSelfWeight} data-testid="selfweight-toggle" />
         <span>{t('table.selfWeight')}</span>
       </label>
-      <span class="sw-in">{t('table.selfWeightIn')}</span>
-      <select class="sw-case" value={String(selfWeightCase ?? '')} disabled={!uiStore.includeSelfWeight}
-        onchange={(e) => { uiStore.selfWeightCaseId = parseInt(e.currentTarget.value); resultsStore.clear(); }}
-        data-testid="selfweight-case">
-        {#each modelStore.loadCases as lc}
-          <option value={String(lc.id)}>{lc.type ? `${lc.type} · ` : ''}{lc.name}</option>
-        {/each}
-      </select>
+      {#if casesShown}
+        <span class="sw-in">{t('table.selfWeightIn')}</span>
+        <select class="sw-case" value={String(selfWeightCase ?? '')} disabled={!uiStore.includeSelfWeight}
+          onchange={(e) => { uiStore.selfWeightCaseId = parseInt(e.currentTarget.value); resultsStore.clear(); }}
+          data-testid="selfweight-case">
+          {#each modelStore.loadCases as lc}
+            <option value={String(lc.id)}>{lc.type ? `${lc.type} · ` : ''}{lc.name}</option>
+          {/each}
+        </select>
+      {/if}
     </div>
-    <CombosTable />
+    {#if casesShown}<CombosTable />{/if}
   </div>
 </details>
 
 <table>
   <thead>
-    <tr><th>#</th><th>{t('table.case')}</th><th>{t('table.type')}</th><th>{t('table.target')}</th><th>{t('table.values')}</th><th></th></tr>
+    <tr><th>#</th>{#if casesShown}<th>{t('table.case')}</th>{/if}<th>{t('table.type')}</th><th>{t('table.target')}</th><th>{t('table.values')}</th><th></th></tr>
   </thead>
   <tbody>
     {#each modelStore.loads as load, i}
@@ -74,6 +99,7 @@
         ondblclick={(e) => frameRow(e, 'load', load.data.id)} onfocusin={(e) => focusRow(e, 'load', load.data.id)}>
         <!-- The load's own number, the one selection by number and the drawing use. -->
         <td class="id-cell">{load.data.id}</td>
+        {#if casesShown}
         <td>
           <select value={String(load.data.caseId ?? 1)} onchange={(e) => { modelStore.updateLoadCaseId(load.data.id, parseInt(e.currentTarget.value)); if (resultsStore.hasCombinations) resultsStore.combinationsDirty = true; }}>
             {#each modelStore.loadCases as lc}
@@ -81,6 +107,7 @@
             {/each}
           </select>
         </td>
+        {/if}
         <td class="type-cell">{load.type === 'nodal' ? t('table.typePoint') : load.type === 'nodal3d' ? t('table.typePoint3d') : load.type === 'distributed' ? t('table.typeDist') : load.type === 'distributed3d' ? t('table.typeDist3d') : load.type === 'thermal' ? t('table.typeThermal') : t('table.typeBarPoint')}</td>
         <td>
           {#if load.type === 'nodal'}
@@ -178,6 +205,20 @@
   }
   .combos-fold > summary:hover { color: var(--st-text); }
   .combos-body { padding: 0 6px 6px; }
+  .fold-sum { margin-left: 0.4rem; color: var(--st-text-3); font-size: 0.7rem; }
+  /* The switch first, on its own line and in the fold's own weight. */
+  .cases-switch {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.4rem;
+    margin-bottom: 0.3rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--st-text);
+    cursor: pointer;
+  }
+  .cases-switch input { accent-color: var(--st-accent); margin: 0; }
 
   table {
     width: max-content;
