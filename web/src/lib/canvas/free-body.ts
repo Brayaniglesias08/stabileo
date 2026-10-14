@@ -41,9 +41,10 @@ export interface FBSupport { nodeId: number; actions: FBAction[] }
 
 /** An applied load, for drawings that draw their own loads (3D). */
 export type FBLoad =
-  | { kind: 'nodal'; nodeId: number; dir: P3; label: string }
+  | { kind: 'nodal'; nodeId: number; action?: 'force' | 'moment'; dir: P3; label: string }
   | { kind: 'point'; memberId: number; t: number; dir: P3; label: string }
-  | { kind: 'dist'; memberId: number; t0: number; t1: number; dir: P3; label: string };
+  // Endpoint intensities in world coordinates, not unit directions: retain the load profile.
+  | { kind: 'dist'; memberId: number; t0: number; t1: number; qI: P3; qJ: P3; label: string };
 
 export interface FreeBodyInput {
   ctx: CanvasRenderingContext2D;
@@ -140,19 +141,21 @@ const area = (a: Obstacle, b: Obstacle) => Math.max(0, Math.min(a.x + a.width, b
 
 function arrow(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, color: string, double = false): void {
   const a = Math.atan2(y1 - y0, x1 - x0);
-  if (!Number.isFinite(a) || Math.hypot(x1 - x0, y1 - y0) < 0.5) return;
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  if (!Number.isFinite(a) || len < 0.5) return;
+  const headSize = Math.min(HEAD, len / (double ? 2 : 1));
   ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.8;
-  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1 - Math.cos(a) * HEAD * 0.6, y1 - Math.sin(a) * HEAD * 0.6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1 - Math.cos(a) * headSize * 0.6, y1 - Math.sin(a) * headSize * 0.6); ctx.stroke();
   const head = (hx: number, hy: number) => {
     ctx.beginPath();
     ctx.moveTo(hx, hy);
-    ctx.lineTo(hx - HEAD * Math.cos(a - 0.38), hy - HEAD * Math.sin(a - 0.38));
-    ctx.lineTo(hx - HEAD * Math.cos(a + 0.38), hy - HEAD * Math.sin(a + 0.38));
+    ctx.lineTo(hx - headSize * Math.cos(a - 0.38), hy - headSize * Math.sin(a - 0.38));
+    ctx.lineTo(hx - headSize * Math.cos(a + 0.38), hy - headSize * Math.sin(a + 0.38));
     ctx.closePath(); ctx.fill();
   };
   head(x1, y1);
   // A moment vector: the second head a little behind the first.
-  if (double) head(x1 - Math.cos(a) * HEAD * 0.9, y1 - Math.sin(a) * HEAD * 0.9);
+  if (double) head(x1 - Math.cos(a) * headSize * 0.9, y1 - Math.sin(a) * headSize * 0.9);
 }
 
 /** An in-plane moment: a 270° arc with its head, counter-clockwise when `ccw`. */
@@ -248,7 +251,7 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
   const lineOf = (a: FBAction) => ({ text: `${a.name} = ${d.fmt(a.magnitude, a.kind)}`, color: a.color });
 
   /** Draw one action standing at screen point `at` (world `w`), the piece lying along `inward`. */
-  function drawAction(a: FBAction, at: S2, w: P3, inward: S2 | null, external: boolean, slot: number, onJoint = false): { x: number; y: number } | null {
+  function drawAction(a: Pick<FBAction, 'kind' | 'dir' | 'ccw' | 'color'>, at: S2, w: P3, inward: S2 | null, external: boolean, slot: number, onJoint = false): { x: number; y: number } | null {
     if (a.kind === 'moment' && d.planar) {
       const r = external ? 18 : 12;
       arc(ctx, at.x, at.y, r, !!a.ccw, a.color);
@@ -364,33 +367,57 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
       const n = d.nodes(ld.nodeId); if (!n) continue;
       const at = d.toScreen(n);
       const sd = screenDir(n, ld.dir);
-      if (sd.shown < 0.28) { pointing(ctx, at.x + 14, at.y - 14, toward(ld.dir) > 0, C.load, false); continue; }
-      const x0 = at.x - sd.x * L * 1.2, y0 = at.y - sd.y * L * 1.2;
-      arrow(ctx, x0, y0, at.x, at.y, C.load);
-      blockSeg(x0, y0, at.x, at.y);
-      blocks.push({ anchor: { x: x0, y: y0 }, inward: { x: -sd.x, y: -sd.y }, side: { x: -sd.y, y: sd.x }, lines: [{ text: ld.label, color: C.load }] });
+      const moment = ld.action === 'moment';
+      drawAction({ kind: ld.action ?? 'force', dir: ld.dir, color: C.load }, at, n, null, true, moment ? 1 : 0);
+      const out = sd.shown < 0.28 ? { x: 1, y: 0 } : { x: sd.x * (moment ? 1 : -1), y: sd.y * (moment ? 1 : -1) };
+      blocks.push({ anchor: at, inward: out, side: { x: -out.y, y: out.x }, lines: [{ text: ld.label, color: C.load }] });
       continue;
     }
     const p = pieces.get(ld.memberId); const m = d.members.find((x) => x.id === ld.memberId);
     if (!p || !m) continue;
     const pointAt = (t: number) => ({ x: p.a.x + (p.b.x - p.a.x) * t, y: p.a.y + (p.b.y - p.a.y) * t });
     const worldAt = (t: number): P3 => ({ x: m.i.x + (m.j.x - m.i.x) * t, y: m.i.y + (m.j.y - m.i.y) * t, z: (m.i.z ?? 0) + ((m.j.z ?? 0) - (m.i.z ?? 0)) * t });
-    const sd = screenDir(worldAt(0.5), ld.dir);
-    if (sd.shown < 0.28) continue;
     const ts = ld.kind === 'point' ? [ld.t] : Array.from({ length: 6 }, (_, k) => ld.t0 + ((ld.t1 - ld.t0) * k) / 5);
+    const norm = (v: P3) => Math.hypot(v.x, v.y, v.z ?? 0);
+    const maxQ = ld.kind === 'dist' ? Math.max(norm(ld.qI), norm(ld.qJ)) : 1;
+    if (maxQ <= 1e-12) continue;
     const tails: S2[] = [];
-    for (const t of ts) {
-      const h = pointAt(t), x0 = h.x - sd.x * L * 0.8, y0 = h.y - sd.y * L * 0.8;
-      arrow(ctx, x0, y0, h.x, h.y, C.load);
-      blockSeg(x0, y0, h.x, h.y, 2);
-      tails.push({ x: x0, y: y0 });
+    let labelSide: S2 = { x: 0, y: -1 };
+    for (const [k, t] of ts.entries()) {
+      const f = ts.length === 1 ? 0 : k / (ts.length - 1);
+      const q = ld.kind === 'point' ? ld.dir : {
+        x: ld.qI.x + (ld.qJ.x - ld.qI.x) * f,
+        y: ld.qI.y + (ld.qJ.y - ld.qI.y) * f,
+        z: (ld.qI.z ?? 0) + ((ld.qJ.z ?? 0) - (ld.qI.z ?? 0)) * f,
+      };
+      const mag = norm(q), h = pointAt(t);
+      if (mag <= 1e-12) { tails.push(h); continue; }
+      const dir = { x: q.x / mag, y: q.y / mag, z: (q.z ?? 0) / mag };
+      const sd = screenDir(worldAt(t), dir);
+      if (sd.shown < 0.28) {
+        pointing(ctx, h.x, h.y, toward(dir) > 0, C.load, false);
+        taken.push({ x: h.x - 8, y: h.y - 8, width: 16, height: 16 });
+        tails.push(h);
+      } else {
+        const len = L * 0.8 * mag / maxQ;
+        const tail = { x: h.x - sd.x * len, y: h.y - sd.y * len };
+        arrow(ctx, tail.x, tail.y, h.x, h.y, C.load);
+        blockSeg(tail.x, tail.y, h.x, h.y, 2);
+        tails.push(tail);
+        labelSide = { x: -sd.x, y: -sd.y };
+      }
     }
     if (tails.length > 1) {
       ctx.strokeStyle = C.load; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(tails[0]!.x, tails[0]!.y); ctx.lineTo(tails[tails.length - 1]!.x, tails[tails.length - 1]!.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(tails[0]!.x, tails[0]!.y);
+      for (let k = 1; k < tails.length; k++) {
+        ctx.lineTo(tails[k]!.x, tails[k]!.y);
+        blockSeg(tails[k - 1]!.x, tails[k - 1]!.y, tails[k]!.x, tails[k]!.y, 2);
+      }
+      ctx.stroke();
     }
     const mid = tails[Math.floor(tails.length / 2)]!;
-    blocks.push({ anchor: mid, inward: { x: -sd.x, y: -sd.y }, side: { x: -sd.x, y: -sd.y }, lines: [{ text: ld.label, color: C.load }] });
+    blocks.push({ anchor: mid, inward: labelSide, side: labelSide, lines: [{ text: ld.label, color: C.load }] });
   }
 
   // ── The values: one block per cut, beside its piece, with its leader ──

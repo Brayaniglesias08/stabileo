@@ -2209,7 +2209,14 @@
     const place = resolveNodePlacement2D({
       cursor, snapped: cursor, pxPerM: 1, nodes, members, nodeAt: (id) => screen.get(id), split: uiStore.autoSplitOnNodePlace,
     });
-    if (place.kind === 'onNode') return { kind: 'onNode', nodeId: place.nodeId, sx: place.x, sy: place.y };
+    if (place.kind === 'onNode') {
+      const ground = getGroundIntersection(e);
+      // A node projected over the cursor on another level must not prevent placement
+      // on the working plane (for example, a column foot below its top in plan view).
+      if (!ground || nodeAtPlacement3D(place.nodeId, ground, uiStore.workingPlane, modelStore.nodes) === place.nodeId) {
+        return { kind: 'onNode', nodeId: place.nodeId, sx: place.x, sy: place.y };
+      }
+    }
     if (place.kind === 'onMember') {
       const el = modelStore.elements.get(place.elementId);
       const A = el && modelStore.nodes.get(el.nodeI), B = el && modelStore.nodes.get(el.nodeJ);
