@@ -15,7 +15,7 @@
  *
  * Run inside the caller's batch: one command, one undo step.
  */
-import { modelStore } from './model.svelte';
+import { modelStore, type LoadCase, type LoadCombination } from './model.svelte';
 import type { CaseCombination } from '../engine/loads/combination-cases';
 import { generateCombinations, type LoadCombinationSpec, type CombinationInputs } from '../codes/cirsoc101/combinations';
 import { generateServiceCombinations } from '../codes/cirsoc101/service-combinations';
@@ -68,4 +68,89 @@ export function addGeneratedCombinations(list: readonly CaseCombination[], prefi
   const active = scopes.active ? [...new Set([...scopes.active, ...strength])] : [...before, ...strength];
   modelStore.setResultScopes({ ...scopes, active, envelopes });
   return ids;
+}
+
+/**
+ * Combinations written as composite cases instead (`LoadCase.includes`): one case each, taking in
+ * the combination's cases with its factors, solved as one case, and a combination taking that case
+ * with factor 1, filed as the combination it replaces would be (`addGeneratedCombinations`: its
+ * origin, a service one in the service envelope and out of design). The cases alone solved nothing
+ * with no other combination, and design, which reads combinations, never saw them. Each case says
+ * it is the generator's (`LoadCase.generated`): "replace" takes it back with its combination
+ * (`takeBackCompositeCases`). Returns the new cases' ids.
+ */
+export function addCompositeCases(list: readonly CaseCombination[], prefix: (c: CaseCombination) => string = () => ''): number[] {
+  const ids: number[] = [];
+  modelStore.batch(() => {
+    const combos: CaseCombination[] = [];
+    for (const c of list) {
+      const name = `${prefix(c)}${c.name}`;
+      const id = modelStore.addLoadCase(name, '', { generated: true });
+      modelStore.updateLoadCaseFields(id, { includes: c.factors.filter((f) => f.factor !== 0) });
+      ids.push(id);
+      combos.push({ ...c, name, factors: [{ caseId: id, factor: 1 }] });
+    }
+    addGeneratedCombinations(combos);
+  });
+  return ids;
+}
+
+/**
+ * The generator's composite cases that nothing takes any more, removed: what "replace generated
+ * loads" leaves of them once their combinations are gone. They stayed, solved and listed as
+ * cases. One a combination still takes (the user's, or one edited by hand), or another case takes
+ * in or reads its notional loads off, stays. Run inside the caller's batch.
+ */
+export function takeBackCompositeCases(): number[] {
+  const gone: number[] = [];
+  // One removed can leave another unused (a generated case taken in only by a generated one).
+  for (let changed = true; changed;) {
+    changed = false;
+    const cases = modelStore.model.loadCases;
+    const used = new Set<number>();
+    for (const c of modelStore.combinations) for (const f of c.factors) if (f.factor !== 0) used.add(f.caseId);
+    for (const c of cases) {
+      for (const i of c.includes ?? []) if (i.caseId !== c.id) used.add(i.caseId);
+      if (c.notional && c.notional.sourceCaseId !== c.id) used.add(c.notional.sourceCaseId);
+    }
+    for (const c of cases.filter((x) => x.generated && !used.has(x.id))) {
+      modelStore.removeLoadCase(c.id);
+      gone.push(c.id);
+      changed = true;
+    }
+  }
+  return gone;
+}
+
+/**
+ * The cases a combination's factors stand for, a composite case read through what it takes in, at
+ * any depth, with the factors on the way multiplied; a case in a loop as its own.
+ */
+function leafFactors(factors: ReadonlyArray<{ caseId: number; factor: number }>, cases: ReadonlyArray<Pick<LoadCase, 'id' | 'includes'>>): Map<number, number> {
+  const byId = new Map(cases.map((c) => [c.id, c]));
+  const out = new Map<number, number>();
+  const walk = (id: number, k: number, seen: ReadonlySet<number>) => {
+    const inc = byId.get(id)?.includes;
+    if (!inc?.length || seen.has(id)) { out.set(id, (out.get(id) ?? 0) + k); return; }
+    for (const i of inc) walk(i.caseId, k * i.factor, new Set([...seen, id]));
+  };
+  for (const f of factors) if (f.factor !== 0) walk(f.caseId, f.factor, new Set());
+  return out;
+}
+
+const signature = (m: ReadonlyMap<number, number>) =>
+  [...m].filter(([, f]) => Math.abs(f) > 1e-9).sort((a, b) => a[0] - b[0]).map(([id, f]) => `${id}:${f.toFixed(2)}`).join('|');
+
+/**
+ * Whether the model has a combination of these factors already, read through the composite
+ * cases: a combination written as a composite case takes that case at 1, and compared as written
+ * it never matched, so every run in composite mode wrote the whole set again.
+ */
+export function combinationExists(
+  factors: ReadonlyArray<{ caseId: number; factor: number }>,
+  combinations: ReadonlyArray<Pick<LoadCombination, 'factors'>>,
+  cases: ReadonlyArray<Pick<LoadCase, 'id' | 'includes'>>,
+): boolean {
+  const sig = signature(leafFactors(factors, cases));
+  return combinations.some((c) => signature(leafFactors(c.factors, cases)) === sig);
 }

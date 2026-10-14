@@ -44,9 +44,8 @@
  * obsolete node is `notDesigned` too, because for THIS model nothing was designed there.
  */
 
-import { activePerCombo3D } from './active-results';
+import { activePerCombo3D, activeResultSet3D } from './active-results';
 import { modelStore } from './model.svelte';
-import { resultsStore } from './results.svelte';
 import {
   designJoint, type JointDesign, type JointDesignInput,
 } from '../connection/joint-design';
@@ -71,7 +70,8 @@ function createJointDesignStore() {
    *
    * Falls back to the single result set when a model was solved without combinations — a
    * project can be analysed under one case, and refusing to design its joints because the
-   * combination list is empty would be refusing over a modelling choice.
+   * combination list is empty would be refusing over a modelling choice. Never to an SRSS or ABS
+   * magnitude on screen (`activeResultSet3D`): a joint designed for 60,13 kN where 56,0 act.
    */
   function combos(): ComboResults[] {
     const perCombo = activePerCombo3D();
@@ -83,7 +83,7 @@ function createJointDesignStore() {
         elementForces: (r.elementForces ?? []) as never,
       }));
     }
-    const single = resultsStore.results3D;
+    const single = activeResultSet3D();
     if (!single) return [];
     return [{ id: null, name: null, elementForces: (single.elementForces ?? []) as never }];
   }

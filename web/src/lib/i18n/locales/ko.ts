@@ -3380,6 +3380,7 @@ const ko: Translations = {
   'design.error.solveFirst': '설계 응력을 계산하려면 먼저 모델을 해석하세요.',
   'design.error.noCombinations': '설계 전에 최소 하나의 하중 조합을 정의하세요.',
   'design.error.noDemands': '현재 결과에서 설계 응력을 추출할 수 없습니다.',
+  'design.error.noLinearCombination': '활성화된 선형 조합이 없습니다. SRSS 및 ABS 조합은 부호 없는 크기이며 설계에 사용되지 않습니다. 선형 조합을 활성화하세요.',
   'design.error.noAdapter': '선택한 규준에 등록된 설계 어댑터가 없습니다.',
   'design.error.codeUnsupported': '{code}는 철근을 설계할 수 없습니다 — 주어진 배근만 평가할 수 있습니다.',
   'design.error.noConcreteMembers': '{code} is the reinforced-concrete code and this model has no concrete member: all {n} of its members are steel. The reinforcement design workflow does not apply to this structure.',

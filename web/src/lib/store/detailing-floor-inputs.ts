@@ -22,7 +22,7 @@
  * Nothing was rewritten. The bodies are the ones that were in the store, moved verbatim.
  */
 
-import { activePerCombo3D } from './active-results';
+import { activePerCombo3D, activeResultSet3D } from './active-results';
 import { activeCombinations } from './active-results';
 import { modelStore } from './model.svelte';
 import { surfaceDownwardPressure } from '../engine/solver-shells';
@@ -83,7 +83,9 @@ export function scopedShells(wants: (f: 'slab' | 'wall' | 'footing') => boolean)
  * while the shear check of the same run used the factored envelope load.
  */
 export function collectStresses(): FloorShellStress[] {
-  const r = resultsStore.results3D ?? [...activePerCombo3D().values()][0];
+  // An SRSS or ABS magnitude on screen is no state of the slab (`activeResultSet3D`).
+  const shown = resultsStore.results3D;
+  const r = (shown && !shown.magnitude ? shown : activeResultSet3D()) ?? [...activePerCombo3D().values()][0];
   if (!r) return [];
   const combos = [...activePerCombo3D().values()];
   const setsOf = new Map<number, Array<{ mx: number; my: number; mxy: number }>>();
