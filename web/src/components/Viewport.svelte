@@ -20,7 +20,7 @@
   import { computeDiagramValueAt, computeDisplacementAt } from '../lib/engine/diagrams';
   import { effectiveBendingInertia } from '../lib/engine/solver-service';
   import { computeLocalAxes3D } from '../lib/engine/local-axes-3d';
-  import { drawDeformed } from '../lib/canvas/draw-deformed';
+  import { drawDeformed, maxDeformedDisplacement2D } from '../lib/canvas/draw-deformed';
   import { drawFreeBody, screenPieces, freeBodyFocus, freeBodyGap } from '../lib/canvas/free-body';
   import { freeBodyActions2D } from '../lib/canvas/free-body-2d';
   import { despieceElementSpan, remapLoadSpanToShrunk, distributedResultantForces, DESPIECE_LOAD_COLOR } from '../lib/canvas/draw-despiece';
@@ -198,8 +198,7 @@
       x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
     }
     const span = Math.max(x1 - x0, y1 - y0);
-    let dmax = 0;
-    for (const d of res.displacements) dmax = Math.max(dmax, Math.hypot(d.ux, d.uz ?? 0));
+    const dmax = maxDeformedDisplacement2D(res, makeDrawContext());
     return dmax > 1e-12 && span > 0 ? (0.05 * span) / dmax : user;
   }
 
@@ -751,7 +750,9 @@
     // Draw all loads (nodal, distributed, point, thermal) if visible
     if (loadsVisible) {
     // A load is hidden with the node or member it stands on.
-    const shownLoads = viewVisibility.active ? modelStore.loads.filter((l) => !isLoadHidden(l.data as never)) : modelStore.loads;
+    // A reaction figure must carry the same applied loads as its selected result.
+    const figureLoads = exportFrame?.content === 'reactions' ? displayedLoads2D() : modelStore.loads;
+    const shownLoads = viewVisibility.active ? figureLoads.filter((l) => !isLoadHidden(l.data as never)) : figureLoads;
 
     // Draw nodal loads (grouped by node for stacked labels)
     {

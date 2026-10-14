@@ -14,32 +14,13 @@ interface DrawContext {
   getSection: (id: number) => { iz: number } | undefined;
 }
 
-/**
- * Draw deformed shape with cubic Hermite interpolation + particular solution.
- * The particular solution accounts for intra-element deflection from loads
- * (distributed and point loads), which the Hermite interpolation from nodal
- * values alone would miss (e.g., fixed-fixed beam with UDL shows zero
- * deflection from nodal values only, but actually deflects at midspan).
- */
-export function drawDeformed(
-  results: AnalysisResults,
-  dc: DrawContext,
-  _zoom: number,
-  userScale: number,
-): void {
-  const { ctx } = dc;
-
+/** Sample the same curve for drawing and for export scaling, including member loads. */
+function* deformedCurves(results: AnalysisResults, dc: DrawContext, scale: number) {
   // Build displacement lookup
   const dispMap = new Map<number, { ux: number; uz: number; ry: number }>();
   for (const d of results.displacements) {
     dispMap.set(d.nodeId, d);
   }
-
-  const scale = userScale;
-
-  ctx.strokeStyle = canvasTheme().deformed;
-  ctx.setLineDash([6, 4]);
-  ctx.lineWidth = 2;
 
   for (const ef of results.elementForces) {
     const elem = dc.getElement(ef.elementId);
@@ -81,6 +62,44 @@ export function drawDeformed(
       truss ? [] : zs > 0 ? ef.distributedLoads : ef.distributedLoads.map((d) => ({ ...d, qI: -d.qI, qJ: -d.qJ })),
     );
 
+    yield { nodeI, nodeJ, points };
+  }
+}
+
+/** Largest translation anywhere on the drawn members, including their interior. */
+export function maxDeformedDisplacement2D(results: AnalysisResults, dc: DrawContext): number {
+  let max = 0;
+  for (const d of results.displacements) max = Math.max(max, Math.hypot(d.ux, d.uz));
+  for (const { nodeI, nodeJ, points } of deformedCurves(results, dc, 1)) {
+    if (points.length < 2) continue;
+    for (let i = 0; i < points.length; i++) {
+      const t = i / (points.length - 1), p = points[i]!;
+      max = Math.max(max, Math.hypot(p.x - nodeI.x - t * (nodeJ.x - nodeI.x), p.y - nodeI.y - t * (nodeJ.y - nodeI.y)));
+    }
+  }
+  return max;
+}
+
+/**
+ * Draw deformed shape with cubic Hermite interpolation + particular solution.
+ * The particular solution accounts for intra-element deflection from loads
+ * (distributed and point loads), which the Hermite interpolation from nodal
+ * values alone would miss (e.g., fixed-fixed beam with UDL shows zero
+ * deflection from nodal values only, but actually deflects at midspan).
+ */
+export function drawDeformed(
+  results: AnalysisResults,
+  dc: DrawContext,
+  _zoom: number,
+  userScale: number,
+): void {
+  const { ctx } = dc;
+
+  const scale = userScale;
+  ctx.strokeStyle = canvasTheme().deformed;
+  ctx.setLineDash([6, 4]);
+  ctx.lineWidth = 2;
+  for (const { points } of deformedCurves(results, dc, scale)) {
     if (points.length < 2) continue;
 
     ctx.beginPath();

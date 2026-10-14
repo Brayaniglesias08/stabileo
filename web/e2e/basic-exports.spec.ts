@@ -32,6 +32,51 @@ function sheets(path: string): Record<string, string> {
 }
 
 test.describe('Básico exports', () => {
+  for (const space of [false, true]) test(`a ${space ? '3D' : '2D'} reaction figure uses the selected case and combination loads`, async ({ page }) => {
+    test.setTimeout(120_000);
+    await openProject(page);
+    await page.evaluate(() => window.__stabileoActions.loadModelData({
+      name: 'Reaction export',
+      materials: [{ id: 1, name: 'Steel', e: 200000, nu: 0.3, rho: 78.5 }],
+      sections: [{ id: 1, name: 'Beam', a: 0.01, iz: 0.0001, iy: 0.0001, j: 0.00001 }],
+      nodes: [{ id: 1, x: 0, y: 0, z: 0 }, { id: 2, x: 4, y: 0, z: 0 }],
+      elements: [{ id: 1, type: 'frame', nodeI: 1, nodeJ: 2, materialId: 1, sectionId: 1 }],
+      supports: [{ id: 1, nodeId: 1, type: 'fixed' }],
+      loads: [
+        { type: 'nodal', data: { id: 1, nodeId: 2, fx: 0, fz: -10, my: 0, caseId: 1 } },
+        { type: 'nodal', data: { id: 2, nodeId: 2, fx: 0, fz: -30, my: 0, caseId: 2 } },
+      ],
+      plates: [], quads: [], constraints: [],
+      loadCases: [{ id: 1, type: 'D', name: 'Dead' }, { id: 2, type: 'L', name: 'Live' }],
+      combinations: [{ id: 1, name: '2D + 3L', factors: [{ caseId: 1, factor: 2 }, { caseId: 2, factor: 3 }] }],
+    }));
+    await page.getByTestId('rb-cmd-load').click();
+    await page.locator('.combos-fold > summary').click();
+    await page.getByTestId('load-cases-toggle').check();
+    await page.getByTestId('selfweight-toggle').uncheck();
+    if (space) await page.getByRole('button', { name: '3D', exact: true }).click();
+    await page.evaluate(() => window.__stabileoActions.solve());
+
+    for (const [set, expected, absent] of [
+      ['case_1', ['10'], ['30']],
+      ['combo_1', ['20', '90'], ['10', '30']],
+    ] as const) {
+      await page.getByTestId('rb-cmd-momentY').click();
+      await page.getByTestId('results-view-bar').locator('select').first().selectOption(set);
+      await page.getByTestId('hdr-project').click();
+      await page.getByTestId('export-svg').click();
+      const section = page.getByTestId('view-export-content');
+      if (!(await section.getByTestId('view-export-model').isVisible())) await section.locator('summary').click();
+      await page.getByTestId('view-export-model').uncheck();
+      await page.getByTestId('view-export-reactions').check();
+      const file = await download(page, () => page.getByTestId('view-export-download').click());
+      const svg = readFileSync(file.path, 'utf8');
+      for (const value of expected) expect(svg).toMatch(new RegExp(`(?:>|[^0-9])${value}(?:\\.0+)? kN(?:<|[^·])`));
+      if (set === 'case_1') expect([...svg.matchAll(/10(?:\.0+)? kN(?!·)/g)].length).toBeGreaterThanOrEqual(2);
+      for (const value of absent) expect(svg).not.toMatch(new RegExp(`(?:>|[^0-9])${value}(?:\\.0+)? kN(?:<|[^·])`));
+    }
+  });
+
   test('a workbook asked for before solving solves first; one that cannot solve says why', async ({ page }) => {
     test.setTimeout(120_000);
     await openProject(page);
