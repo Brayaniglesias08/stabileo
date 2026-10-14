@@ -28,21 +28,32 @@ Para empezar:
   (DXF) o un modelo IFC.
 
 **Proyecto** tiene también, como en Básico, **Guardar**, **Abrir**, **Compartir link** y
-**Exportar** (los resultados en Excel o CSV, el reporte, y la vista en DXF o SVG). Ver el
-[capítulo 1](01-primeros-pasos.md#guardar-abrir-y-compartir).
+**Exportar**. Ver el [capítulo 1](01-primeros-pasos.md#guardar-abrir-y-compartir). Cada botón de
+**Exportar** abre un diálogo que dice qué sale, con todo prendido por defecto; lo que apagues se
+recuerda en este navegador:
+- **Datos y resultados: Excel y CSV.** El libro del proyecto (abajo). Elegís las hojas del modelo y
+  de resultados, los casos y combinaciones, y cuántos puntos por barra leen las hojas a lo largo de
+  las barras. En CSV, una sola hoja sale como un archivo; varias, como un zip con una por hoja.
+- **Memoria: Reporte PDF.** Ver [Reporte](#reporte).
+- **Dibujos e imágenes: DXF, SVG, PNG y JPG.** El DXF lleva el modelo en 3D o proyectado (planta,
+  frente XZ, lateral YZ), en m, cm o mm, con una capa por contenido: barras, nodos, apoyos, placas
+  como caras 3D, numeración, cargas (una capa por caso), deformada, M, V, N y reacciones. Las
+  imágenes son las figuras vectoriales del Básico más las placas: dibujadas como caras y, como
+  figura propia, un resultado de placa en colores con su escala. Se dibujan desde la vista de la
+  pantalla o desde una fija (planta, frente, lateral, isométrica). Los resultados pueden ser los de
+  la pantalla o los de cualquier caso, combinación o la envolvente, sin cambiar lo que se ve.
 
 **Libro del proyecto.** **Exportar → Libro del proyecto** escribe un archivo de Excel con una
 carátula (los datos del proyecto, la fecha, la versión y las unidades), las convenciones, el modelo
 y todos los casos y combinaciones: reacciones, desplazamientos, esfuerzos de extremo, esfuerzos,
-flechas y tensiones en las **estaciones** que elijas (5, 13 o las críticas: cuartos, posiciones de
-carga y corte nulo), los máximos con el lugar donde ocurren, la envolvente de cada nodo y extremo de
+flechas y tensiones en los **puntos a lo largo de las barras** que elijas (5, 13 o los críticos:
+extremos, cuartos, cargas puntuales y corte nulo), los máximos con el lugar donde ocurren, la envolvente de cada nodo y extremo de
 barra con la combinación que la gobierna, las placas en su centro, sus nodos y sus esquinas, la
 estática y el estado de segundo orden. Los números van con todos sus dígitos y con el signo del
 solver, que es el que muestran los diagramas. Las hojas del modelo usan los nombres y columnas de la
 importación desde Excel, así que se pueden volver a leer. Si el libro es más grande de lo que un
 archivo de Excel maneja bien (una hoja con más filas de las que admite, o más de cuatro millones de
-celdas), sale como un zip con un CSV por hoja. El Excel del diálogo de reporte es el mismo libro,
-con las secciones que marques.
+celdas), sale como un zip con un CSV por hoja.
 
 **Datos del proyecto.** Comitente, obra, número de obra, ubicación, las revisiones con su fecha
 y descripción, y quién proyectó, revisó y aprobó, con fechas. Se guardan con el proyecto y los
@@ -108,7 +119,6 @@ cuadrilátero**. Se le asigna material y espesor.
 - **Cáscara (con curvatura):** para cuadriláteros cuyos cuatro nodos no están en un mismo plano.
   El panel mide cuánto se aparta el cuarto nodo y sugiere cuándo usarla; se activa en
   **Especificaciones › Superficies**.
-- **Escalera:** una losa inclinada con los escalones aplicados como carga.
 - **Offset de losa/muro (excéntrico):** desplaza el plano medio de la placa, por ejemplo para
   alinear la cara superior de la losa con el nivel de piso. Se define en
   **Especificaciones › Superficies**.
@@ -792,20 +802,23 @@ con ellos da frecuencias y formas pero no razones de masa confiables.
 
 ### Reporte
 
-**Reporte** arma una **memoria de cálculo** imprimible: datos del modelo con todas las propiedades
-y la vista del modelo como **Figura 1**, con los números de nodos y barras (se prenden para la
-captura y después vuelven a como estaban),
-detalle de cargas, resultados, el resumen de extremos (a lo largo de las barras) y la envolvente
+**Reporte PDF** arma una **memoria de cálculo** para imprimir o guardar en PDF. El diálogo tiene tres
+secciones plegables: el membrete, el contenido y las figuras. Lleva datos del modelo (cada tabla se
+puede dejar afuera) y el modelo dibujado como **Figura 1** con los números de nodos y barras,
+detalle de cargas con el modelo cargado, resultados, el resumen de extremos (a lo largo de las barras) y la envolvente
 sobre las combinaciones, la estática, las flechas, la **verificación del diseño** tal como la hizo
 el panel de Diseño (cada barra con su armadura, la verificación que gobierna, solicitación,
 capacidad y utilización; el reporte no dimensiona por su cuenta), la **deriva de piso** con el mismo
 cálculo del panel, en condición D, los análisis avanzados que hayas corrido (cada uno se puede dejar
 afuera), las **figuras** que agregues desde la vista (cada una con su epígrafe y
-su escala), el cómputo de materiales y los diagnósticos. Las tablas van completas cualquiera sea el
+su escala), el cómputo de materiales y los diagnósticos. Cada resultado (reacciones,
+desplazamientos, esfuerzos en barras, resultados en placas) va como **tabla, figura o ambas**. Las
+figuras se dibujan desde el modelo como las de Exportar imagen, en color o blanco y negro, desde la
+vista que elijas, y se numeran en orden. Las tablas van completas cualquiera sea el
 tamaño del modelo. La carátula imprime los datos del proyecto, a los que el diálogo lleva; el
-membrete de la oficina (logo y empresa) queda en el diálogo. También se exporta a Excel. Las
-figuras y las elecciones del reporte son de la sesión: al abrir otro proyecto o un ejemplo empiezan
-de nuevo.
+membrete de la oficina (logo y empresa) queda en el diálogo. Lo elegido se recuerda en este
+navegador; las figuras agregadas desde la vista son de la sesión. Los mismos datos en planilla son
+**Exportar › Excel**.
 
 El **cómputo** (también en Documentos) toma el hormigón y el acero estructural de la geometría y
 la armadura del **despiece**, por diámetro; la cuantía se calcula sobre las barras despiezadas.

@@ -27,20 +27,32 @@ To start:
 - **Import** (see [below](#importing-models)): an Excel spreadsheet, an AutoCAD drawing (DXF) or
   an IFC model.
 
-As in Basic, **Project** also has **Save**, **Open**, **Share link** and **Export** (results to
-Excel or CSV, the report, and the view to DXF or SVG). See
-[chapter 1](01-getting-started.md#saving-opening-and-sharing).
+As in Basic, **Project** also has **Save**, **Open**, **Share link** and **Export**. See
+[chapter 1](01-getting-started.md#saving-opening-and-sharing). Each **Export** button opens a dialog
+that says what comes out, with everything on by default; what you turn off is remembered in this
+browser:
+- **Data and results: Excel and CSV.** The project workbook (below). You choose the model and
+  result sheets, the cases and combinations, and how many points per member the sheets along the
+  members read. As CSV, one sheet comes out as one file; several, as a zip with one per sheet.
+- **Report: PDF report.** See [Report](#report).
+- **Drawings and pictures: DXF, SVG, PNG and JPG.** The DXF carries the model in 3D or projected
+  (plan, front XZ, side YZ), in m, cm or mm, with a layer per content: members, nodes, supports,
+  shells as 3D faces, numbering, loads (a layer per case), deformed shape, M, V, N and reactions.
+  The pictures are Basic's vector figures plus the shells: drawn as faces and, as a figure of their
+  own, a shell result in colour with its scale. They are drawn from the screen's view or a fixed one
+  (plan, front, side, isometric). The results can be the screen's or those of any case,
+  combination or the envelope, without changing what is shown.
 
 **Project workbook.** **Export → Project workbook** writes one Excel file with a cover (the project
 data, the date, the build and the units), the conventions, the model and every case and combination:
-reactions, displacements, member end forces, forces, deflections and stresses at the **stations**
-you choose (5, 13 or the critical ones: quarters, load positions and zero shear), the maxima with
+reactions, displacements, member end forces, forces, deflections and stresses at the **points along the members**
+you choose (5, 13 or the critical ones: ends, quarters, point loads and zero shear), the maxima with
 where they occur, the envelope of each node and member end with the combination that governs it, the
 plates at their centres, nodes and corners, the statics and the second-order status. Numbers keep
 every digit and the solver's sign, the one the diagrams show. The model sheets use the names and
 columns of the Excel import, so they can be read back. When the workbook is larger than an Excel
 file handles well (a sheet past its rows, or more than four million cells), it comes as a zip with
-one CSV per sheet. The report dialog's Excel is the same workbook, with the sections you tick.
+one CSV per sheet.
 
 **Project data.** Client, job, job number, site, the revisions with their date and description,
 and who designed, checked and approved it, with dates. Saved with the project and printed on the
@@ -103,7 +115,6 @@ quadrilateral**. It is given a material and a thickness.
 - **Curved shell (cáscara):** for quadrilaterals whose four nodes do not lie in one plane. The panel
   measures how far the fourth node is out of plane and suggests when to use it; it is switched on
   in **Specifications › Surfaces**.
-- **Stair:** an inclined slab with the steps applied as load.
 - **Shell offset (eccentric):** shifts the plate's mid-plane, for instance to line up the top face
   of the slab with the floor level. It is set in **Specifications › Surfaces**.
 
@@ -763,18 +774,20 @@ frequencies and shapes but not reliable mass ratios.
 
 ### Report
 
-**Report** builds a printable **calculation report**: model data with every property and the
-model's view as **Figure 1**, with node and member numbers (turned on for the picture and put back
-afterwards), load
-details, results, the summary of extremes (along the members) and the envelope over the
+**PDF report** builds a **calculation report** to print or save as PDF. The dialog has three folded
+sections: the letterhead, the content and the figures. It carries model data (each table can be
+left out) and the model drawn as **Figure 1** with node and member numbers, load details with the
+loaded model, results, the summary of extremes (along the members) and the envelope over the
 combinations, the statics, the deflections, the **design check** as the Design panel ran it (each
 member with its own reinforcement, the governing check, demand, capacity and utilization; the
 report does not size members on its own), the **story drift** with the panel's computation on
 condition D, the advanced analyses you ran (each one can be left out), the **figures** you add from the view (each with its caption and scale), material quantities
-and diagnostics. The tables are complete whatever the size of the model. The cover prints the
+and diagnostics. Each result (reactions, displacements, member forces, shell results) goes as a
+**table, a figure or both**. The figures are drawn from the model like Export picture's, in colour
+or black and white, from the view you choose, and are numbered in order. The tables are complete whatever the size of the model. The cover prints the
 project's data, which the dialog links to; the office letterhead (logo and company) stays in the
-dialog. It also exports to Excel. Figures and the report's choices belong to the session: opening
-another project or example starts them afresh.
+dialog. The choices are remembered in this browser; figures added from the view belong to the
+session. The same data as a spreadsheet is **Export › Excel**.
 
 The **quantities** (in Documents too) take the concrete and structural steel from the geometry and
 the reinforcement from the **detailing**, by diameter; the steel ratio is taken over the detailed

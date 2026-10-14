@@ -243,3 +243,50 @@ From issues #251, #181, #96, #205 and #206.
 - Nodal and concentrated mass weights need nodal masses in the engine.
 - Spectral cases are not computed by the live (on-edit) solve.
 - The tributary area of each member is not drawn in 3D.
+
+## Exports
+
+**Contains #271** (`basic/exports`), merged in for its export dialogs (`components/export/ExportDialog`, `ExportSection`) and its paper figures (`lib/export/view-figure.ts`, `figure-3d.ts`, `svg-context.ts`, `paper-ink.ts`): merge #271 before this PR.
+
+Project › Export has three groups, and every button opens a dialog that says what comes out, everything on by default and what is turned off remembered in the browser:
+
+- **Data and results: Excel and CSV** (`components/pro/export/ProDataExportDialog.svelte`). One dialog for both, the format a choice inside:
+  - sheets by name, model and results, with all/none (`MODEL_SHEET_NAMES` in `export/workbook-model.ts`, `RESULT_SHEET_NAMES` in `export/workbook-results.ts`). A sheet left out is not built (`want` in `modelSheets` and `resultSheets`), so the stations of a large model cost nothing when not asked for;
+  - cases and combinations (`SourcePick` in `store/project-workbook.ts`); the envelope and the maxima are taken over what is chosen;
+  - points along the members, offered only when a sheet that reads them is chosen. This is what the panel's bare "Estaciones 5 / 13 / Críticas" was;
+  - CSV: one sheet is one file (`downloadProjectCsv`), several a zip, the cover and conventions included.
+  - It solves first when results are asked for and the model has none (`pro/export-results.ts`, `ensureProResults`, PRO's own `runGlobalSolve`). If the solve fails the file has the model sheets and says so.
+- **Report: PDF report** (`ProReportDialog.svelte`, rewritten on the shared frame). Only the PDF: the report's Excel button and `workbookOptions` are gone, since Export › Excel chooses its own sheets.
+  - The project, content and figures sections fold, each with a one-line summary.
+  - Each model table can be left out (`sections.parts`).
+  - Each result (reactions, displacements, member forces, shell results) goes as a table, a figure or both (`resultModes`).
+  - The figures are drawn from the model (`reportResultFigures` in `pro/report-export.ts`), as SVG in data URLs:
+    - the numbered model is Figure 1, in place of the screen capture, which stays as the fallback when no figure can be drawn;
+    - the loaded model goes under the loads;
+    - each result's figures go under its table.
+  - `pro-report.ts` numbers figures in the order they appear (`figureHtml`), and the figures added from the view keep going at the end.
+- **Drawings and pictures: DXF, SVG, PNG, JPG.**
+  - **DXF** (`ProDxfExportDialog.svelte`, `pro/dxf-export.ts`, `dxf/writer.ts`, rewritten). The old writer drew 2D results only, so in PRO it gave the bare geometry.
+    - In space (`space`) or projected: plan, front XZ or side YZ. In m, cm or mm (`$INSUNITS`).
+    - A layer per content: members, nodes, supports, shells as `3DFACE`, numbering, loads with one layer per case, deformed shape (members and shells), M, V and N in the plane the 3D view draws them, with a layer per component, and reactions. The RESULTS layer states the set and the scales.
+    - R12, with 3D polylines (flag 8) so every vertex keeps its z.
+  - **Pictures** (`ProViewExportDialog.svelte`). Basic's figures plus, from `figure-3d.ts`:
+    - shells as faces in every figure, the nearest last, and moved in the deformed one;
+    - `shellMap`: a shell result per element in the screen's contour colours (a grey ramp in black and white) with its scale;
+    - fixed views (`FigureOptions.view`: plan, front, side, isometric);
+    - results of any case, combination or the envelope (`FigureOptions.results`, `resultsName`), read from the store without switching the screen;
+    - JPG (`ViewFormat`). Contour colours bypass the paper ink through `RAW_INK` in `paper-ink.ts`.
+- Removed as dead once PRO stopped calling them: `exportDXF`/`downloadDXF`, `exportSVG`/`downloadSVG`, `generateReportHTML`/`openPDFReport` in `store/file.ts`, and `DxfExportOptions`/`DXF_COLORS`.
+
+Tests: `lib/export/__tests__/pro-exports.test.ts` covers:
+- the workbook narrowed by sheet and by combination;
+- the DXF layers, faces, units, projection and per-case loads;
+- the shell map's colours and its black-and-white ramp;
+- the heading of another set;
+- the report's figures, the parts left out and the figure numbering.
+
+`e2e/pro-exports.spec.ts` covers DXF, SVG, JPG and the report on `mat-foundation`. `e2e/pro-project-workbook.spec.ts` covers the Excel dialog with 13 points and a one-sheet CSV.
+
+## Stairs out of PRO
+
+The Stair section of the shells tab is gone (`ProStairSection.svelte`, the `stair` pick target, `e2e/pro-stairs.spec.ts`). Stairs belong to the design desk's stairs editor, which already shares the flight fields and links the analysis plates. `lib/model/stair.ts`, `stair-convert.ts`, `components/pro/stairs/StairFlightFields.svelte` and their tests stay for it.
