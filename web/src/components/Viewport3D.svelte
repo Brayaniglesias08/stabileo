@@ -2439,7 +2439,11 @@
     const el = modelStore.elements.get(elemId);
     const a0 = el ? nodeScenePoint(el.nodeI) : null, b0 = el ? nodeScenePoint(el.nodeJ) : null;
     if (!el || !a0 || !b0) return false;
-    const a = memberPointerPosition(e, el) * a0.distanceTo(b0);
+    // Screen distance is not proportional to member distance in perspective.
+    // Use the same world-space projection as the load's dragging handles.
+    updateMouseNDC(e);
+    raycaster.setFromCamera(mouse, camera);
+    const a = stationOnRay({ I: a0, J: b0, L: a0.distanceTo(b0) }, raycaster.ray);
     modelStore.batch(() => {
       const id = modelStore.addPointLoadOnElement3D(elemId, a, 0, 0, uiStore.activeLoadCaseId);
       modelStore.updateLoad(id, {
@@ -2450,18 +2454,6 @@
     });
     uiStore.toast(t('viewport3d.pointLoadOnMemberApplied').replace('{id}', String(elemId)), 'success');
     return true;
-  }
-
-  /** The fraction of a member's length under the pointer, from its screen projection. */
-  function memberPointerPosition(e: MouseEvent, el: { nodeI: number; nodeJ: number }): number {
-    const a = nodeScenePoint(el.nodeI), b = nodeScenePoint(el.nodeJ);
-    if (!a || !b || !camera) return 0.5;
-    const rect = container.getBoundingClientRect();
-    const sa = projectToScreen(a.x, a.y, a.z), sb = projectToScreen(b.x, b.y, b.z);
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
-    const dx = sb.x - sa.x, dy = sb.y - sa.y;
-    const l2 = dx * dx + dy * dy;
-    return l2 < 1e-9 ? 0.5 : Math.max(0, Math.min(1, ((px - sa.x) * dx + (py - sa.y) * dy) / l2));
   }
 
   function handleLoadTool(e: MouseEvent) {
