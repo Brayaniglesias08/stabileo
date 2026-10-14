@@ -73,6 +73,7 @@
   import BuildTimelapsePanel from './BuildTimelapsePanel.svelte';
   import { drawFreeBody, freeBodyFocus } from '../lib/canvas/free-body';
   import { freeBodyActions3D } from '../lib/viewport3d/free-body-3d';
+  import { displayedLoads3D } from '../lib/store/displayed-loads-3d';
 
   let container: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -1334,7 +1335,7 @@
       elements: modelStore.elements, nodes: modelStore.nodes, forces: r3d.elementForces, reactions: r3d.reactions ?? [],
       sections: modelStore.sections, project2D: shouldProject2DModel(), leftHand: uiStore.axisConvention3D === 'leftHand',
       basis: uiStore.despieceBasis, resultant: uiStore.despieceCombineVectors, showReactions: resultsStore.showReactions,
-      loads: modelStore.loads,
+      loads: displayedLoads3D(),
       loadText: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),
       negligible: 0.02,
       loadMode: uiStore.despieceLoadMode === 'resultant' ? 'resultant' : 'all',
@@ -2208,7 +2209,14 @@
     const place = resolveNodePlacement2D({
       cursor, snapped: cursor, pxPerM: 1, nodes, members, nodeAt: (id) => screen.get(id), split: uiStore.autoSplitOnNodePlace,
     });
-    if (place.kind === 'onNode') return { kind: 'onNode', nodeId: place.nodeId, sx: place.x, sy: place.y };
+    if (place.kind === 'onNode') {
+      const ground = getGroundIntersection(e);
+      // A node projected over the cursor on another level must not prevent placement
+      // on the working plane (for example, a column foot below its top in plan view).
+      if (!ground || nodeAtPlacement3D(place.nodeId, ground, uiStore.workingPlane, modelStore.nodes) === place.nodeId) {
+        return { kind: 'onNode', nodeId: place.nodeId, sx: place.x, sy: place.y };
+      }
+    }
     if (place.kind === 'onMember') {
       const el = modelStore.elements.get(place.elementId);
       const A = el && modelStore.nodes.get(el.nodeI), B = el && modelStore.nodes.get(el.nodeJ);

@@ -87,8 +87,13 @@ test.describe('Básico exports', () => {
     await page.evaluate(() => window.__stabileoActions.loadExample('portal-frame'));
     await page.getByTestId('basic-panel').getByRole('button', { name: 'PDF', exact: true }).click();
     await expect(page.getByTestId('calc-report-dialog')).toBeVisible();
+    // The members' dimensions, asked for in Figures.
+    await page.getByTestId('calc-report-figures').locator('summary').click();
+    await page.getByTestId('calc-report-lengths').check();
     const [report] = await Promise.all([page.waitForEvent('popup'), page.getByTestId('calc-report-generate').click()]);
     await report.waitForLoadState();
+    const lengthTexts = await report.locator('figure.result-fig svg text').evaluateAll((ts) => ts.filter((x) => /^\d+\.\d{2} m$/.test(x.textContent ?? '')).length);
+    expect(lengthTexts).toBeGreaterThan(0);
     await expect(report.locator('h1#sec-kinematics')).toBeVisible();
     await expect(report.locator('h1#sec-despiece')).toBeVisible();
     // The model figure, then the loaded structure, the free body, the deformed shape, M, V and N.

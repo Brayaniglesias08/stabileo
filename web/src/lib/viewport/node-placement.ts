@@ -79,16 +79,28 @@ export function resolveNodePlacement2D(a: {
   if (best && px(best.d) <= ON_NODE_PX) return { kind: 'onNode', nodeId: best.id, x: best.x, y: best.y };
 
   // On a member: the nearest one within reach, at the foot of the perpendicular.
-  let onM: { id: number; t: number; L: number; i: P2; j: P2; d: number } | null = null;
-  for (const m of a.members) {
-    const i = a.nodeAt(m.nodeI), j = a.nodeAt(m.nodeJ);
-    if (!i || !j) continue;
-    const dx = j.x - i.x, dy = j.y - i.y, L2 = dx * dx + dy * dy;
-    if (L2 < 1e-12) continue;
-    const t = ((a.cursor.x - i.x) * dx + (a.cursor.y - i.y) * dy) / L2;
-    if (t < 0 || t > 1) continue;
-    const d = Math.hypot(i.x + t * dx - a.cursor.x, i.y + t * dy - a.cursor.y);
-    if (px(d) <= ON_MEMBER_PX && (!onM || d < onM.d)) onM = { id: m.id, t, L: Math.sqrt(L2), i, j, d };
+  function memberAt(p: P2, tolerance: number) {
+    let nearest: { id: number; t: number; L: number; i: P2; j: P2; d: number } | null = null;
+    for (const m of a.members) {
+      const i = a.nodeAt(m.nodeI), j = a.nodeAt(m.nodeJ);
+      if (!i || !j) continue;
+      const dx = j.x - i.x, dy = j.y - i.y, L2 = dx * dx + dy * dy;
+      if (L2 < 1e-12) continue;
+      const t = ((p.x - i.x) * dx + (p.y - i.y) * dy) / L2;
+      if (t < 0 || t > 1) continue;
+      const d = Math.hypot(i.x + t * dx - p.x, i.y + t * dy - p.y);
+      if (d <= tolerance && (!nearest || d < nearest.d)) nearest = { id: m.id, t, L: Math.sqrt(L2), i, j, d };
+    }
+    return nearest;
+  }
+  let onM = memberAt(a.cursor, ON_MEMBER_PX / a.pxPerM);
+  if (!onM && a.split) {
+    // Grid snap can land on a member even when the cursor was outside its pick radius.
+    // Reuse a node already at that point before trying to split the member.
+    for (const n of a.nodes) {
+      if (Math.hypot(n.x - a.snapped.x, n.y - a.snapped.y) <= NODE_PLACEMENT_TOL) return { kind: 'onNode', nodeId: n.id, x: n.x, y: n.y };
+    }
+    onM = memberAt(a.snapped, Math.min(NODE_PLACEMENT_TOL, 1 / a.pxPerM));
   }
   if (onM && a.split) {
     const { i, j, L } = onM;

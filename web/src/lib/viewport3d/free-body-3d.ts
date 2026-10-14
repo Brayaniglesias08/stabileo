@@ -7,7 +7,9 @@
  * into one force and one moment. A joint's action is the member's, reversed.
  */
 import { computeLocalAxes3D } from '../engine/local-axes-3d';
-import { projectNodeToScene } from '../geometry/coordinate-system';
+import { distributedGlobalEnds } from '../engine/member-loads';
+import { projectNodeToScene, get2DDisplayNodalLoadVertical, get2DDisplayNodalLoadMoment } from '../geometry/coordinate-system';
+import { transverseSign } from '../engine/transverse-sign-2d';
 import { DESPIECE_COL, memberEndAction3D, type DespieceBasis } from '../three/despiece-3d';
 import type { ElementForces3D, Reaction3D } from '../engine/types-3d';
 import type { Element, Node, Section, Load } from '../store/model.svelte';
@@ -149,10 +151,45 @@ export function freeBodyActions3D(opts: {
     }
   }
 
-  for (const ld of opts.loads ?? []) {
+  // Normalize plane loads into scene-global components before the common drawing path.
+  // Keep their positions and profiles; solver-equivalent nodal forces would lose those.
+  const inScene = (ld: Load): Load => {
+    if (ld.type === 'nodal') {
+      const d = ld.data, v = get2DDisplayNodalLoadVertical(d), m = get2DDisplayNodalLoadMoment(d);
+      return { type: 'nodal3d', data: { id: d.id, nodeId: d.nodeId, fx: d.fx,
+        fy: opts.project2D ? 0 : v, fz: opts.project2D ? v : 0,
+        mx: 0, my: opts.project2D ? m : 0, mz: opts.project2D ? 0 : m } };
+    }
+    if (ld.type !== 'distributed' && ld.type !== 'pointOnElement') return ld;
+    const d = ld.data, ax = axesOf.get(d.elementId);
+    if (!ax) return ld;
+    const c = ax.ex[0], s = opts.project2D ? ax.ex[2] : ax.ex[1];
+    const angle = (d.angle ?? 0) * Math.PI / 180;
+    const transverse = (opts.project2D ? transverseSign(c, s) : 1) * Math.cos(angle);
+    const x = d.isGlobal ? Math.sin(angle) : -s * transverse + c * Math.sin(angle);
+    const v = d.isGlobal ? Math.cos(angle) : c * transverse + s * Math.sin(angle);
+    const dir: V = [x, opts.project2D ? 0 : v, opts.project2D ? v : 0];
+    if (ld.type === 'distributed') {
+      const d = ld.data;
+      return { type: 'distributed3d', data: { ...d, frame: 'global',
+        qXI: dir[0] * d.qI, qXJ: dir[0] * d.qJ,
+        qYI: dir[1] * d.qI, qYJ: dir[1] * d.qJ,
+        qZI: dir[2] * d.qI, qZJ: dir[2] * d.qJ } };
+    }
+    const p = ld.data;
+    return { type: 'pointOnElement3d', data: { ...p, frame: 'global',
+      px: dir[0] * p.p + ax.ex[0] * (p.px ?? 0),
+      py: dir[1] * p.p + ax.ex[1] * (p.px ?? 0),
+      pz: dir[2] * p.p + ax.ex[2] * (p.px ?? 0) } };
+  };
+
+  for (const source of opts.loads ?? []) {
+    const ld = inScene(source);
     if (ld.type === 'nodal3d') {
       const d = ld.data, f: V = [d.fx, d.fy, d.fz];
       if (Math.hypot(...f) > EPS) loads.push({ kind: 'nodal', nodeId: d.nodeId, dir: unit(f), label: opts.loadText(Math.hypot(...f), 'force') });
+      const m: V = [d.mx ?? 0, d.my ?? 0, d.mz ?? 0];
+      if (Math.hypot(...m) > EPS) loads.push({ kind: 'nodal', action: 'moment', nodeId: d.nodeId, dir: unit(m), label: opts.loadText(Math.hypot(...m), 'moment') });
     } else if (ld.type === 'distributed3d' || ld.type === 'pointOnElement3d') {
       const ax = axesOf.get(ld.data.elementId);
       if (!ax) continue;
@@ -160,17 +197,17 @@ export function freeBodyActions3D(opts: {
       const eyUser = opts.leftHand ? scale(ax.ey, -1) : ax.ey;
       if (ld.type === 'distributed3d') {
         const d = ld.data;
-        const a0 = d.a ?? 0, b0 = d.b ?? ax.len;
+        const { gI, gJ, a: a0, b: b0 } = distributedGlobalEnds(d, { ...ax, L: ax.len }, opts.leftHand);
         if (opts.loadMode === 'resultant') {
-          // The point forces the load amounts to (statically exact): one when the y and z parts
-          // share a line of action, one per part otherwise.
-          const RY = pointResultants(d.qYI, d.qYJ, a0, b0), RZ = pointResultants(d.qZI, d.qZJ, a0, b0);
+          // Preserve each component's force and moment, including sign-reversing couples.
+          // Components with the same centroid can share one resultant vector.
           const parts: Array<{ f: V; at: number }> = [];
-          if (RY.length === 1 && RZ.length === 1 && Math.abs(RY[0]!.at - RZ[0]!.at) <= 1e-9 * ax.len) {
-            parts.push({ f: [eyUser[0] * RY[0]!.mag + ax.ez[0] * RZ[0]!.mag, eyUser[1] * RY[0]!.mag + ax.ez[1] * RZ[0]!.mag, eyUser[2] * RY[0]!.mag + ax.ez[2] * RZ[0]!.mag], at: RY[0]!.at });
-          } else {
-            for (const r of RY) parts.push({ f: scale(eyUser, r.mag), at: r.at });
-            for (const r of RZ) parts.push({ f: scale(ax.ez, r.mag), at: r.at });
+          for (const k of [0, 1, 2] as const) {
+            for (const r of pointResultants(gI[k], gJ[k], a0, b0)) {
+              let part = parts.find(p => Math.abs(p.at - r.at) <= 1e-9 * ax.len);
+              if (!part) { part = { f: [0, 0, 0], at: r.at }; parts.push(part); }
+              part.f[k] += r.mag;
+            }
           }
           for (const p of parts) {
             const f = Math.hypot(...p.f);
@@ -178,10 +215,14 @@ export function freeBodyActions3D(opts: {
           }
           continue;
         }
-        const qy = (d.qYI + d.qYJ) / 2, qz = (d.qZI + d.qZJ) / 2;
-        const v: V = [eyUser[0] * qy + ax.ez[0] * qz, eyUser[1] * qy + ax.ez[1] * qz, eyUser[2] * qy + ax.ez[2] * qz];
-        const q = Math.hypot(...v);
-        if (q > EPS) loads.push({ kind: 'dist', memberId: ld.data.elementId, t0: a0 / ax.len, t1: b0 / ax.len, dir: unit(v), label: opts.loadText(q, 'distributedLoad') });
+        const qi = Math.hypot(...gI), qj = Math.hypot(...gJ);
+        if (Math.max(qi, qj) > EPS) {
+          const uniform = gI.every((v, k) => Math.abs(v - gJ[k]) < 1e-12);
+          const label = uniform ? opts.loadText(qi, 'distributedLoad')
+            : `${opts.loadText(qi, 'distributedLoad')} → ${opts.loadText(qj, 'distributedLoad')}`;
+          loads.push({ kind: 'dist', memberId: d.elementId, t0: a0 / ax.len, t1: b0 / ax.len,
+            qI: { x: gI[0], y: gI[1], z: gI[2] }, qJ: { x: gJ[0], y: gJ[1], z: gJ[2] }, label });
+        }
       } else {
         const d = ld.data;
         const v: V = (d.frame ?? 'local') === 'global'
