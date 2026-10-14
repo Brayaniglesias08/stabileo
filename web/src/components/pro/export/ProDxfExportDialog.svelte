@@ -11,6 +11,7 @@
   import { downloadProDxf } from '../../../lib/pro/dxf-export';
   import { ensureProResults, hasShells, resultSetChoices } from '../../../lib/pro/export-results';
   import { uiStore } from '../../../lib/store';
+  import CheckGroup from './CheckGroup.svelte';
 
   let { open = $bindable(false) }: { open: boolean } = $props();
 
@@ -50,6 +51,11 @@
     { id: 'front', key: 'proExport.viewFront' }, { id: 'side', key: 'proExport.viewSide' },
   ];
   const UNITS: DxfUnit[] = ['m', 'cm', 'mm'];
+  const groupItems = (model: boolean) => offered.filter((k) => MODEL_PART.has(k) === model).map((k) => ({ id: k, label: t(`proExport.dxf.${k}`) }));
+  function setGroup(model: boolean, v: boolean) {
+    for (const k of offered) if (MODEL_PART.has(k) === model) contents[k] = v;
+    save();
+  }
 
   const contentSummary = $derived(offered.filter((k) => contents[k]).map((k) => t(`proExport.dxf.${k}`)).join(', ') || t('viewExport.nothing'));
   const resultsSummary = $derived(choices.find((c) => c.key === setKey)?.label ?? '—');
@@ -73,19 +79,13 @@
   }
 </script>
 
-<ExportDialog bind:open title={t('proExport.dxfTitle')} testid="pro-dxf-export-dialog">
+<ExportDialog bind:open width={560} title={t('proExport.dxfTitle')} testid="pro-dxf-export-dialog">
   <ExportSection title={t('viewExport.sectionContent')} summary={contentSummary} open testid="pro-dxf-export-content">
-    <span class="dx-head">{t('proExport.groupModel')}</span>
-    <div class="xs-grid">
-      {#each offered.filter((k) => MODEL_PART.has(k)) as k (k)}
-        <label class="xs-check"><input type="checkbox" bind:checked={contents[k]} onchange={save} data-testid={`pro-dxf-${k}`} />{t(`proExport.dxf.${k}`)}</label>
-      {/each}
-    </div>
-    <span class="dx-head">{t('proExport.groupResults')}</span>
-    <div class="xs-grid">
-      {#each offered.filter((k) => !MODEL_PART.has(k)) as k (k)}
-        <label class="xs-check"><input type="checkbox" bind:checked={contents[k]} onchange={save} data-testid={`pro-dxf-${k}`} />{t(`proExport.dxf.${k}`)}</label>
-      {/each}
+    <div class="dx-cols">
+      <CheckGroup title={t('proExport.groupModel')} items={groupItems(true)} on={(id) => contents[id as keyof DxfContents]}
+        toggle={(id) => { const k = id as keyof DxfContents; contents[k] = !contents[k]; save(); }} setAll={(v) => setGroup(true, v)} testid="pro-dxf" />
+      <CheckGroup title={t('proExport.groupResults')} items={groupItems(false)} on={(id) => contents[id as keyof DxfContents]}
+        toggle={(id) => { const k = id as keyof DxfContents; contents[k] = !contents[k]; save(); }} setAll={(v) => setGroup(false, v)} testid="pro-dxf" />
     </div>
     <p class="xs-note">{t('proExport.dxfLayersNote')}</p>
   </ExportSection>
@@ -102,14 +102,12 @@
   {/if}
 
   <ExportSection title={t('viewExport.sectionDrawing')} summary={drawingSummary}>
-    <div class="xs-field">
+    <label class="xs-field">
       <span>{t('proExport.dxfProjection')}</span>
-      <div class="xs-seg">
-        {#each PROJECTIONS as p (p.id)}
-          <button type="button" class:on={projection === p.id} onclick={() => { projection = p.id; save(); }} data-testid={`pro-dxf-projection-${p.id}`}>{t(p.key)}</button>
-        {/each}
-      </div>
-    </div>
+      <select value={projection} onchange={(e) => { projection = e.currentTarget.value as DxfProjection; save(); }} data-testid="pro-dxf-projection">
+        {#each PROJECTIONS as p (p.id)}<option value={p.id}>{t(p.key)}</option>{/each}
+      </select>
+    </label>
     <div class="xs-field">
       <span>{t('proExport.dxfUnits')}</span>
       <div class="xs-seg">
@@ -138,5 +136,7 @@
 </ExportDialog>
 
 <style>
-  .dx-head { font-size: 0.74rem; color: var(--st-text-3); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+  .dx-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; align-items: start; }
+  @media (max-width: 520px) { .dx-cols { grid-template-columns: 1fr; } }
+  .xs-seg { justify-self: start; align-self: flex-start; }
 </style>

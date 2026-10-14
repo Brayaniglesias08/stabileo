@@ -19,11 +19,28 @@
   import { downloadProjectCsv, downloadProjectWorkbook } from '../../../lib/store/project-workbook';
   import type { StationSpec } from '../../../lib/engine/station-forces';
   import { ensureProResults, hasShells } from '../../../lib/pro/export-results';
+  import CheckGroup from './CheckGroup.svelte';
 
   let { open = $bindable(false), format = $bindable('xlsx') }: { open: boolean; format: 'xlsx' | 'csv' } = $props();
 
-  const MODEL = [...MODEL_SHEET_NAMES, 'Specifications'];
-  const RESULTS = [...RESULT_SHEET_NAMES];
+  const MODEL: string[] = [...MODEL_SHEET_NAMES, 'Specifications'];
+  const RESULTS: string[] = [...RESULT_SHEET_NAMES];
+  /** The sheets by topic, in the order a reader looks for them. */
+  const MODEL_GROUPS: Array<{ key: string; sheets: string[] }> = [
+    { key: 'geometry', sheets: ['Nodes', 'Members', 'Shells', 'Supports', 'Constraints', 'Groups'] },
+    { key: 'properties', sheets: ['Materials', 'Sections', 'Specifications'] },
+    { key: 'loads', sheets: ['LoadCases', 'LoadData', 'SelfWeight', 'Combinations'] },
+  ];
+  const RESULT_GROUPS: Array<{ key: string; sheets: string[] }> = [
+    { key: 'atNodes', sheets: ['Displacements', 'Reactions'] },
+    { key: 'inMembers', sheets: ['EndForces', 'Stations', 'Deflections', 'Stresses'] },
+    { key: 'inShells', sheets: ['ShellCentres', 'ShellNodes', 'ShellCorners'] },
+    { key: 'summaries', sheets: ['Maxima', 'Envelope', 'Statics', 'SecondOrder', 'OneWay', 'Cables'] },
+  ];
+  /** The sheets whose name alone does not say what is in them. */
+  const HINTED = new Set(['Stations', 'ShellCentres', 'ShellNodes', 'ShellCorners', 'OneWay', 'Constraints']);
+  const itemsOf = (sheets: string[], shown: string[]) => sheets.filter((n) => shown.includes(n))
+    .map((n) => ({ id: n, label: t(`proExport.sheet.${n}`), hint: HINTED.has(n) ? t(`proExport.hint.${n}`) : undefined }));
   const SHELL_RESULTS = new Set(['ShellCentres', 'ShellNodes', 'ShellCorners']);
   /** The sheets read at points along the members. */
   const AT_STATIONS = new Set(['Stations', 'Deflections', 'Stresses', 'Maxima']);
@@ -106,54 +123,44 @@
   }
 </script>
 
-<ExportDialog bind:open title={format === 'xlsx' ? t('proExport.dataTitleXlsx') : t('proExport.dataTitleCsv')} testid="pro-data-export-dialog">
+<ExportDialog bind:open width={640} title={format === 'xlsx' ? t('proExport.dataTitleXlsx') : t('proExport.dataTitleCsv')} testid="pro-data-export-dialog">
   <ExportSection title={t('viewExport.sectionContent')} summary={contentSummary} open testid="pro-data-export-content">
-    <p class="xs-note">{t('proExport.dataAlways')}</p>
-    <div class="dx-group">
-      <span class="dx-head">{t('proExport.groupModel')}</span>
+    <div class="dx-bar">
+      <p class="xs-note">{t('proExport.dataAlways')}</p>
       <span class="dx-all">
-        <button type="button" onclick={() => setAll(modelShown, true)}>{t('proExport.all')}</button>
-        <button type="button" onclick={() => setAll(modelShown, false)}>{t('proExport.none')}</button>
+        <button type="button" onclick={() => setAll([...modelShown, ...resultsShown], true)}>{t('proExport.all')}</button>
+        <button type="button" onclick={() => setAll([...modelShown, ...resultsShown], false)}>{t('proExport.none')}</button>
       </span>
     </div>
-    <div class="xs-grid">
-      {#each modelShown as n (n)}
-        <label class="xs-check"><input type="checkbox" checked={on(n)} onchange={() => flip(n)} data-testid={`pro-data-sheet-${n}`} />{t(`proExport.sheet.${n}`)}</label>
-      {/each}
-    </div>
-    <div class="dx-group">
-      <span class="dx-head">{t('proExport.groupResults')}</span>
-      <span class="dx-all">
-        <button type="button" onclick={() => setAll(resultsShown, true)}>{t('proExport.all')}</button>
-        <button type="button" onclick={() => setAll(resultsShown, false)}>{t('proExport.none')}</button>
-      </span>
-    </div>
-    <div class="xs-grid">
-      {#each resultsShown as n (n)}
-        <label class="xs-check"><input type="checkbox" checked={on(n)} onchange={() => flip(n)} data-testid={`pro-data-sheet-${n}`} />{t(`proExport.sheet.${n}`)}</label>
-      {/each}
+    <div class="dx-cols">
+      <div class="dx-col">
+        <span class="dx-head">{t('proExport.groupModel')}</span>
+        {#each MODEL_GROUPS as g (g.key)}
+          <CheckGroup title={t(`proExport.grp.${g.key}`)} items={itemsOf(g.sheets, modelShown)} on={on} toggle={flip}
+            setAll={(v) => setAll(g.sheets.filter((n) => modelShown.includes(n)), v)} testid="pro-data-sheet" />
+        {/each}
+      </div>
+      <div class="dx-col">
+        <span class="dx-head">{t('proExport.groupResults')}</span>
+        {#each RESULT_GROUPS as g (g.key)}
+          <CheckGroup title={t(`proExport.grp.${g.key}`)} items={itemsOf(g.sheets, resultsShown)} on={on} toggle={flip}
+            setAll={(v) => setAll(g.sheets.filter((n) => resultsShown.includes(n)), v)} testid="pro-data-sheet" />
+        {/each}
+      </div>
     </div>
     {#if wantsResults && !resultsStore.results3D}<p class="xs-note">{t('proExport.dataSolves')}</p>{/if}
   </ExportSection>
 
   {#if wantsResults && (cases.length > 1 || combos.length > 0)}
     <ExportSection title={t('proExport.sectionSets')} summary={setsSummary} testid="pro-data-export-sets">
-      {#if cases.length}
-        <span class="dx-head">{t('proExport.groupCases')}</span>
-        <div class="xs-grid">
-          {#each cases as c (c.id)}
-            <label class="xs-check"><input type="checkbox" checked={!casesOff.has(c.id)} onchange={() => flipId('cases', c.id)} />{c.name}</label>
-          {/each}
-        </div>
-      {/if}
-      {#if combos.length}
-        <span class="dx-head">{t('proExport.groupCombos')}</span>
-        <div class="xs-grid">
-          {#each combos as c (c.id)}
-            <label class="xs-check"><input type="checkbox" checked={!combosOff.has(c.id)} onchange={() => flipId('combos', c.id)} />{c.name}</label>
-          {/each}
-        </div>
-      {/if}
+      <div class="dx-cols">
+        <CheckGroup title={t('proExport.groupCases')} items={cases.map((c) => ({ id: String(c.id), label: c.name }))}
+          on={(id) => !casesOff.has(Number(id))} toggle={(id) => flipId('cases', Number(id))}
+          setAll={(v) => (casesOff = v ? new Set() : new Set(cases.map((c) => c.id)))} />
+        <CheckGroup title={t('proExport.groupCombos')} items={combos.map((c) => ({ id: String(c.id), label: c.name }))}
+          on={(id) => !combosOff.has(Number(id))} toggle={(id) => flipId('combos', Number(id))}
+          setAll={(v) => (combosOff = v ? new Set() : new Set(combos.map((c) => c.id)))} />
+      </div>
       <p class="xs-note">{t('proExport.setsNote')}</p>
     </ExportSection>
   {/if}
@@ -182,8 +189,13 @@
 </ExportDialog>
 
 <style>
-  .dx-group { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 4px; }
-  .dx-head { font-size: 0.74rem; color: var(--st-text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+  .dx-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .dx-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; align-items: start; }
+  .dx-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  @media (max-width: 560px) { .dx-cols { grid-template-columns: 1fr; } }
+  .dx-head { font-size: 0.7rem; color: var(--st-text-3); text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--st-hair); padding-bottom: 2px; }
+  .dx-all { flex: none; }
+  .xs-seg { justify-self: start; align-self: flex-start; }
   .dx-all { display: inline-flex; gap: 8px; }
   .dx-all button { background: none; border: none; padding: 0; color: var(--st-accent); font: inherit; font-size: 0.74rem; cursor: pointer; }
   .dx-all button:hover { text-decoration: underline; }

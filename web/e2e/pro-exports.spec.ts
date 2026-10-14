@@ -64,7 +64,7 @@ test.describe('PRO exports', () => {
     const dialog = page.getByTestId('pro-report-dialog');
     await expect(dialog).toBeVisible();
     await expect(page.getByTestId('rpt-xlsx')).toHaveCount(0);
-    await dialog.getByTestId('rpt-mode-reactions-figure').click();
+    await dialog.getByTestId('rpt-mode-reactions').selectOption('figure');
     const opened = page.context().waitForEvent('page');
     await dialog.getByTestId('rpt-pdf').click();
     const report = await opened;

@@ -5,10 +5,12 @@
    */
   import type { Snippet } from 'svelte';
 
-  let { open = $bindable(false), title, testid, children, actions }: {
+  let { open = $bindable(false), title, testid, width = 460, children, actions }: {
     open: boolean;
     title: string;
     testid?: string;
+    /** px; PRO's dialogs, with more to choose, are wider. */
+    width?: number;
     children: Snippet;
     actions: Snippet;
   } = $props();
@@ -24,7 +26,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
   <div class="xd-overlay" onclick={() => (open = false)}>
     <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-    <div class="xd" role="dialog" aria-modal="true" aria-label={title} data-testid={testid} onclick={(e) => e.stopPropagation()}>
+    <div class="xd" role="dialog" aria-modal="true" aria-label={title} data-testid={testid} style:width={`min(${width}px, 100%)`} onclick={(e) => e.stopPropagation()}>
       <h3>{title}</h3>
       <div class="xd-body">{@render children()}</div>
       <div class="xd-actions">{@render actions()}</div>

@@ -17,6 +17,7 @@
   import type { InkStyle } from '../../../lib/export/paper-ink';
   import { SHELL_CONTOUR_COMPONENTS, shellComponentLabelKey, type ShellContourComponent } from '../../../lib/engine/shell-stress';
   import { ensureProResults, hasShells, resultSet, resultSetChoices } from '../../../lib/pro/export-results';
+  import CheckGroup from './CheckGroup.svelte';
 
   let { open = $bindable(false), format = $bindable('svg') }: { open: boolean; format: ViewFormat } = $props();
 
@@ -69,6 +70,15 @@
   const FORMATS: ViewFormat[] = ['svg', 'png', 'jpg'];
   const compName = (k: ShellContourComponent) => t(shellComponentLabelKey(k));
 
+  const MODEL_PART: FigureContent[] = ['model', 'despiece'];
+  const groupItems = (part: 'model' | 'results') => offered
+    .filter((c) => MODEL_PART.includes(c) === (part === 'model'))
+    .map((c) => ({ id: c, label: t(LABEL[c]) }));
+  function setGroup(part: 'model' | 'results', v: boolean) {
+    const ids = groupItems(part).map((i) => i.id as FigureContent);
+    contents = PRO_FIGURE_CONTENTS.filter((x) => (ids.includes(x) ? v : contents.includes(x)));
+    save();
+  }
   function toggle(c: FigureContent) {
     contents = contents.includes(c) ? contents.filter((x) => x !== c) : PRO_FIGURE_CONTENTS.filter((x) => x === c || contents.includes(x));
     save();
@@ -109,21 +119,22 @@
   }
 </script>
 
-<ExportDialog bind:open title={`${t('proExport.imageTitle')} — ${format.toUpperCase()}`} testid="pro-view-export-dialog">
+<ExportDialog bind:open width={560} title={`${t('proExport.imageTitle')} — ${format.toUpperCase()}`} testid="pro-view-export-dialog">
   <ExportSection title={t('viewExport.sectionContent')} summary={contentSummary} open testid="pro-view-export-content">
-    <div class="xs-grid">
-      {#each offered as c (c)}
-        <label class="xs-check"><input type="checkbox" checked={contents.includes(c)} onchange={() => toggle(c)} data-testid={`pro-view-export-${c}`} />{t(LABEL[c])}</label>
-      {/each}
+    <div class="vx-cols">
+      <CheckGroup title={t('proExport.groupModel')} items={groupItems('model')} on={(id) => contents.includes(id as FigureContent)}
+        toggle={(id) => toggle(id as FigureContent)} setAll={(v) => setGroup('model', v)} testid="pro-view-export" />
+      <CheckGroup title={t('proExport.groupResults')} items={groupItems('results')} on={(id) => contents.includes(id as FigureContent)}
+        toggle={(id) => toggle(id as FigureContent)} setAll={(v) => setGroup('results', v)} testid="pro-view-export">
+        {#snippet after()}
+          {#if chosen.includes('shellMap')}
+            <select class="vx-select" bind:value={options.shellComponent} onchange={save} aria-label={t('proExport.shellComponent')} data-testid="pro-view-export-shell-component">
+              {#each SHELL_CONTOUR_COMPONENTS as m (m.key)}<option value={m.key}>{compName(m.key)}</option>{/each}
+            </select>
+          {/if}
+        {/snippet}
+      </CheckGroup>
     </div>
-    {#if chosen.includes('shellMap')}
-      <label class="xs-field">
-        <span>{t('proExport.shellComponent')}</span>
-        <select bind:value={options.shellComponent} onchange={save} data-testid="pro-view-export-shell-component">
-          {#each SHELL_CONTOUR_COMPONENTS as m (m.key)}<option value={m.key}>{compName(m.key)}</option>{/each}
-        </select>
-      </label>
-    {/if}
     {#if needsSolve}<p class="xs-note">{t('viewExport.needsSolve')}</p>{/if}
     {#if chosen.includes('despiece')}<p class="xs-note">{t('viewExport.despieceNote')}</p>{/if}
   </ExportSection>
@@ -141,14 +152,12 @@
   {/if}
 
   <ExportSection title={t('viewExport.sectionDrawing')} summary={drawingSummary}>
-    <div class="xs-field">
+    <label class="xs-field">
       <span>{t('proExport.view')}</span>
-      <div class="xs-seg">
-        {#each VIEWS as v (v.id)}
-          <button type="button" class:on={(options.view ?? 'screen') === v.id} onclick={() => { options.view = v.id; save(); }} data-testid={`pro-view-export-view-${v.id}`}>{t(v.key)}</button>
-        {/each}
-      </div>
-    </div>
+      <select value={options.view ?? 'screen'} onchange={(e) => { options.view = e.currentTarget.value as FigureView; save(); }} data-testid="pro-view-export-view">
+        {#each VIEWS as v (v.id)}<option value={v.id}>{t(v.key)}</option>{/each}
+      </select>
+    </label>
     <label class="xs-check"><input type="checkbox" bind:checked={options.loads} onchange={save} />{t('viewExport.optLoadsLong')}</label>
     <label class="xs-check"><input type="checkbox" bind:checked={options.numbering} onchange={save} />{t('viewExport.optNumberingLong')}</label>
     <label class="xs-check"><input type="checkbox" bind:checked={options.values} onchange={save} />{t('viewExport.optValuesLong')}</label>
@@ -190,3 +199,10 @@
     <button type="button" class="primary" onclick={() => run('download')} disabled={busy || chosen.length === 0} data-testid="pro-view-export-download">{t('viewExport.download')}</button>
   {/snippet}
 </ExportDialog>
+
+<style>
+  .vx-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; align-items: start; }
+  @media (max-width: 520px) { .vx-cols { grid-template-columns: 1fr; } }
+  .vx-select { margin-top: 2px; padding: 3px 6px; background: var(--st-surface-2); border: 1px solid var(--st-hair-strong); border-radius: var(--st-radius); color: var(--st-text); font: inherit; font-size: 0.76rem; }
+  .xs-seg { justify-self: start; align-self: flex-start; }
+</style>
