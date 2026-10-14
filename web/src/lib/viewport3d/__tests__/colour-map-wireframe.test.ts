@@ -40,7 +40,7 @@ function context(batched: ElementsBatched): ResultsSyncContext {
     elementGroups: new Map(), // wireframe: no groups, and that is the point
     elementsBatched: batched,
     shellGroups: new Map(),
-    deformedGroup: null, diagramGroup: null, overlayDiagramGroup: null, despieceGroup: null,
+    deformedGroup: null, diagramGroup: null, overlayDiagramGroup: null,
     reactionGroup: null, constraintForcesGroup: null, nodeLabelsGroup: null,
     elementLabelsGroup: null, lengthLabelsGroup: null, shellLabelsGroup: null, verificationLabelsGroup: null,
     lastDeformedAnimScale: null, lastDespieceSep: null,

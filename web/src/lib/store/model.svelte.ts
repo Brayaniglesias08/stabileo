@@ -1,6 +1,7 @@
 import {
   defaultCodeSettings, migrateCodeSettings, type ProjectCodeSettings,
 } from '../codes/project-code-settings';
+import { loadCasesInUse } from '../model/loads/load-cases-in-use';
 import { refreshRatios } from '../section/drawn';
 import {
   emptyDetailingStore, migrateDetailingStore, type DetailingStore,
@@ -1120,7 +1121,12 @@ export interface InfluenceLineResult {
   targetPosition?: number; // 0..1 along target element
   /** Data points: loadPosition (global x along structure) → quantity value */
   points: Array<{ x: number; y: number; elementId: number; t: number; value: number }>;
+  /** The unit load's direction; absent is downward. */
+  direction?: InfluenceDirection;
 }
+
+/** Which way the influence line's unit load acts: down, or across to +X. */
+export type InfluenceDirection = 'vertical' | 'horizontal';
 
 /**
  * The model fields recorded through the views undo channel (`_pushUndoView`), which undo restores
@@ -3650,6 +3656,8 @@ function createModelStore() {
         { id: 3, type: 'W', name: 'Wind' },
         { id: 4, type: 'E', name: 'Earthquake' },
       ];
+      // A new model has one case in use: Basic shows no load cases until they are switched on.
+      uiStore.loadCasesEnabled = false;
       model.combinations = [
         { id: 1, name: '1.2D + 1.6L', factors: [{ caseId: 1, factor: 1.2 }, { caseId: 2, factor: 1.6 }] },
         { id: 2, name: '1.4D', factors: [{ caseId: 1, factor: 1.4 }] },
@@ -4301,18 +4309,19 @@ function createModelStore() {
       return isPro ? scopeBundle3D(r, model.resultScopes, model.combinations) : r;
     },
 
-    /** Compute influence line: move unit load P=1 (downward) across elements */
+    /** Compute influence line: move unit load P=1 (downward, or across) over the elements */
     computeInfluenceLine(
       quantity: InfluenceQuantity,
       targetNodeId?: number,
       targetElementId?: number,
       targetPosition: number = 0.5,
       nPointsPerElement: number = 20,
+      direction: InfluenceDirection = 'vertical',
     ): InfluenceLineResult | string {
       return computeInfluenceLineFn(
         { nodes: model.nodes, elements: model.elements, supports: model.supports,
           loads: model.loads, materials: model.materials, sections: model.sections, analysis: model.analysis, groups: model.groups },
-        quantity, targetNodeId, targetElementId, targetPosition, nPointsPerElement,
+        quantity, targetNodeId, targetElementId, targetPosition, nPointsPerElement, direction,
       );
     },
 
@@ -4401,6 +4410,9 @@ function createModelStore() {
         }
         model.analysis = { ...(model.analysis ?? {}), selfWeight };
       }
+
+      // Basic opens an example with load cases and combinations on when it uses more than one case.
+      uiStore.loadCasesEnabled = loadCasesInUse(model.loads);
 
       _undoBatching = false;
     },

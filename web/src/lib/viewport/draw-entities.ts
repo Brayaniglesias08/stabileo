@@ -15,7 +15,7 @@ import {
   get2DDisplayReactionVertical,
 } from '../geometry/coordinate-system';
 import { canvasTheme } from '../canvas/theme';
-import { canvasUnitSystem } from '../canvas/canvas-units';
+import { canvasUnitSystem, canvasLoadScale } from '../canvas/canvas-units';
 import { displacementText, fixedQuantity, plainQuantity } from '../utils/unit-format';
 
 // ── Shared types for draw-entity parameters ──────────────────────────
@@ -651,7 +651,8 @@ export function drawNodalLoad(
   caseName: string | undefined,
   labels: LabelCollector,
 ): void {
-  const arrowLen = 40;
+  const K = canvasLoadScale();
+  const arrowLen = 40 * K;
   const color = caseColor ?? canvasTheme().accent;
   const prefix = caseName ? `${caseName}: ` : '';
   const vertical = loadData.fz ?? loadData.fy ?? 0;
@@ -670,8 +671,8 @@ export function drawNodalLoad(
 
     ctx.beginPath();
     ctx.moveTo(screen.x, screen.y);
-    ctx.lineTo(screen.x - 5, screen.y - 10 * dir);
-    ctx.lineTo(screen.x + 5, screen.y - 10 * dir);
+    ctx.lineTo(screen.x - 5 * K, screen.y - 10 * K * dir);
+    ctx.lineTo(screen.x + 5 * K, screen.y - 10 * K * dir);
     ctx.closePath();
     ctx.fill();
 
@@ -699,8 +700,8 @@ export function drawNodalLoad(
 
     ctx.beginPath();
     ctx.moveTo(screen.x, screen.y);
-    ctx.lineTo(screen.x - 10 * dir, screen.y - 5);
-    ctx.lineTo(screen.x - 10 * dir, screen.y + 5);
+    ctx.lineTo(screen.x - 10 * K * dir, screen.y - 5 * K);
+    ctx.lineTo(screen.x - 10 * K * dir, screen.y + 5 * K);
     ctx.closePath();
     ctx.fill();
 
@@ -733,8 +734,8 @@ export function drawNodalLoad(
 
   // Moment (curved arrow) — reuses drawMomentSymbol for consistent visuals
   if (Math.abs(moment) > 0.001) {
-    const r = 18;
-    drawMomentSymbol(ctx, screen.x, screen.y, moment, color, r);
+    const r = 18 * K;
+    drawMomentSymbol(ctx, screen.x, screen.y, moment, color, r, K);
 
     labels.add({
       text: `${prefix}${TWO_D_NODAL_LOAD_LABELS.moment}=${plainQuantity(Math.abs(moment), 'moment', 2, canvasUnitSystem())}`,

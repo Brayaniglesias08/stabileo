@@ -14,7 +14,8 @@
    */
   let { docked = false }: { docked?: boolean } = $props();
   import { modelStore, uiStore } from '../lib/store';
-  import { generateKinematicReport, generateKinematicReport3D, type KinematicReport, type SlidingJointInput } from '../lib/engine/kinematic-report';
+  import type { KinematicReport } from '../lib/engine/kinematic-report';
+  import { kinematicReportOfModel } from '../lib/engine/kinematic-model';
   import { t } from '../lib/i18n';
 
   // Collapsible sections
@@ -48,46 +49,15 @@
   );
 
   /**
-   * In 3D the report is built on the space model and the 3D rank check.
-   *
-   * The panel used to call `buildSolverInput(false)` in every mode: the plane
-   * wire, which drops z. A space frame was then counted as its projection on
-   * XY (columns became zero-length bars) and the panel showed that count. The
-   * Advanced button is off in 3D, but `?kin=1` and the tour still open the
-   * panel there.
+   * The report of the model as it is (`kinematicReportOfModel`, which the calculation report
+   * reads too). In 3D it is counted on the space model: the plane wire drops z, and `?kin=1` and
+   * the tour open the panel there.
    */
-  function recompute3D() {
-    let input3D: ReturnType<typeof modelStore.buildSolverInput3D> = null;
-    try {
-      // The model's members and nodes, none cut for a load inside its span.
-      input3D = modelStore.buildSolverInput3D(false, uiStore.axisConvention3D === 'leftHand', { expandMemberOffsets: false, uncut: true });
-    } catch {
-      input3D = null;
-    }
-    report = input3D ? generateKinematicReport3D(input3D) : null;
-    lastAnalyzedVersion = modelStore.modelVersion;
-    lastAnalyzedMode = '3d';
-    scheduleRankRetry();
-  }
-
   function recompute() {
-    if (is3D) { recompute3D(); return; }
-    const input = modelStore.buildSolverInput(false);
-    lastAnalyzedMode = '2d';
-    if (!input) {
-      report = null;
-      return;
-    }
-    // Sliding joints are a Basic 2D feature stored as element-end translational
-    // releases. They aren't on the solver wire, so pass them explicitly so the
-    // determinacy count includes them (each releases one relative translation).
-    const slidingJoints: SlidingJointInput[] = [];
-    for (const e of modelStore.elements.values()) {
-      if (e.releaseI?.slide) slidingJoints.push({ elemId: e.id, end: 'I', kind: e.releaseI.slide, axis: e.releaseI.slideAxis ?? 'global' });
-      if (e.releaseJ?.slide) slidingJoints.push({ elemId: e.id, end: 'J', kind: e.releaseJ.slide, axis: e.releaseJ.slideAxis ?? 'global' });
-    }
-    report = generateKinematicReport(input, slidingJoints);
-    lastAnalyzedVersion = modelStore.modelVersion;
+    lastAnalyzedMode = is3D ? '3d' : '2d';
+    report = kinematicReportOfModel(is3D);
+    // A 2D model the solver cannot read yet keeps no version, as before: it is looked at again.
+    if (report || is3D) lastAnalyzedVersion = modelStore.modelVersion;
     scheduleRankRetry();
   }
 

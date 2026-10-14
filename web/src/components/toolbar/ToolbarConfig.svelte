@@ -302,13 +302,26 @@
           <span>{t('config.showSupports')}</span>
           </HelpTip>
         </label>
-        <div class="input-group" style="flex-direction: column; align-items: stretch;">
-          <HelpTip text={t('config.tip.labelSize')}><label for="cfg-label-size">{t('config.labelSize')}: {Math.round(uiStore.labelScale * 100)} %</label></HelpTip>
+        <!-- Sizes: what each slider does on its left, the slider, its value; one row each. -->
+        <div class="slider-row">
+          <HelpTip text={t('config.tip.labelSize')}><label for="cfg-label-size">{t('config.labelSize')}</label></HelpTip>
           <input id="cfg-label-size" type="range" data-testid="cfg-label-size"
             min={uiStore.labelScaleRange[0]} max={uiStore.labelScaleRange[1]} step="0.1"
             value={uiStore.labelScale}
             oninput={(e) => { uiStore.labelScale = parseFloat(e.currentTarget.value); }} />
+          <span class="slider-val">{Math.round(uiStore.labelScale * 100)} %</span>
         </div>
+        <!-- PRO sets the same factor from its load cases panel. -->
+        {#if uiStore.appMode !== 'pro'}
+          <div class="slider-row">
+            <HelpTip text={t('config.tip.loadSize')}><label for="cfg-load-size">{t('config.loadSize')}</label></HelpTip>
+            <input id="cfg-load-size" type="range" data-testid="cfg-load-size"
+              min={uiStore.loadArrowScaleRange[0]} max={uiStore.loadArrowScaleRange[1]} step="0.1"
+              value={uiStore.loadArrowScale}
+              oninput={(e) => { uiStore.loadArrowScale = parseFloat(e.currentTarget.value); }} />
+            <span class="slider-val">{Math.round(uiStore.loadArrowScale * 100)} %</span>
+          </div>
+        {/if}
         {#if !uiStore.isMobile}
           <label class="checkbox-item">
             <HelpTip text={t('config.tip.panelScrollbars')}>
@@ -622,6 +635,16 @@
     gap: 0.5rem;
     font-size: 0.875rem;
   }
+
+  .slider-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 3.2em;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+  }
+  .slider-row input[type="range"] { width: 100%; min-width: 0; accent-color: var(--st-accent); }
+  .slider-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--st-text-3); font-size: 0.75rem; }
 
   /* :global because the grid size is an input inside UnitInput. */
   .input-group :global(input) {

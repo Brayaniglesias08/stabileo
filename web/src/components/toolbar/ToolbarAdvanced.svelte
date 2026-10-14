@@ -1,4 +1,5 @@
 <script lang="ts" module>
+  import DespieceOptions from '../DespieceOptions.svelte';
   import { untrack } from 'svelte';
   import { uiStore, modelStore, resultsStore, dsmStepsStore, fmStepsStore } from '../../lib/store';
 
@@ -676,41 +677,7 @@
     {@render helpPanel('despiece')}
       {/if}
     {#if resultsStore.diagramType === 'despiece'}
-      <div class="adv-btn-wrap" style="grid-column: span 2; flex-direction: column; align-items: stretch; gap: 4px;">
-        <div style="display:flex; gap:4px; align-items:center;">
-          <span style="font-size:0.7rem; color:var(--st-text-2);">{t('despiece.vectors')}</span>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceVectorMode === 'all'} onclick={() => uiStore.despieceVectorMode = 'all'}>{t('despiece.vAll')}</button>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceVectorMode === 'members'} onclick={() => uiStore.despieceVectorMode = 'members'}>{t('despiece.vMembers')}</button>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceVectorMode === 'nodes'} onclick={() => uiStore.despieceVectorMode = 'nodes'}>{t('despiece.vNodes')}</button>
-        </div>
-        <div style="display:flex; gap:4px; align-items:center;">
-          <span style="font-size:0.7rem; color:var(--st-text-2);">{t('despiece.basis')}</span>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceBasis === 'local'} onclick={() => uiStore.despieceBasis = 'local'} title={t('despiece.basisLocalHint')}>{t('despiece.basisLocal')}</button>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceBasis === 'global'} onclick={() => uiStore.despieceBasis = 'global'} title={t('despiece.basisGlobalHint')}>{t('despiece.basisGlobal')}</button>
-        </div>
-        <label style="display:flex; align-items:center; gap:6px; font-size:0.7rem; color:var(--st-text-2);">
-          <span style="min-width:70px;">{t('despiece.vectorSize')}</span>
-          <input type="range" min="0.5" max="2" step="0.1" bind:value={uiStore.despieceVectorSize} style="flex:1;" />
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; font-size:0.7rem; color:var(--st-text-2);">
-          <span style="min-width:70px;">{t('despiece.labelSize')}</span>
-          <input type="range" min="0.6" max="2" step="0.1" bind:value={uiStore.despieceLabelSize} style="flex:1;" />
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; font-size:0.72rem; color:var(--st-text-2); cursor:pointer;">
-          <input type="checkbox" bind:checked={resultsStore.showReactions} />
-          {t('despiece.reactions')}
-        </label>
-        <div style="display:flex; gap:4px; align-items:center;">
-          <span style="font-size:0.7rem; color:var(--st-text-2);">{t('despiece.loads')}</span>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceLoadMode === 'off'} onclick={() => uiStore.despieceLoadMode = 'off'}>{t('despiece.loadsOff')}</button>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceLoadMode === 'resultant'} onclick={() => uiStore.despieceLoadMode = 'resultant'}>{t('despiece.loadsResultant')}</button>
-          <button class="adv-btn" style="flex:1" class:active={uiStore.despieceLoadMode === 'all'} onclick={() => uiStore.despieceLoadMode = 'all'}>{t('despiece.loadsAll')}</button>
-        </div>
-        <label style="display:flex; align-items:center; gap:6px; font-size:0.72rem; color:var(--st-text-2); cursor:pointer;">
-          <input type="checkbox" bind:checked={uiStore.despieceCombineVectors} />
-          {t('despiece.combinedVectors')}
-        </label>
-      </div>
+      <DespieceOptions />
     {/if}
     {/if}
     {#if shown('stress')}

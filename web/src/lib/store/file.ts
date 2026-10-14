@@ -1,5 +1,6 @@
 // File operations: save/load projects, export results, autosave
 
+import { adoptLoadCases } from './load-cases-mode';
 import { modelStore } from './model.svelte';
 import { resultsStore } from './results.svelte';
 import { historyStore } from './history.svelte';
@@ -294,6 +295,7 @@ export function deserializeProject(text: string): boolean {
   // Adopted separately from `restore()`, which is also the undo path — see project-provenance.ts.
   // A file written before these fields existed hydrates to "we do not know", not to "none".
   hydrateProjectProvenance(data.snapshot);
+  adoptLoadCases();
   modelStore.model.name = data.name;
   // A different model now occupies the store: any 3D original held for the
   // simplified-2D round trip belongs to the model that was just replaced, and
@@ -501,18 +503,28 @@ export async function loadFile(file: File): Promise<{ type: 'tab' | 'session'; c
 
 // ─── Export Results CSV ─────────────────────────────────────────
 
-export function exportResultsCSV(): string {
+/**
+ * The results as CSV. With `solveError` (the solve run for this export failed) and no results,
+ * the file is its header and the reason, so the download still says what happened.
+ */
+export function exportResultsCSV(solveError?: string): string {
   const is3D = uiStore.is3DWorkspace;
   const r3d = resultsStore.results3D;
   const r2d = resultsStore.results;
 
-  if (!r3d && !r2d) return '';
+  if (!r3d && !r2d && !solveError) return '';
 
   const lines: string[] = [];
-  lines.push(`# Dedaliano — ${t('file.csvResults')} ${is3D ? '3D' : '2D'}`);
+  lines.push(`# Stabileo — ${t('file.csvResults')} ${is3D ? '3D' : '2D'}`);
   lines.push(`# ${t('file.csvProject')}: ${modelStore.model.name}`);
   lines.push(`# ${t('file.csvDate')}: ${new Date().toLocaleString()}`);
   lines.push('');
+  if (!r3d && !r2d) {
+    lines.push(`# ${t('excel.solveFailed')}`);
+    lines.push(`# ${solveError!.replace(/\s*\n\s*/g, ' ')}`);
+    lines.push(`# ${t('file.csvSolveFailedHint')}`);
+    return lines.join('\n');
+  }
 
   if (is3D && r3d) {
     // 3D Displacements
@@ -565,8 +577,8 @@ export function exportResultsCSV(): string {
   return lines.join('\n');
 }
 
-export function downloadResultsCSV(): void {
-  const csv = exportResultsCSV();
+export function downloadResultsCSV(solveError?: string): void {
+  const csv = exportResultsCSV(solveError);
   if (!csv) return;
   const safeName = modelStore.model.name.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ _-]/g, '').trim() || t('file.defaultResults');
   downloadText(csv, `${safeName}_${t('file.defaultResults')}.csv`, 'text/csv');

@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { resultCaseName } from '../../lib/engine/settlement-case';
   import { uiStore, resultsStore, modelStore } from '../../lib/store';
   import { activeQuantity, activeRepresentation, representationsFor, showQuantityAs, activeMapMeasure, showStressMap, hasLiveColourScale, type MapMeasure } from '../../lib/store/result-view';
   import { showDiagram } from '../../lib/store/view-mode';
   import ResultsTable from '../tables/ResultsTable.svelte';
+  import ResultsViewPicker from './ResultsViewPicker.svelte';
   import { t } from '../../lib/i18n';
   import { hasInvalid2DDisplacements, hasInvalid3DDisplacements } from '../../lib/geometry/coordinate-system';
   import { runSolve } from '../../lib/actions/solve';
@@ -384,12 +384,11 @@
         && uiStore.showSecondarySelector
         && resultsStore.diagramType !== 'deformed'
         && activeRepresentation() === 'diagram'}
+      <!-- Basic: only with load cases and combinations on, and on a desktop in the options bar
+           under the ribbon instead (ToolOptionsBar); a phone has no such bar. -->
       {#if resultsStore.hasCombinations && (showsPrimary || showsSecondary)
-        && (activeQuantity() !== null || resultsStore.diagramType === 'deformed')}
-        {@const is3D = uiStore.is3DWorkspace}
-        {@const caseKeys = is3D ? [...resultsStore.perCase3D.keys()] : [...resultsStore.perCase.keys()]}
-        {@const comboKeys = is3D ? [...resultsStore.perCombo3D.keys()] : [...resultsStore.perCombo.keys()]}
-        {@const hasEnvelope = is3D ? resultsStore.fullEnvelope3D !== null : resultsStore.fullEnvelope !== null}
+        && (activeQuantity() !== null || resultsStore.diagramType === 'deformed')
+        && (uiStore.appMode !== 'basico' || (uiStore.loadCasesEnabled && uiStore.isMobile))}
         <!-- Open in the panel: no accordions there. -->
         {#if !flat}
           <button class="sub-toggle" onclick={() => showResultsViewSub = !showResultsViewSub}>
@@ -400,110 +399,7 @@
         {/if}
         {#if showResultsViewSub || flat}
           <div class="sub-content">
-            {#if showsPrimary}
-              <div class="input-group">
-                <!--
-                  No visible label: every option names itself ("Simple loads",
-                  a case, a combination), so the word in front of them spent a
-                  third of a narrow panel's width restating the obvious. The
-                  accessible name stays for anyone who cannot see that.
-                -->
-                <select
-                  aria-label={t('results.primary')}
-                  value={resultsStore.activeView === 'envelope' ? 'envelope'
-                             : resultsStore.activeCaseId !== null ? `case_${resultsStore.activeCaseId}`
-                             : resultsStore.activeView === 'combo' ? `combo_${resultsStore.activeComboId ?? ''}`
-                             : 'single'}
-                  onchange={(e) => {
-                    const val = (e.target as HTMLSelectElement).value;
-                    const clearOverlay = () => { if (is3D) resultsStore.setOverlay3D(null); else resultsStore.setOverlay(null); };
-                    if (val === 'single') {
-                      resultsStore.activeCaseId = null;
-                      resultsStore.activeView = 'single';
-                      clearOverlay();
-                    } else if (val === 'envelope') {
-                      resultsStore.activeCaseId = null;
-                      resultsStore.activeView = 'envelope';
-                      clearOverlay();
-                    } else if (val.startsWith('case_')) {
-                      resultsStore.activeCaseId = Number(val.replace('case_', ''));
-                      clearOverlay();
-                    } else if (val.startsWith('combo_')) {
-                      resultsStore.activeCaseId = null;
-                      resultsStore.activeView = 'combo';
-                      resultsStore.activeComboId = Number(val.replace('combo_', ''));
-                    }
-                  }}>
-                  <option value="single">{t('results.simpleLoads')}</option>
-                  {#each caseKeys as caseId}
-                    <option value={`case_${caseId}`}>{resultCaseName(caseId, modelStore.model.loadCases, t('svc.settlementCase'), `${t('results.caseFallback')} `)}</option>
-                  {/each}
-                  {#each comboKeys as comboId}
-                    {@const combo = modelStore.model.combinations.find(c => c.id === comboId)}
-                    <option value={`combo_${comboId}`}>{combo?.name ?? `${t('results.comboFallback')} ${comboId}`}</option>
-                  {/each}
-                  <option value="envelope">{t('results.envelope')}</option>
-                </select>
-              </div>
-              <!--
-                Comparison overlays a second DIAGRAM on the first. There is
-                nothing to overlay when the result is painted onto the members
-                themselves: two colours on one bar is one colour.
-              -->
-              {#if showsSecondary}
-                <div class="input-group">
-                  <label>{t('results.compare')}:</label>
-                  <select onchange={(e) => {
-                    const val = (e.target as HTMLSelectElement).value;
-                    if (val === 'none') {
-                      if (is3D) resultsStore.setOverlay3D(null);
-                      else resultsStore.setOverlay(null);
-                    } else if (val === 'single') {
-                      if (is3D) resultsStore.setOverlay3D(resultsStore.singleResults3D, t('results.simpleLoads'));
-                      else resultsStore.setOverlay(resultsStore.singleResults, t('results.simpleLoads'));
-                    } else if (val === 'envelope') {
-                      if (is3D) resultsStore.setOverlay3D(resultsStore.fullEnvelope3D?.maxAbsResults3D ?? null, t('results.envelope'));
-                      else resultsStore.setOverlay(resultsStore.fullEnvelope?.maxAbsResults ?? null, t('results.envelope'));
-                    } else if (val.startsWith('case_')) {
-                      const id = Number(val.replace('case_', ''));
-                      const lc = modelStore.model.loadCases.find(c => c.id === id);
-                      const label = lc?.name ?? `${t('results.caseFallback')} ${id}`;
-                      if (is3D) {
-                        const r3d = resultsStore.perCase3D.get(id);
-                        if (r3d) resultsStore.setOverlay3D(r3d, label);
-                      } else {
-                        const r = resultsStore.perCase.get(id);
-                        if (r) resultsStore.setOverlay(r, label);
-                      }
-                    } else if (val.startsWith('combo_')) {
-                      const id = Number(val.replace('combo_', ''));
-                      const combo = modelStore.model.combinations.find(c => c.id === id);
-                      const label = combo?.name ?? `${t('results.comboFallback')} ${id}`;
-                      if (is3D) {
-                        const r3d = resultsStore.perCombo3D.get(id);
-                        if (r3d) resultsStore.setOverlay3D(r3d, label);
-                      } else {
-                        const r = resultsStore.perCombo.get(id);
-                        if (r) resultsStore.setOverlay(r, label);
-                      }
-                    }
-                  }}>
-                    <option value="none">{t('results.noComparison')}</option>
-                    <option value="single">{t('results.simpleLoads')}</option>
-                    {#each caseKeys as caseId}
-                      <option value={`case_${caseId}`}>{resultCaseName(caseId, modelStore.model.loadCases, t('svc.settlementCase'), `${t('results.caseFallback')} `)}</option>
-                    {/each}
-                    {#each comboKeys as comboId}
-                      {@const combo = modelStore.model.combinations.find(c => c.id === comboId)}
-                      <option value={`combo_${comboId}`}>{combo?.name ?? `${t('results.comboFallback')} ${comboId}`}</option>
-                    {/each}
-                    {#if hasEnvelope}
-                      <option value="envelope">{t('results.envelope')}</option>
-                    {/if}
-                  </select>
-                </div>
-              {/if}
-            {/if}
+            <ResultsViewPicker {showsPrimary} {showsSecondary} />
 
             <!--
               The results TABLE, where the controls that choose a result are.

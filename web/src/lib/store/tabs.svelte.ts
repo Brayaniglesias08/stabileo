@@ -1,5 +1,6 @@
 // Tab management store — swap-and-save pattern for singleton stores
 
+import { adoptLoadCases } from './load-cases-mode';
 import { modelStore } from './model.svelte';
 import { uiStore } from './ui.svelte';
 import { resultsStore } from './results.svelte';
@@ -199,6 +200,7 @@ function createTabManager() {
       // Each tab is its own project, so its emission list and hand-edit set travel with it.
       // Not done by `restore()`, which is also the undo path — see project-provenance.ts.
       hydrateProjectProvenance(state.modelSnapshot);
+      adoptLoadCases();
       modelStore.model.name = state.name;
       // A legacy (pre-metadata) 3D tab restored from a saved session must get the
       // same convention note as a .ded open — not silently re-evaluated.

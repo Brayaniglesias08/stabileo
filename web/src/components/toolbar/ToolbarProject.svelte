@@ -1,8 +1,8 @@
 <script lang="ts">
   import { askAboutOverlapsInModel } from '../../lib/model/edit/connection-questions';
-  import { uiStore, resultsStore, modelStore } from '../../lib/store';
+  import { uiStore, modelStore } from '../../lib/store';
   import {
-    loadFile, downloadResultsCSV, downloadDXF, downloadSVG, downloadExcel,
+    loadFile,
     saveTextTo, canChooseSaveLocation, projectPayload, sessionPayload,
   } from '../../lib/store/file';
   import { generateShareURL, MAX_URL_SAFE } from '../../lib/utils/url-sharing';
@@ -10,10 +10,16 @@
   import ToolbarExamples from './ToolbarExamples.svelte';
   import DemoMenu from '../DemoMenu.svelte';
   import CalcReportDialog from '../CalcReportDialog.svelte';
+  import ExportViewDialog from '../export/ExportViewDialog.svelte';
+  import { exportWorkbook, exportResultsCsv } from '../../lib/export/results-export';
+  import type { ViewFormat } from '../../lib/export/view-export';
   import ExcelImportReport from '../ExcelImportReport.svelte';
 
   let fileInput: HTMLInputElement;
   let showCalcReport = $state(false);
+  let viewExport = $state<ViewFormat | null>(null);
+  let viewExportOpen = $state(false);
+  function openViewExport(f: ViewFormat) { viewExport = f; viewExportOpen = true; }
 
   /*
    * ── Which "?" is open ───────────────────────────────────────────
@@ -167,11 +173,6 @@
       alert(err.message || t('project.loadError'));
     }
     input.value = ''; // reset so same file can be loaded again
-  }
-
-  function handleExportPNG() {
-    // Dispatch custom event — App.svelte handles it with canvas ref
-    window.dispatchEvent(new CustomEvent('stabileo-export-png'));
   }
 
   /**
@@ -387,15 +388,11 @@
           >?</button>
         </span>
         <div class="file-grid">
-          <button class="file-btn" onclick={downloadExcel} title={t('project.exportExcelTooltip')}>
+          <!-- Both solve first when there are no results (`lib/export/results-export.ts`). -->
+          <button class="file-btn" onclick={exportWorkbook} title={t('project.exportExcelTooltip')} data-testid="export-excel">
             Excel
           </button>
-          <button
-            class="file-btn"
-            onclick={downloadResultsCSV}
-            disabled={!resultsStore.results && !resultsStore.results3D}
-            title={t('project.exportCsvTooltip')}
-          >
+          <button class="file-btn" onclick={exportResultsCsv} title={t('project.exportCsvTooltip')} data-testid="export-csv">
             CSV
           </button>
         </div>
@@ -433,13 +430,14 @@
           >?</button>
         </span>
         <div class="file-grid">
-          <button class="file-btn" onclick={downloadDXF} disabled={uiStore.is3DWorkspace} title={uiStore.is3DWorkspace ? t('project.inDev3d') : t('project.exportDxfTooltip')}>
-            DXF
-          </button>
-          <button class="file-btn" onclick={downloadSVG} disabled={uiStore.is3DWorkspace} title={uiStore.is3DWorkspace ? t('project.inDev3d') : t('project.exportSvgTooltip')}>
+          <!--
+            No DXF: a drawing for CAD is PRO's. SVG and PNG open the figure dialog, where the
+            reader picks what goes in (the model, its diagrams, the equilibrated free body).
+          -->
+          <button class="file-btn" onclick={() => openViewExport('svg')} title={t('project.exportSvgTooltip')} data-testid="export-svg">
             SVG
           </button>
-          <button class="file-btn" onclick={handleExportPNG} title={t('project.exportPngTooltip')}>
+          <button class="file-btn" onclick={() => openViewExport('png')} title={t('project.exportPngTooltip')} data-testid="export-png">
             PNG
           </button>
         </div>
@@ -479,6 +477,7 @@
 />
 
 <CalcReportDialog bind:open={showCalcReport} />
+{#if viewExport}<ExportViewDialog bind:open={viewExportOpen} format={viewExport} />{/if}
 
 <style>
   /* ─── The Excel import report ────────────────────────────────────

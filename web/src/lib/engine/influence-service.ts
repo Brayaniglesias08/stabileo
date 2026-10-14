@@ -10,12 +10,18 @@ import { advancedRefusal2D, buildSolverInput2D, variableRefusal2D, type ModelDat
 import { withoutSettlement } from './settlement-case';
 import { modelHasSlidingJoints } from './sliding-joints';
 import { computeDiagramValueAt } from './diagrams';
-import { verticalLoadOnMember, errorText } from './moving-loads';
+import { loadOnMember, errorText } from './moving-loads';
 import type { AnalysisResults, SolverInput, SolverLoad } from './types';
-import type { InfluenceQuantity, InfluenceLineResult } from '../store/model.svelte';
+import type { InfluenceQuantity, InfluenceLineResult, InfluenceDirection } from '../store/model.svelte';
 import { t } from '../i18n';
 
 type ILPoint = InfluenceLineResult['points'][number];
+
+/** The unit load's direction, in global X and Z: down (gravity), or across to +X (a wall, a column). */
+export const UNIT_LOAD_DIR: Record<InfluenceDirection, { x: number; z: number }> = {
+  vertical: { x: 0, z: -1 },
+  horizontal: { x: 1, z: 0 },
+};
 
 /**
  * The structure an influence line is drawn on: the model's own, with nothing on
@@ -48,7 +54,9 @@ function quantityOf(
 }
 
 /**
- * Compute influence line: move unit load P=1 (downward) across elements.
+ * Compute influence line: move unit load P=1 across elements, downward or (`direction`
+ * 'horizontal') to +X. The engine's sweep places a downward load only, so a horizontal line is
+ * swept here, one solve per point.
  *
  * Refused, with the static solve's own message, wherever the static solve would
  * refuse the unloaded structure (a mechanism above all): the engine's sweep has
@@ -68,6 +76,7 @@ export function computeInfluenceLine(
   targetElementId?: number,
   targetPosition: number = 0.5,
   nPointsPerElement: number = 20,
+  direction: InfluenceDirection = 'vertical',
 ): InfluenceLineResult | string {
   if (model.nodes.size < 2 || model.elements.size < 1) return t('influence.needNodesElems');
   if (model.supports.size < 1) return t('influence.needSupport');
@@ -96,19 +105,20 @@ export function computeInfluenceLine(
     // The engine's sweep carries no constraints or connectors; with either, every
     // point is solved on the full input instead.
     const coupled = (solver.constraints?.length ?? 0) > 0 || (solver.connectors?.size ?? 0) > 0;
-    points = coupled
-      ? sweepPointByPoint(solver, nPointsPerElement, solveWith)
+    const dir = UNIT_LOAD_DIR[direction];
+    points = coupled || direction !== 'vertical'
+      ? sweepPointByPoint(solver, nPointsPerElement, solveWith, dir)
       : (computeInfluenceLineWasm({ solver, quantity, targetNodeId, targetElementId, targetPosition, nPointsPerElement }) as InfluenceLineResult).points;
-    points = withTrussOrdinates(solver, points, solveWith);
+    points = withTrussOrdinates(solver, points, solveWith, dir);
   } catch (err) {
     return t('influence.calcError').replace('{n}', errorText(err));
   }
 
-  return { quantity, targetNodeId, targetElementId, targetPosition, points };
+  return { quantity, targetNodeId, targetElementId, targetPosition, points, ...(direction !== 'vertical' ? { direction } : {}) };
 }
 
 /** The sweep, one solve per point, for inputs the engine's sweep cannot take whole. */
-function sweepPointByPoint(solver: SolverInput, n: number, solveWith: (loads: SolverLoad[]) => number): ILPoint[] {
+function sweepPointByPoint(solver: SolverInput, n: number, solveWith: (loads: SolverLoad[]) => number, dir: { x: number; z: number }): ILPoint[] {
   const points: ILPoint[] = [];
   for (const elem of solver.elements.values()) {
     const ni = solver.nodes.get(elem.nodeI)!, nj = solver.nodes.get(elem.nodeJ)!;
@@ -116,7 +126,7 @@ function sweepPointByPoint(solver: SolverInput, n: number, solveWith: (loads: So
     for (let k = 0; k <= n; k++) {
       const t = k / n;
       // Truss bars are filled in by withTrussOrdinates.
-      const value = elem.type === 'truss' ? 0 : solveWith(verticalLoadOnMember(solver, elem.id, t * L, 1));
+      const value = elem.type === 'truss' ? 0 : solveWith(loadOnMember(solver, elem.id, t * L, 1, dir));
       points.push({ x: ni.x + t * (nj.x - ni.x), y: ni.z + t * (nj.z - ni.z), elementId: elem.id, t, value });
     }
   }
@@ -124,12 +134,12 @@ function sweepPointByPoint(solver: SolverInput, n: number, solveWith: (loads: So
 }
 
 /** Replace the ordinates on truss bars by the lever rule between their end nodes. */
-function withTrussOrdinates(solver: SolverInput, points: ILPoint[], solveWith: (loads: SolverLoad[]) => number): ILPoint[] {
+function withTrussOrdinates(solver: SolverInput, points: ILPoint[], solveWith: (loads: SolverLoad[]) => number, dir: { x: number; z: number }): ILPoint[] {
   const eta = new Map<number, number>();
   const at = (nodeId: number): number => {
     let v = eta.get(nodeId);
     if (v === undefined) {
-      v = solveWith([{ type: 'nodal', data: { nodeId, fx: 0, fz: -1, my: 0 } }]);
+      v = solveWith([{ type: 'nodal', data: { nodeId, fx: dir.x, fz: dir.z, my: 0 } }]);
       eta.set(nodeId, v);
     }
     return v;

@@ -47,6 +47,36 @@
   const LOAD_GLYPH = { nodal: 'loadPoint', distributed: 'loadDistributed', thermal: 'loadThermal' } as const;
 </script>
 
+<!--
+  Where on the member a distributed load goes: all of it, or a stretch from and to, in m from the
+  member's node I. PRO places its member loads from its own draw bar.
+-->
+{#snippet stretch()}
+  {#if uiStore.appMode !== 'pro'}
+    <span class="ft-row" aria-hidden="true"></span>
+    <span class="ft-sep">|</span>
+    <button class="ft-opt-btn ft-coord-btn ft-span" class:active={!uiStore.distLoadPartial} onclick={() => (uiStore.distLoadPartial = false)}
+      title={t('float.distWholeTip')} data-testid="dist-span-whole">{t('float.distWhole')}</button>
+    <button class="ft-opt-btn ft-coord-btn ft-span" class:active={uiStore.distLoadPartial} onclick={() => (uiStore.distLoadPartial = true)}
+      title={t('float.distStretchTip')} data-testid="dist-span-stretch">{t('float.distStretch')}</button>
+    {#if uiStore.distLoadPartial}
+      <span class="ft-span-range">
+      <label class="ft-input-group" title={t('float.distStretchTip')}>
+        <span>{t('float.distFrom')}</span>
+        <UnitInput value={uiStore.distLoadFrom ?? NaN} qty={'length'} onchange={(v) => (uiStore.distLoadFrom = v)} onempty={() => (uiStore.distLoadFrom = null)}
+          placeholder="0" unit={false} live testid="dist-span-from" />
+      </label>
+      <label class="ft-input-group" title={t('float.distStretchTip')}>
+        <span>{t('float.distTo')}</span>
+        <UnitInput value={uiStore.distLoadTo ?? NaN} qty={'length'} onchange={(v) => (uiStore.distLoadTo = v)} onempty={() => (uiStore.distLoadTo = null)}
+          placeholder="L" unit={false} live testid="dist-span-to" />
+        <span class="ft-unit">{unitQ('length')}</span>
+      </label>
+      </span>
+    {/if}
+  {/if}
+{/snippet}
+
 <!-- Basic switches self-weight in its loads panel; PRO has no other switch. -->
 {#if uiStore.appMode !== 'basico'}
   <label class="ft-selfweight-toggle" title={t('float.loadSelfWeightTooltip')}>
@@ -55,16 +85,19 @@
   </label>
   <span class="ft-sep">|</span>
 {/if}
+<!-- The load case: in Basic only when asked for under Settings (every load goes to the first case). -->
+{#if uiStore.showLoadCasePicker}
 <span class="ft-case-dot" style="background: {modelStore.getLoadCaseColor(uiStore.activeLoadCaseId)}"></span>
 <select class="ft-case-select"
   value={String(uiStore.activeLoadCaseId)}
   onchange={(e) => uiStore.activeLoadCaseId = parseInt(e.currentTarget.value)}
-  title={t('float.activeLoadCase')}>
+  title={t('float.activeLoadCase')} data-testid="load-case-select">
   {#each modelStore.loadCases as lc}
     <option value={String(lc.id)}>{lc.type || lc.name}</option>
   {/each}
 </select>
 <span class="ft-sep">|</span>
+{/if}
 {#each loadTypes as lt}
   <button
     class="ft-opt-btn ft-primary"
@@ -185,6 +218,7 @@
       title={t('float.distFrameGlobal3D')} data-testid="dist-frame-global">{t('float.frameGlobal')}</button>
     <button class="ft-opt-btn ft-coord-btn" class:active={uiStore.distLoadFrame3D === 'local'} onclick={() => (uiStore.distLoadFrame3D = 'local')}
       title={t('float.distFrameLocal3D')} data-testid="dist-frame-local">{t('float.frameLocal')}</button>
+    {@render stretch()}
   {:else}
   <span class="ft-sep">|</span>
   <button class="ft-opt-btn ft-coord-btn" class:active={uiStore.loadIsGlobal} onclick={() => uiStore.loadIsGlobal = true} title={t('float.loadGlobalYDir')}>Z</button>
@@ -194,12 +228,16 @@
     <input type="number" bind:value={uiStore.loadAngle} step="5" />
     <span class="ft-unit">°</span>
   </label>
+  {@render stretch()}
   {/if}
 {/if}
 
 <style>
-  /* A row break for the phone's layout (DataTable); nothing on a desktop. */
-  .ft-break { display: none; }
+  /* Row breaks for the phone's layout (DataTable); nothing on a desktop. */
+  .ft-break, .ft-row { display: none; }
+  .ft-span { font-weight: 500; letter-spacing: 0; }
+  /* "from … to … m" stays one piece when the bar wraps (the phone's sheet). */
+  .ft-span-range { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 
   .ft-opt-btn {
     padding: 2px 8px;
@@ -226,7 +264,8 @@
     border-color: var(--st-hair);
   }
 
-  .ft-opt-btn.active {
+  .ft-opt-btn.active,
+  .ft-opt-btn.active:hover:not(:disabled) {
     background: var(--st-accent);
     border-color: var(--st-danger);
     color: white;

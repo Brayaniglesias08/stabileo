@@ -152,6 +152,12 @@ function createUIStore() {
    * teaching, and remembered per browser because it is a preference about how
    * you work rather than a property of the model.
    */
+  /**
+   * Basic: load cases and combinations, switched on from the loads' Combinations fold. Off, a
+   * Basic model has one load case to the eye: no case picker, no case column, no results by case,
+   * combination or envelope. Set for each model that comes in (`loadCasesOnOpen`), not stored.
+   */
+  let loadCasesEnabled = $state(false);
   let eduInBasic = $state(
     hasLocalStorage() ? localStorage.getItem('stabileo-edu-in-basic') === '1' : false,
   );
@@ -160,6 +166,11 @@ function createUIStore() {
   let nodalLoadDir = $state<NodalLoadDir>('fz'); // direction for nodal load placement
   let loadValue = $state<number>(-10); // kN, negative = downward
   let loadValueJ = $state<number>(-10); // kN/m at node J (for trapezoidal)
+  // A distributed load on part of the member: from and to, in m from its node I. Null is the
+  // member's own end: from node I, to L.
+  let distLoadPartial = $state<boolean>(false);
+  let distLoadFrom = $state<number | null>(null);
+  let distLoadTo = $state<number | null>(null);
 
   // Spring stiffnesses for spring support tool
   let springKx = $state<number>(1000); // kN/m
@@ -403,6 +414,8 @@ function createUIStore() {
 
   // Influence line quantity
   let ilQuantity = $state<ILQuantity>('Rz');
+  /** The influence line's unit load: down, or across to +X (a wall, a column). */
+  let ilDirection = $state<'vertical' | 'horizontal'>('vertical');
 
   // Help overlay
   let showHelp = $state<boolean>(false);
@@ -626,8 +639,16 @@ function createUIStore() {
   let showShellLabels3D_pro = $state<boolean>(false);
   let showLengths3D_pro = $state<boolean>(false);
   let showLoads3D_pro = $state<boolean>(true);
-  /** The reader's factor on the length of every load arrow, beside the scale to the largest load. */
-  let loadArrowScale = $state<number>(1);
+  /**
+   * The reader's factor on the size of every load drawn (arrows, heads, moment arcs), 2D and 3D,
+   * beside the scale to the largest load. Persisted, like the label size.
+   */
+  const LOAD_SCALE_RANGE = [0.5, 3] as const;
+  let loadArrowScale = $state<number>((() => {
+    if (!hasLocalStorage()) return 1;
+    const v = parseFloat(localStorage.getItem('stabileo-load-scale') ?? '');
+    return Number.isFinite(v) && v > 0 ? Math.min(20, v) : 1;
+  })());
   let visibleLoadCases3D_pro = $state<number[] | null>(null);
   let showAxes3D_pro = $state<boolean>(true);
   let localAxesMode3D_pro = $state<LocalAxesDisplayMode>('selected');
@@ -682,6 +703,10 @@ function createUIStore() {
   }
 
   return {
+    get loadCasesEnabled() { return loadCasesEnabled; },
+    set loadCasesEnabled(v: boolean) { loadCasesEnabled = v; },
+    /** Whether load cases show at all: always in PRO and EDU, in Basic when switched on. */
+    get showLoadCasePicker() { return analysisMode === 'pro' || analysisMode === 'edu' || loadCasesEnabled; },
     get eduInBasic() { return eduInBasic; },
     set eduInBasic(v: boolean) {
       eduInBasic = v;
@@ -734,6 +759,13 @@ function createUIStore() {
 
     get loadValueJ() { return loadValueJ; },
     set loadValueJ(v: number) { loadValueJ = v; },
+
+    get distLoadPartial() { return distLoadPartial; },
+    set distLoadPartial(v: boolean) { distLoadPartial = v; },
+    get distLoadFrom() { return distLoadFrom; },
+    set distLoadFrom(v: number | null) { distLoadFrom = v; },
+    get distLoadTo() { return distLoadTo; },
+    set distLoadTo(v: number | null) { distLoadTo = v; },
 
     get springKx() { return springKx; },
     set springKx(v: number) { springKx = v; },
@@ -1024,6 +1056,8 @@ function createUIStore() {
 
     get ilQuantity() { return ilQuantity; },
     set ilQuantity(v: ILQuantity) { ilQuantity = v; },
+    get ilDirection() { return ilDirection; },
+    set ilDirection(v: 'vertical' | 'horizontal') { ilDirection = v; },
 
     get showHelp() { return showHelp; },
     set showHelp(v: boolean) { showHelp = v; },
@@ -1290,7 +1324,12 @@ function createUIStore() {
     get showLengths3D() { return analysisMode === 'pro' ? showLengths3D_pro : showLengths3D_basic; },
     set showLengths3D(v: boolean) { if (analysisMode === 'pro') showLengths3D_pro = v; else showLengths3D_basic = v; },
     get loadArrowScale() { return loadArrowScale; },
-    set loadArrowScale(v: number) { loadArrowScale = Number.isFinite(v) && v > 0 ? Math.min(20, v) : 1; },
+    set loadArrowScale(v: number) {
+      loadArrowScale = Number.isFinite(v) && v > 0 ? Math.min(20, v) : 1;
+      if (hasLocalStorage()) { try { localStorage.setItem('stabileo-load-scale', String(loadArrowScale)); } catch { /* private mode */ } }
+    },
+    /** The Settings slider's reach; PRO's own list goes further, and the setter takes it. */
+    loadArrowScaleRange: LOAD_SCALE_RANGE,
     get showLoads3D() { return analysisMode === 'pro' ? showLoads3D_pro : showLoads3D_basic; },
     set showLoads3D(v: boolean) { if (analysisMode === 'pro') showLoads3D_pro = v; else showLoads3D_basic = v; },
     get visibleLoadCases3D() { return analysisMode === 'pro' ? visibleLoadCases3D_pro : visibleLoadCases3D_basic; },
