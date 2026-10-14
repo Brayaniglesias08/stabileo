@@ -9,6 +9,7 @@
    */
   import { t, tp } from '../../../lib/i18n';
   import QuantityInput from '../loads/QuantityInput.svelte';
+  import { fmtQ, unitQ } from '../../../lib/store/display-units.svelte';
   import { REBAR_DB } from '../../../lib/engine/codes/argentina/cirsoc201';
   import { resolveColumnReinf, computeColumnLayout } from '../../../lib/engine/station-design-forces';
   import { maxTieSpacing, COLUMN_LIMITS } from '../../../lib/engine/design/candidate-enumerate-column';
@@ -108,12 +109,13 @@
              data-testid={`tie-legs-${elementId}`} aria-label={t('design.batch.legs')}
              onchange={(e) => setTies(elementId, { legs: +e.currentTarget.value })} />
       <span class="sub">L c/</span>
-      <QuantityInput quantity="length" cls="num num-sp" min={0.05} max={0.5}
+      <!-- A spacing reads as a section's dimension (cm, mm in SI (mm), in), as s,max beside it. -->
+      <QuantityInput quantity="sectionDim" cls="num num-sp" min={0.05} max={0.5}
              value={state.ties?.spacing ?? 0.15}
              testid={`tie-spacing-${elementId}`} ariaLabel={t('design.batch.spacingShort')}
              onchange={(v) => setTies(elementId, { spacing: v })} />
       <span class="total" class:bad={(state.ties?.spacing ?? 0) > state.sMax + 1e-9}>
-        s,max = {(state.sMax * 100).toFixed(0)} cm
+        s,max = {fmtQ(state.sMax, 'sectionDim')} {unitQ('sectionDim')}
       </span>
     </div>
   </div>

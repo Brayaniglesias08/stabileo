@@ -18,7 +18,7 @@
   import { modelStore, uiStore } from '../../../lib/store';
   import { t, tp } from '../../../lib/i18n';
   import { drawState } from '../../../lib/store/draw-state.svelte';
-  import { resolveTargets, targetModes, keepTargetMode, type TargetEntity } from '../../../lib/model/loads/load-targets';
+  import { resolveTargets, targetModes, keepTargetMode, groupOffered, selfWeightReach, type TargetEntity } from '../../../lib/model/loads/load-targets';
   import { orderedChain } from '../../../lib/model/loads/member-load-tools';
   import QuantityInput from './QuantityInput.svelte';
 
@@ -26,7 +26,10 @@
     entity: TargetEntity;
     /** Offer the physical member: the selected members as one chain (member loads only). */
     allowChain?: boolean;
-    /** Offer the whole model (the self-weight). */
+    /**
+     * Offer the whole model: the self-weight, which on the whole model or a group weighs the
+     * shells with the members, so those are counted and a group of slabs alone is offered.
+     */
     allowAll?: boolean;
     spec: PickedSpec;
     /** What the choice resolves to, said: for the card to show beside its Add. */
@@ -48,8 +51,8 @@
   let sectionId = $state<number | null>(null);
   let kind = $state<'column' | 'beam' | 'inclined' | 'truss'>('beam');
 
-  const groups = $derived([...modelStore.model.groups.values()].filter((g) => g.kind !== 'floorLoad' &&
-    (entity === 'nodes' ? (g.members.nodes?.length ?? 0) > 0 : entity === 'members' ? (g.members.elements?.length ?? 0) > 0 : (g.members.quads?.length ?? 0) + (g.members.plates?.length ?? 0) > 0)));
+  const weighsShells = $derived(allowAll && entity === 'members');
+  const groups = $derived([...modelStore.model.groups.values()].filter((g) => groupOffered(g, entity, weighsShells)));
   const sections = $derived([...modelStore.sections.values()]);
 
   /** The spec, from the fields alone: written out, never read back, so it cannot loop. */
@@ -82,8 +85,8 @@
   $effect(() => {
     summary = spec.by === 'chain'
       ? (chain ? { text: tp('loadTarget.chainOk', { n: chain.links.length, L: chain.total.toFixed(3) }), warn: false } : { text: t('loadTarget.chainBad'), warn: true })
-      : spec.by === 'all' && entity === 'members'
-        ? { text: tp('loadTarget.countAll', { members: modelStore.elements.size, slabs: modelStore.quads.size + modelStore.plates.size }), warn: false }
+      : weighsShells && (spec.by === 'all' || spec.by === 'group')
+        ? { text: tp(spec.by === 'all' ? 'loadTarget.countAll' : 'loadTarget.countGroup', selfWeightReach(spec, modelStore.model as never, { nodes: [], elements: [] })), warn: false }
         : { text: tp('loadTarget.count', { n: count ?? 0, what: noun }), warn: false };
   });
 

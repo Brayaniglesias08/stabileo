@@ -12,12 +12,22 @@
  * - supports: same type, same level;
  * - loads: same type, same case.
  *
+ * "Same level" is one band for every kind: within `LEVEL_TOL` (0.15 m) of a selected one's level,
+ * the band design groups members into storeys by (`GROUP_TOL.z`). Nodes, supports and plates used
+ * 1 mm while members took the storey band, so the same click took a beam 10 cm off the slab and
+ * left the node at its end.
+ *
+ * The panel hands these the model as the view shows it (`visibleModel`), so nothing hidden is
+ * taken: the walk's whole kind (`allOfKind`) and by id (`selectShownByIds`, which names the
+ * hidden ids) as well.
+ *
  * Pure over the model, so it is tested without the panel.
  */
 import {
   groupByParallel, groupByConnectivity, groupBySection, groupByMaterial, groupByElevation, groupByPlane,
-  groupByFrameLine, groupByKind, memberKindOf,
+  groupByFrameLine, groupByKind, memberKindOf, GROUP_TOL,
 } from '../engine/design/member-grouping';
+import { selectByIds, type IdKind, type SelectableModel } from './select-ops';
 
 export type SelKind = 'nodes' | 'elements' | 'shells' | 'supports' | 'loads';
 export type LikeOp = 'parallel' | 'connected' | 'section' | 'material' | 'kind' | 'level' | 'plane' | 'frame' | 'case';
@@ -57,6 +67,8 @@ export type LikeAnswer =
 
 const COS_TOL = Math.cos((5 * Math.PI) / 180);
 const LEN_TOL = 1e-3;
+/** "Same level", every kind: the storey band members are grouped by (`GROUP_TOL.z`), in m. */
+export const LEVEL_TOL = GROUP_TOL.z;
 
 /** The vertical coordinate: z in space, y in the plane. */
 export function verticalOf(spatial: boolean): (p: P3) => number {
@@ -158,7 +170,7 @@ function neighbours(model: LikeModel): Map<number, Set<number>> {
 }
 
 function sameLevel(zs: number[], z: number): boolean {
-  return zs.some((s) => Math.abs(s - z) < LEN_TOL);
+  return zs.some((s) => Math.abs(s - z) <= LEVEL_TOL);
 }
 
 function likeNodes(model: LikeModel, seeds: number[], op: LikeOp, vertical: (p: P3) => number): Set<number> {
@@ -190,12 +202,13 @@ function likeShells(model: LikeModel, seeds: string[], op: LikeOp, vertical: (p:
     return out;
   }
   if (op === 'level') {
-    // Level plates: those lying flat at the height of a selected flat one.
+    // Level plates: those lying flat (within the band, as a level beam does) at the height of a
+    // selected flat one.
     const flatAt = (k: string): number | null => {
       const ns = (shellNodes(model, k) ?? []).map((id) => model.nodes.get(id)).filter((p): p is P3 => !!p);
       if (ns.length < 3) return null;
       const zs = ns.map(vertical);
-      return Math.max(...zs) - Math.min(...zs) < LEN_TOL ? zs[0]! : null;
+      return Math.max(...zs) - Math.min(...zs) <= LEVEL_TOL ? zs.reduce((a, z) => a + z, 0) / zs.length : null;
     };
     const levels = seeds.map(flatAt).filter((z): z is number => z !== null);
     for (const k of keys) { const z = flatAt(k); if (z !== null && sameLevel(levels, z)) out.add(k); }
@@ -207,9 +220,12 @@ function likeShells(model: LikeModel, seeds: string[], op: LikeOp, vertical: (p:
     const p = shellPlane(model, k);
     if (!p) continue;
     const hit = planes.some((s) => {
-      const dot = Math.abs(s!.n[0] * p.n[0] + s!.n[1] * p.n[1] + s!.n[2] * p.n[2]);
-      if (dot < COS_TOL) return false;
-      return op === 'parallel' || Math.abs(Math.abs(s!.d) - Math.abs(p.d)) < LEN_TOL * 10;
+      const dot = s!.n[0] * p.n[0] + s!.n[1] * p.n[1] + s!.n[2] * p.n[2];
+      if (Math.abs(dot) < COS_TOL) return false;
+      // The same plane is the same signed offset along one normal. Comparing |d| took the walls
+      // at x = ±5 for one plane; and two plates either side of vertical can have had their normals
+      // flipped apart by `shellPlane`, so the offset is read along the seed's normal.
+      return op === 'parallel' || Math.abs(s!.d - Math.sign(dot) * p.d) < LEN_TOL * 10;
     });
     if (hit) out.add(k);
   }
@@ -319,9 +335,33 @@ export function focusNodeIds(
       const d = l.data;
       if (typeof d.nodeId === 'number') out.add(d.nodeId);
       if (typeof d.elementId === 'number') addMember(d.elementId);
-      if (typeof d.quadId === 'number') addShell(`q${d.quadId}`);
+      // A triangle's load names it by quadId too, with `on: 'plate'`.
+      if (typeof d.quadId === 'number') addShell(`${d.on === 'plate' ? 'p' : 'q'}${d.quadId}`);
       if (typeof d.plateId === 'number') addShell(`p${d.plateId}`);
     }
   }
   return out;
+}
+
+/** Every item of a kind, in the panel's order (a plate's `q3` after `p3`): what the walk goes through with nothing selected. */
+export function allOfKind(model: LikeModel, kind: SelKind): Array<number | string> {
+  if (kind === 'shells') {
+    const order = (v: string) => Number(v.slice(1)) + (v[0] === 'q' ? 0.5 : 0);
+    return allShellKeys(model).sort((a, b) => order(a) - order(b));
+  }
+  const ids = kind === 'elements' ? [...model.elements.keys()]
+    : kind === 'nodes' ? [...model.nodes.keys()]
+    : kind === 'supports' ? [...(model.supports?.keys() ?? [])]
+    : (model.loads ?? []).map((l) => l.data.id);
+  return ids.sort((a, b) => a - b);
+}
+
+/**
+ * By id over what the view shows: an id the model has but the view hides is not taken, and is
+ * named (`hidden`) apart from the ones the model does not have (`missing`).
+ */
+export function selectShownByIds(model: SelectableModel, shown: SelectableModel, kind: IdKind, text: string) {
+  const r = selectByIds(shown, kind, text);
+  const missing = selectByIds(model, kind, text).missing;
+  return { ...r, missing, hidden: r.missing.filter((id) => !missing.includes(id)) };
 }

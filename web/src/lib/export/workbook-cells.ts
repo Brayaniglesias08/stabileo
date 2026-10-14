@@ -23,6 +23,16 @@ export function safeText(s: string): string {
 }
 
 /**
+ * A name as it was before `safeText`: the leading minus sign read back as the hyphen it was
+ * written for (the space before `+`, `=` and `@` goes with the trim every name gets). Without it,
+ * a node named "-A1" came back from Excel as "−A1".
+ */
+export function unguardText(s: string): string {
+  const t = s.trim();
+  return t.startsWith('−') ? `-${t.slice(1)}` : t;
+}
+
+/**
  * Cells a workbook is written as xlsx up to; above them, as a zip of CSVs.
  *
  * Measured on validation model 04 at 5 stations, 10.9 million cells: the xlsx library took 27 s

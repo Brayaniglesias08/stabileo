@@ -12,6 +12,7 @@ import { modelStore, resultsStore } from '../store';
 import { t } from '../i18n';
 import { runGlobalSolve } from '../engine/live-calc';
 import { resultSetName } from '../export/figure';
+import { magnitudeLabel } from '../engine/result-scopes';
 import type { AnalysisResults3D } from '../engine/types-3d';
 
 /** A result set an export can be made of: `screen`, `case:3`, `combo:2` or `envelope`. */
@@ -27,14 +28,17 @@ export async function ensureProResults(): Promise<boolean> {
   return !!resultsStore.results3D;
 }
 
+/** A set's label with what its numbers are when they are SRSS or ABS magnitudes. */
+const tagged = (label: string, r: AnalysisResults3D | null | undefined) => { const m = magnitudeLabel(r, t); return m ? `${label} (${m})` : label; };
+
 /** The sets there are to choose from, the screen's first. */
 export function resultSetChoices(): ResultSetChoice[] {
-  const out: ResultSetChoice[] = [{ key: 'screen', label: `${t('proExport.resultsScreen')} (${resultSetName()})` }];
+  const out: ResultSetChoice[] = [{ key: 'screen', label: tagged(`${t('proExport.resultsScreen')} (${resultSetName()})`, resultsStore.results3D) }];
   for (const c of modelStore.model.loadCases) {
     if (resultsStore.perCase3D.has(c.id)) out.push({ key: `case:${c.id}`, label: `${t('proExport.resultsCase')} ${c.name}` });
   }
   for (const c of modelStore.combinations) {
-    if (resultsStore.perCombo3D.has(c.id)) out.push({ key: `combo:${c.id}`, label: `${t('proExport.resultsCombo')} ${c.name}` });
+    if (resultsStore.perCombo3D.has(c.id)) out.push({ key: `combo:${c.id}`, label: tagged(`${t('proExport.resultsCombo')} ${c.name}`, resultsStore.perCombo3D.get(c.id)) });
   }
   if (resultsStore.envelope3D) out.push({ key: 'envelope', label: t('tables.mode.envelope') });
   return out;

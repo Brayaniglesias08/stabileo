@@ -24,12 +24,17 @@ import { requestAutosave } from '../store/autosave-service';
 import { syncDefinedLoadsForAnalysis } from '../store/defined-loads';
 import { spectralCaseResults } from '../store/spectral-cases';
 
-/** The spectral cases' results, or nothing (said) when they cannot be had: those cases are left out. */
+/**
+ * The spectral cases' results, or nothing (said) when they cannot be had: those cases are left out.
+ * What the reader should know of results that were had (too little mass moving in a direction, a
+ * scale the regulation no longer gives) is said too.
+ */
 export function spectralOrSay() {
   if (!modelStore.model.loadCases.some((c) => c.spectral)) return undefined;
   const r = spectralCaseResults();
   if (typeof r === 'string') { uiStore.toast(t('spectralCase.leftOut') + ' ' + r, 'error'); return undefined; }
-  return r;
+  for (const w of r.warnings) uiStore.toast(w, 'info');
+  return r.results;
 }
 
 /** How a solve ended: with results, or with the message the reader was shown. */

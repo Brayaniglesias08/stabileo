@@ -25,8 +25,7 @@
   import { regulationsStore } from '../../../lib/store/regulations.svelte';
   import type { LoadCase } from '../../../lib/store/model.svelte';
   import type { SpectralCaseDef } from '../../../lib/engine/spectral-case';
-  import { RISK_FACTOR } from '../../../lib/codes/cirsoc103/spectrum';
-  import { findBehaviour, R_ELASTIC } from '../../../lib/codes/cirsoc103/behaviour';
+  import { codeSpectrumScale, staleCodeScale } from '../../../lib/store/spectral-cases';
 
   interface Props { lc: LoadCase }
   let { lc }: Props = $props();
@@ -95,13 +94,13 @@
 
   // ── Spectral ──
   const spectra = $derived(modelStore.model.dynamics?.spectra ?? []);
-  /** γr/R from the project's seismic regulation: the code spectrum's own scale. */
-  function codeScale(): number {
-    const s = regulationsStore.binding('seismic')?.settings as { destinationGroup?: string; systemKey?: string; elastic?: boolean } | undefined;
-    const gr = RISK_FACTOR[(s?.destinationGroup ?? 'B') as keyof typeof RISK_FACTOR] ?? 1;
-    const r = s?.elastic ? R_ELASTIC : s?.systemKey ? findBehaviour(s.systemKey)?.r ?? 1 : 1;
-    return +(gr / r).toFixed(4);
-  }
+  /** γr/R from the project's seismic regulation (`store/spectral-cases.ts`). */
+  const codeScale = codeSpectrumScale;
+  /**
+   * The regulation's γr/R when this case, on the code's spectrum, states another: the scale was
+   * written when the case was ticked, and a change of the regulation since does not reach it.
+   */
+  const staleScale = $derived(lc.spectral ? staleCodeScale(lc.spectral) : null);
   function setSpectral(patch: Partial<SpectralCaseDef> | null) {
     if (patch === null) { update({ spectral: undefined }); return; }
     const base: SpectralCaseDef = lc.spectral ?? { source: { kind: 'code' }, factors: { x: 1, y: 0, z: 0 }, rule: 'cqc', xi: 0.05, scale: codeScale() };
@@ -180,7 +179,18 @@
         {#each ['x', 'y', 'z'] as a (a)}
           <label>{a.toUpperCase()} <input type="text" class="cd-num" value={String(sp.factors[a as 'x'])} onchange={(e) => { const v = num(e.currentTarget.value); if (v !== null) setSpectral({ factors: { ...sp.factors, [a]: v } }); }} data-testid="cd-spec-f{a}" /></label>
         {/each}
+        <!-- How the directions add, quantity by quantity (`spectral-case.ts` `directionCombine`). -->
+        <label>{t('spectralCase.directions')}
+          <select value={sp.directions ?? 'percentage'} onchange={(e) => setSpectral({ directions: e.currentTarget.value as 'percentage' | 'srss' })} data-testid="cd-spec-directions">
+            <option value="percentage">{t('spectralCase.directions.percentage')}</option>
+            <option value="srss">{t('spectralCase.directions.srss')}</option>
+          </select>
+        </label>
       </div>
+      {#if staleScale !== null}
+        <p class="cd-warn" data-testid="cd-spec-scale-stale">{tp('spectralCase.scaleStale', { name: lc.name, scale: sp.scale, code: staleScale })}
+          <button class="pk-btn" onclick={() => setSpectral({ scale: staleScale! })} data-testid="cd-spec-scale-use">{tp('spectralCase.scaleUse', { code: staleScale })}</button></p>
+      {/if}
       <p class="cd-hint">{t('spectralCase.hint')}</p>
     {/if}
   {/if}
@@ -204,7 +214,7 @@
       <select bind:value={kind} data-testid="cd-red-kind">
         {#each KINDS as k (k)}<option value={k}>{t(`autoLoad.elementKind.${k}`)}</option>{/each}
       </select>
-      <label>A<sub>T</sub> <QuantityInput bind:value={area} nullable quantity="area" cls="cd-num" testid="cd-red-area" /></label>
+      <label>A<sub>T</sub> <QuantityInput bind:value={area} nullable quantity="planArea" cls="cd-num" testid="cd-red-area" /></label>
       <label>{t('autoLoad.floorsSupported')} <input type="text" class="cd-num" bind:value={floors} data-testid="cd-red-floors" /></label>
     </div>
     {#if reductionPreview}

@@ -122,3 +122,26 @@ export function resolveTargets(entity: TargetEntity, spec: TargetSpec, m: Target
       return entity === 'members' ? sorted([...m.elements.keys()].filter((id) => memberKindOf(m, id) === spec.kind)) : [];
   }
 }
+
+/**
+ * Whether a group is offered for `entity`: it holds some (a floor-load definition never is).
+ * `withShells`: the self-weight, which weighs a group's shells with its members
+ * (`engine/self-weight.ts` `selfWeightScope`), so a group of slabs alone is offered too.
+ */
+export function groupOffered(g: Pick<ModelGroup, 'kind' | 'members'>, entity: TargetEntity, withShells = false): boolean {
+  if (g.kind === 'floorLoad') return false;
+  const shells = (g.members.quads?.length ?? 0) + (g.members.plates?.length ?? 0);
+  if (entity === 'nodes') return (g.members.nodes?.length ?? 0) > 0;
+  if (entity === 'members') return (g.members.elements?.length ?? 0) > 0 || (withShells && shells > 0);
+  return shells > 0;
+}
+
+/**
+ * What the self-weight weighs on a target, as `selfWeightScope` reads the rule written for it: on
+ * the whole model or a group, the members and the shells; on any other target, the members alone.
+ */
+export function selfWeightReach(spec: TargetSpec, m: TargetModel, sel: TargetSelection): { members: number; slabs: number } {
+  const members = resolveTargets('members', spec, m, sel).length;
+  if (spec.by !== 'all' && spec.by !== 'group') return { members, slabs: 0 };
+  return { members, slabs: resolveTargets('quads', spec, m, sel).length + resolveTargets('plates', spec, m, sel).length };
+}

@@ -22,6 +22,7 @@ import { modelStore, resultsStore, uiStore } from '../store';
 import { t } from '../i18n';
 import { unitQ } from '../store/display-units.svelte';
 import { resultSetName } from './figure';
+import { magnitudeLabel } from '../engine/result-scopes';
 import { createFigure3DRenderer, components3D } from './figure-3d';
 import type { DiagramType } from '../store/results.svelte';
 import type { AnalysisResults3D } from '../engine/types-3d';
@@ -116,7 +117,7 @@ export function figureTitle(content: FigureContent, options?: Pick<FigureOptions
   if (content === 'shellMap') {
     const meta = shellComponentMeta(options?.shellComponent ?? 'vonMises');
     const name = t(shellComponentLabelKey(meta.key));
-    const set = options?.resultsName ?? resultsLabel();
+    const set = withMagnitude(options?.resultsName ?? resultsLabel(), options);
     const what = `${t('figures.shellMap')}: ${name === shellComponentLabelKey(meta.key) ? meta.label : name} [${meta.unit}]`;
     return set ? `${what} — ${set}` : what;
   }
@@ -128,8 +129,14 @@ export function figureTitle(content: FigureContent, options?: Pick<FigureOptions
     : content === 'shear' ? `${t('figures.shear')}${planes(content, options?.results)} [${unitQ('force')}]`
     : content === 'axial' ? `${t('figures.axial')} [${unitQ('force')}]`
     : t('figures.deformed');
-  const set = NEEDS_RESULTS.has(content) ? (options?.resultsName ?? resultsLabel()) : '';
+  const set = NEEDS_RESULTS.has(content) ? withMagnitude(options?.resultsName ?? resultsLabel(), options) : '';
   return set ? `${what} — ${set}` : what;
+}
+
+/** The set's name, and what its numbers are when they are SRSS or ABS magnitudes, without a sign. */
+function withMagnitude(set: string, options?: Pick<FigureOptions, 'results'>): string {
+  const m = magnitudeLabel(options?.results ?? (uiStore.is3DWorkspace ? resultsStore.results3D : null), t);
+  return m ? (set ? `${set} (${m})` : m) : set;
 }
 
 /** In 3D, which planes a bending or shear figure draws (", Mz y My"). */

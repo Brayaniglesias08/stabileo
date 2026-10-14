@@ -200,7 +200,7 @@
           </select></label>
         <label>{t('design.batch.legs')}<input type="number" min="2" max="6" data-testid="batch-sup-legs"
                value={supLegs ?? ''} oninput={(e) => supLegs = e.currentTarget.value === '' ? undefined : +e.currentTarget.value} /></label>
-        <label>{t('design.batch.spacingShort')}<QuantityInput quantity="length" nullable min={0.05} max={0.5}
+        <label>{t('design.batch.spacingShort')}<QuantityInput quantity="sectionDim" nullable min={0.05} max={0.5}
                wrap="qi-fill" testid="batch-sup-spacing" bind:value={supSp} /></label>
       </fieldset>
       <fieldset>
@@ -211,7 +211,7 @@
           </select></label>
         <label>{t('design.batch.legs')}<input type="number" min="2" max="6" data-testid="batch-span-legs"
                value={spanLegs ?? ''} oninput={(e) => spanLegs = e.currentTarget.value === '' ? undefined : +e.currentTarget.value} /></label>
-        <label>{t('design.batch.spacingShort')}<QuantityInput quantity="length" nullable min={0.05} max={0.5}
+        <label>{t('design.batch.spacingShort')}<QuantityInput quantity="sectionDim" nullable min={0.05} max={0.5}
                wrap="qi-fill" testid="batch-span-spacing" bind:value={spanSp} /></label>
       </fieldset>
     {/if}
@@ -238,7 +238,7 @@
           </select></label>
         <label>{t('design.batch.legs')}<input type="number" min="2" max="6" data-testid="batch-tie-legs"
                value={tieLegs ?? ''} oninput={(e) => tieLegs = e.currentTarget.value === '' ? undefined : +e.currentTarget.value} /></label>
-        <label>{t('design.batch.spacingShort')}<QuantityInput quantity="length" nullable min={0.05} max={0.5}
+        <label>{t('design.batch.spacingShort')}<QuantityInput quantity="sectionDim" nullable min={0.05} max={0.5}
                wrap="qi-fill" testid="batch-tie-spacing" bind:value={tieSp} /></label>
       </fieldset>
     {/if}

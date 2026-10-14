@@ -36,8 +36,9 @@
    * `canSolve` is about, and a gate that lives away from the command it gates is the riddle this
    * branch has already fixed twice.
    */
+  import { onDestroy } from 'svelte';
   import { t } from '../../lib/i18n';
-  import { selfWeightRuleEffect } from '../../lib/store/self-weight-migration';
+  import { leaveSelfWeightRule, selfWeightRuleEffect } from '../../lib/store/self-weight-migration';
   import SelectionPanel from '../SelectionPanel.svelte';
   import ToolbarConfig from '../toolbar/ToolbarConfig.svelte';
   import ProTransformPanel from './ProTransformPanel.svelte';
@@ -187,6 +188,8 @@
 
   // A model without a self-weight rule (older file, link, tab, first member) is given one.
   $effect(selfWeightRuleEffect);
+  // What is drawn in another mode is not drawn in PRO: a model seen empty here is migrated on return.
+  onDestroy(leaveSelfWeightRule);
 
   async function loadProExample(ex: ProExample) {
     // The example states its own self-weight and combinations (`lib/data/pro-examples.ts`).

@@ -953,6 +953,8 @@
                       <textarea class="al-profile" rows="5" bind:value={windProfileText} placeholder="z (m); p (kPa)" data-testid="al-wind-profile-text"></textarea>
                       {#if windProfile}<ProfileChart points={windProfile} />{:else}<p class="al-hint">{t('windProfile.bad')}</p>{/if}
                       <p class="al-hint">{t('windProfile.hint')}</p>
+                      <!-- A structure other than a building takes the code's coefficients: the profile is not used. -->
+                      {#if windStructure.kind !== 'building'}<p class="al-warn" data-testid="al-wind-profile-other">{t('loadPlan.note.windProfileOther')}</p>{/if}
                     {/if}
                   </div>
                   <ProWindCasesPanel

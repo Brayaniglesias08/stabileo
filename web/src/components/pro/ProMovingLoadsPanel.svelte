@@ -8,11 +8,14 @@
    * (`store/moving-cases.ts`). The lane load, where a code asks for one, is a static uniform load,
    * created here as an ordinary load case on the same members. A vehicle has its spacing range,
    * its two wheel lines and its dynamic factor (`engine/vehicles.ts`), and is saved as a file.
+   * One that does not hold together (`vehicleProblem`) is said before anything runs. The second
+   * wheel line runs the first one's way, and what does not match it (not parallel, not the gauge
+   * apart, not as long) is said beside the result (`alignSecondLine`).
    */
   import { modelStore, uiStore } from '../../lib/store';
   import { t, tp } from '../../lib/i18n';
   import QuantityInput from './loads/QuantityInput.svelte';
-  import { unitQ } from '../../lib/store/display-units.svelte';
+  import { toQ, unitQ } from '../../lib/store/display-units.svelte';
   import { downloadText } from '../../lib/store/file';
   import { errorText } from '../../lib/utils/error-text';
   import { toCsv } from '../../lib/engine/result-tables';
@@ -21,7 +24,7 @@
   import {
     buildPath3D, sweepTrains3D, movingLoadBase3D, ENVELOPE_COMPONENTS, type MovingEnvelope3D, type EnvelopeComponent,
   } from '../../lib/engine/moving-loads-3d';
-  import { AASHTO_VEHICLES, vehicleTrains, vehicleToJson, vehicleFromJson, type Vehicle } from '../../lib/engine/vehicles';
+  import { AASHTO_VEHICLES, vehicleTrains, vehicleToJson, vehicleFromJson, vehicleProblem, alignSecondLine, type Vehicle } from '../../lib/engine/vehicles';
   import { addPositionCases, MAX_POSITION_CASES } from '../../lib/store/moving-cases';
 
   interface Props { disabled?: boolean }
@@ -39,8 +42,10 @@
   /** The members of the second wheel line, picked apart from the path. */
   let path2Ids = $state<number[]>([]);
   let caseStep = $state(1);
+  // Every row, a weightless one too: the variable gap names an axle by its row, and dropping a
+  // row moved it onto another. An axle of no weight writes no load (`trainModelLoads`).
   const vehicle = (): Vehicle => ({
-    name, axles: axles.filter((a) => a.weight !== 0),
+    name, axles: axles.map((a) => ({ offset: a.offset, weight: a.weight })),
     ...(gauge ? { gauge } : {}), ...(dynamicFactor !== 1 ? { dynamicFactor } : {}), ...(variable ? { variable } : {}),
   });
   function load(v: Vehicle) {
@@ -58,12 +63,35 @@
     if (!v) { error = t('moving.badVehicleFile'); return; }
     error = null; load(v);
   }
+  /** What the second wheel line does not match, said beside the result (`alignSecondLine`). */
+  let notes = $state<string[]>([]);
+  const lengthText = (v: number) => `${toQ(v, 'length').toFixed(2)} ${unitQ('length')}`;
+  function noteText(m: { key: string; params: Record<string, number> }): string {
+    const p: Record<string, string | number> = { ...m.params };
+    for (const k of ['apart', 'gauge', 'l1', 'l2']) if (k in m.params) p[k] = lengthText(m.params[k]!);
+    return tp(m.key, p);
+  }
+  /** The vehicle as it is typed, or the reason it cannot run. */
+  function checked(): Vehicle | null {
+    const v = vehicle();
+    const bad = vehicleProblem(v);
+    if (bad) { error = t(bad); return null; }
+    return v;
+  }
   function positionCases() {
-    const trains = vehicleTrains(vehicle(), spacingStep);
-    const r = addPositionCases(trains[0]!, pathIds, path2Ids, caseStep);
-    if ('error' in r) { error = r.error; return; }
-    error = null;
-    uiStore.toast(tp('moving.casesCreated', { n: r.cases }), 'success');
+    error = null; notes = [];
+    const v = checked();
+    if (!v) return;
+    // Every spacing, both ways when the vehicle is not symmetric (`store/moving-cases.ts`); what the
+    // builder refuses is said, as in `run`.
+    try {
+      const r = addPositionCases(v.name, vehicleTrains(v, spacingStep), pathIds, path2Ids, caseStep, gauge);
+      if ('error' in r) { error = r.error; return; }
+      notes = r.notes.map(noteText);
+      uiStore.toast(tp('moving.casesCreated', { n: r.cases }), 'success');
+    } catch (e) {
+      error = errorText(e, 'Error');
+    }
   }
   let step = $state(0.25);
   /** The code's lane load, kN/m; none by default, since it is the code's number and not ours. */
@@ -83,7 +111,9 @@
   }
 
   async function run() {
-    error = null; result = null;
+    error = null; result = null; notes = [];
+    const v = checked();
+    if (!v) return;
     // The path names the model's members; one of variable section is cut into pieces for the solve.
     if ([...modelStore.elements.values()].some((e) => isVariableMember(modelStore.sections, e))) { error = t('advanced.variableUnsupported'); return; }
     // The train alone, on the unloaded structure (`movingLoadBase3D`): no settlement, no load case's
@@ -98,10 +128,13 @@
     if (!base) { error = t('moving.noModel'); return; }
     const path = buildPath3D(base, pathIds);
     if (!path) { error = t('moving.notAChain'); return; }
-    const path2 = path2Ids.length ? buildPath3D(base, path2Ids) : null;
-    if (path2Ids.length && !path2) { error = t('moving.notAChain'); return; }
-    const trains = vehicleTrains(vehicle(), spacingStep);
-    if (trains[0]!.axles.length === 0) { error = t('moving.noAxles'); return; }
+    const raw2 = path2Ids.length ? buildPath3D(base, path2Ids) : null;
+    if (path2Ids.length && !raw2) { error = t('moving.notAChain'); return; }
+    // The second line run the first one's way, and what does not match it said.
+    const line2 = raw2 ? alignSecondLine(base.nodes, path, raw2, gauge) : null;
+    const path2 = line2?.path2 ?? null;
+    notes = (line2?.notes ?? []).map(noteText);
+    const trains = vehicleTrains(v, spacingStep);
     running = true;
     controller = new AbortController();
     try {
@@ -184,7 +217,7 @@
   <div class="ml-row">
     <label>{t('moving.vehicleName')} <input type="text" bind:value={name} class="ml-name" data-testid="moving-name" /></label>
     <label>{t('moving.dynamicFactor')} <input type="number" min="0.5" step="0.01" bind:value={dynamicFactor} class="ml-num" data-testid="moving-dyn" /></label>
-    <label>{t('moving.gauge')} <QuantityInput value={gauge} nullable quantity="length" min={0} onchange={(v) => (gauge = v !== null && v > 0 ? v : null)} cls="ml-num" testid="moving-gauge" /></label>
+    <label>{t('moving.gauge')} <QuantityInput value={gauge} nullable quantity="length" above={0} onchange={(v) => (gauge = v !== null && v > 0 ? v : null)} cls="ml-num" testid="moving-gauge" /></label>
   </div>
   <div class="ml-row">
     <label><input type="checkbox" checked={!!variable} onchange={(e) => (variable = e.currentTarget.checked ? { axle: Math.min(axles.length - 1, 2) || 1, min: 4.3, max: 9 } : null)} data-testid="moving-var" /> {t('moving.variable')}</label>
@@ -224,6 +257,7 @@
   </div>
 
   {#if error}<p class="pk-warn" data-testid="moving-error">{error}</p>{/if}
+  {#each notes as n, i (i)}<p class="pk-warn" data-testid="moving-note">{n}</p>{/each}
 
   {#if result}
     <div class="ml-row">

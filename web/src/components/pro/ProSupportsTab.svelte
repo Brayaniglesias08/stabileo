@@ -37,7 +37,7 @@
     if (ids.length === 0) { wError = t('pro.supportNoTarget'); done = null; return; }
     const held = new Set([...modelStore.supports.values()].map((s) => s.nodeId));
     const replaced = ids.filter((id) => held.has(id)).length;
-    modelStore.batch(() => { for (const id of ids) drawState.addSupportAt(id); });
+    drawState.addSupportsAt(ids);
     wError = null;
     done = tp('pro.supportsAdded', { n: ids.length, replaced });
   }

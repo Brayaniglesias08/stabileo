@@ -20,7 +20,7 @@
   import { copyLoadsToCase, moveLoadsToCase, scaleLoads, removeLoads } from '../../../lib/store/load-ops';
   import { loadedLength } from '../../../lib/model/loads/load-stretch';
   import type { Load, SurfaceLoad3D } from '../../../lib/store/model.svelte';
-  import type { GlobalAxis, SelfWeightLoad } from '../../../lib/engine/analysis-settings';
+  import { editSelfWeightRule, type GlobalAxis, type SelfWeightLoad } from '../../../lib/engine/analysis-settings';
   import { shellText, surfaceValueText, surfaceHowText } from '../../../lib/model/loads/surface-load-text';
   import { definitionName, type DefinitionModel } from '../../../lib/model/loads/floor-definitions';
 
@@ -126,8 +126,11 @@
   // ── Self-weight: the case's rules (`analysis.selfWeight`), added from the Add load card ──
   const swAll = $derived(modelStore.analysis?.selfWeight ?? []);
   const swShown = $derived(swAll.map((w, i) => ({ w, i })).filter(({ w }) => scope === 'all' || w.caseId === uiStore.activeLoadCaseId));
+  // A case or direction that makes a row the same as another merges the two (`editSelfWeightRule`).
   function swChange(i: number, patch: Partial<SelfWeightLoad>) {
-    modelStore.setAnalysis({ selfWeight: swAll.map((w, k) => (k === i ? { ...w, ...patch } : w)) });
+    const { rules, merged } = editSelfWeightRule(swAll, i, patch);
+    modelStore.setAnalysis({ selfWeight: rules });
+    if (merged) uiStore.toast(t('selfWeight.merged'), 'info');
   }
   function swFactor(el: HTMLInputElement, i: number, prev: number) {
     const v = decimalOrKeep(el.value, prev);

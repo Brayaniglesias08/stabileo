@@ -178,6 +178,17 @@
    */
   let pdeltaRefused = $state<string | null>(null);
 
+  /**
+   * A run that failed says so and nothing else: the previous run's result, its refusal, its line
+   * in the report and its published displacements went on showing under the error as this run's.
+   */
+  function forgetPDelta() {
+    pdeltaResult = null;
+    pdeltaRefused = null;
+    if (advancedResults.pdelta) { const { pdelta: _gone, ...rest } = advancedResults; advancedResults = rest; }
+    if (resultsStore.pdeltaResult3D) resultsStore.clearPDelta3D();
+  }
+
   function handlePDelta() {
     solveError = null;
     solving = true;
@@ -188,7 +199,7 @@
       const t0 = performance.now();
       res = wasmPDelta3D(input);
       const elapsed = performance.now() - t0;
-      if (typeof res === 'string') { solveError = tp('adv.failed', { analysis: t('adv.name.pdelta'), error: String(res) }); solving = false; return; }
+      if (typeof res === 'string') { forgetPDelta(); solveError = tp('adv.failed', { analysis: t('adv.name.pdelta'), error: String(res) }); solving = false; return; }
       pdeltaElapsed = elapsed;
       const amp = res.results ? amplification(res) : { b2: Infinity, stable: false };
       const converged = !!res.converged;
@@ -199,6 +210,7 @@
       else if (resultsStore.pdeltaResult3D) resultsStore.clearPDelta3D();
       advancedResults = { ...advancedResults, pdelta: { converged, iterations: res.iterations, b2Factor: amp.b2, isStable: amp.stable } };
     } catch (e: any) {
+      forgetPDelta();
       solveError = tp('adv.failed', { analysis: t('adv.name.pdelta'), error: errorText(e, 'Error') });
     }
     solving = false;

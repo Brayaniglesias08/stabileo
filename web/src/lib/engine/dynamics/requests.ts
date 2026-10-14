@@ -91,26 +91,29 @@ export function cumulativeMassRatios(modes: ReadonlyArray<{ massRatioX?: number;
   return out;
 }
 
-/** The mass that participates in X and Y over all the modes given. */
-export function totalMassRatios(modes: ReadonlyArray<{ massRatioX?: number; massRatioY?: number }>): { x: number; y: number } {
+/** The mass that participates in X, Y and Z over all the modes given. */
+export function totalMassRatios(modes: ReadonlyArray<{ massRatioX?: number; massRatioY?: number; massRatioZ?: number }>): { x: number; y: number; z: number } {
   const c = cumulativeMassRatios(modes);
-  return { x: c.x[c.x.length - 1] ?? 0, y: c.y[c.y.length - 1] ?? 0 };
+  return { x: c.x[c.x.length - 1] ?? 0, y: c.y[c.y.length - 1] ?? 0, z: c.z[c.z.length - 1] ?? 0 };
 }
 
 /**
- * Modes until `target` of the mass participates in X and in Y: solve with `start` modes, double
- * until the target is reached, the model has no more modes to give, or `max`.
+ * Modes until `target` of the mass participates in each of `directions` (X and Y unless said):
+ * solve with `start` modes, double until the target is reached, the model has no more modes to
+ * give, or `max`. A spectral case along Z asks for Z: on X and Y alone a ten-storey frame stopped
+ * at 12 modes with 1e-10 of its mass moving vertically, and the case read nearly nothing.
  */
-export function modalUntilMass<R extends { modes?: Array<{ massRatioX?: number; massRatioY?: number }> }>(
+export function modalUntilMass<R extends { modes?: Array<{ massRatioX?: number; massRatioY?: number; massRatioZ?: number }> }>(
   solve: (n: number) => R | string, start: number, target = 0.9, max = 200,
-): { result: R | string; modes: number; reached: boolean; x: number; y: number } {
+  directions: ReadonlyArray<'x' | 'y' | 'z'> = ['x', 'y'],
+): { result: R | string; modes: number; reached: boolean; x: number; y: number; z: number } {
   let n = Math.max(1, Math.floor(start));
   for (;;) {
     const res = solve(n);
-    if (typeof res === 'string') return { result: res, modes: 0, reached: false, x: 0, y: 0 };
+    if (typeof res === 'string') return { result: res, modes: 0, reached: false, x: 0, y: 0, z: 0 };
     const got = res.modes?.length ?? 0;
     const tot = totalMassRatios(res.modes ?? []);
-    const reached = tot.x >= target && tot.y >= target;
+    const reached = directions.every((d) => tot[d] >= target);
     if (reached || got < n || n >= max) return { result: res, modes: got, reached, ...tot };
     n = Math.min(max, n * 2);
   }

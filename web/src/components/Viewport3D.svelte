@@ -2687,13 +2687,15 @@
   }
 
   // ─── Helper: project a 3D world point to screen coords ────
-  function projectToScreen(wx: number, wy: number, wz: number): { x: number; y: number } {
+  // With its depth (`z`, smaller nearer): picking a load by its fill takes the nearer slab.
+  function projectToScreen(wx: number, wy: number, wz: number): { x: number; y: number; z: number } {
     const v = new THREE.Vector3(wx, wy, wz);
     v.project(camera);
     const rect = container.getBoundingClientRect();
     return {
       x: (v.x * 0.5 + 0.5) * rect.width,
       y: (-v.y * 0.5 + 0.5) * rect.height,
+      z: v.z,
     };
   }
 

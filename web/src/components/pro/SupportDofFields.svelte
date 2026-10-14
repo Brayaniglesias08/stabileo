@@ -38,7 +38,8 @@
     <span class="sd-group" data-testid="sup-springs">
       {#each DOF_SPRING.filter(([d]) => draft.dofs[d]) as [d, k] (k)}
         <label class="sd-k">{k}
-          <QuantityInput nullable min={0} value={draft.springs[k] ?? null} quantity={d.startsWith('t') ? 'springK' : 'springKr'}
+          <!-- Empty is rigid; 0 is not a spring, and is not shown as one. -->
+          <QuantityInput nullable above={0} value={draft.springs[k] ?? null} quantity={d.startsWith('t') ? 'springK' : 'springKr'}
             placeholder={t('support.rigid')} cls="sd-num"
             onchange={(v) => { draft.springs[k] = v !== null && v > 0 ? v : undefined; }}
             testid="sup-k-{k}" />

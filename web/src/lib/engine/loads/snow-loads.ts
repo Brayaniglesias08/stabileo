@@ -173,7 +173,10 @@ export interface SnowCasesInput {
     abutting?: boolean;
     /** The partial loads of Cap. 5 on continuous systems, by panels (default on). */
     partial?: boolean;
-    /** The roof's members, when chosen (`load-plan.ts`); absent: those nothing higher covers. */
+    /**
+     * The members a roof is chosen among (a region's, `load-plan.ts`): the beam-like ones nothing
+     * higher of them covers (`roofMembers`); none of them, no roof. Absent: those nothing higher covers.
+     */
     roof?: number[];
     /** Parapets and separate higher structures within 6 m, for their drifts (`snow-drift-loads.ts`). */
     parapet?: import('./snow-drift-loads').DriftInputs['parapet'];
@@ -184,11 +187,22 @@ export interface SnowCasesInput {
   layout?: GravityLayout;
 }
 
+/**
+ * A panel's share on a member is snow when the panel is a roof's; on a chosen roof (`only`, its
+ * members as `roofMembers` reads them), when the member is chosen and the panel a roof's, or the
+ * whole model reads the member as covered (a lower roof chosen on its own takes its panels). A
+ * beam at a step keeps the floor panel beside the roof out of the snow.
+ */
+function onRoof(layout: GravityLayout, piece: { elementId: number; roof: boolean }, only?: ReadonlySet<number>): boolean {
+  if (!only) return piece.roof;
+  return only.has(piece.elementId) && (piece.roof || !layout.roof.has(piece.elementId));
+}
+
 /** A roof panel's share past a side's end (a re-entrant corner), at its node, with the member's mean p. */
 function pointLoads(layout: GravityLayout, pOf: (elementId: number, unit: Unit) => Intensity, only?: ReadonlySet<number>): SnowCaseLoads['nodal'] {
   const out: SnowCaseLoads['nodal'] = [];
   for (const pt of layout.points) {
-    if (only ? !only.has(pt.elementId) : !pt.roof) continue;
+    if (!onRoof(layout, pt, only)) continue;
     const [pI, pJ] = ends(pOf(pt.elementId, { panel: pt.panel }));
     const p = (pI + pJ) / 2;
     if (p > 0) out.push({ nodeId: pt.nodeId, fx: 0, fy: 0, fz: -p * pt.w, carrier: pt.elementId });
@@ -200,7 +214,7 @@ function pointLoads(layout: GravityLayout, pOf: (elementId: number, unit: Unit) 
 function panelLoads(model: WindModel, layout: GravityLayout, pOf: (elementId: number, unit: Unit) => Intensity, tributaryWidth: number, only?: ReadonlySet<number>): SnowCaseLoads['distributed'] {
   const out: SnowCaseLoads['distributed'] = [];
   for (const pc of layout.pieces) {
-    if (only ? !only.has(pc.elementId) : !pc.roof) continue;
+    if (!onRoof(layout, pc, only)) continue;
     // A panel's piece is a stretch of a level: its intensity is the member's mean.
     const [pI, pJ] = ends(pOf(pc.elementId, { panel: pc.panel }));
     const p = (pI + pJ) / 2;
@@ -220,9 +234,13 @@ export function snowLoadCases(input: SnowCasesInput): {
   /** The roof surfaces whose slope gives another p_s than `result`'s (see the header). */
   surfaces: Array<{ slopeDeg: number; cs: number; ps: number }>;
 } | null {
-  // The roof the user chose (members), or the one the model's geometry shows.
-  const only = input.snow.roof?.length ? new Set(input.snow.roof) : undefined;
-  const geometry = roofGeometry(input.model, only);
+  /*
+   * The roof the user chose (a region's members), or the one the model's geometry shows. A choice
+   * that holds no roof member is no roof, not the detected one: an empty region used to load the
+   * whole roof (`load-plan-snow.ts` says so).
+   */
+  const chosen = input.snow.roof ? new Set(input.snow.roof) : undefined;
+  const geometry = roofGeometry(input.model, chosen);
   if (!geometry) return null;
   const slopeDeg = input.snow.roofSlopeDeg ?? geometry.slopeDeg;
   const kind = input.snow.roofKind;
@@ -233,8 +251,10 @@ export function snowLoadCases(input: SnowCasesInput): {
     roof: { kind: shapedKind ? 'mono' : kind, slopeDeg, W: geometry.W, slippery: input.snow.slippery },
   });
   if (result.refused) return { result, geometry, cases: [], derivation: [], refs: [], surfaces: [] };
-  const roof = roofMembers(input.model, only);
+  const roof = roofMembers(input.model, chosen);
   const all = new Set(roof.map((r) => r.id));
+  // The chosen roof as `roofMembers` reads it: not the region's columns, nor the floors under it.
+  const only = chosen ? all : undefined;
   const layout = input.layout;
   const on = (pOf: (id: number, unit?: Unit) => Intensity): Pick<SnowCaseLoads, 'distributed' | 'nodal'> => (layout
     ? { distributed: panelLoads(input.model, layout, pOf, input.tributaryWidth, only), nodal: pointLoads(layout, pOf, only) }

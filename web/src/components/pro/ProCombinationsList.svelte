@@ -102,6 +102,11 @@
             <!-- Under P-Delta per combination its result says `magnitude.firstOrder` (`combination-methods.ts`). -->
             {#if modelStore.analysis?.perCombination === 'pdelta'}<p class="cb-hint" data-testid="combo-method-first-order">{t('combos.method.firstOrder')}</p>{/if}
           {/if}
+          <!-- A linear combination taking a spectral case under P-Delta: the spectral part is added
+               at first order to the rest's second-order result (`combination-methods.ts`). -->
+          {#if combo.method !== 'srss' && combo.method !== 'abs' && modelStore.analysis?.perCombination === 'pdelta' && combo.factors.some((f) => f.factor !== 0 && loadCases.some((c) => c.id === f.caseId && c.spectral))}
+            <p class="cb-hint" data-testid="combo-spectral-first-order">{t('combos.spectral.firstOrder')}</p>
+          {/if}
           <table class="cb-factors">
             <tbody>
               {#if legacySelfWeight}

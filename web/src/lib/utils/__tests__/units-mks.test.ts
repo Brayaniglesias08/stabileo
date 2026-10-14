@@ -79,3 +79,25 @@ describe('SI with millimetres', () => {
     expect(fromDisplay(18, 'temperatureDelta', 'Imperial')).toBeCloseTo(10, 12);
   });
 });
+
+describe('a plan area: a tributary area, a wall, a roof', () => {
+  it('reads in m² in SI, SI (mm) and MKS, and in ft² in imperial, not as a cross-section', () => {
+    for (const s of ['SI', 'SImm', 'MKS'] as const) {
+      expect(toDisplay(50, 'planArea', s)).toBe(50);
+      expect(unitLabel('planArea', s)).toBe('m²');
+    }
+    expect(toDisplay(50, 'planArea', 'Imperial')).toBeCloseTo(538.1955, 3);
+    expect(unitLabel('planArea', 'Imperial')).toBe('ft²');
+    expect(fromDisplay(toDisplay(50, 'planArea', 'Imperial'), 'planArea', 'Imperial')).toBeCloseTo(50, 12);
+  });
+
+  it('the building-scale fields take it: 50 m² was 500 000 cm² in MKS', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    for (const f of ['pro/loads/ProCaseDetails.svelte', 'pro/ProWindCasesPanel.svelte', 'pro/ProWindCladding.svelte']) {
+      const src = readFileSync(resolve(__dirname, '../../../components', f), 'utf8');
+      expect(src, f).not.toMatch(/quantity="area"/);
+      expect(src, f).toMatch(/quantity="planArea"/);
+    }
+  });
+});

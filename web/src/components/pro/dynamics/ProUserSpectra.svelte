@@ -6,8 +6,7 @@
    */
   import { modelStore } from '../../../lib/store';
   import { t, tp } from '../../../lib/i18n';
-  import { parseDecimal } from '../../../lib/utils/numeric-input';
-  import { userSa, G, type UserSpectrum } from '../../../lib/engine/spectral-case';
+  import { parseSpectrumTable, userSa, G, type UserSpectrum } from '../../../lib/engine/spectral-case';
 
   const spectra = $derived(modelStore.model.dynamics?.spectra ?? []);
   let editing = $state<number | null>(null);
@@ -15,23 +14,6 @@
   let error = $state<string | null>(null);
 
   const save = (list: UserSpectrum[]) => modelStore.setDynamics({ ...modelStore.model.dynamics, spectra: list });
-
-  /** Rows of "period, value" (a comma, a semicolon, a tab or spaces between them; a decimal comma reads). */
-  function parse(raw: string): Array<[number, number]> | null {
-    const rows: Array<[number, number]> = [];
-    for (const line of raw.split(/\r?\n/)) {
-      const l = line.trim();
-      if (!l || /^[a-zA-Z#]/.test(l)) continue;
-      const parts = l.split(/\s*[;\t]\s*|\s+|,\s+/).filter(Boolean);
-      const cells = parts.length >= 2 ? parts : l.split(',');
-      if (cells.length < 2) return null;
-      const a = parseDecimal(cells[0]!), b = parseDecimal(cells[1]!);
-      if (a === null || b === null || a < 0) return null;
-      rows.push([a, b]);
-    }
-    rows.sort((p, q) => p[0] - q[0]);
-    return rows.length >= 2 ? rows : null;
-  }
 
   function add() {
     const id = Math.max(0, ...spectra.map((s) => s.id)) + 1;
@@ -47,10 +29,11 @@
     save(spectra.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }
   function apply(id: number) {
-    const p = parse(text);
-    if (!p) { error = t('userSpectrum.badTable'); return; }
+    // Refused with the reason: too few rows, a negative value, a period twice (`parseSpectrumTable`).
+    const p = parseSpectrumTable(text);
+    if ('error' in p) { error = t(p.error === 'negative' ? 'userSpectrum.negative' : p.error === 'duplicate' ? 'userSpectrum.duplicate' : 'userSpectrum.badTable'); return; }
     error = null;
-    update(id, { points: p });
+    update(id, { points: p.points });
   }
   function remove(id: number) {
     save(spectra.filter((s) => s.id !== id));

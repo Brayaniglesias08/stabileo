@@ -9,7 +9,7 @@ import { modelStore } from '../model.svelte';
 import { uiStore } from '../ui.svelte';
 import { historyStore } from '../history.svelte';
 import '../index';
-import { migrateSelfWeightIfNeeded, planSelfWeight, selfWeightRuleEffect } from '../self-weight-migration';
+import { leaveSelfWeightRule, migrateSelfWeightIfNeeded, planSelfWeight, selfWeightRuleEffect } from '../self-weight-migration';
 import { initSolver } from '../../engine/wasm-solver';
 import { t } from '../../i18n';
 
@@ -94,7 +94,7 @@ describe('a new PRO project', () => {
     modelStore.withoutUndo(() => modelStore.setAnalysis({ selfWeight: undefined }));
     historyStore.clear();
     selfWeightRuleEffect();
-    expect(modelStore.analysis!.selfWeight).toEqual([]);
+    expect(modelStore.analysis?.selfWeight).toBeUndefined();
     expect(historyStore.canUndo).toBe(false);
     const a = modelStore.addNode(0, 0, 0), b = modelStore.addNode(4, 0, 0);
     modelStore.addElement(a, b, 'frame');
@@ -105,6 +105,96 @@ describe('a new PRO project', () => {
     const { ids } = project(['D']);
     selfWeightRuleEffect();
     expect(modelStore.analysis!.selfWeight).toEqual([{ caseId: ids[0], direction: 'Z', factor: -1 }]);
+  });
+});
+
+/** ΣRz of a 3D solve, PRO (with shells) or Basic. */
+function sumRz(isPro: boolean): number {
+  const r = modelStore.solve3D(uiStore.includeSelfWeight, false, isPro);
+  if (!r || typeof r === 'string') throw new Error(String(r));
+  return r.reactions.reduce((s, x) => s + x.fz, 0);
+}
+
+describe('an older project made only of shells', () => {
+  it('keeps its self-weight: the slab is structure, and the rule goes in its first D case', () => {
+    // A 4×4 m slab of four quads on its corners, with 1 kN at the middle.
+    const n: number[][] = [];
+    for (let i = 0; i <= 2; i++) { n.push([]); for (let j = 0; j <= 2; j++) n[i]!.push(modelStore.addNode(2 * i, 2 * j, 0)); }
+    for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) modelStore.addQuad([n[i]![j]!, n[i + 1]![j]!, n[i + 1]![j + 1]!, n[i]![j + 1]!], 1, 0.2);
+    for (const c of [n[0]![0]!, n[2]![0]!, n[0]![2]!, n[2]![2]!]) modelStore.addSupport(c, 'pinned3d');
+    for (const c of [...modelStore.combinations]) modelStore.removeCombination(c.id);
+    for (const c of [...modelStore.model.loadCases]) modelStore.removeLoadCase(c.id);
+    const d = modelStore.addLoadCase('D', 'D');
+    modelStore.addNodalLoad3D(n[1]![1]!, 0, 0, -1, 0, 0, 0, d);
+    modelStore.withoutUndo(() => modelStore.setAnalysis({ selfWeight: undefined }));
+    expect(modelStore.elements.size).toBe(0);
+    selfWeightRuleEffect();
+    expect(modelStore.analysis!.selfWeight).toEqual([{ caseId: d, direction: 'Z', factor: -1 }]);
+    // 1 kN and the slab's weight (16 m² · 0.2 m of concrete), not the 1 kN alone.
+    expect(sumRz(true)).toBeGreaterThan(100);
+  });
+});
+
+describe('a new PRO project states its rule when its first structure is drawn, not before', () => {
+  it('seen empty in PRO, drawn in Basic, back in PRO: Basic and PRO weigh the same column', () => {
+    modelStore.withoutUndo(() => modelStore.setAnalysis({ selfWeight: undefined }));
+    selfWeightRuleEffect();
+    // Nothing is written into an empty model: it has nothing to weigh yet.
+    expect(modelStore.analysis?.selfWeight).toBeUndefined();
+    // The panel unmounts with PRO.
+    leaveSelfWeightRule();
+    uiStore.analysisMode = '3d';
+    uiStore.includeSelfWeight = true;
+    const a = modelStore.addNode(0, 0, 0), b = modelStore.addNode(0, 0, 3);
+    modelStore.addElement(a, b, 'frame');
+    modelStore.addSupport(a, 'fixed3d');
+    const basic = sumRz(false);
+    expect(basic).toBeGreaterThan(1e-6);
+    uiStore.analysisMode = 'pro';
+    selfWeightRuleEffect();
+    expect(modelStore.analysis!.selfWeight).toEqual([{ caseId: 1, direction: 'Z', factor: -1 }]);
+    expect(sumRz(true)).toBeCloseTo(basic, 6);
+  });
+
+  it('a first member or shell drawn in PRO: an empty rule, without an undo step', () => {
+    modelStore.withoutUndo(() => modelStore.setAnalysis({ selfWeight: undefined }));
+    historyStore.clear();
+    selfWeightRuleEffect();
+    expect(modelStore.analysis?.selfWeight).toBeUndefined();
+    const a = modelStore.addNode(0, 0, 0), b = modelStore.addNode(4, 0, 0), c = modelStore.addNode(0, 4, 0);
+    selfWeightRuleEffect();
+    expect(modelStore.analysis?.selfWeight).toBeUndefined();
+    modelStore.addPlate([a, b, c], 1, 0.2);
+    selfWeightRuleEffect();
+    expect(modelStore.analysis!.selfWeight).toEqual([]);
+    // Undone, the model is empty again with no rule; redone, the empty rule comes back with it.
+    historyStore.undo();
+    expect(modelStore.plates.size).toBe(0);
+    selfWeightRuleEffect();
+    expect(modelStore.analysis?.selfWeight).toBeUndefined();
+    historyStore.redo();
+    expect(modelStore.analysis!.selfWeight).toEqual([]);
+  });
+
+  it('an older project opened over an empty one PRO has seen is migrated, not emptied', () => {
+    selfWeightRuleEffect();
+    const { ids } = project(['D']);
+    const snap = modelStore.snapshot();
+    modelStore.clear();
+    selfWeightRuleEffect();
+    modelStore.restore(snap);
+    selfWeightRuleEffect();
+    expect(modelStore.analysis!.selfWeight).toEqual([{ caseId: ids[0], direction: 'Z', factor: -1 }]);
+  });
+
+  it('an example opened in PRO keeps its rule when the panel runs between clearing and loading', async () => {
+    const loading = modelStore.loadExample('pro-edificio-7p');
+    // `loadExample` cleared the model and is awaiting the fixture: the panel's effect may run here.
+    expect(modelStore.elements.size).toBe(0);
+    selfWeightRuleEffect();
+    await loading;
+    expect(modelStore.elements.size).toBeGreaterThan(0);
+    expect(modelStore.analysis!.selfWeight).toEqual([{ caseId: 1, direction: 'Z', factor: -1 }]);
   });
 });
 

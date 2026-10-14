@@ -4,20 +4,28 @@
  * figures draw the shells (as faces and as a result in colour, from a fixed view and from a set
  * other than the screen's), and the report places its figures where their tables go.
  */
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { unzipSync } from 'fflate';
+
+/** What the CSV export hands the browser, kept to be read back. */
+const downloads = vi.hoisted(() => [] as Array<{ blob: Blob; name: string }>);
+vi.mock('../../store/file', async (orig) => ({
+  ...(await orig<typeof import('../../store/file')>()),
+  downloadBlob: (blob: Blob, name: string) => { downloads.push({ blob, name }); },
+}));
 import { modelStore } from '../../store/model.svelte';
 import { uiStore } from '../../store/ui.svelte';
 import { resultsStore } from '../../store/results.svelte';
 import '../../store/index';
 import { initSolver } from '../../engine/wasm-solver';
 import { publishCombinations3D } from '../../store/active-results';
-import { currentWorkbookSheets } from '../../store/project-workbook';
+import { currentWorkbookSheets, downloadProjectCsv } from '../../store/project-workbook';
 import { proDxf } from '../../pro/dxf-export';
 import { DXF_CONTENTS, layerName, type DxfContents } from '../../dxf/writer';
-import { DEFAULT_FIGURE_OPTIONS, plan2D, toSvg, type FigureOptions } from '../view-figure';
+import { DEFAULT_FIGURE_OPTIONS, figureTitle, plan2D, toSvg, type FigureOptions } from '../view-figure';
 import { reportResultFigures } from '../../pro/report-export';
 import { generateReportHtml, type ReportConfig, type ReportData } from '../../engine/pro-report';
-import { resultSet } from '../../pro/export-results';
+import { resultSet, resultSetChoices } from '../../pro/export-results';
 import { t } from '../../i18n';
 
 beforeAll(async () => { await initSolver(); });
@@ -87,6 +95,17 @@ describe('the workbook, sheet by sheet', () => {
     const col = s.rows[0]!.indexOf('sourceId');
     const ids = new Set(s.rows.slice(1).map((r) => r[col]));
     expect([...ids]).toEqual([c1]);
+  });
+
+  it('a CSV of one sheet still carries the cover and the conventions, as the dialog says', async () => {
+    slabFrame();
+    downloads.length = 0;
+    downloadProjectCsv(5, { sheets: new Set(['Nodes']) });
+    expect(downloads).toHaveLength(1);
+    const { blob, name } = downloads[0]!;
+    expect(name).toMatch(/\.zip$/);
+    const files = Object.keys(unzipSync(new Uint8Array(await blob.arrayBuffer())));
+    expect(files).toEqual(['01-Cover.csv', '02-Conventions.csv', '03-Nodes.csv']);
   });
 });
 
@@ -185,5 +204,78 @@ describe('the report', () => {
     expect(html).toMatch(/report\.figure 2\. R/);
     // The reactions table (its node 7 row) is not printed.
     expect(html).not.toMatch(/<td>7<\/td>/);
+  });
+});
+
+describe('an SRSS or ABS combination, a magnitude without a sign', () => {
+  /** The frame with its second combination set to SRSS, solved again. */
+  function magnitudeFrame() {
+    const f = slabFrame();
+    modelStore.updateCombination(f.c2, { method: 'srss' });
+    const r = modelStore.solveCombinations3D(uiStore.includeSelfWeight, false, true);
+    if (!r || typeof r === 'string') throw new Error(String(r));
+    publishCombinations3D(r);
+    expect(resultsStore.perCombo3D.get(f.c2)?.magnitude?.method).toBe('srss');
+    return f;
+  }
+
+  it('is named as one in the choices, the figure titles and the DXF', () => {
+    const { c1, c2 } = magnitudeFrame();
+    const choices = resultSetChoices();
+    expect(choices.find((c) => c.key === `combo:${c2}`)!.label).toContain('SRSS');
+    expect(choices.find((c) => c.key === `combo:${c1}`)!.label).not.toContain('SRSS');
+    const set = resultSet(`combo:${c2}`);
+    expect(figureTitle('moment', { results: set.results, resultsName: set.name })).toContain('SRSS');
+    expect(figureTitle('moment', { results: resultSet(`combo:${c1}`).results, resultsName: '1.2D+1.6W' })).not.toContain('SRSS');
+    const dxf = proDxf({ contents: { ...allOff, moment: true }, projection: 'space', units: 'm', set: `combo:${c2}`, diagramFactor: 1 });
+    expect(dxf).toContain('SRSS');
+  });
+
+  it('the DXF prints its moments unsigned, not as negatives', () => {
+    const { c2 } = magnitudeFrame();
+    const dxf = proDxf({ contents: { ...allOff, moment: true }, projection: 'space', units: 'm', set: `combo:${c2}`, diagramFactor: 1 });
+    const values = entities(dxf).filter((e) => e.type === 'TEXT' && e.layer.startsWith(layerName(t('dxf.layerMoments'))))
+      .map((e) => Number(e.codes.get('1')?.[0]));
+    expect(values.length).toBeGreaterThan(0);
+    for (const v of values) expect(v).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('the DXF loads, every kind and every case on its own layer', () => {
+  /** The layers the LAYER table declares, and the layers entities are drawn on. */
+  function declaredAndUsed(dxf: string) {
+    const lines = dxf.split('\n');
+    const declared: string[] = [];
+    for (let i = lines.indexOf('LAYER'); i >= 0 && lines[i] !== 'ENDTAB'; i++) if (lines[i] === 'LAYER' && lines[i + 1] === '2') declared.push(lines[i + 2]!);
+    return { declared, used: new Set(entities(dxf).map((e) => e.layer)) };
+  }
+
+  it('thermal, prestress and imposed displacements are drawn, and no layer is left empty', () => {
+    const { quads } = slabFrame();
+    const T = modelStore.addLoadCase('T', 'T');
+    const beam = [...modelStore.elements.values()][1]!.id;
+    const support = [...modelStore.supports.values()][0]!.nodeId;
+    modelStore.addThermalLoad(beam, 20, 10, T);
+    modelStore.addThermalLoadQuad3D(quads[0]!, 15, 5, T);
+    modelStore.addLoadEntry({ type: 'prestress3d', data: { id: 0, elementId: beam, force: 500, eI: 0, eM: 0.2, eJ: 0, caseId: T } });
+    modelStore.addLoadEntry({ type: 'displacement3d', data: { id: 0, nodeId: support, dz: -0.01, caseId: T } });
+    const dxf = proDxf({ contents: { ...allOff, loads: true }, projection: 'space', units: 'm', set: 'screen', diagramFactor: 1 });
+    const { declared, used } = declaredAndUsed(dxf);
+    for (const l of declared) expect(used, l).toContain(l);
+    const texts = entities(dxf).filter((e) => e.layer === layerName(`${t('dxf.layerLoads')}_T`) && e.type === 'TEXT').map((e) => e.codes.get('1')![0]!);
+    expect(texts.some((s) => s.includes('°C'))).toBe(true);
+    expect(texts.some((s) => s.includes('500'))).toBe(true);
+    expect(texts.some((s) => s.includes('-10'))).toBe(true);
+  });
+
+  it('two cases whose names read alike in a layer name keep a layer each', () => {
+    slabFrame();
+    const n = [...modelStore.nodes.keys()][1]!;
+    const a = modelStore.addLoadCase('Viento +X', 'W'), b = modelStore.addLoadCase('Viento X', 'W');
+    modelStore.addNodalLoad3D(n, 1, 0, 0, 0, 0, 0, a);
+    modelStore.addNodalLoad3D(n, 2, 0, 0, 0, 0, 0, b);
+    const dxf = proDxf({ contents: { ...allOff, loads: true }, projection: 'space', units: 'm', set: 'screen', diagramFactor: 1 });
+    const layers = new Set(entities(dxf).filter((e) => e.layer.includes('VIENTO')).map((e) => e.layer));
+    expect(layers.size).toBe(2);
   });
 });

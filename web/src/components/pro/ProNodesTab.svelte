@@ -9,6 +9,7 @@
   import { drawState } from '../../lib/store/draw-state.svelte';
   import { TWO_D_VERTICAL_AXIS_LABEL } from '../../lib/geometry/coordinate-system';
   import { findCoincidentNode } from '../../lib/engine/mesh-weld';
+  import { addNodeRow } from '../../lib/actions/node-rows';
   import { mergeNodesInto } from '../../lib/model/edit/cleanup';
   import { toDisplay, fromDisplay } from '../../lib/utils/units';
   import { unitQ } from '../../lib/store/display-units.svelte';
@@ -76,11 +77,9 @@
     if (x === null || y === null || z === null) return;
 
     if (row.id === null) {
-      // New node — or the one already at these coordinates: a twin in the same
-      // place looks joined and analyses as a cut.
-      const realId = modelStore.addNodeWelded(x, y, z);
+      // New node — or the one already at these coordinates, whose name stays (`addNodeRow`).
+      const realId = addNodeRow(x, y, z, row.name);
       rows[idx] = { ...rows[idx], id: realId };
-      if (row.name.trim()) modelStore.renameNode(realId, row.name);
     } else {
       // Only a real change is written: leaving a cell untouched is not an edit. Compared as the
       // cells show it, so a value that only went through the unit conversion is not a move.

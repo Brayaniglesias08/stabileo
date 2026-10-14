@@ -33,11 +33,14 @@ Para empezar:
 recuerda en este navegador:
 - **Datos y resultados: Excel y CSV.** El libro del proyecto (abajo). Elegís las hojas del modelo y
   de resultados, los casos y combinaciones, y cuántos puntos por barra leen las hojas a lo largo de
-  las barras. En CSV, una sola hoja sale como un archivo; varias, como un zip con una por hoja.
+  las barras. En CSV, un zip con un archivo por hoja, siempre con la portada y las convenciones;
+  los campos van separados por comas y los decimales con punto, en cualquier idioma.
 - **Memoria: Reporte PDF.** Ver [Reporte](#reporte).
 - **Dibujos e imágenes: DXF, SVG, PNG y JPG.** El DXF lleva el modelo en 3D o proyectado (planta,
   frente XZ, lateral YZ), en m, cm o mm, con una capa por contenido: barras, nodos, apoyos, placas
-  como caras 3D, numeración, cargas (una capa por caso), deformada, M, V, N y reacciones. Las
+  como caras 3D, numeración, cargas (una capa por caso, con temperaturas, tendones y desplazamientos
+  impuestos), deformada, M, V, N y reacciones. Una combinación SRSS o ABS se nombra como tal en las
+  opciones, los títulos de las figuras y el DXF, y sus valores van sin signo. Las
   imágenes son las figuras vectoriales del Básico más las placas: dibujadas como caras y, como
   figura propia, un resultado de placa en colores con su escala. Se dibujan desde la vista de la
   pantalla o desde una fija (planta, frente, lateral, isométrica). Los resultados pueden ser los de
@@ -188,13 +191,16 @@ seleccionadas antes de dividir.
 
 **Seleccionar.** Además de las opciones de Básico: arrastrar puede dibujar un **lazo** en lugar de
 un rectángulo. Cada herramienta del panel trabaja sobre el tipo elegido arriba (barras, nodos,
-placas, apoyos o cargas, o varios a la vez) y nunca deja seleccionado otro tipo; al cambiar de tipo,
-se suelta lo seleccionado del anterior, así Suprimir borra sólo lo que el panel dice.
+placas, apoyos o cargas, o varios a la vez) y nunca deja seleccionado otro tipo; al cambiar de tipo
+(también al apagar la selección de múltiples tipos), se suelta lo seleccionado del anterior, así
+Suprimir borra sólo lo que el panel dice. Lo que la vista oculta nunca se toma: cada herramienta
+trabaja sobre lo que se ve, y Por id nombra los números ocultos que no seleccionó.
 
 - **Como lo seleccionado:** para barras, paralelas, conectadas, misma sección, material, tipo,
   nivel, plano o pórtico; para nodos, conectados y mismo nivel; para placas, paralelas, mismo plano,
   conectadas, mismo espesor, material y nivel; para apoyos, mismo tipo y nivel; para cargas, mismo
-  tipo y mismo caso.
+  tipo y mismo caso. Mismo nivel es una sola banda para todos los tipos: dentro de 0,15 m, la banda
+  con que el diseño agrupa las barras en pisos.
 - **Paralelas a un eje o a un plano global:** barras, y placas (las que contienen el eje o yacen en
   el plano).
 - **Cargados en un caso:** las cargas mismas, o los nodos, barras y placas donde están.
@@ -424,9 +430,14 @@ tarjeta para agregar una carga y las tablas de cargas:
   Sobre todo el modelo o un grupo incluye sus placas; sobre barras elegidas, sólo esas barras. En las barras es ρ·A a lo largo de la barra, así que una viga toma su propio wL²/8;
   en una columna o una barra inclinada la parte a lo largo de la barra queda en ella, así que su
   axil crece hacia el extremo de abajo. En las placas es ρ·t por el área. Entra una vez, en ese caso, y cada combinación lo toma con el
-  factor de ese caso. Un proyecto nuevo no tiene peso propio hasta que se agrega. Un proyecto
-  guardado antes de esta regla se abre con el peso propio en su primer caso D, y un aviso lo dice; si tenía varios casos D, el aviso recuerda que antes el peso
-  se contaba en cada uno.
+  factor de ese caso. Un proyecto nuevo no tiene peso propio hasta que se agrega: su primera
+  barra o placa dibujada en PRO lo empieza sin él. Un proyecto guardado antes de esta regla, o un
+  modelo dibujado en Básico, se abre en PRO con el peso propio sobre todo el modelo, barras y
+  placas (también un proyecto sólo de placas), en su primer caso D: en el caso que Básico le
+  asignó cuando lo tiene, en un caso D nuevo cuando no tiene ninguno, y sin peso propio si estaba
+  apagado. Si ya tenía cargas, un aviso lo dice; si tenía varios casos D, el aviso recuerda que
+  antes el peso se contaba en cada uno. Una fila cuyo caso o dirección se cambia al de otra fila
+  (sobre lo mismo) pasa a ser esa fila, con el factor de la fila cambiada, y un aviso lo dice.
 - **Combinaciones:** manuales, o generadas automáticamente. Las de resistencia (últimas) son las de CIRSOC
   101-2025 (§2.3.2), con el viento a 1,0 W o 0,5 W. Las de servicio son una alternativa que se
   genera aparte: las gravitatorias a factor 1,0 y, con viento, las de CIRSOC 102-2025 B.4.2
@@ -545,7 +556,11 @@ argentina:
   modelo (sus nodos arman los niveles y el frente), y puede tomar un **perfil de presión** propio en
   lugar del de la norma: una presión lateral neta según la altura, dibujada al lado, que cubre el
   viento de cualquier norma leído de sus tablas (sólo el caso 1, sin presiones de cubierta ni el
-  mínimo de la norma).
+  mínimo de la norma). Sobre una región, el nivel más bajo toma su propia banda (la mitad del piso
+  de abajo) y las cargas de cubierta van sólo a las barras de la región. Una región sin nodos no
+  genera viento, y el diálogo lo dice. El viento de servicio Wa sigue la misma región y el mismo
+  perfil; sobre un perfil es el perfil por (V_servicio / V)². El perfil es para edificios: otra
+  estructura toma los coeficientes de la norma, y el diálogo avisa que el perfil no se usa.
   El **factor de efecto de ráfaga** sigue el §1.9. La frecuencia fundamental de cada dirección
   sale del análisis modal del modelo (con las masas del plan), de valores que escribís, de las
   fórmulas aproximadas del §1.9.3, o de declarar la estructura rígida. Por encima de 1 Hz el
@@ -557,7 +572,10 @@ argentina:
   sus mínimos para cubiertas de baja pendiente, Cs según la pendiente y la condición térmica,
   lluvia sobre nieve, y la carga no balanceada en cubiertas a dos aguas, un caso por cada sentido
   del viento. Las acumulaciones por arrastre, las cargas parciales y el hielo no se generan. La
-  cubierta se puede elegir (una zona, un grupo o una caja) en lugar de la que muestra la geometría.
+  cubierta se puede elegir (una zona, un grupo o una caja) en lugar de la que muestra la geometría:
+  sus barras de cubierta son las de tipo viga (30° de pendiente como mucho) que nada de lo elegido
+  cubre, así quedan afuera las columnas de una caja y los pisos bajo la cubierta. Una región sin
+  barras de cubierta no genera nieve, y el plan lo dice.
 - **Sismo** según INPRES-CIRSOC 103 (método estático). Esta parte se habilita cuando el proyecto
   tiene asignado un reglamento sísmico; si no lo tiene, el diálogo lo indica.
 
@@ -746,12 +764,25 @@ Los análisis avanzados de PRO:
   Sa (en g o m/s²) o Sd según el período, pegadas o escritas, leídas en forma lineal o en ejes
   logarítmicos, que se guardan con el proyecto. La fuente de masas puede llevar **pesos propios**,
   aparte de los casos de carga: kN/m en barras, kN/m² en losas, o kN/m² en un piso repartido a sus
-  vigas, sobre una zona, un grupo o una caja de coordenadas.
+  vigas, sobre una zona, un grupo o una caja de coordenadas. Las losas son las cáscaras con 30° de
+  pendiente como mucho (los muros quedan afuera); un peso de piso en todo el modelo va a cada nivel
+  que forman las barras horizontales.
 - **Caso de carga espectral:** un caso E puede tomar como resultado un espectro (el de la norma o
-  uno del proyecto), con los factores X/Y/Z de la excitación, la regla (SRSS, CQC o ABS), ξ y una
-  escala (γr/R para el de la norma). Cada modo se resuelve con su forma impuesta y los modos se
-  combinan valor por valor, cada uno con el signo del modo dominante; se calcula al resolver las
-  combinaciones y entra en ellas como cualquier caso, con ± si se piden los dos sentidos del sismo.
+  uno del proyecto), con los factores X/Y/Z de las direcciones, la regla (SRSS, CQC o ABS), ξ, una
+  escala (γr/R para el de la norma) y cómo se suman las direcciones. Cada dirección con factor se
+  calcula por separado: cada modo se resuelve con su forma impuesta (en forma lineal y sobre el eje,
+  como la estructura del análisis modal) y los modos se combinan valor por valor, cada uno con el
+  signo del modo dominante. Después las direcciones, valor por valor: por porcentajes,
+  |E1| + 0,3·|E2| con factores 1 y 0,3 (la regla 100/30), o por SRSS; con el signo de la dirección
+  principal. Se piden modos hasta que se mueva el 90 % de la masa en cada dirección (también Z), y
+  la resolución avisa cuando no se llega. Las reacciones son las de los apoyos (la de un resorte es
+  su fuerza). Se calcula al resolver las combinaciones; una combinación lineal que lo toma es el
+  resto de la combinación como se resolvió (de segundo orden con P-Delta por combinación, la parte
+  espectral sumada en primer orden) más la parte espectral, con ± si se piden los dos sentidos del
+  sismo. No entra en "Todas las cargas" ni en el control de estática; un modelo con barras de un
+  solo sentido o apoyos que se levantan rechaza las combinaciones que lo toman. Fuera de una tabla
+  del usuario, Sa se mantiene en los valores de los extremos, también en una tabla de Sd, como la
+  lee el análisis espectral.
 - **Historia en el tiempo**, con los métodos de Newmark o HHT-α. La configuración se guarda con el
   proyecto y viaja en el código de modelo. Cada dirección (X, Y y Z, a la vez) tiene su propia
   aceleración de base, con un factor de escala: senoidal, un registro leído de un archivo (PEER
@@ -798,10 +829,17 @@ Los análisis avanzados de PRO:
   guarda sus esfuerzos máximos y mínimos con la posición del tren. Un vehículo puede tener una
   separación variable entre dos ejes (se corre cada separación del rango), una trocha con una
   segunda línea de barras para la otra línea de ruedas (mitad de cada eje en cada una) y un factor
-  dinámico; se guarda y se abre como archivo. La carga de carril se crea como un caso de carga común
+  dinámico; se guarda y se abre como archivo, y un archivo que no cierra (una separación antes de
+  ningún eje, un rango desde 0 o de más de 100 m, una trocha o un factor no positivos) se rechaza.
+  La segunda línea se recorre en el sentido de la primera, se haya elegido como se haya elegido, y
+  el panel avisa si no es paralela, si no está a la trocha o si no mide lo mismo. Un vehículo que no
+  es simétrico también se corre en el otro sentido. La carga de carril se crea como un caso de carga común
   sobre las mismas barras. La envolvente no entra en las combinaciones ni en el diseño; para eso el
   vehículo se escribe como **casos estáticos por posición**, casos de tránsito que son alternativas
-  de un grupo, así cada combinación toma una posición por vez.
+  de un grupo, así cada combinación toma una posición por vez: cada separación, en ambos sentidos si
+  el vehículo no es simétrico, las posiciones del barrido (como máximo 150 casos por vez; agrandá el
+  paso de los casos o el de la separación). Los casos de dos vehículos multiplican las
+  combinaciones, y el panel dice cuánto.
 
 Salvo que el análisis diga otra cosa, estos análisis cargan la suma de todos los casos, sin
 mayorar. Usan el eje de las barras, sin su excentricidad, y las articulaciones de las

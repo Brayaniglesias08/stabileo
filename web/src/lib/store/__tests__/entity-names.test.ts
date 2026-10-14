@@ -87,3 +87,39 @@ describe('names on nodes and members', () => {
     expect([...modelStore.elements.values()][0]!.name).toBe('V101');
   });
 });
+
+import { addNodeRow } from '../../actions/node-rows';
+
+describe("a new row of the nodes table", () => {
+  it('names the node it creates, and one welded onto that has no name', () => {
+    const a = modelStore.addNode(0, 0, 0);
+    const b = addNodeRow(3, 0, 0, 'B2');
+    expect(modelStore.nodes.get(b)!.name).toBe('B2');
+    expect(addNodeRow(0, 0, 0, 'A0')).toBe(a);
+    expect(modelStore.nodes.get(a)!.name).toBe('A0');
+  });
+
+  it('welded onto a named node, leaves its name: "Apoyo A" stays "Apoyo A"', () => {
+    const a = modelStore.addNode(0, 0, 0);
+    modelStore.renameNode(a, 'Apoyo A');
+    expect(addNodeRow(0, 0, 0, 'B2')).toBe(a);
+    expect(modelStore.nodes.get(a)!.name).toBe('Apoyo A');
+  });
+});
+
+import { currentWorkbookSheets } from '../project-workbook';
+
+describe('names through an Excel round trip', () => {
+  it('a name starting with "-" comes back as it went: the cell guard is undone on reading', () => {
+    const { a, e } = frame();
+    modelStore.renameNode(a, '-A1');
+    modelStore.renameElement(e, '-V101');
+    const sheets = currentWorkbookSheets(5, { sheets: new Set(['Nodes', 'Materials', 'Sections', 'Members']) });
+    // Written guarded: no spreadsheet reads the cell as a formula.
+    const nodes = sheets.find((s) => s.name === 'Nodes')!;
+    expect(String(nodes.rows[1]![nodes.rows[0]!.indexOf('name')])).not.toMatch(/^-/);
+    const parsed = parseWorkbook(Object.fromEntries(sheets.map((s) => [s.name, s.rows])) as never);
+    expect(parsed.model.nodes.find((n) => n.id === a)).toMatchObject({ name: '-A1' });
+    expect(parsed.model.elements.find((x) => x.id === e)).toMatchObject({ name: '-V101' });
+  });
+});

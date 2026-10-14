@@ -1623,6 +1623,36 @@ function createModelStore() {
     }
   }
 
+  type SupportSprings = { kx?: number; ky?: number; kz?: number; krx?: number; kry?: number; krz?: number };
+  type SupportOpts = { angle?: number; isGlobal?: boolean; dx?: number; dy?: number; dz?: number; drx?: number; dry?: number; drz?: number; dofRestraints?: { tx: boolean; ty: boolean; tz: boolean; rx: boolean; ry: boolean; rz: boolean }; dofFrame?: 'global' | 'local'; dofLocalElementId?: number };
+
+  /** The support `addSupport` and `addSupports` write: only the fields given, and no zero offsets. */
+  function supportOf(id: number, nodeId: number, type: SupportType, springs?: SupportSprings, opts?: SupportOpts): Support {
+    const sup: Support = { id, nodeId, type: normalize2DSupportType(type) };
+    if (springs) {
+      if (springs.kx !== undefined) sup.kx = springs.kx;
+      if (springs.ky !== undefined) sup.ky = springs.ky;
+      if (springs.kz !== undefined) sup.kz = springs.kz;
+      if (springs.krx !== undefined) sup.krx = springs.krx;
+      if (springs.kry !== undefined) sup.kry = springs.kry;
+      if (springs.krz !== undefined) sup.krz = springs.krz;
+    }
+    if (opts?.angle !== undefined && opts.angle !== 0) sup.angle = opts.angle;
+    if (opts?.isGlobal !== undefined) sup.isGlobal = opts.isGlobal;
+    // Prescribed displacements
+    if (opts?.dx !== undefined && opts.dx !== 0) sup.dx = opts.dx;
+    const supportDz = opts?.dz ?? opts?.dy;
+    if (supportDz !== undefined && supportDz !== 0) sup.dz = supportDz;
+    if (opts?.drx !== undefined && opts.drx !== 0) sup.drx = opts.drx;
+    const supportDry = opts?.dry ?? opts?.drz;
+    if (supportDry !== undefined && supportDry !== 0) sup.dry = supportDry;
+    // Per-DOF 3D configuration; a copy, so supports added together do not share one.
+    if (opts?.dofRestraints) sup.dofRestraints = { ...opts.dofRestraints };
+    if (opts?.dofFrame) sup.dofFrame = opts.dofFrame;
+    if (opts?.dofLocalElementId !== undefined) sup.dofLocalElementId = opts.dofLocalElementId;
+    return sup;
+  }
+
   /**
    * The analysis rules a solve reads. Basic has its own self-weight toggle and no rule of its own:
    * a model that visited PRO carries a stated rule (`selfWeight: []` when it had none), and it
@@ -2702,7 +2732,7 @@ function createModelStore() {
       return id;
     },
 
-    addSupport(nodeId: number, type: SupportType, springs?: { kx?: number; ky?: number; kz?: number; krx?: number; kry?: number; krz?: number }, opts?: { angle?: number; isGlobal?: boolean; dx?: number; dy?: number; dz?: number; drx?: number; dry?: number; drz?: number; dofRestraints?: { tx: boolean; ty: boolean; tz: boolean; rx: boolean; ry: boolean; rz: boolean }; dofFrame?: 'global' | 'local'; dofLocalElementId?: number }): number {
+    addSupport(nodeId: number, type: SupportType, springs?: SupportSprings, opts?: SupportOpts): number {
       if (!_undoBatching) _pushUndo?.();
       // A space support on a standing plane model makes it a space one.
       if (opts?.dofRestraints || /3d$|^roller(XY|XZ|YZ)$/.test(type)) this.ensureSpaceCoordinates();
@@ -2714,31 +2744,33 @@ function createModelStore() {
         }
       }
       const id = nextId.support++;
-      const sup: Support = { id, nodeId, type: normalize2DSupportType(type) };
-      if (springs) {
-        if (springs.kx !== undefined) sup.kx = springs.kx;
-        if (springs.ky !== undefined) sup.ky = springs.ky;
-        if (springs.kz !== undefined) sup.kz = springs.kz;
-        if (springs.krx !== undefined) sup.krx = springs.krx;
-        if (springs.kry !== undefined) sup.kry = springs.kry;
-        if (springs.krz !== undefined) sup.krz = springs.krz;
-      }
-      if (opts?.angle !== undefined && opts.angle !== 0) sup.angle = opts.angle;
-      if (opts?.isGlobal !== undefined) sup.isGlobal = opts.isGlobal;
-      // Prescribed displacements
-      if (opts?.dx !== undefined && opts.dx !== 0) sup.dx = opts.dx;
-      const supportDz = opts?.dz ?? opts?.dy;
-      if (supportDz !== undefined && supportDz !== 0) sup.dz = supportDz;
-      if (opts?.drx !== undefined && opts.drx !== 0) sup.drx = opts.drx;
-      const supportDry = opts?.dry ?? opts?.drz;
-      if (supportDry !== undefined && supportDry !== 0) sup.dry = supportDry;
-      // Per-DOF 3D configuration
-      if (opts?.dofRestraints) sup.dofRestraints = opts.dofRestraints;
-      if (opts?.dofFrame) sup.dofFrame = opts.dofFrame;
-      if (opts?.dofLocalElementId !== undefined) sup.dofLocalElementId = opts.dofLocalElementId;
-      model.supports.set(id, sup);
+      model.supports.set(id, supportOf(id, nodeId, type, springs, opts));
       if (!_bulkMutating) model.supports = new Map(model.supports);
       return id;
+    },
+
+    /**
+     * The same support on many nodes, as `addSupport` on each, in one undo step: a node that holds
+     * one takes the new one in its place. One pass over the supports and one copy of the map, where
+     * `addSupport` per node scans and copies them all each time (8000 nodes took seconds).
+     */
+    addSupports(nodeIds: readonly number[], type: SupportType, springs?: SupportSprings, opts?: SupportOpts): number[] {
+      if (nodeIds.length === 0) return [];
+      if (!_undoBatching) _pushUndo?.();
+      if (opts?.dofRestraints || /3d$|^roller(XY|XZ|YZ)$/.test(type)) this.ensureSpaceCoordinates();
+      const into = _bulkMutating ? model.supports : new Map(model.supports);
+      const held = new Map<number, number>();
+      for (const [id, s] of into) held.set(s.nodeId, id);
+      const ids = nodeIds.map((nodeId) => {
+        const old = held.get(nodeId);
+        if (old !== undefined) into.delete(old);
+        const id = nextId.support++;
+        into.set(id, supportOf(id, nodeId, type, springs, opts));
+        held.set(nodeId, id);
+        return id;
+      });
+      if (!_bulkMutating) model.supports = into;
+      return ids;
     },
 
     addNodalLoad(nodeId: number, fx: number, fz: number, my: number = 0, caseId?: number): number {
@@ -4412,8 +4444,9 @@ function createModelStore() {
 
       // A shipped example that states no self-weight rule is given the one it was built for, and
       // quietly: nothing of the user's changed. A project the user saved is migrated by the PRO
-      // panel instead, with a notice (`self-weight-migration.ts`).
-      if (uiStore.analysisMode === 'pro' && model.analysis?.selfWeight === undefined && model.elements.size > 0) {
+      // panel instead, with a notice (`self-weight-migration.ts`). Shells are structure too.
+      if (uiStore.analysisMode === 'pro' && model.analysis?.selfWeight === undefined
+        && (model.elements.size > 0 || model.quads.size > 0 || model.plates.size > 0)) {
         const plan = planSelfWeight(model.loadCases, uiStore.includeSelfWeight);
         let selfWeight = plan.selfWeight;
         if (uiStore.includeSelfWeight && plan.caseId === null) {

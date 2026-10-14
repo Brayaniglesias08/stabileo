@@ -20,7 +20,8 @@ export type Quantity =
   | 'bimoment'         // kN·m² ↔ kip·ft² (the warping DOF's reaction)
   | 'distributedLoad'  // kN/m ↔ kip/ft
   | 'stress'           // MPa ↔ ksi
-  | 'area'             // m² ↔ in²
+  | 'area'             // m² ↔ in² (a cross-section's area; `sectionArea` for the section tables)
+  | 'planArea'         // m² ↔ ft²: a building's area (tributary, wall, roof), m² in every metric system
   | 'inertia'          // m⁴ ↔ in⁴
   | 'density'          // kN/m³ ↔ pcf (lb/ft³)
   | 'displacement'     // m ↔ in
@@ -46,6 +47,7 @@ const FACTORS: Record<Quantity, number> = {
   distributedLoad: 0.0685218,  // kN/m → kip/ft
   stress: 0.145038,            // MPa → ksi
   area: 1550.003,              // m² → in²
+  planArea: 10.7639104,        // m² → ft²
   inertia: 2402509.61,         // m⁴ → in⁴
   density: 6.36587,            // kN/m³ → pcf
   displacement: 39.3701,       // m → in
@@ -82,6 +84,7 @@ const MKS_FACTORS: Record<Quantity, number> = {
   distributedLoad: TF,
   stress: 1e6 / 98066.5,  // MPa → kgf/cm²: 1 kgf/cm² = 9.80665 N / 1 cm² = 98 066,5 Pa
   area: 1e4,
+  planArea: 1,
   inertia: 1e8,
   density: TF,
   displacement: 100,
@@ -107,6 +110,7 @@ const MKS_LABELS: Record<Quantity, string> = {
   distributedLoad: 'tf/m',
   stress: 'kgf/cm²',
   area: 'cm²',
+  planArea: 'm²',
   inertia: 'cm⁴',
   density: 'tf/m³',
   displacement: 'cm',
@@ -132,6 +136,7 @@ const SI_LABELS: Record<Quantity, string> = {
   distributedLoad: 'kN/m',
   stress: 'MPa',
   area: 'm²',
+  planArea: 'm²',
   inertia: 'm⁴',
   density: 'kN/m³',
   displacement: 'm',
@@ -170,6 +175,7 @@ const IMPERIAL_LABELS: Record<Quantity, string> = {
   distributedLoad: 'kip/ft',
   stress: 'ksi',
   area: 'in²',
+  planArea: 'ft²',
   inertia: 'in⁴',
   density: 'pcf',
   displacement: 'in',

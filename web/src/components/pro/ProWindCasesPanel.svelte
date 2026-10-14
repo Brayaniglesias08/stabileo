@@ -106,10 +106,10 @@
     <summary>{t('autoLoad.windOpenings')}</summary>
     <p class="al-hint">{t('autoLoad.windOpeningsHint')}</p>
     <div class="al-grid">
-      <label class="al-field"><span class="al-label">A₀</span><QuantityInput bind:value={a0} quantity="area" min={0} testid="al-wind-a0" wrap="al-unit-field" /></label>
-      <label class="al-field"><span class="al-label">A_g</span><QuantityInput bind:value={ag} quantity="area" min={0} testid="al-wind-ag" wrap="al-unit-field" /></label>
-      <label class="al-field"><span class="al-label">A₀i</span><QuantityInput bind:value={a0i} quantity="area" min={0} testid="al-wind-a0i" wrap="al-unit-field" /></label>
-      <label class="al-field"><span class="al-label">A_gi</span><QuantityInput bind:value={agi} quantity="area" min={0} testid="al-wind-agi" wrap="al-unit-field" /></label>
+      <label class="al-field"><span class="al-label">A₀</span><QuantityInput bind:value={a0} quantity="planArea" min={0} testid="al-wind-a0" wrap="al-unit-field" /></label>
+      <label class="al-field"><span class="al-label">A_g</span><QuantityInput bind:value={ag} quantity="planArea" min={0} testid="al-wind-ag" wrap="al-unit-field" /></label>
+      <label class="al-field"><span class="al-label">A₀i</span><QuantityInput bind:value={a0i} quantity="planArea" min={0} testid="al-wind-a0i" wrap="al-unit-field" /></label>
+      <label class="al-field"><span class="al-label">A_gi</span><QuantityInput bind:value={agi} quantity="planArea" min={0} testid="al-wind-agi" wrap="al-unit-field" /></label>
     </div>
     {#if classified}
       <div class="al-row">

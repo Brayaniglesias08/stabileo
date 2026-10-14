@@ -15,8 +15,8 @@
    * disagreeing.
    */
   import { uiStore, modelStore } from '../lib/store';
-  import { selectAll, invertSelection, selectByIds, loadedInCase, parallelToGlobal, seedMembersOf, membersAsKinds, type GlobalDirection } from '../lib/model/select-ops';
-  import { likeSelection, likeSeedCount, likeMembers, shellsParallelToGlobal, LIKE_OPS, ALL_LIKE_OPS, type LikeOp, type SelKind } from '../lib/model/select-like';
+  import { selectAll, invertSelection, loadedInCase, parallelToGlobal, seedMembersOf, membersAsKinds, type GlobalDirection } from '../lib/model/select-ops';
+  import { likeSelection, likeSeedCount, likeMembers, shellsParallelToGlobal, allOfKind, selectShownByIds, LIKE_OPS, ALL_LIKE_OPS, type LikeOp, type SelKind } from '../lib/model/select-like';
   import { selectionHistory, trackSelectionHistory } from '../lib/store/selection-history.svelte';
   import { viewState, visibleModel } from '../lib/store/view-state.svelte';
   import { selectWalkItem, type WalkKind } from '../lib/actions/selection-walk';
@@ -105,19 +105,17 @@
   trackSelectionHistory();
 
   /*
-   * In PRO, changing what is selected drops what was selected of the kinds no longer armed. Left
-   * lit, a member picked before arming supports stayed selected, out of the panel's sight, and the
-   * next Delete removed it with the supports.
+   * In PRO, changing the armed kinds drops what was selected of the kinds no longer armed. The
+   * store does it (`uiStore` `dropUnarmed`), so Multi turned off, a kind button, a table row and
+   * a panel's "pick" button all do.
    */
-  function dropUnarmed() {
-    if (basic) return;
-    const stale = (!armedKinds.has('nodes') && uiStore.selectedNodes.size > 0)
-      || (!armedKinds.has('elements') && uiStore.selectedElements.size > 0)
-      || (!armedKinds.has('shells') && uiStore.selectedShells.size > 0)
-      || (!armedKinds.has('supports') && uiStore.selectedSupports.size > 0)
-      || (!armedKinds.has('loads') && uiStore.selectedLoads.size > 0);
-    if (stale) applyArmed({});
-  }
+
+  /*
+   * Every operation reads the model as the view shows it, as All and Invert do (below): a hidden
+   * member, a support on a hidden node, a load on a hidden member are not taken. "Parallel" from
+   * beam 1 with beam 2 hidden took beam 2, and the Delete that followed removed it unseen.
+   */
+  const shown = () => ({ ...modelStore.model, ...visibleModel() });
 
   // ── More ways to select (PRO) ────────────────────────────────────
   let loadCase = $state<number | null>(null);
@@ -125,7 +123,7 @@
   function selectLoaded() {
     const id = loadCase ?? cases[0]?.id;
     if (id === undefined) return;
-    const sel = loadedInCase(modelStore.loads as never, id);
+    const sel = loadedInCase(visibleModel().loads as never, id);
     // Each armed kind takes its part: the loads themselves, or the nodes, members and plates they sit on.
     applyArmed({ nodes: sel.nodes, elements: sel.elements, shells: sel.shells, loads: sel.loads, supports: new Set() });
   }
@@ -135,9 +133,10 @@
   /** Members along the axis or in the plane; plates whose plane holds the axis or lies in the plane. */
   const parallelApplies = $derived(armedKinds.has('elements') || armedKinds.has('shells'));
   function selectParallel() {
+    const m = shown();
     applyArmed({
-      elements: parallelToGlobal(modelStore.nodes, modelStore.elements, globalDir),
-      shells: shellsParallelToGlobal(modelStore.model as never, globalDir),
+      elements: parallelToGlobal(m.nodes, m.elements, globalDir),
+      shells: shellsParallelToGlobal(m as never, globalDir),
     });
   }
 
@@ -145,7 +144,8 @@
   /*
    * The walk goes through what is selected, in the kinds armed above, one at a time, framing
    * each: members, nodes, plates, supports or loads. With nothing selected, through all of the
-   * first armed kind. Each step selects that item alone (`selectWalkItem`); the armed kinds stay.
+   * first armed kind that the view shows (`allOfKind`). Each step selects that item alone
+   * (`selectWalkItem`); the armed kinds stay.
    */
   type WalkId = number | string;
   let walk = $state<{ items: { kind: WalkKind; id: WalkId }[] } | null>(null);
@@ -162,12 +162,7 @@
     let items = kinds.flatMap((k) => [...sel[k]].sort((a, b) => order(a) - order(b)).map((id) => ({ kind: k, id })));
     if (!items.length) {
       const k = kinds[0] ?? 'elements';
-      const all: Record<WalkKind, () => WalkId[]> = {
-        elements: () => [...modelStore.elements.keys()], nodes: () => [...modelStore.nodes.keys()],
-        shells: () => [...[...modelStore.plates.keys()].map((id) => `p${id}`), ...[...modelStore.quads.keys()].map((id) => `q${id}`)],
-        supports: () => [...modelStore.supports.keys()], loads: () => modelStore.loads.map((l) => l.data.id),
-      };
-      items = all[k]().sort((a, b) => order(a) - order(b)).map((id) => ({ kind: k, id }));
+      items = allOfKind(shown() as never, k).map((id) => ({ kind: k, id }));
     }
     walk = { items };
     walkAt = -1;
@@ -235,16 +230,16 @@
   }
   function like(op: LikeOp) {
     if (basic) {
-      const r = likeMembers(modelStore.model as never, seedMembers, op);
+      const r = likeMembers(shown() as never, seedMembers, op);
       if (r.refusedKey && r.ids.length === 0) { byIdNote = t(r.refusedKey); return; }
       // As the kinds armed above: the members, their nodes, the supports and loads on them.
-      const sel = membersAsKinds(modelStore.model as never, r.ids, armedKinds);
+      const sel = membersAsKinds(shown() as never, r.ids, armedKinds);
       apply(sel);
       const n = sel.nodes.size + sel.elements.size + (sel.supports?.size ?? 0) + (sel.loads?.size ?? 0);
       byIdNote = tp('selection.likeCount', { n });
       return;
     }
-    const answers = likeSelection(modelStore.model as never, armedKinds, seeds, op, uiStore.is3DWorkspace);
+    const answers = likeSelection(shown() as never, armedKinds, seeds, op, uiStore.is3DWorkspace);
     const refused = answers.find((a) => a.refusedKey && a.ids.size === 0);
     if (refused && answers.every((a) => a.ids.size === 0)) { byIdNote = t(refused.refusedKey ?? 'selection.likeNone'); return; }
     const pick: Parameters<typeof applyArmed>[0] = {};
@@ -265,20 +260,23 @@
       const sel = { nodes: new Set<number>(), elements: new Set<number>(), shells: new Set<string>(), supports: new Set<number>(), loads: new Set<number>() };
       const notes: string[] = [];
       const missing: string[] = [];
+      const hidden: string[] = [];
       let bad: string[] = [];
       for (const k of byIdKinds) {
-        const r = selectByIds(modelStore.model as never, k, byIdText);
+        const r = selectShownByIds(modelStore.model as never, shown() as never, k, byIdText);
         for (const ch of ['nodes', 'elements', 'supports', 'loads'] as const) for (const id of r.selection[ch] ?? []) sel[ch].add(id);
         if (r.missing.length) missing.push(`${t(KIND_LABEL[k]).toLowerCase()} ${r.missing.join(', ')}`);
+        if (r.hidden.length) hidden.push(`${t(KIND_LABEL[k]).toLowerCase()} ${r.hidden.join(', ')}`);
         bad = r.bad;
       }
       apply(sel);
       if (missing.length) notes.push(tp('selection.missingIds', { ids: missing.join('; ') }));
+      if (hidden.length) notes.push(tp('selection.hiddenIds', { ids: hidden.join('; ') }));
       if (bad.length) notes.push(tp('selection.badIds', { text: bad.join(', ') }));
       byIdNote = notes.join(' ');
       return;
     }
-    const r = selectByIds(modelStore.model as never, byIdKind, byIdText);
+    const r = selectShownByIds(modelStore.model as never, shown() as never, byIdKind, byIdText);
     if (!uiStore.selectsKind(byIdKind)) uiStore.toggleSelectKind(byIdKind);
     apply(r.selection);
     /* Reported, not dropped: "select 1, 2, 9" quietly giving two of three is
@@ -286,6 +284,7 @@
        design run. */
     const parts: string[] = [];
     if (r.missing.length) parts.push(tp('selection.missingIds', { ids: r.missing.join(', ') }));
+    if (r.hidden.length) parts.push(tp('selection.hiddenIds', { ids: r.hidden.join(', ') }));
     if (r.bad.length) parts.push(tp('selection.badIds', { text: r.bad.join(', ') }));
     if (r.both.length) parts.push(tp('selection.bothShells', { ids: r.both.join(', ') }));
     byIdNote = parts.join(' ');
@@ -329,7 +328,7 @@
         class="sel-item"
         class:on
         aria-pressed={on}
-        onclick={() => { uiStore.toggleSelectKind(m.id); dropUnarmed(); }}
+        onclick={() => uiStore.toggleSelectKind(m.id)}
         data-testid={`select-mode-${m.id}`}
       >
         <span class="sel-name">

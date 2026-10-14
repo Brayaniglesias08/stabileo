@@ -8,14 +8,18 @@
  * - the members (lines), the nodes (points), the supports (a small symbol and its type);
  * - the shells, as 3D faces, the triangles' fourth corner repeating the third;
  * - the numbering of nodes, members and shells;
- * - the loads, one layer per load case: forces as arrows with their value, member loads as arrows
- *   along the stretch they act on, surface loads as their value at the shell's centre;
+ * - the loads, one layer per load case (unique: two names that read alike take their case's id):
+ *   forces as arrows with their value, member loads as arrows along the stretch they act on,
+ *   surface loads as their value at the shell's centre, temperatures and tendons as text on their
+ *   member or shell, imposed displacements as an arrow with their components; a kind not drawn
+ *   is named on the loads' layer, and a case with nothing drawn has no layer;
  * - the results of one set (a case, a combination, the envelope, or the screen's): the deformed
  *   shape (members and shells), the M, V and N diagrams in the plane the 3D view draws each one
  *   in (both bending planes when both carry load, each on its layer), and the reactions.
  *
  * Diagrams and the deformed shape are drawn to a size relative to the structure, as the figures
- * are; the RESULTS layer states the set and the scale used.
+ * are; the RESULTS layer states the set and the scale used, and that an SRSS or ABS set's values
+ * are magnitudes (printed without a sign).
  *
  * R12 (AC1009): LINE, POINT, TEXT, 3DFACE and 3D POLYLINE, which every CAD program reads. Pure:
  * the store part is `pro/dxf-export.ts`.
@@ -30,6 +34,7 @@ import { eiOf } from '../engine/member-deflection';
 import { distributedGlobalEnds, memberFrame3D } from '../engine/member-loads';
 import { projectNodeToScene } from '../geometry/coordinate-system';
 import { computeLocalAxes3D } from '../engine/local-axes-3d';
+import { magnitudeLabel } from '../engine/result-scopes';
 
 export type DxfProjection = 'space' | 'top' | 'front' | 'side';
 
@@ -212,54 +217,110 @@ export function writeDxf(model: DxfModel, opts: DxfWriteOptions, tr: (key: strin
 
   // ── The loads, a layer per case ──
   if (c.loads) {
-    const caseName = new Map(model.loadCases.map((lc) => [lc.id, lc.name]));
-    const layerOf = (caseId: number | undefined) => use(`${tr('dxf.layerLoads')}_${caseName.get(caseId ?? 1) ?? caseId ?? 1}`, COLOUR.loads);
+    // A layer per case, by name; two names that read alike as a layer name ("Viento +X" and
+    // "Viento X" are both LOADS_VIENTO_X) each take their case's id, so no case shares a layer.
+    const caseLayer = new Map<number, string>();
+    {
+      const named = model.loadCases.map((lc) => [lc.id, layerName(`${tr('dxf.layerLoads')}_${lc.name}`)] as const);
+      const seen = new Map<string, number>();
+      for (const [, l] of named) seen.set(l, (seen.get(l) ?? 0) + 1);
+      const taken = new Set<string>();
+      for (const [id, l] of named) {
+        let name = seen.get(l)! > 1 ? `${l}_${id}` : l;
+        while (taken.has(name)) name = `${name}_${id}`;
+        taken.add(name); caseLayer.set(id, name);
+      }
+    }
+    const layerOf = (caseId: number | undefined) => layerName(caseLayer.get(caseId ?? 1) ?? `${tr('dxf.layerLoads')}_${caseId ?? 1}`);
+    // What is not drawn is named on the loads' layer, not left out in silence.
+    const notDrawn = new Map<string, number>();
     for (const ld of model.loads) {
       const d = ld.data as { caseId?: number };
-      const L = layerOf(d.caseId);
-      if (ld.type === 'nodal3d') {
-        const q = ld.data; const p = scene(q.nodeId); if (!p) continue;
-        const F: V3 = [q.fx, q.fy, q.fz];
-        const mag = Math.hypot(...F);
-        if (mag > 1e-9) { arrow(L, p, F, arrowL); text(L, { x: p.x - F[0] / mag * arrowL, y: p.y - F[1] / mag * arrowL, z: p.z - F[2] / mag * arrowL }, `${fmt(mag)} kN`); }
-        const M = Math.hypot(q.mx, q.my, q.mz);
-        if (M > 1e-9) text(L, { x: p.x + 0.5 * textH, y: p.y, z: p.z - 1.2 * textH }, `M ${fmt(q.mx)}, ${fmt(q.my)}, ${fmt(q.mz)} kN·m`);
-      } else if (ld.type === 'distributed3d') {
-        const q = ld.data; const e = model.elements.get(q.elementId); if (!e) continue;
-        const fr = memberFrame3D(model as never, e); if (!fr) continue;
-        const pI = scene(e.nodeI), pJ = scene(e.nodeJ); if (!pI || !pJ) continue;
-        const { gI, gJ, a, b } = distributedGlobalEnds(q, fr.ax, opts.leftHand);
-        const Lm = fr.ax.L;
-        const peak = Math.max(Math.hypot(...gI), Math.hypot(...gJ));
-        if (!(peak > 1e-9) || !(Lm > 1e-9)) continue;
-        const at = (s: number): P3 => { const t = s / Lm; return { x: pI.x + (pJ.x - pI.x) * t, y: pI.y + (pJ.y - pI.y) * t, z: pI.z + (pJ.z - pI.z) * t }; };
-        for (let k = 0; k <= 4; k++) {
-          const s = a + ((b - a) * k) / 4, w = (s - a) / Math.max(b - a, 1e-12);
-          const g: V3 = [gI[0] + (gJ[0] - gI[0]) * w, gI[1] + (gJ[1] - gI[1]) * w, gI[2] + (gJ[2] - gI[2]) * w];
-          const m = Math.hypot(...g);
-          if (m > 1e-9) arrow(L, at(s), g, arrowL * (0.4 + 0.6 * m / peak));
+      // The layer is declared when something is drawn on it: an empty one would read as a case without loads.
+      const had = layers.has(layerOf(d.caseId));
+      const drawnBefore = body.length;
+      const L = use(layerOf(d.caseId), COLOUR.loads);
+      const mid = (elementId: number): P3 | undefined => { const e = model.elements.get(elementId); return e ? centroid([e.nodeI, e.nodeJ]) : undefined; };
+      // Each kind drawn on its own; a load with nothing to draw it on returns early.
+      const draw = (): void => {
+        if (ld.type === 'thermal') {
+          // A temperature, as text at the member's middle: ΔT, the gradients, or the strain it stands for.
+          const q = ld.data; const m = mid(q.elementId);
+          const parts = q.strain !== undefined ? [`ε0 ${fmt(q.strain * 1000)} ‰`]
+            : [q.dtUniform ? `ΔT ${fmt(q.dtUniform)} °C` : '', q.dtGradient ? `ΔTgz ${fmt(q.dtGradient)} °C` : '', q.dtGradientY ? `ΔTgy ${fmt(q.dtGradientY)} °C` : ''].filter(Boolean);
+          if (m && parts.length) text(L, { x: m.x, y: m.y, z: m.z + 0.6 * textH }, parts.join(', '));
+        } else if (ld.type === 'thermalQuad3d') {
+          const q = ld.data;
+          const s = q.on === 'plate' ? model.plates.get(q.quadId) : model.quads.get(q.quadId);
+          const m = s ? centroid([...s.nodes]) : undefined;
+          const parts = [q.dtUniform ? `ΔT ${fmt(q.dtUniform)} °C` : '', q.dtGradient ? `ΔTg ${fmt(q.dtGradient)} °C` : ''].filter(Boolean);
+          if (m && parts.length) text(L, { x: m.x, y: m.y, z: m.z - 1.2 * textH }, parts.join(', '));
+        } else if (ld.type === 'prestress3d') {
+          // The tendon's force and its eccentricities at I, the middle and J.
+          const q = ld.data; const m = mid(q.elementId);
+          if (m) text(L, { x: m.x, y: m.y, z: m.z - 1.2 * textH }, `P ${fmt(q.force)} kN, e ${fmt(q.eI)} / ${fmt(q.eM)} / ${fmt(q.eJ)} m`);
+        } else if (ld.type === 'displacement3d') {
+          // An imposed displacement: an arrow along the movement, and its components in mm and rad.
+          const q = ld.data; const p = scene(q.nodeId); if (!p) return;
+          const D: V3 = [q.dx ?? 0, q.dy ?? 0, q.dz ?? 0];
+          const mag = Math.hypot(...D);
+          if (mag > 1e-12) arrow(L, p, D, arrowL);
+          const parts = ([['dx', q.dx, 1000], ['dy', q.dy, 1000], ['dz', q.dz, 1000], ['rx', q.drx, 1], ['ry', q.dry, 1], ['rz', q.drz, 1]] as Array<[string, number | undefined, number]>)
+            .filter(([, v]) => v !== undefined && v !== 0).map(([k, v, f]) => `${k}=${fmt(v! * f)}${f === 1 ? ' rad' : ' mm'}`);
+          if (parts.length) text(L, { x: p.x + 0.5 * textH, y: p.y, z: p.z - 2.4 * textH }, parts.join(' '));
+        } else if (ld.type === 'nodal3d') {
+          const q = ld.data; const p = scene(q.nodeId); if (!p) return;
+          const F: V3 = [q.fx, q.fy, q.fz];
+          const mag = Math.hypot(...F);
+          if (mag > 1e-9) { arrow(L, p, F, arrowL); text(L, { x: p.x - F[0] / mag * arrowL, y: p.y - F[1] / mag * arrowL, z: p.z - F[2] / mag * arrowL }, `${fmt(mag)} kN`); }
+          const M = Math.hypot(q.mx, q.my, q.mz);
+          if (M > 1e-9) text(L, { x: p.x + 0.5 * textH, y: p.y, z: p.z - 1.2 * textH }, `M ${fmt(q.mx)}, ${fmt(q.my)}, ${fmt(q.mz)} kN·m`);
+        } else if (ld.type === 'distributed3d') {
+          const q = ld.data; const e = model.elements.get(q.elementId); if (!e) return;
+          const fr = memberFrame3D(model as never, e); if (!fr) return;
+          const pI = scene(e.nodeI), pJ = scene(e.nodeJ); if (!pI || !pJ) return;
+          const { gI, gJ, a, b } = distributedGlobalEnds(q, fr.ax, opts.leftHand);
+          const Lm = fr.ax.L;
+          const peak = Math.max(Math.hypot(...gI), Math.hypot(...gJ));
+          if (!(peak > 1e-9) || !(Lm > 1e-9)) return;
+          const at = (s: number): P3 => { const t = s / Lm; return { x: pI.x + (pJ.x - pI.x) * t, y: pI.y + (pJ.y - pI.y) * t, z: pI.z + (pJ.z - pI.z) * t }; };
+          for (let k = 0; k <= 4; k++) {
+            const s = a + ((b - a) * k) / 4, w = (s - a) / Math.max(b - a, 1e-12);
+            const g: V3 = [gI[0] + (gJ[0] - gI[0]) * w, gI[1] + (gJ[1] - gI[1]) * w, gI[2] + (gJ[2] - gI[2]) * w];
+            const m = Math.hypot(...g);
+            if (m > 1e-9) arrow(L, at(s), g, arrowL * (0.4 + 0.6 * m / peak));
+          }
+          const mid = at((a + b) / 2);
+          const qi = Math.hypot(...gI), qj = Math.hypot(...gJ);
+          text(L, { x: mid.x, y: mid.y, z: mid.z + 0.6 * arrowL }, Math.abs(qi - qj) < 1e-6 ? `${fmt(qi)} kN/m` : `${fmt(qi)}–${fmt(qj)} kN/m`);
+        } else if (ld.type === 'pointOnElement3d') {
+          const q = ld.data; const e = model.elements.get(q.elementId); if (!e) return;
+          const fr = memberFrame3D(model as never, e); const pI = scene(e.nodeI), pJ = scene(e.nodeJ);
+          if (!fr || !pI || !pJ || !(fr.ax.L > 1e-9)) return;
+          const t = q.a / fr.ax.L;
+          const p: P3 = { x: pI.x + (pJ.x - pI.x) * t, y: pI.y + (pJ.y - pI.y) * t, z: pI.z + (pJ.z - pI.z) * t };
+          const ax = fr.ax;
+          const F: V3 = q.frame === 'global'
+            ? [q.px ?? 0, q.py, q.pz]
+            : [0, 1, 2].map((i) => (q.px ?? 0) * ax.ex[i]! + q.py * ax.ey[i]! + q.pz * ax.ez[i]!) as V3;
+          const mag = Math.hypot(...F);
+          if (mag > 1e-9) { arrow(L, p, F, arrowL); text(L, { x: p.x - F[0] / mag * arrowL, y: p.y - F[1] / mag * arrowL, z: p.z - F[2] / mag * arrowL }, `${fmt(mag)} kN`); }
+        } else if (ld.type === 'surface3d') {
+          const q = ld.data;
+          const s = q.on === 'plate' ? model.plates.get(q.quadId) : model.quads.get(q.quadId);
+          const m = s ? centroid([...s.nodes]) : undefined;
+          if (m) text(L, m, q.qNodes?.length ? `${q.qNodes.map(fmt).join(' / ')} kN/m²` : `${fmt(q.q)} kN/m²`);
+        } else {
+          notDrawn.set(ld.type, (notDrawn.get(ld.type) ?? 0) + 1);
         }
-        const mid = at((a + b) / 2);
-        const qi = Math.hypot(...gI), qj = Math.hypot(...gJ);
-        text(L, { x: mid.x, y: mid.y, z: mid.z + 0.6 * arrowL }, Math.abs(qi - qj) < 1e-6 ? `${fmt(qi)} kN/m` : `${fmt(qi)}–${fmt(qj)} kN/m`);
-      } else if (ld.type === 'pointOnElement3d') {
-        const q = ld.data; const e = model.elements.get(q.elementId); if (!e) continue;
-        const fr = memberFrame3D(model as never, e); const pI = scene(e.nodeI), pJ = scene(e.nodeJ);
-        if (!fr || !pI || !pJ || !(fr.ax.L > 1e-9)) continue;
-        const t = q.a / fr.ax.L;
-        const p: P3 = { x: pI.x + (pJ.x - pI.x) * t, y: pI.y + (pJ.y - pI.y) * t, z: pI.z + (pJ.z - pI.z) * t };
-        const ax = fr.ax;
-        const F: V3 = q.frame === 'global'
-          ? [q.px ?? 0, q.py, q.pz]
-          : [0, 1, 2].map((i) => (q.px ?? 0) * ax.ex[i]! + q.py * ax.ey[i]! + q.pz * ax.ez[i]!) as V3;
-        const mag = Math.hypot(...F);
-        if (mag > 1e-9) { arrow(L, p, F, arrowL); text(L, { x: p.x - F[0] / mag * arrowL, y: p.y - F[1] / mag * arrowL, z: p.z - F[2] / mag * arrowL }, `${fmt(mag)} kN`); }
-      } else if (ld.type === 'surface3d') {
-        const q = ld.data;
-        const s = q.on === 'plate' ? model.plates.get(q.quadId) : model.quads.get(q.quadId);
-        const m = s ? centroid([...s.nodes]) : undefined;
-        if (m) text(L, m, q.qNodes?.length ? `${q.qNodes.map(fmt).join(' / ')} kN/m²` : `${fmt(q.q)} kN/m²`);
-      }
+      };
+      draw();
+      if (body.length === drawnBefore && !had) layers.delete(L);
+    }
+    if (notDrawn.size) {
+      const L = use(tr('dxf.layerLoads'), COLOUR.loads);
+      const at: P3 = { x: Number.isFinite(x0) ? x0 : 0, y: Number.isFinite(y0) ? y0 : 0, z: Number.isFinite(z0) ? z0 - 4 * textH : 0 };
+      text(L, at, `${tr('dxf.loadsNotDrawn')}: ${[...notDrawn].map(([k, n]) => `${k} ×${n}`).join(', ')}`);
     }
   }
 
@@ -296,7 +357,8 @@ export function writeDxf(model: DxfModel, opts: DxfWriteOptions, tr: (key: strin
         polyline(L, [base(0), ...dg.points.map((p) => tip(p.t, p.value)), base(1)], true);
         if (Math.abs(dg.maxAbsValue) > 0.02 * gmax) {
           const at = dg.points.find((p) => p.value === dg.maxAbsValue) ?? dg.points[0]!;
-          text(L, tip(at.t, at.value), fmt(isMoment ? -dg.maxAbsValue : dg.maxAbsValue));
+          // A moment is printed in the screen's sign; an SRSS or ABS magnitude has none to flip.
+          text(L, tip(at.t, at.value), fmt(isMoment && !r3d.magnitude ? -dg.maxAbsValue : dg.maxAbsValue));
         }
       }
     }
@@ -340,7 +402,8 @@ export function writeDxf(model: DxfModel, opts: DxfWriteOptions, tr: (key: strin
   if (r3d && notes.length) {
     const L = use(tr('dxf.layerResults'), COLOUR.results);
     const at: P3 = { x: Number.isFinite(x0) ? x0 : 0, y: Number.isFinite(y0) ? y0 : 0, z: Number.isFinite(z1) ? z1 + 4 * textH : 0 };
-    const lines = [opts.resultsName ? `${tr('dxf.resultsOf')} ${opts.resultsName}` : '', ...notes].filter(Boolean);
+    const m = magnitudeLabel(r3d, tr);
+    const lines = [opts.resultsName ? `${tr('dxf.resultsOf')} ${opts.resultsName}${m ? ` (${m})` : ''}` : m, ...notes].filter(Boolean);
     // Under one another in the drawing's own vertical: z in space and in the elevations, y in plan.
     lines.forEach((s, i) => text(L, opts.projection === 'top' ? { ...at, y: at.y - i * 1.6 * textH } : { ...at, z: at.z - i * 1.6 * textH }, s));
   }

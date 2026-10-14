@@ -6,14 +6,12 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { modelStore } from '../../store/model.svelte';
 import '../../store';
-import { initSolver, solveModal3D, solveSpectral3D } from '../wasm-solver';
-import { validateAndSolve3D } from '../solver-service';
+import { initSolver, solveModal3D, solveSpectral3D, solve3D } from '../wasm-solver';
 import { massDensities, spectralModesFrom } from '../dynamics/requests';
 import { combineModes, modeCoefficients, modeShapeField, modalCombine, userSa, G, type SpectralCaseDef } from '../spectral-case';
-import { imposed } from '../../store/spectral-cases';
+import { imposedInput } from '../../store/spectral-cases';
 import type { ModalResult3D } from '../result-types';
 import { designSpectrum, spectrumPoints, spectralOrdinate } from '../../codes/cirsoc103/spectrum';
-import type { AnalysisResults3D } from '../types-3d';
 
 beforeAll(async () => { await initSolver(); });
 beforeEach(() => { modelStore.clear(); });
@@ -38,7 +36,7 @@ describe('a spectral case', () => {
     const densities = massDensities(modelStore.materials);
     const modal = solveModal3D(input, densities, 6) as unknown as ModalResult3D;
     expect(modal.modes.length).toBeGreaterThan(2);
-    const unit = modal.modes.map((m) => validateAndSolve3D(imposed(modeShapeField(m)) as never, false, false) as AnalysisResults3D);
+    const unit = modal.modes.map((m) => solve3D(imposedInput(input, modeShapeField(m))));
     for (const rule of ['CQC', 'SRSS'] as const) {
       const engine = solveSpectral3D({
         solver: input, modes: spectralModesFrom(modal), densities,
@@ -46,7 +44,7 @@ describe('a spectral case', () => {
         direction: 'X', rule, xi: 0.05, importanceFactor: 1, reductionFactor: 1,
       }) as unknown as { displacements: Array<{ nodeId: number; ux: number }> };
       const def: SpectralCaseDef = { source: { kind: 'code' }, factors: { x: 1, y: 0, z: 0 }, rule: rule === 'CQC' ? 'cqc' : 'srss', xi: 0.05, scale: 1 };
-      const ours = combineModes(def.rule, def.xi, modeCoefficients(modal, def, () => 0.4 * G), unit);
+      const ours = combineModes(def.rule, def.xi, modeCoefficients(modal, 'x', () => 0.4 * G, def.scale), unit);
       for (const n of grid[2]!) {
         const e = engine.displacements.find((d) => d.nodeId === n)!.ux;
         const o = ours.displacements.find((d) => d.nodeId === n)!.ux;
@@ -61,7 +59,7 @@ describe('a spectral case', () => {
     const input = modelStore.buildSolverInput3D(false, false, { expandMemberOffsets: false })!;
     const modal = solveModal3D(input, massDensities(modelStore.materials), 2) as unknown as ModalResult3D;
     const field = modeShapeField(modal.modes[0]!);
-    const r = validateAndSolve3D(imposed(field) as never, false, false) as AnalysisResults3D;
+    const r = solve3D(imposedInput(input, field));
     for (const d of r.displacements) expect(d.ux).toBeCloseTo(field.get(d.nodeId)![0], 12);
   });
 

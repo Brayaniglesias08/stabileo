@@ -79,6 +79,11 @@ function createDrawState() {
       const { type, springs, opts } = support3DFrom(...supportRestraints(support), 'global');
       return modelStore.addSupport(nodeId, type, springs, opts);
     },
+    /** The support being drawn on many nodes, in one undo step (`modelStore.addSupports`). */
+    addSupportsAt(nodeIds: readonly number[]): number[] {
+      const { type, springs, opts } = support3DFrom(...supportRestraints(support), 'global');
+      return modelStore.addSupports(nodeIds, type, springs, opts);
+    },
 
     get memberStart() { return memberStart; },
     set memberStart(v: number | null) { memberStart = v; },

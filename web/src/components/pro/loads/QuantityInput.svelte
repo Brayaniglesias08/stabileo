@@ -22,6 +22,12 @@
     /** SI bounds, checked after the conversion. */
     min?: number;
     max?: number;
+    /**
+     * An SI bound the value must be strictly above (a gauge, a spring: 0 is not one). A value at
+     * or below it does not read and the field shows the kept value again: an unbound field whose
+     * parent dropped a 0 went on showing the 0 it had not taken.
+     */
+    above?: number;
     nullable?: boolean;
     placeholder?: string;
     testid?: string;
@@ -39,7 +45,7 @@
     onchange?: (si: T) => void;
   }
   let {
-    value = $bindable(), quantity, min, max, nullable = false, placeholder, testid, cls = '', wrap = '',
+    value = $bindable(), quantity, min, max, above, nullable = false, placeholder, testid, cls = '', wrap = '',
     ariaLabel, describedBy, title, disabled = false, showUnit = true, onchange,
   }: Props = $props();
 
@@ -56,7 +62,7 @@
     if (raw.trim() === '') return nullable ? null : undefined;
     const v = parseDecimal(raw);
     const si = v === null ? NaN : fromDisplay(v, quantity, system);
-    if (!Number.isFinite(si) || (min !== undefined && si < min) || (max !== undefined && si > max)) return undefined;
+    if (!Number.isFinite(si) || (min !== undefined && si < min) || (max !== undefined && si > max) || (above !== undefined && si <= above)) return undefined;
     return si;
   }
   function input(el: HTMLInputElement) {

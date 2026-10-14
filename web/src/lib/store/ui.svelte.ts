@@ -699,6 +699,25 @@ function createUIStore() {
     else selectKinds = new Set([...selectKinds, v]);
   }
 
+  /**
+   * In PRO, what is selected of a kind no longer armed is let go when the kinds are changed by
+   * hand: Multi turned off, a kind ticked off or switched to in the selection panel, the kind set
+   * by a panel or a table row (`PickKind`, the tables). Left lit, a support selected with Multi on
+   * stayed selected after Multi went off, out of the panel's sight, and the next Delete removed
+   * it. A tab that switches the kind (`proActiveTab`, `specSection`) keeps the selection: the
+   * context menu selects a node and opens the supports or loads card on it. Basic keeps #264's
+   * behaviour.
+   */
+  function dropUnarmed() {
+    if (analysisMode !== 'pro') return;
+    const takes = (k: SelectMode) => (multiKindSelect ? selectKinds.has(k) : selectMode === k);
+    if (!takes('nodes') && selectedNodes.size) selectedNodes = new Set();
+    if (!takes('elements') && !takes('stress') && selectedElements.size) selectedElements = new Set();
+    if (!takes('shells') && selectedShells.size) selectedShells = new Set();
+    if (!takes('supports') && selectedSupports.size) selectedSupports = new Set();
+    if (!takes('loads') && selectedLoads.size) selectedLoads = new Set();
+  }
+
   return {
     get loadCasesEnabled() { return loadCasesEnabled; },
     set loadCasesEnabled(v: boolean) { loadCasesEnabled = v; },
@@ -820,7 +839,7 @@ function createUIStore() {
     onEditToolArmed(fn: () => void) { _onEditToolArmed = fn; },
 
     get selectMode() { return selectMode; },
-    set selectMode(v: SelectMode) { applySelectMode(v); },
+    set selectMode(v: SelectMode) { applySelectMode(v); dropUnarmed(); },
 
     get multiKindSelect() { return multiKindSelect; },
     /**
@@ -831,7 +850,7 @@ function createUIStore() {
      */
     set multiKindSelect(v: boolean) {
       multiKindSelect = v;
-      if (!v) selectKinds = new Set([selectMode]);
+      if (!v) { selectKinds = new Set([selectMode]); dropUnarmed(); }
     },
 
     get selectKinds() { return selectKinds; },
@@ -849,7 +868,7 @@ function createUIStore() {
      * ticking something is what brings it back.
      */
     toggleSelectKind(k: SelectMode): void {
-      if (!multiKindSelect) { applySelectMode(k); return; }
+      if (!multiKindSelect) { applySelectMode(k); dropUnarmed(); return; }
       const next = new Set(selectKinds);
       if (next.has(k)) {
         if (next.size === 1) return;
@@ -859,6 +878,7 @@ function createUIStore() {
         next.add(k);
       }
       selectKinds = next;
+      dropUnarmed();
     },
 
     get selectedNodes() { return selectedNodes; },

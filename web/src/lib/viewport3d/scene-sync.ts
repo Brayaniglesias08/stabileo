@@ -4,7 +4,7 @@
 // These functions reconcile the Three.js scene graph with the model store:
 //   - syncNodes(), syncElements(), syncSupports(), syncLoads(), syncSelection()
 
-import { shellLoadSamples } from '../engine/shell-load-integration';
+import { shellLoadExtent, shellLoadSamples } from '../engine/shell-load-integration';
 import { distributedGlobalEnds } from '../engine/member-loads';
 import { pointGlobal } from '../engine/member-point-loads';
 import { tendonEccentricity } from '../engine/prestress';
@@ -881,7 +881,10 @@ export function syncLoads(ctx: SceneSyncContext): void {
       if (!shell) continue;
       const ns = shell.nodes.map((nid: number) => modelStore.nodes.get(nid));
       if (ns.some((n: any) => !n)) continue;
-      batch.markArea((ns as Array<{ x: number; y: number; z?: number }>).map((n) => projectNodeToScene(n as never, project2D)));
+      // The fill a click takes is the part the load covers (a rectangle, a range), not the whole
+      // shell: a load on a rectangle of a slab claimed every click on the slab.
+      const cornersInScene = (ns as Array<{ x: number; y: number; z?: number }>).map((n) => projectNodeToScene(n as never, project2D));
+      for (const piece of shellLoadExtent(onPlate ? 'plate' : 'quad', cornersInScene, d)) batch.markArea(piece.map(([x, y, z]) => ({ x, y, z })));
       if (!onPlate && !d.frame && !d.qNodes && !d.vary && !d.region) {
         batch.addSurfaceLoad(ns as Array<{ x: number; y: number; z: number }>, d.q, maxQ, cc);
       } else {

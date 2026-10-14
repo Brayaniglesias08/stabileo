@@ -119,19 +119,16 @@ export function workbookZip(sheets: readonly WorkbookSheet[]): Uint8Array {
 }
 
 /**
- * The chosen sheets as CSV: one file when one sheet of data was chosen, else a zip with one per
- * sheet, the cover and the conventions included.
+ * The chosen sheets as CSV: a zip with one file per sheet, the cover and the conventions always
+ * included, as the dialog says (`proExport.dataAlways`). One sheet of data used to come as that
+ * sheet alone, without the units and the signs its numbers are in.
  */
 export function downloadProjectCsv(stations: StationSpec, opts: WorkbookOptions = {}): void {
   const safeName = modelStore.model.name.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ _-]/g, '').trim() || t('file.defaultAnalysis');
   const sheets = currentWorkbookSheets(stations, opts);
   const data = sheets.filter((s) => s.name !== 'Cover' && s.name !== 'Conventions');
-  if (data.length === 1) {
-    const s = data[0]!;
-    downloadBlob(new Blob([toCsv(s.rows[0]!.map(String), s.rows.slice(1))], { type: 'text/csv' }), `${safeName}_${s.name}.csv`);
-    return;
-  }
-  downloadBlob(new Blob([workbookZip(sheets) as BlobPart], { type: 'application/zip' }), `${safeName}_csv.zip`);
+  const name = data.length === 1 ? `${safeName}_${data[0]!.name}_csv.zip` : `${safeName}_csv.zip`;
+  downloadBlob(new Blob([workbookZip(sheets) as BlobPart], { type: 'application/zip' }), name);
 }
 
 /** Write the project workbook: xlsx when it fits, a zip of CSVs otherwise. */

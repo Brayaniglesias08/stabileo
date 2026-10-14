@@ -33,11 +33,14 @@ that says what comes out, with everything on by default; what you turn off is re
 browser:
 - **Data and results: Excel and CSV.** The project workbook (below). You choose the model and
   result sheets, the cases and combinations, and how many points per member the sheets along the
-  members read. As CSV, one sheet comes out as one file; several, as a zip with one per sheet.
+  members read. As CSV, a zip with one file per sheet, the cover and the conventions always
+  included; fields are separated by commas and decimals written with a point, whatever the language.
 - **Report: PDF report.** See [Report](#report).
 - **Drawings and pictures: DXF, SVG, PNG and JPG.** The DXF carries the model in 3D or projected
   (plan, front XZ, side YZ), in m, cm or mm, with a layer per content: members, nodes, supports,
-  shells as 3D faces, numbering, loads (a layer per case), deformed shape, M, V, N and reactions.
+  shells as 3D faces, numbering, loads (a layer per case, with temperatures, tendons and imposed
+  displacements), deformed shape, M, V, N and reactions. An SRSS or ABS combination is named as one
+  in the choices, the figure titles and the DXF, and its values are printed without a sign.
   The pictures are Basic's vector figures plus the shells: drawn as faces and, as a figure of their
   own, a shell result in colour with its scale. They are drawn from the screen's view or a fixed one
   (plan, front, side, isometric). The results can be the screen's or those of any case,
@@ -181,13 +184,17 @@ they are split.
 
 **Select.** Beyond Basic's options: dragging can draw a **lasso** instead of a rectangle. Every
 tool in the panel works on the kind chosen above it (members, nodes, plates, supports or loads, or
-several at once) and never leaves another kind selected; changing the kind lets go of what was
-selected of the previous one, so Delete removes only what the panel says.
+several at once) and never leaves another kind selected; changing the kind (turning off "Select
+several kinds at once" too) lets go of what was selected of the previous one, so Delete removes
+only what the panel says.
+What the view hides is never taken: every tool works on what is shown, and By id names the hidden
+numbers it did not select.
 
 - **Like the selection:** for members, parallel, connected, same section, material, type, level,
   plane or frame; for nodes, connected and same level; for plates, parallel, same plane, connected,
   same thickness, material and level; for supports, same type and level; for loads, same type and
-  same case.
+  same case. Same level is one band for every kind: within 0.15 m, the band design groups members
+  into storeys by.
 - **Parallel to a global axis or plane:** members, and plates (those containing the axis or lying
   in the plane).
 - **Loaded in a case:** the loads themselves, or the nodes, members and plates they sit on.
@@ -410,10 +417,14 @@ load, and the load tables:
   On the whole model or a group it includes their plates; on chosen members, only those members. On members it is ρ·A along the member, so a beam takes its own wL²/8; on
   a column or an inclined member the part along the member stays in it, so its axial force grows
   towards the lower end. On plates it is ρ·t over the area. It goes in once, in that case, and each combination takes it with
-  that case's factor. A new project has no self-weight until it is added. A project saved before
-  this rule opens with self-weight in its first D case,
-  and a notice says so; if it had several D cases, the notice recalls that the weight used to be
-  counted in each of them.
+  that case's factor. A new project has no self-weight until it is added: its first member or
+  plate drawn in PRO starts it with none. A project saved before this rule, or a model drawn in
+  Basic, opens in PRO with self-weight on its whole model, members and plates (a project of
+  plates alone too), in its first D case: in the case Basic was given for it when it has one, in
+  a new D case when it has no D case, and none when self-weight was off. When it already had
+  loads a notice says so; if it had several D cases, the notice recalls that the weight used to
+  be counted in each of them. A row whose case or direction is changed into another row's (on the
+  same reach) becomes that row, with the factor of the row changed, and a notice says so.
 - **Combinations:** manual, or generated automatically. The strength ones are CIRSOC 101-2025's
   (§2.3.2), with wind at 1.0 W or 0.5 W. The service ones are an alternative generated separately:
   gravity at factor 1.0 and, with wind, CIRSOC 102-2025 B.4.2's (0.6 D + 0.6 W and
@@ -524,7 +535,12 @@ load, and the load tables:
   The wind can act on a **zone, a group or a box of coordinates** instead of the whole model (its
   nodes make the levels and the front), and can take a **pressure profile** of your own in place of
   the code's: a net lateral pressure against height, drawn beside it, which covers any code's wind
-  read off its tables (case 1 only, without roof pressures or the code's minimum).
+  read off its tables (case 1 only, without roof pressures or the code's minimum). On a region, the
+  lowest level takes its own band (half the storey below it), and roof loads go only on the
+  region's members. A region that holds no node generates no wind, and the dialog says so. Service
+  wind Wa follows the same region and profile; on a profile it is the profile times
+  (V_service / V)². A profile applies to buildings only: another structure takes the code's
+  coefficients, and the dialog says the profile is not used.
   The **gust effect factor** follows §1.9. Each direction's fundamental frequency comes from the
   model's own modal analysis (with the plan's masses), from numbers you type, from the
   approximate formulas of §1.9.3, or from declaring the structure rigid. Above 1 Hz the building
@@ -536,7 +552,9 @@ load, and the load tables:
   minimum on low-slope roofs, Cs from the slope and the thermal condition, rain on snow, and the
   unbalanced load on gable roofs, one case per wind direction. Drifts, partial loads and ice are
   not generated. The roof can be chosen (a zone, a group or a box) instead of the one the geometry
-  shows.
+  shows: its roof members are the beam-like ones (sloping 30° at most) that nothing else chosen
+  covers, so a box's columns and the floors under the roof are left out. A region with no roof
+  member generates no snow, and the plan says so.
 - **Earthquake** to INPRES-CIRSOC 103 (static method). This part is enabled when the project has a
   seismic regulation assigned; if it has none, the dialog says so.
 
@@ -720,11 +738,23 @@ PRO's advanced analyses:
   against period, pasted or typed, read linearly or on log axes, kept with the project. The mass
   source can carry **weights of its own**, apart from the load cases: kN/m on members, kN/m² on
   slabs, or kN/m² on a floor carried to its beams, on a zone, a group or a box of coordinates.
+  Slabs are the shells sloping 30° at most (walls are left out); a floor weight on the whole model
+  goes on every level the horizontal members make.
 - **Spectral load case:** an E case can take a spectrum (the code's or the project's) as its result,
-  with the excitation's X/Y/Z factors, the rule (SRSS, CQC or ABS), ξ and a scale (γr/R for the
-  code's). Each mode is solved with its shape imposed and the modes are combined quantity by
-  quantity, each value with the dominant mode's sign; it is worked out when the combinations are
-  solved and enters them as any case, with ± when both senses of the earthquake are asked for.
+  with the X/Y/Z direction factors, the rule (SRSS, CQC or ABS), ξ, a scale (γr/R for the
+  code's) and how the directions add. Each direction with a factor is worked out on its own: each
+  mode is solved with its shape imposed (linearly, on the centerline, as the modal analysis has the
+  structure) and the modes are combined quantity by quantity, each value with the dominant mode's
+  sign. Then the directions, value by value: as percentages, |E1| + 0.3·|E2| with factors 1 and
+  0.3 (the 100/30 rule), or by SRSS; with the main direction's sign. Modes are asked for until 90 %
+  of the mass moves in each direction (Z too), and the solve says when it does not get there.
+  Reactions are the supports' own (a spring's is its force). It is worked out when the combinations
+  are solved; a linear combination taking it is the rest of the combination as solved (second order
+  under P-Delta per combination, the spectral part added at first order) plus the spectral part,
+  with ± when both senses of the earthquake are asked for. It is not part of "All loads" nor of
+  the statics check; a model with one-way members or lifting supports refuses combinations taking
+  it. Outside a user table Sa is held at the end values, an Sd table too, as the spectral analysis
+  reads it.
 - **Time history**, with Newmark or HHT-α. The settings are saved with the project and travel in
   the model code. Each direction (X, Y and Z, at once) has its own ground acceleration, with a
   scale factor: sinusoidal, a record read from a file (PEER .AT2, a time–acceleration table or a
@@ -769,10 +799,16 @@ PRO's advanced analyses:
   order, and each member keeps its largest and smallest forces with the train's position. A vehicle
   can have a variable gap between two axles (every spacing in the range is run), a gauge with a
   second line of members for the other wheel line (half of each axle on each), and a dynamic factor;
-  it is saved and opened as a file. The lane load is created as an ordinary load case on the same
+  it is saved and opened as a file, and a file that does not hold together (a gap before no axle,
+  a range of 0 or past 100 m, a gauge or factor that is not positive) is refused. The second line
+  is run the way the first one is, however it was picked, and the panel says when it is not
+  parallel, not the gauge apart or not as long. A vehicle that is not symmetric also runs the other
+  way. The lane load is created as an ordinary load case on the same
   members. The envelope does not enter the combinations or the design; for them the vehicle is
   written as **static cases by position**, traffic cases that are alternatives of one group, so each
-  combination takes one position at a time.
+  combination takes one position at a time: every spacing, both ways when the vehicle is not
+  symmetric, the sweep's positions (at most 150 cases at a time; widen the case step or the spacing
+  step). Two vehicles' cases multiply the combinations, and the panel says by how much.
 
 Unless the analysis says otherwise, these analyses load the unfactored sum of every case. They use
 the members' axis, without their offsets, and the hinges of the **Hinge i** and

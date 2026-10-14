@@ -27,6 +27,8 @@ import type { SolverInput3D, SolverLoad3D, AnalysisResults3D } from './types-3d'
 import type { LoadTrain } from './moving-loads';
 import { buildSolverInput3D, type ModelData } from './solver-service';
 import { withoutSettlement } from './settlement-case';
+// The position cases read the same symmetry and the same reversed train (`vehicles.ts`).
+import { isSymmetric, reversedTrain, usableStep } from './vehicles';
 
 export interface PathSegment3D {
   elementId: number;
@@ -117,15 +119,6 @@ export function trainLoads(input: SolverInput3D, path: PathSegment3D[], train: L
   return loads;
 }
 
-const isSymmetric = (train: LoadTrain) => {
-  const max = Math.max(...train.axles.map((a) => a.offset));
-  return train.axles.every((a) => train.axles.some((b) => Math.abs(b.offset - (max - a.offset)) < 1e-6 && Math.abs(b.weight - a.weight) < 1e-6));
-};
-const reversedTrain = (train: LoadTrain): LoadTrain => {
-  const max = Math.max(...train.axles.map((a) => a.offset));
-  return { name: train.name, axles: train.axles.map((a) => ({ offset: max - a.offset, weight: a.weight })) };
-};
-
 function blank(): Record<EnvelopeComponent, { max: Extreme; min: Extreme }> {
   const e = () => ({ max: { value: 0, x: 0, position: 0 }, min: { value: 0, x: 0, position: 0 } });
   return { n: e(), vy: e(), vz: e(), my: e(), mz: e(), torsion: e() };
@@ -194,7 +187,8 @@ export function movingLoadBase3D(model: ModelData, leftHand = false): SolverInpu
 export async function sweepMovingLoad3D(
   base: SolverInput3D, path: PathSegment3D[], train: LoadTrain, opts: MovingLoad3DOptions = {},
 ): Promise<MovingEnvelope3D> {
-  const step = opts.step && opts.step > 0 ? opts.step : 0.25;
+  // At least `MIN_STEP`: a step of a few micrometres ran for ever.
+  const step = usableStep(opts.step ?? 0, 0.25);
   const total = path.reduce((s, p) => s + p.length, 0);
   const maxOff = Math.max(0, ...train.axles.map((a) => a.offset));
   const forward: number[] = [];

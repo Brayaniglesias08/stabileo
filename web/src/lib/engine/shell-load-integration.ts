@@ -338,6 +338,31 @@ export function shellLoadForces(kind: 'quad' | 'plate', pts: readonly ShellPoint
   }
 
   // A piece of it: clipped in its plane, integrated over triangles.
+  const f = (q: P2): number[] => {
+    const [a, b] = natural(el, q);
+    const N = shape(el.kind, a, b);
+    const v = field(onPlane(el, q), N);
+    return [...N.map((x) => x * v), 1];
+  };
+  const acc = new Array<number>(size).fill(0);
+  for (const piece of loadedPieces(el, spec)) {
+    const v = polygonIntegral(piece, f, size, 2);
+    // The fan follows the piece's winding; a clockwise region integrates negative.
+    const s = polygonArea(piece) >= 0 ? 1 : -1;
+    for (let k = 0; k < size; k++) acc[k] += v[k]! * s;
+  }
+  return done(acc);
+}
+
+/**
+ * The part of an element a load with a region or a range covers, as polygons in its plane: the
+ * element clipped to the range, or the region (openings out) clipped to the element and the range.
+ * One rule for the integration (`shellLoadForces`) and the extent drawn and clicked
+ * (`shellLoadExtent`).
+ */
+function loadedPieces(el: Element, spec: Pick<ShellLoadSpec, 'vary' | 'region'>): P2[][] {
+  const vary = spec.vary ? { ...spec.vary, dir: unit(spec.vary.dir) } : undefined;
+  const lo = vary ? Math.min(vary.c1, vary.c2) : -Infinity, hi = vary ? Math.max(vary.c1, vary.c2) : Infinity;
   const ccw = polygonArea(el.p) >= 0 ? el.p : [...el.p].reverse();
   const toPlane = (P: Vec3, normal: Vec3): P2 | null => {
     const nn = unit(normal);
@@ -357,45 +382,36 @@ export function shellLoadForces(kind: 'quad' | 'plate', pts: readonly ShellPoint
     return out;
   };
   const cut = (poly: P2[]): P2[] => inRange(clipConvex(poly, ccw));
-  const f = (q: P2): number[] => {
-    const [a, b] = natural(el, q);
-    const N = shape(el.kind, a, b);
-    const v = field(onPlane(el, q), N);
-    return [...N.map((x) => x * v), 1];
-  };
-  const integratePiece = (piece: P2[]): number[] => {
-    if (piece.length < 3) return new Array<number>(size).fill(0);
-    const v = polygonIntegral(piece, f, size, 2);
-    // The fan follows the piece's winding; a clockwise region integrates negative.
-    const s = polygonArea(piece) >= 0 ? 1 : -1;
-    return v.map((x) => x * s);
-  };
-  const integrate = (poly: P2[]): number[] => integratePiece(cut(poly));
+  if (!spec.region) return [cut([...ccw])].filter((p) => p.length >= 3);
+  const outer = spec.region.points.map((P) => toPlane(P, spec.region!.normal));
+  if (outer.some((p) => !p)) return [];
+  // The openings that reach the element; one projected edge-on covers nothing.
+  const xs = ccw.map((p) => p[0]), ys = ccw.map((p) => p[1]);
+  const near = (h: P2[]) => Math.max(...h.map((p) => p[0])) > Math.min(...xs) && Math.min(...h.map((p) => p[0])) < Math.max(...xs)
+    && Math.max(...h.map((p) => p[1])) > Math.min(...ys) && Math.min(...h.map((p) => p[1])) < Math.max(...ys);
+  const holes = (spec.region.holes ?? []).map((h) => h.map((P) => toPlane(P, spec.region!.normal)))
+    .filter((h): h is P2[] => h.length >= 3 && h.every((p) => !!p)).filter(near);
+  if (!holes.length) return [cut(outer as P2[])].filter((p) => p.length >= 3);
+  // In the outline and in no opening, as the drawing shows it: an opening is not subtracted
+  // whole, since it may reach past the outline or overlap another.
+  return regionCells(ccw, outer as P2[], holes).map(inRange).filter((p) => p.length >= 3);
+}
 
-  let acc: number[];
-  if (spec.region) {
-    const outer = spec.region.points.map((P) => toPlane(P, spec.region!.normal));
-    if (outer.some((p) => !p)) return done(new Array<number>(size).fill(0));
-    // The openings that reach the element; one projected edge-on covers nothing.
-    const xs = ccw.map((p) => p[0]), ys = ccw.map((p) => p[1]);
-    const near = (h: P2[]) => Math.max(...h.map((p) => p[0])) > Math.min(...xs) && Math.min(...h.map((p) => p[0])) < Math.max(...xs)
-      && Math.max(...h.map((p) => p[1])) > Math.min(...ys) && Math.min(...h.map((p) => p[1])) < Math.max(...ys);
-    const holes = (spec.region.holes ?? []).map((h) => h.map((P) => toPlane(P, spec.region!.normal)))
-      .filter((h): h is P2[] => h.length >= 3 && h.every((p) => !!p)).filter(near);
-    if (!holes.length) acc = integrate(outer as P2[]);
-    else {
-      // In the outline and in no opening, as the drawing shows it: an opening is not subtracted
-      // whole, since it may reach past the outline or overlap another.
-      acc = new Array<number>(size).fill(0);
-      for (const cell of regionCells(ccw, outer as P2[], holes)) {
-        const v = integratePiece(inRange(cell));
-        for (let k = 0; k < size; k++) acc[k] += v[k]!;
-      }
-    }
-  } else {
-    acc = integrate([...ccw]);
-  }
-  return done(acc);
+/**
+ * The part of a shell an area load covers, as polygons in space: the whole shell, or the part
+ * inside the region (openings out) and the variation's range, as `shellLoadForces` integrates it.
+ * What a click on the load's fill takes (`LoadArrowsBatched.markArea`), so a load on a rectangle
+ * of a slab does not claim the whole slab. Empty when it covers nothing.
+ */
+export function shellLoadExtent(kind: 'quad' | 'plate', pts: readonly ShellPoint[], spec: Pick<ShellLoadSpec, 'vary' | 'region'>): Vec3[][] {
+  const el = element(kind, pts);
+  if (!el) return [];
+  if (spec.vary && spec.vary.c1 === spec.vary.c2) return [];
+  const vary = spec.vary ? { ...spec.vary, dir: unit(spec.vary.dir) } : undefined;
+  const lo = vary ? Math.min(vary.c1, vary.c2) : -Infinity, hi = vary ? Math.max(vary.c1, vary.c2) : Infinity;
+  const wholeInRange = !vary || el.X.every((x) => { const c = dot(vary.dir, x); return c >= lo - 1e-12 && c <= hi + 1e-12; });
+  if (!spec.region && wholeInRange) return [el.X.map((x): Vec3 => [...x])];
+  return loadedPieces(el, spec).map((piece) => piece.map((q) => onPlane(el, q)));
 }
 
 /**

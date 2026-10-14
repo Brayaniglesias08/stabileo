@@ -146,10 +146,16 @@ interface RoofMember { id: number; mid: { x: number; y: number }; dx: number; dy
  * The members the roof pressures go on (see the header): beam-like members above the ground
  * that nothing higher covers in plan (`plan-gravity.ts`). A lower roof beside a step is a roof;
  * it used to be left out, because a column of the higher part rises from its nodes.
+ *
+ * `only`, a roof chosen by a region (`snow-loads.ts`), is read the same way among its own
+ * members: the beam-like ones nothing higher of them covers. A region takes every member with
+ * both ends in it, so a box over a shed brought its upper columns (read as a 90° slope: 52°
+ * for a 14° roof, C_s 0,45 instead of 1) and the floor under the roof. Nothing outside the
+ * choice covers it, so a lower roof can still be chosen on its own.
  */
 export function roofMembers(model: WindModel, only?: ReadonlySet<number>): RoofMember[] {
-  // The members chosen as the roof, when there is a choice; else the ones nothing covers.
-  const roof = only ?? gravityLayout(model, { mode: 'width', tributaryWidth: 1 }).roof;
+  const within = only ? { ...model, elements: new Map([...model.elements].filter(([id]) => only.has(id))) } : model;
+  const roof = gravityLayout(within, { mode: 'width', tributaryWidth: 1 }).roof;
   const out: RoofMember[] = [];
   for (const e of model.elements.values()) {
     if (!roof.has(e.id)) continue;

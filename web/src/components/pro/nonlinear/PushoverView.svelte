@@ -96,6 +96,12 @@
   </div>
   {#if stale}<p class="po-hint">{t('pro.po.stale')}</p>{/if}
   {#if stopped != null}<p class="po-warn" data-testid="po-stopped">{tp('pro.po.stoppedAtJoint', { node: stopped })}</p>{/if}
+  <!-- The run ended below the target: the curve shown is the whole run, not the curve up to it. -->
+  {#if cut && !cut.reached && target}
+    {@const shear = target.kind === 'shear'}
+    {@const most = Math.max(0, ...full.map((p) => (shear ? p.baseShear : p.displacement * 1000)))}
+    <p class="po-warn" data-testid="po-target-unreached">{tp(shear ? 'pro.po.targetUnreachedShear' : 'pro.po.targetUnreachedDisp', { target: fmt(shear ? target.value : target.value * 1000, 1), reached: fmt(most, 1) })}</p>
+  {/if}
 
   <div class="po-readout" data-testid="po-readout">
     {shownPoint.step < 0 ? t('pro.po.origin') : tp('pro.po.stepN', { n: shownPoint.step + 1, of: curve.length - 1 })}

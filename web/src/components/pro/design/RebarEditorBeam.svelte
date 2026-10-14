@@ -126,7 +126,7 @@
                aria-label={t('design.batch.legs')}
                onchange={(e) => setStirrups(elementId, st.field, { legs: +e.currentTarget.value })} />
         <span class="sub">L c/</span>
-        <QuantityInput quantity="length" cls="num num-sp" min={0.05} max={0.5} value={st.def?.spacing ?? 0.15}
+        <QuantityInput quantity="sectionDim" cls="num num-sp" min={0.05} max={0.5} value={st.def?.spacing ?? 0.15}
                testid={`stir-spacing-${st.field}-${elementId}`}
                ariaLabel={t('design.batch.spacingShort')}
                onchange={(v) => setStirrups(elementId, st.field, { spacing: v })} />

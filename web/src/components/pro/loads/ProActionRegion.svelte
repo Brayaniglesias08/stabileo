@@ -7,7 +7,7 @@
   import { t } from '../../../lib/i18n';
   import { unitQ } from '../../../lib/store/display-units.svelte';
   import QuantityInput from './QuantityInput.svelte';
-  import type { ActionRegion } from '../../../lib/model/loads/region-nodes';
+  import { regionNodes, type ActionRegion } from '../../../lib/model/loads/region-nodes';
 
   interface Props { region: ActionRegion; testid: string; onchange?: (r: ActionRegion) => void }
   let { region = $bindable(), testid, onchange }: Props = $props();
@@ -29,6 +29,8 @@
     else if (v.startsWith('g:')) region = { kind: 'group', groupId: Number(v.slice(2)) };
     if (v !== 'box') onchange?.(region);
   }
+  /** A region that holds no node is nothing, not the whole model: said here, as the plan says it. */
+  const empty = $derived(region.kind !== 'all' && regionNodes(modelStore.model as never, region)?.length === 0);
   const key = $derived(region.kind === 'zone' ? `z:${region.zoneId}` : region.kind === 'group' ? `g:${region.groupId}` : region.kind);
 </script>
 
@@ -49,6 +51,7 @@
       <span class="ar-unit">{unitQ('length')}</span>
     </span>
   {/if}
+  {#if empty}<span class="ar-empty" data-testid="{testid}-empty">{t('actionRegion.empty')}</span>{/if}
 </div>
 
 <style>
@@ -57,4 +60,5 @@
   .ar-box { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; }
   .ar-box :global(.ar-num) { width: 48px; }
   .ar-unit { font-size: 0.66rem; color: var(--st-text-3); }
+  .ar-empty { font-size: 0.66rem; color: var(--st-warn); }
 </style>

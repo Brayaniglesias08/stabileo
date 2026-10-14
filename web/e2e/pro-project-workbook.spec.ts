@@ -1,11 +1,13 @@
 /**
  * The project workbook from the Project tab: an example solved, Excel opens its dialog, 13 points
  * per member asked for, and the file that arrives holds the cover, the model and every
- * combination's stations. A CSV of one sheet is that sheet. The sheets themselves are checked in
- * `project-workbook.test.ts`; this checks the dialog reaches them with the choices made.
+ * combination's stations. A CSV of one sheet is a zip of that sheet, the cover and the conventions.
+ * The sheets themselves are checked in `project-workbook.test.ts`; this checks the dialog reaches
+ * them with the choices made.
  */
 import { readFileSync } from 'node:fs';
 import * as XLSX from 'xlsx';
+import { strFromU8, unzipSync } from 'fflate';
 import { test, expect } from './fixtures';
 
 test.describe('@smoke PRO project workbook', () => {
@@ -42,7 +44,7 @@ test.describe('@smoke PRO project workbook', () => {
     for (const n of perResult.values()) expect(n).toBe(13 * members);
   });
 
-  test('CSV of a single sheet is that sheet', async ({ pro: page }) => {
+  test('CSV of a single sheet is that sheet, with the cover and the conventions', async ({ pro: page }) => {
     await page.getByTestId('pr-project').click();
     await page.getByTestId('pp-examples').click();
     await page.getByTestId('pp-gallery').locator('[data-example="pro-plane-frame-seismic"] .pp-ex').click();
@@ -56,8 +58,9 @@ test.describe('@smoke PRO project workbook', () => {
     const wait = page.waitForEvent('download');
     await dialog.getByTestId('pro-data-export-download').click();
     const dl = await wait;
-    expect(dl.suggestedFilename()).toMatch(/_Nodes\.csv$/);
-    const text = readFileSync((await dl.path())!, 'utf8');
-    expect(text.split('\n')[0]).toContain('id');
+    expect(dl.suggestedFilename()).toMatch(/_Nodes_csv\.zip$/);
+    const files = unzipSync(new Uint8Array(readFileSync((await dl.path())!)));
+    expect(Object.keys(files)).toEqual(['01-Cover.csv', '02-Conventions.csv', '03-Nodes.csv']);
+    expect(strFromU8(files['03-Nodes.csv']!).split('\n')[0]).toContain('id');
   });
 });

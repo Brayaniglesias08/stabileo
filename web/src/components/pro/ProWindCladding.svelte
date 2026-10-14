@@ -49,7 +49,7 @@
     <span class="al-sub-title">{t('wind.cladding.title')}</span>
     <div class="al-grid">
       <label class="al-field"><span class="al-label">{t('wind.cladding.area')}</span>
-        <QuantityInput bind:value={area} quantity="area" min={0.1} testid="al-cladding-area" wrap="al-unit-field" />
+        <QuantityInput bind:value={area} quantity="planArea" min={0.1} testid="al-cladding-area" wrap="al-unit-field" />
       </label>
       <label class="al-field"><span class="al-label">{t('wind.cladding.roofKind')}</span>
         <select value={kind} onchange={(e) => (roof = e.currentTarget.value as CladdingRoof)} data-testid="al-cladding-roof">
