@@ -101,7 +101,8 @@ it('preserves complete verification reports, governing tuples and slender minimu
   }
 });
 
-it('uses the provided reinforcement area regardless of extra section metadata', () => {
+it.each([false, true])('uses the provided reinforcement area regardless of extra section metadata (Rust: %s)', (rust) => {
+  setColumnCapacityKernelEnabled(rust);
   const s = section();
   const geometry = { b: s.b, h: s.h, fc: s.fc, fy: s.fy, cover: s.cover, stirrupDia: s.stirrupDia };
   const axialDemand: ElementStationResult = {
