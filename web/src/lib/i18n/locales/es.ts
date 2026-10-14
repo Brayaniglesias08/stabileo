@@ -9745,5 +9745,7 @@ const es: Record<string, string> = {
   'loads.casesSwitchTip': 'Muestra el caso de cada carga, sus combinaciones y, en la barra de arriba, el caso al crear cargas y los resultados por caso, combinación y envolvente. Apagado, todas las cargas van juntas.',
   'loads.casesSummary': '{c} casos, {k} combinaciones',
   'loads.casesOff': 'sin casos ni combinaciones',
+  'config.loadSize': 'Tamaño de cargas',
+  'config.tip.loadSize': 'Agranda o achica el dibujo de las cargas: flechas puntuales y distribuidas, momentos y térmicas, en 2D y 3D. Los textos siguen el tamaño de rótulos. Se recuerda en este navegador.',
 };
 export default es;

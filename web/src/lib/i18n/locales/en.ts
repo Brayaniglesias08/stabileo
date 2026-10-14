@@ -9756,5 +9756,7 @@ const en: Record<string, string> = {
   'loads.casesSwitchTip': 'Shows each load\'s case, the combinations and, in the bar above, the case when creating loads and the results by case, combination and envelope. Off, all loads act together.',
   'loads.casesSummary': '{c} cases, {k} combinations',
   'loads.casesOff': 'no cases or combinations',
+  'config.loadSize': 'Load size',
+  'config.tip.loadSize': 'Makes the loads drawn larger or smaller: point and distributed arrows, moments and thermal marks, in 2D and 3D. Their text follows the label size. Remembered in this browser.',
 };
 export default en;

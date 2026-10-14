@@ -3,7 +3,7 @@ import { transverseSign } from '../engine/transverse-sign-2d';
 import { createLabelCollector, type LabelCollector, type SegmentObstacle } from './label-layout';
 
 import { canvasTheme } from './theme';
-import { canvasUnitSystem } from './canvas-units';
+import { canvasUnitSystem, canvasLoadScale } from './canvas-units';
 import { fixedQuantity } from '../utils/unit-format';
 import { toDisplay, unitLabel } from '../utils/units';
 
@@ -220,7 +220,8 @@ export function drawDistributedLoads(
   }
   if (maxQ < 1e-10) return;
 
-  const ARROW_MAX_PX = 22; // max arrow length in screen px (shorter than point loads to visually distinguish)
+  const K = canvasLoadScale();
+  const ARROW_MAX_PX = 22 * K; // max arrow length in screen px (shorter than point loads to visually distinguish)
 
   /*
    * Labels go to the frame's collector when there is one, so they are laid out
@@ -328,10 +329,10 @@ export function drawDistributedLoads(
       ctx.stroke();
 
       // Arrowhead — perpendicular to arrow direction
-      const headLen = 6;
+      const headLen = 6 * K;
       // Use a direction orthogonal to the arrow shaft for wings
-      const wingX = -snY;
-      const wingY = snX;
+      const wingX = -snY * K;
+      const wingY = snX * K;
 
       ctx.beginPath();
       ctx.moveTo(base.x, base.y);
@@ -479,9 +480,10 @@ function drawForceArrow(
   ctx.stroke();
 
   // Arrowhead
-  const headLen = 8;
-  const wingX = -snY;
-  const wingY = snX;
+  const K = canvasLoadScale();
+  const headLen = 8 * K;
+  const wingX = -snY * K;
+  const wingY = snX * K;
   ctx.beginPath();
   ctx.moveTo(baseX, baseY);
   ctx.lineTo(baseX + snX * headLen + wingX * 4, baseY + snY * headLen + wingY * 4);
@@ -506,6 +508,8 @@ export function drawMomentSymbol(
   mz: number,
   color: string,
   radius: number = 14,
+  /** Factor on the arrowhead, with a load drawn larger (`canvasLoadScale`). */
+  head: number = 1,
 ) {
   const R = radius;
   ctx.strokeStyle = color;
@@ -531,8 +535,8 @@ export function drawMomentSymbol(
   // ccw=false (mz<0): angle increasing → velocity = (-sinθ, cosθ)
   const tx = mz > 0 ? Math.sin(endAngle) : -Math.sin(endAngle);
   const ty = mz > 0 ? -Math.cos(endAngle) : Math.cos(endAngle);
-  const headLen = 7;
-  const nx = -ty, ny = tx; // normal to tangent
+  const headLen = 7 * head;
+  const nx = -ty * head, ny = tx * head; // normal to tangent, as long as the head is wide
   // Tip of arrowhead is ahead of arc end; base sits on the arc end
   const pointX = arcEndX + tx * headLen;
   const pointY = arcEndY + ty * headLen;
@@ -555,7 +559,7 @@ export function drawPointLoadsOnElements(
   const { ctx } = dc;
   if (loads.length === 0) return;
 
-  const ARROW_PX = 40;
+  const ARROW_PX = 40 * canvasLoadScale();
 
   const labels = dc.labels ?? createLabelCollector();
   const ownsFlush = !dc.labels;
@@ -655,7 +659,7 @@ export function drawPointLoadsOnElements(
     // 3) Draw moment (My in the Z-up 2D contract; keep mz as legacy alias)
     const my = load.my ?? load.mz ?? 0;
     if (Math.abs(my) > 1e-10) {
-      drawMomentSymbol(ctx, base.x, base.y, my, ptColor);
+      drawMomentSymbol(ctx, base.x, base.y, my, ptColor, 14 * canvasLoadScale(), canvasLoadScale());
 
       const yOff = (Math.abs(load.p) > 1e-10 ? 14 : 0) + (Math.abs(px) > 1e-10 ? 14 : 0);
       labels.add({
@@ -698,8 +702,8 @@ export function drawThermalLoads(
   const labels = dc.labels ?? createLabelCollector();
   const ownsFlush = !dc.labels;
 
-  const OFFSET_PX = 14; // offset from element axis
-  const SYMBOL_SIZE = 5; // half-size of + or - symbol
+  const OFFSET_PX = 14 * canvasLoadScale(); // offset from element axis
+  const SYMBOL_SIZE = 5 * canvasLoadScale(); // half-size of + or - symbol
   const SYMBOL_SPACING_PX = 25; // screen px between symbols
 
   for (const load of loads) {

@@ -9389,5 +9389,7 @@ const pt: Translations = {
   'loads.casesSwitchTip': 'Mostra o caso de cada carga, as combinações e, na barra de cima, o caso ao criar cargas e os resultados por caso, combinação e envoltória. Desligado, todas as cargas atuam juntas.',
   'loads.casesSummary': '{c} casos, {k} combinações',
   'loads.casesOff': 'sem casos nem combinações',
+  'config.loadSize': 'Tamanho das cargas',
+  'config.tip.loadSize': 'Aumenta ou diminui o desenho das cargas: setas pontuais e distribuídas, momentos e térmicas, em 2D e 3D. Os textos seguem o tamanho dos rótulos. Fica salvo neste navegador.',
 };
 export default pt;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { displayUnits, fmtQ, fmtCoord, unitQ } from '../lib/store/display-units.svelte';
-  import { setCanvasUnitSystem } from '../lib/canvas/canvas-units';
+  import { setCanvasUnitSystem, setCanvasLoadScale } from '../lib/canvas/canvas-units';
   import { displacementText, fixedQuantity } from '../lib/utils/unit-format';
   import type { Quantity } from '../lib/utils/units';
   import { nodesToLabel } from '../lib/store/deformed-view.svelte';
@@ -296,7 +296,7 @@
   $effect(() => { uiStore.selectedLoads; uiStore.selectedSupports; invalidate(); });
   $effect(() => { uiStore.zoom; uiStore.panX; uiStore.panY; invalidate(); });
   $effect(() => { uiStore.showGrid; uiStore.showAxes; uiStore.showLoads; invalidate(); });
-  $effect(() => { uiStore.showSupports; uiStore.labelScale; viewVisibility.version; invalidate(); });
+  $effect(() => { uiStore.showSupports; uiStore.labelScale; uiStore.loadArrowScale; viewVisibility.version; invalidate(); });
   $effect(() => { uiStore.showNodeLabels; uiStore.showElementLabels; uiStore.showLengths; invalidate(); });
   $effect(() => { uiStore.elementColorMode; invalidate(); });
   // Each member's group, only while colouring by group.
@@ -531,6 +531,7 @@
     // The load, support and reaction labels are drawn by pure functions that
     // cannot read the store; they take the unit system from here, once a frame.
     setCanvasUnitSystem(uiStore.unitSystem);
+    setCanvasLoadScale(uiStore.loadArrowScale);
 
     // Advance IL animation
     const now = performance.now();

@@ -89,6 +89,14 @@ test.describe('@smoke Basic interaction and view', () => {
     await expect(supports).not.toBeChecked();
     await page.getByTestId('cfg-label-size').fill('1.5');
     await expect.poll(() => page.evaluate(() => localStorage.getItem('stabileo-label-scale'))).toBe('1.5');
+    // The load size sits under it, its name on the same row as the slider.
+    await page.getByTestId('cfg-load-size').fill('2');
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('stabileo-load-scale'))).toBe('2');
+    const row = await page.getByTestId('cfg-load-size').evaluate((el) => {
+      const label = el.parentElement!.querySelector('label')!.getBoundingClientRect(), r = el.getBoundingClientRect();
+      return { sameRow: Math.abs((label.top + label.bottom) / 2 - (r.top + r.bottom) / 2) < 6, left: label.right <= r.left };
+    });
+    expect(row).toEqual({ sameRow: true, left: true });
   });
 
   test('panel scrollbars are on by default and switch off; node style is remembered', async ({ page }) => {
