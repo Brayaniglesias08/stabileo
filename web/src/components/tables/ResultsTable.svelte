@@ -72,7 +72,8 @@
   A select, because this is one choice from a list that gets long, and because
   it is the same control the diagram selector uses for the same question.
 -->
-{#if resultsStore.hasCombinations || caseKeys.length > 0}
+<!-- Basic with load cases off has no case, combination or envelope to choose. -->
+{#if (resultsStore.hasCombinations || caseKeys.length > 0) && uiStore.showLoadCasePicker}
   <div class="results-case-bar">
     <!--
       No visible label. Every option in the list names itself — "Simple loads",

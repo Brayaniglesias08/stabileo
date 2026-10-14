@@ -85,7 +85,8 @@ function runSolve2D(): SolveOutcome {
     }
     // Auto-solve combinations if they exist
     let comboText = '';
-    if (modelStore.model.combinations.length > 0) {
+    // Basic with load cases off shows no combinations: none are solved.
+    if (modelStore.model.combinations.length > 0 && uiStore.showLoadCasePicker) {
       const comboResult = modelStore.solveCombinations(uiStore.includeSelfWeight, uiStore.drawPlane2D);
       if (comboResult && typeof comboResult !== 'string') {
         resultsStore.setCombinationResults(comboResult.perCase, comboResult.perCombo, comboResult.envelope);
@@ -150,7 +151,8 @@ export async function runSolve3D(): Promise<SolveOutcome> {
     resultsStore.setResults3D(results);
     // Auto-solve 3D combinations if they exist
     let comboText = '';
-    if (modelStore.model.combinations.length > 0) {
+    // Basic with load cases off shows no combinations: none are solved.
+    if (modelStore.model.combinations.length > 0 && uiStore.showLoadCasePicker) {
       const comboResult = modelStore.solveCombinations3D(uiStore.includeSelfWeight, uiStore.axisConvention3D === 'leftHand', isPro);
       if (comboResult && typeof comboResult !== 'string') {
         publishCombinations3D(comboResult);

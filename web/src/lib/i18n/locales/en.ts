@@ -9752,7 +9752,9 @@ const en: Record<string, string> = {
   'float.ilVerticalTip': 'The load P = 1 acts downward (gravity): beams, bridges',
   'float.ilHorizontalTip': 'The load P = 1 pushes along +X: walls, columns',
   'viewport.ilZeroThisWay': 'With the unit load this way, {q} is zero all over the structure.',
-  'config.loadCaseInToolbar': 'Choose the load case in the toolbar',
-  'config.tip.loadCaseInToolbar': 'Shows the load case picker (D, L, W…) when creating or editing a load. Off, every load goes to the first case.',
+  'loads.casesSwitch': 'Include load cases and combinations',
+  'loads.casesSwitchTip': 'Shows each load\'s case, the combinations and, in the bar above, the case when creating loads and the results by case, combination and envelope. Off, all loads act together.',
+  'loads.casesSummary': '{c} cases, {k} combinations',
+  'loads.casesOff': 'no cases or combinations',
 };
 export default en;

@@ -152,10 +152,12 @@ function createUIStore() {
    * teaching, and remembered per browser because it is a preference about how
    * you work rather than a property of the model.
    */
-  /** Basic: the load case picker in the load bar, off unless asked for under Settings. */
-  let loadCaseInToolbar = $state(
-    hasLocalStorage() ? localStorage.getItem('stabileo-load-case-in-toolbar') === '1' : false,
-  );
+  /**
+   * Basic: load cases and combinations, switched on from the loads' Combinations fold. Off, a
+   * Basic model has one load case to the eye: no case picker, no case column, no results by case,
+   * combination or envelope. Set for each model that comes in (`loadCasesOnOpen`), not stored.
+   */
+  let loadCasesEnabled = $state(false);
   let eduInBasic = $state(
     hasLocalStorage() ? localStorage.getItem('stabileo-edu-in-basic') === '1' : false,
   );
@@ -693,13 +695,10 @@ function createUIStore() {
   }
 
   return {
-    get loadCaseInToolbar() { return loadCaseInToolbar; },
-    set loadCaseInToolbar(v: boolean) {
-      loadCaseInToolbar = v;
-      try { localStorage.setItem('stabileo-load-case-in-toolbar', v ? '1' : '0'); } catch { /* private mode */ }
-    },
-    /** Whether the load bars offer the load case: always in PRO and EDU, in Basic when asked for. */
-    get showLoadCasePicker() { return analysisMode === 'pro' || analysisMode === 'edu' || loadCaseInToolbar; },
+    get loadCasesEnabled() { return loadCasesEnabled; },
+    set loadCasesEnabled(v: boolean) { loadCasesEnabled = v; },
+    /** Whether load cases show at all: always in PRO and EDU, in Basic when switched on. */
+    get showLoadCasePicker() { return analysisMode === 'pro' || analysisMode === 'edu' || loadCasesEnabled; },
     get eduInBasic() { return eduInBasic; },
     set eduInBasic(v: boolean) {
       eduInBasic = v;

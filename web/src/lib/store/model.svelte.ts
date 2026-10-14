@@ -1,6 +1,7 @@
 import {
   defaultCodeSettings, migrateCodeSettings, type ProjectCodeSettings,
 } from '../codes/project-code-settings';
+import { loadCasesInUse } from '../model/loads/load-cases-in-use';
 import { refreshRatios } from '../section/drawn';
 import {
   emptyDetailingStore, migrateDetailingStore, type DetailingStore,
@@ -3583,6 +3584,8 @@ function createModelStore() {
         { id: 3, type: 'W', name: 'Wind' },
         { id: 4, type: 'E', name: 'Earthquake' },
       ];
+      // A new model has one case in use: Basic shows no load cases until they are switched on.
+      uiStore.loadCasesEnabled = false;
       model.combinations = [
         { id: 1, name: '1.2D + 1.6L', factors: [{ caseId: 1, factor: 1.2 }, { caseId: 2, factor: 1.6 }] },
         { id: 2, name: '1.4D', factors: [{ caseId: 1, factor: 1.4 }] },
@@ -4296,6 +4299,9 @@ function createModelStore() {
         }
         model.analysis = { ...(model.analysis ?? {}), selfWeight };
       }
+
+      // Basic opens an example with load cases and combinations on when it uses more than one case.
+      uiStore.loadCasesEnabled = loadCasesInUse(model.loads);
 
       _undoBatching = false;
     },

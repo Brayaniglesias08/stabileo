@@ -141,7 +141,8 @@
     const loads = modelStore.loads.map((l) => {
       const d = l.data as any;
       let description = '';
-      let caseLabel = modelStore.getLoadCaseName(d.caseId ?? 1) || undefined;
+      // Basic with load cases off names no case.
+      let caseLabel = uiStore.showLoadCasePicker ? modelStore.getLoadCaseName(d.caseId ?? 1) || undefined : undefined;
       // Every non-zero component, named by its axis, to four significant figures
       // (`calc-report-loads.ts`, which reads each load type by the store's own field names).
       if (l.type === 'nodal' || l.type === 'nodal3d') {
@@ -161,7 +162,7 @@
     });
 
     // Build combination info
-    const combinations = modelStore.model.combinations.map(c => ({
+    const combinations = (uiStore.showLoadCasePicker ? modelStore.model.combinations : []).map(c => ({
       id: c.id,
       name: c.name,
       factors: c.factors.map(f => ({

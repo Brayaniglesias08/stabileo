@@ -766,7 +766,7 @@
           drawNodalLoad(
             ld,
             modelStore.getLoadCaseColor(caseId),
-            modelStore.getLoadCaseName(caseId),
+            caseLabel(caseId),
             currentFrameLabels!,
           );
         }
@@ -785,7 +785,7 @@
             angle: d.angle, isGlobal: d.isGlobal,
             a: d.a, b: d.b,
             caseColor: modelStore.getLoadCaseColor(caseId),
-            caseName: modelStore.getLoadCaseName(caseId),
+            caseName: caseLabel(caseId),
           };
         });
       /*
@@ -815,7 +815,7 @@
             px: d.px, my: d.my ?? d.mz,
             angle: d.angle, isGlobal: d.isGlobal,
             caseColor: modelStore.getLoadCaseColor(caseId),
-            caseName: modelStore.getLoadCaseName(caseId),
+            caseName: caseLabel(caseId),
           };
         });
       if (ptLoads.length > 0) {
@@ -832,7 +832,7 @@
           const caseId = d.caseId ?? 1;
           return {
             elementId: d.elementId, dtUniform: d.dtUniform, dtGradient: d.dtGradient,
-            caseName: modelStore.getLoadCaseName(caseId),
+            caseName: caseLabel(caseId),
           };
         });
       if (thermLoads.length > 0) {
@@ -1757,6 +1757,11 @@
     const pn = project2DNode(node);
     const screen = uiStore.worldToScreen(pn.x, pn.y);
     _drawSupport(ctx!, sup, screen, !exportFrame && uiStore.selectedSupports.has(sup.id), (nid) => modelStore.getElementAngleAtNode(nid));
+  }
+
+  /** A load's case, written before its value: not in Basic with load cases off, where none shows. */
+  function caseLabel(caseId: number): string | undefined {
+    return uiStore.showLoadCasePicker ? modelStore.getLoadCaseName(caseId) : undefined;
   }
 
   function drawNodalLoad(load: { type: string; data: any }, caseColor: string | undefined, caseName: string | undefined, labels: LabelCollector) {

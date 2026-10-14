@@ -139,12 +139,43 @@ test.describe('@smoke Basic interaction and view', () => {
     await expect(page.getByTestId('tool-mode-create')).toBeVisible();
   });
 
-  test('self-weight sits first in the combinations fold, with the case it goes in', async ({ page }) => {
+  test('the combinations fold leads with the load cases switch; self-weight counts either way', async ({ page }) => {
     await boot(page);
     await page.getByTestId('rb-cmd-load').click();
     await page.locator('.combos-fold > summary').click();
+    // A new model has one case in use: no cases, no case column, no case picker.
+    const cases = page.getByTestId('load-cases-toggle');
+    await expect(cases).not.toBeChecked();
     await page.getByTestId('selfweight-toggle').check();
+    await expect(page.getByTestId('selfweight-case')).toHaveCount(0);
+    await expect(page.getByTestId('load-case-select')).toHaveCount(0);
+    // On: the case self-weight goes in, the case picker in the load bar, the case tables.
+    await cases.check();
     await expect(page.getByTestId('selfweight-case')).toBeEnabled();
+    await expect(page.getByTestId('load-case-select')).toBeVisible();
+    await expect(page.locator('.combos-section')).toBeVisible();
+  });
+
+  test('an example with loads in several cases opens with them on, and its results by combination up top', async ({ page }) => {
+    await boot(page);
+    await page.evaluate(() => window.__stabileoActions.loadExample('frame-cirsoc-dl'));
+    await page.evaluate(() => window.__stabileoActions.solve());
+    await page.getByTestId('rb-cmd-momentY').click();
+    const picker = page.getByTestId('results-view-bar');
+    await expect(picker).toBeVisible();
+    await picker.locator('select').first().selectOption({ label: '1.2D + 1.6L' });
+    await page.getByTestId('rb-cmd-load').click();
+    await page.locator('.combos-fold > summary').click();
+    await page.getByTestId('load-cases-toggle').uncheck();
+    await expect(page.getByTestId('load-case-select')).toHaveCount(0);
+    await expect(page.locator('.combos-section')).toHaveCount(0);
+    await page.getByTestId('rb-cmd-momentY').click();
+    await expect(page.getByTestId('results-view-bar')).toHaveCount(0);
+    // A model with one case opens with them off.
+    await page.evaluate(() => window.__stabileoActions.loadExample('portal-frame'));
+    await page.getByTestId('rb-cmd-load').click();
+    await page.locator('.combos-fold > summary').click();
+    await expect(page.getByTestId('load-cases-toggle')).not.toBeChecked();
   });
 });
 
