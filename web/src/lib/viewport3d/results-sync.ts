@@ -1012,6 +1012,11 @@ export function syncConstraintForces(ctx: ResultsSyncContext): void {
 
 // ─── Labels (node/element IDs, lengths) ─────────────────────
 
+/** A member nearer the vertical (scene Z) than the horizontal: its labels go beside it, not over and under. */
+function isUpright(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): boolean {
+  return Math.abs(b.z - a.z) > Math.hypot(b.x - a.x, b.y - a.y);
+}
+
 export function syncLabels3D(ctx: ResultsSyncContext): void {
   if (!ctx.initialized) return;
 
@@ -1087,7 +1092,10 @@ export function syncLabels3D(ctx: ResultsSyncContext): void {
 
       const sprite = createTextSpriteCached(memberLabelText(viewState.memberLabel, elem, modelStore.sections, modelStore.materials), '#88ccff', 24, true);
       sprite.position.set(mx, my, mz);
-      sprite.center.set(0.5, -0.1);
+      // Above a beam; beside a column, to its left (its length goes to the right): centred on
+      // the midpoint, the text crossed the column's line.
+      const upright = isUpright(sceneI, sceneJ);
+      if (upright) sprite.center.set(1.12, 0.5); else sprite.center.set(0.5, -0.1);
       sprite.scale.set(LABEL_SCREEN * 0.85, LABEL_SCREEN * 0.85, 1);
       ctx.elementLabelsGroup.add(sprite);
     }
@@ -1117,7 +1125,8 @@ export function syncLabels3D(ctx: ResultsSyncContext): void {
 
       const sprite = createTextSpriteCached(fixedQuantity(len, 'length', 2, canvasUnitSystem()), '#88cc88', 22, true);
       sprite.position.set(mx, my, mz);
-      sprite.center.set(0.5, 1.1);
+      // Under a beam; to the right of a column, clear of its line and of its number.
+      if (isUpright(sceneI, sceneJ)) sprite.center.set(-0.12, 0.5); else sprite.center.set(0.5, 1.1);
       sprite.scale.set(LABEL_SCREEN * 0.75, LABEL_SCREEN * 0.75, 1);
       ctx.lengthLabelsGroup.add(sprite);
     }

@@ -25,6 +25,7 @@ import { computeDeformedShape3D, type ElementEI } from '../three/deformed-shape-
 import { eiOf } from '../engine/member-deflection';
 import { drawFreeBody, type P3 } from '../canvas/free-body';
 import { createLabelCollector } from '../canvas/label-layout';
+import { addMemberTags } from '../canvas/member-tags';
 import { freeBodyActions3D } from '../viewport3d/free-body-3d';
 import { fixedQuantity, displacementText } from '../utils/unit-format';
 import type { ExportFrame, Figure2DRenderer, FrameView } from './view-figure';
@@ -133,15 +134,21 @@ export function createFigure3DRenderer(): Figure2DRenderer {
           ctx.fill();
         }
       };
-      const drawNumbering = () => {
-        if (!opts.numbering) return;
-        ctx.font = '10px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-        ctx.fillStyle = '#8fa3b3';
-        for (const n of modelStore.nodes.values()) { const c = toScreen(projectNodeToScene(n, flat())); ctx.fillText(String(n.id), c.x + 5, c.y - 5); }
-        ctx.fillStyle = '#7fb0e2';
+      /*
+       * Node numbers, and beside each member its number and its length (the dimension), laid out
+       * with the other labels and off the members (`canvas/member-tags.ts`).
+       */
+      const drawMemberTags = () => {
+        if (opts.numbering) {
+          ctx.font = '10px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+          ctx.fillStyle = '#8fa3b3';
+          for (const n of modelStore.nodes.values()) { const c = toScreen(projectNodeToScene(n, flat())); ctx.fillText(String(n.id), c.x + 5, c.y - 5); }
+        }
+        if (!opts.numbering && !opts.lengths) return;
         for (const m of fbData.members) {
-          const a = toScreen(m.i), b = toScreen(m.j);
-          labels.add({ text: `E${m.id}`, colour: '#7fb0e2', font: '10px sans-serif', box: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 4, width: 0, height: 0, dirX: 0, dirY: -1, priority: 0, anchorX: 'center', sweep: 'any' } });
+          addMemberTags(labels, toScreen(m.i), toScreen(m.j), m.id,
+            opts.numbering ? { text: `E${m.id}`, colour: '#7fb0e2' } : null,
+            opts.lengths ? { text: fixedQuantity(modelStore.getElementLength(m.id), 'length', 2, uiStore.unitSystem), colour: '#88cc88' } : null);
         }
       };
       const drawMembers = (color = '#c7d3dd', width = 2.5, dash: number[] = []) => {
@@ -166,7 +173,7 @@ export function createFigure3DRenderer(): Figure2DRenderer {
           fmt: (v, q) => fmtF(v, q),
           labels,
         });
-        if (content === 'model') drawNumbering();
+        drawMemberTags();
         labels.flush(ctx, memberSegs);
         return;
       }
@@ -211,6 +218,7 @@ export function createFigure3DRenderer(): Figure2DRenderer {
             labels.add({ text: displacementText(Math.hypot(d.ux, d.uy, d.uz), 2, uiStore.unitSystem), colour: '#7fd4cc', font: 'bold 10.5px sans-serif', box: { x: s.x + 6, y: s.y - 6, width: 0, height: 0, dirX: 0, dirY: -1, priority: Math.hypot(d.ux, d.uy, d.uz), anchorX: 'left', sweep: 'any' } });
           }
         }
+        drawMemberTags();
         labels.flush(ctx, memberSegs);
         return;
       }
@@ -260,6 +268,7 @@ export function createFigure3DRenderer(): Figure2DRenderer {
             }
           }
         }
+        drawMemberTags();
         labels.flush(ctx, memberSegs);
       }
     },

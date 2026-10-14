@@ -1663,6 +1663,7 @@
       zoom: uiStore.zoom,
       diagramType: dtNow(),
       worldLength: modelStore.getElementLength(elem.id),
+      labels: currentFrameLabels,
     };
     _drawElement(ctx!, elem, ni, nj, opts, colorOverride, nodeBarCount);
   }
