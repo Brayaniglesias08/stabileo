@@ -17,6 +17,45 @@ const dist = (patch: Partial<Extract<Load, { type: 'distributed3d' }>['data']> =
 });
 
 describe('applied loads in 3D figures and free bodies', () => {
+  it.each([
+    { x: 4, y: 0, force: { x: 0, y: 0, z: -1 } },
+    { x: -4, y: 0, force: { x: 0, y: 0, z: -1 } },
+    { x: 0, y: 4, force: { x: -1, y: 0, z: 0 } },
+    { x: 0, y: -4, force: { x: -1, y: 0, z: 0 } },
+  ])('projects plane loads along the drawn axes for a member ending at ($x, $y)', ({ x, y, force }) => {
+    const data = freeBodyActions3D({
+      nodes: new Map([[1, { id: 1, x: 0, y: 0 }], [2, { id: 2, x, y }]]),
+      elements: new Map([[1, { id: 1, nodeI: 1, nodeJ: 2, type: 'frame', materialId: 1, sectionId: 1 } as Element]]),
+      forces: [], reactions: [], project2D: true, leftHand: true, basis: 'local', resultant: false,
+      showReactions: true, loadText: (v, q) => `${v.toFixed(1)} ${q}`,
+      loads: [
+        { type: 'nodal', data: { id: 1, nodeId: 2, fx: 0, fz: -12, my: 5 } },
+        { type: 'distributed', data: { id: 2, elementId: 1, qI: -3, qJ: -9, a: 1, b: 3 } },
+        { type: 'pointOnElement', data: { id: 3, elementId: 1, p: -7, a: 2 } },
+        { type: 'distributed', data: { id: 4, elementId: 1, qI: -6, qJ: -6, isGlobal: true } },
+        { type: 'pointOnElement', data: { id: 5, elementId: 1, p: 0, px: 8, a: 1 } },
+      ],
+    });
+    expect(data.loads).toHaveLength(6);
+    expect(data.loads.slice(0, 2)).toMatchObject([
+      { kind: 'nodal', dir: { x: 0, y: 0, z: -1 }, label: '12.0 force' },
+      { kind: 'nodal', action: 'moment', dir: { x: 0, y: 1, z: 0 }, label: '5.0 moment' },
+    ]);
+    const dist = data.loads[2];
+    expect(dist.kind).toBe('dist');
+    if (dist.kind !== 'dist') throw new Error('expected a distributed load');
+    expect(dist.t0).toBe(0.25); expect(dist.t1).toBe(0.75);
+    for (const k of ['x', 'y', 'z'] as const) {
+      expect(dist.qI[k]).toBeCloseTo(3 * force[k]);
+      expect(dist.qJ[k]).toBeCloseTo(9 * force[k]);
+    }
+    expect(data.loads[3]).toMatchObject({ kind: 'point', t: 0.5, label: '7.0 force' });
+    if (data.loads[3].kind !== 'point') throw new Error('expected a point load');
+    for (const k of ['x', 'y', 'z'] as const) expect(data.loads[3].dir[k]).toBeCloseTo(force[k]);
+    expect(data.loads[4]).toMatchObject({ kind: 'dist', qI: { z: -6 }, qJ: { z: -6 } });
+    expect(data.loads[5]).toMatchObject({ kind: 'point', t: 0.25, label: '8.0 force', dir: { x: x / 4, y: 0, z: y / 4 } });
+  });
+
   it('renders a pure nodal moment and its value, including when viewed end on', () => {
     const data = actions([{ type: 'nodal3d', data: { id: 1, nodeId: 2, fx: 0, fy: 0, fz: 0, mx: 0, my: 10, mz: 0 } }]);
     expect(data.loads).toMatchObject([{ kind: 'nodal', action: 'moment', dir: { x: 0, y: 1, z: 0 }, label: '10.0 moment' }]);

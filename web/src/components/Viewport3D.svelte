@@ -72,6 +72,7 @@
   import BuildTimelapsePanel from './BuildTimelapsePanel.svelte';
   import { drawFreeBody, freeBodyFocus } from '../lib/canvas/free-body';
   import { freeBodyActions3D } from '../lib/viewport3d/free-body-3d';
+  import { displayedLoads3D } from '../lib/store/displayed-loads-3d';
 
   let container: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -1335,7 +1336,7 @@
       elements: modelStore.elements, nodes: modelStore.nodes, forces: r3d.elementForces, reactions: r3d.reactions ?? [],
       sections: modelStore.sections, project2D: shouldProject2DModel(), leftHand: uiStore.axisConvention3D === 'leftHand',
       basis: uiStore.despieceBasis, resultant: uiStore.despieceCombineVectors, showReactions: resultsStore.showReactions,
-      loads: modelStore.loads,
+      loads: displayedLoads3D(),
       loadText: (v, q) => fixedQuantity(v, q, 1, uiStore.unitSystem),
       negligible: 0.02,
       loadMode: uiStore.despieceLoadMode === 'resultant' ? 'resultant' : 'all',

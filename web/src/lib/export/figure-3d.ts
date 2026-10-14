@@ -23,6 +23,8 @@ import { computeDiagram3D, computeGlobalMax3D, getDiagramLocalDirection, type Di
 import { computeDiagramDisplayDirection } from '../three/diagram-render-3d';
 import { computeDeformedShape3D, type ElementEI } from '../three/deformed-shape-3d';
 import { eiOf } from '../engine/member-deflection';
+import { takesNoBending } from '../engine/member-loads';
+import { displayedLoads3D } from '../store/displayed-loads-3d';
 import { drawFreeBody, type P3 } from '../canvas/free-body';
 import { createLabelCollector } from '../canvas/label-layout';
 import { addMemberTags } from '../canvas/member-tags';
@@ -115,7 +117,7 @@ export function createFigure3DRenderer(): Figure2DRenderer {
         elements: modelStore.elements, nodes: modelStore.nodes, forces: r3d?.elementForces ?? [], reactions: r3d?.reactions ?? [],
         sections: modelStore.sections, project2D: flat(), leftHand, basis: uiStore.despieceBasis,
         resultant: uiStore.despieceCombineVectors, showReactions: content === 'reactions' || content === 'despiece',
-        loads: modelStore.loads, loadText: (v, q) => fmtF(v, q), negligible: 0.02,
+        loads: content === 'model' ? modelStore.loads : displayedLoads3D(), loadText: (v, q) => fmtF(v, q), negligible: 0.02,
       });
       for (const m of fbData.members) {
         const a = toScreen(m.i), b = toScreen(m.j);
@@ -195,12 +197,15 @@ export function createFigure3DRenderer(): Figure2DRenderer {
         for (const e of modelStore.elements.values()) {
           const nI = modelStore.nodes.get(e.nodeI), nJ = modelStore.nodes.get(e.nodeJ);
           const dI = disp.get(e.nodeI), dJ = disp.get(e.nodeJ), ef = efMap.get(e.id);
-          if (!nI || !nJ || !dI || !dJ || !ef) continue;
+          if (!nI || !nJ || !dI || !dJ) continue;
           const pI = projectNodeToScene(nI, flat()), pJ = projectNodeToScene(nJ, flat());
           const ei: ElementEI | undefined = eiOf(modelStore.materials.get(e.materialId), modelStore.sections.get(e.sectionId));
           const localY = (e.localYx !== undefined && e.localYy !== undefined && e.localYz !== undefined) ? { x: e.localYx, y: e.localYy, z: e.localYz } : undefined;
           const roll = (e.rollAngle ?? 0) + (modelStore.sections.get(e.sectionId)?.rotation ?? 0);
-          const curve = computeDeformedShape3D(
+          const curve = takesNoBending(e) || !ef || !ei ? [
+            { x: pI.x + scale * dI.ux, y: pI.y + scale * dI.uy, z: (pI.z ?? 0) + scale * dI.uz },
+            { x: pJ.x + scale * dJ.ux, y: pJ.y + scale * dJ.uy, z: (pJ.z ?? 0) + scale * dJ.uz },
+          ] : computeDeformedShape3D(
             { x: pI.x, y: pI.y, z: pI.z ?? 0 }, { x: pJ.x, y: pJ.y, z: pJ.z ?? 0 }, dI, dJ, ef, scale, ei, localY, roll || undefined,
           );
           if (curve.length < 2) continue;

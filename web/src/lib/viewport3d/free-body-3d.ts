@@ -8,7 +8,8 @@
  */
 import { computeLocalAxes3D } from '../engine/local-axes-3d';
 import { distributedGlobalEnds } from '../engine/member-loads';
-import { projectNodeToScene } from '../geometry/coordinate-system';
+import { projectNodeToScene, get2DDisplayNodalLoadVertical, get2DDisplayNodalLoadMoment } from '../geometry/coordinate-system';
+import { transverseSign } from '../engine/transverse-sign-2d';
 import { DESPIECE_COL, memberEndAction3D, type DespieceBasis } from '../three/despiece-3d';
 import type { ElementForces3D, Reaction3D } from '../engine/types-3d';
 import type { Element, Node, Section, Load } from '../store/model.svelte';
@@ -150,7 +151,40 @@ export function freeBodyActions3D(opts: {
     }
   }
 
-  for (const ld of opts.loads ?? []) {
+  // Normalize plane loads into scene-global components before the common drawing path.
+  // Keep their positions and profiles; solver-equivalent nodal forces would lose those.
+  const inScene = (ld: Load): Load => {
+    if (ld.type === 'nodal') {
+      const d = ld.data, v = get2DDisplayNodalLoadVertical(d), m = get2DDisplayNodalLoadMoment(d);
+      return { type: 'nodal3d', data: { id: d.id, nodeId: d.nodeId, fx: d.fx,
+        fy: opts.project2D ? 0 : v, fz: opts.project2D ? v : 0,
+        mx: 0, my: opts.project2D ? m : 0, mz: opts.project2D ? 0 : m } };
+    }
+    if (ld.type !== 'distributed' && ld.type !== 'pointOnElement') return ld;
+    const d = ld.data, ax = axesOf.get(d.elementId);
+    if (!ax) return ld;
+    const c = ax.ex[0], s = opts.project2D ? ax.ex[2] : ax.ex[1];
+    const angle = (d.angle ?? 0) * Math.PI / 180;
+    const transverse = (opts.project2D ? transverseSign(c, s) : 1) * Math.cos(angle);
+    const x = d.isGlobal ? Math.sin(angle) : -s * transverse + c * Math.sin(angle);
+    const v = d.isGlobal ? Math.cos(angle) : c * transverse + s * Math.sin(angle);
+    const dir: V = [x, opts.project2D ? 0 : v, opts.project2D ? v : 0];
+    if (ld.type === 'distributed') {
+      const d = ld.data;
+      return { type: 'distributed3d', data: { ...d, frame: 'global',
+        qXI: dir[0] * d.qI, qXJ: dir[0] * d.qJ,
+        qYI: dir[1] * d.qI, qYJ: dir[1] * d.qJ,
+        qZI: dir[2] * d.qI, qZJ: dir[2] * d.qJ } };
+    }
+    const p = ld.data;
+    return { type: 'pointOnElement3d', data: { ...p, frame: 'global',
+      px: dir[0] * p.p + ax.ex[0] * (p.px ?? 0),
+      py: dir[1] * p.p + ax.ex[1] * (p.px ?? 0),
+      pz: dir[2] * p.p + ax.ex[2] * (p.px ?? 0) } };
+  };
+
+  for (const source of opts.loads ?? []) {
+    const ld = inScene(source);
     if (ld.type === 'nodal3d') {
       const d = ld.data, f: V = [d.fx, d.fy, d.fz];
       if (Math.hypot(...f) > EPS) loads.push({ kind: 'nodal', nodeId: d.nodeId, dir: unit(f), label: opts.loadText(Math.hypot(...f), 'force') });
