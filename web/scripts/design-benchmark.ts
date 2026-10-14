@@ -1,4 +1,5 @@
 import { setColumnCapacityKernelEnabled } from '../src/lib/engine/column-capacity-kernel';
+import { setCompactStationTransfer } from '../src/lib/engine/verification-service';
 import { setColumnCapacityReuse } from '../src/lib/engine/station-design-forces';
 import { CollisionGeometry } from '../src/lib/wasm/dedaliano_engine.js';
 import { registerCollisionKernel } from '../src/lib/engine/detailing/collision-kernel';
@@ -11,11 +12,12 @@ import '../src/lib/engine/design/adapters/cirsoc201-adapter';
 import '../src/lib/engine/design/adapters/unsupported-adapter';
 import { detailingStore } from '../src/lib/store/detailing.svelte';
 
-export async function benchmark(exampleIds: string[], captureOutputs: boolean, collisionKernel = true, incrementalRepair = true, columnCapacity = true, rustColumns = true) {
+export async function benchmark(exampleIds: string[], captureOutputs: boolean, collisionKernel = true, columnCapacity = true, incrementalRepair = true, compactStations = true, fusedQueries = true, rustColumns = true) {
   const results = [];
   await initSolver();
-  registerCollisionKernel(collisionKernel ? CollisionGeometry : null, incrementalRepair);
+  registerCollisionKernel(collisionKernel ? CollisionGeometry : null, incrementalRepair, fusedQueries);
   setColumnCapacityReuse(columnCapacity);
+  setCompactStationTransfer(compactStations);
   setColumnCapacityKernelEnabled(rustColumns);
   for (const example of exampleIds) {
     const rows = [];

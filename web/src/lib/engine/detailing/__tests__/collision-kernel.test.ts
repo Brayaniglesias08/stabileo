@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CollisionGeometry } from '../../../wasm/dedaliano_engine.js';
 import { prepareCollisionKernel, registerCollisionKernel } from '../collision-kernel';
-import { detectCollisions, type DetectCollisionsOptions } from '../collision';
+import { DEFAULT_TOLERANCES, detectCollisions, type DetectCollisionsOptions } from '../collision';
 import { buildStraightBarWithHooks, straightSegment, type BarPath } from '../../../codes/cirsoc201/bar-geometry';
 
 function bars(): BarPath[] {
@@ -49,6 +49,29 @@ describe('Rust collision kernel', () => {
     };
     expect(run(true)).toEqual(run(false));
   });
+  it.each([{}, { prune: false }, { deduplicateBuckets: false }, { broadPhase: false }])(
+    'matches separate Rust queries with classification callbacks and options %j', options => {
+      const input = bars();
+      input.push({ ...input[0], id: 'empty', segments: [] }, { ...input[0], id: 'coincident' });
+      const run = (fused: boolean) => {
+        registerCollisionKernel(CollisionGeometry, true, fused);
+        const calls: unknown[] = [];
+        const tolerances = { ...DEFAULT_TOLERANCES };
+        const result = detectCollisions(input, { ...options, tolerances,
+          classifyFor: (a, b, surface, ta, tb) => {
+            calls.push([a.id, b.id, surface, ta, tb]);
+            // A callback can change later queries' tolerance. Fusion must remain per bar,
+            // matching the old batch boundary rather than measuring the entire sweep early.
+            tolerances.placement = calls.length % 2 ? 0.002 : 0;
+            return { reportable: true, requiredClear: a.id < b.id ? 0.025 : 0.04,
+              pairClass: 'sameLayerSpacing', labelKey: 'test', refs: [] };
+          },
+        });
+        return { result, calls };
+      };
+      try { expect(run(true)).toEqual(run(false)); }
+      finally { registerCollisionKernel(CollisionGeometry); }
+    });
   it('uses the TS fallback and frees WASM geometry when callbacks throw', () => {
     const input = bars();
     const expected = detectCollisions(input, { kernel: false });
@@ -70,8 +93,59 @@ describe('Rust collision kernel', () => {
       expect(() => geometry.candidates(0)).toThrow();
       expect(() => geometry.build_hash(0, true)).toThrow();
       geometry.build_hash(0.3, true);
-      expect([...geometry.candidates(0)]).toEqual([]);
+      expect(() => geometry.query_measured(0, NaN, 0.1, true)).toThrow();
+      expect(() => geometry.query_measured(0, 0, Infinity, true)).toThrow();
+      expect(() => geometry.query_measured(1, 0, 0.1, true)).toThrow();
+      // Invalid input must not consume the ordered query cursor.
+      expect([...geometry.query_measured(0, 0, 0.1, true)]).toEqual([0, 0]);
+      expect(() => geometry.query_measured(0, 0, 0.1, true)).toThrow();
       expect(() => geometry.candidates(0)).toThrow();
     } finally { geometry.free(); }
+  });
+
+  it('measures the valid bars when one is not a number, as the TypeScript path does, instead of throwing', () => {
+    // The kernel refuses a buffer with a non-finite value, and nothing above it fell back: one
+    // bar of NaN geometry from upstream aborted the whole detailing run.
+    const valid = bars().slice(0, 12);
+    const nan = { ...valid[0], id: 'nan', segments: [straightSegment({ x: 0, y: 0, z: 0 }, { x: Number.NaN, y: 0, z: 0 })] };
+    const fat = { ...valid[1], id: 'fat', diameterMm: Number.NaN };
+    for (const odd of [nan, fat]) {
+      const input = [...valid, odd];
+      const fast = detectCollisions(input);
+      expect(fast).toEqual(detectCollisions(input, { kernel: false }));
+      expect(fast.conflicts).toEqual(detectCollisions(valid).conflicts);
+      expect(fast.unmeasurable).toEqual([odd.id]);
+      expect(fast.barCount).toBe(input.length);
+    }
+  });
+
+  it('ends on a bar at infinity, on both paths', () => {
+    // The TypeScript sampler never finished on an infinite segment; the kernel threw.
+    const valid = bars().slice(0, 6);
+    const far = { ...valid[0], id: 'far', segments: [straightSegment({ x: 0, y: 0, z: 0 }, { x: Number.POSITIVE_INFINITY, y: 0, z: 0 })] };
+    for (const kernel of [true, false]) {
+      expect(detectCollisions([...valid, far], { kernel }).unmeasurable).toEqual(['far']);
+    }
+  });
+
+  it('does not measure a pair whose placement is not a number, on either path', () => {
+    const input = bars().slice(0, 12);
+    const placementFor = (a: BarPath, b: BarPath) => (a.id === '0' || b.id === '0' ? Number.NaN : 0.002);
+    expect(() => detectCollisions(input, { placementFor })).not.toThrow();
+    compare(input, { placementFor });
+  });
+
+  it('gives the closest point a positive zero, as Math.max does', () => {
+    // Rust's clamp keeps −0; the reference clamps with Math.max(0, …), which gives +0.
+    const a = { ...bars()[0], id: 'a', segments: [straightSegment({ x: -0, y: 0, z: 0 }, { x: -0, y: 1, z: 0 })] };
+    const b = { ...bars()[0], id: 'b', segments: [straightSegment({ x: -0, y: 0, z: 1 }, { x: -1, y: 0, z: 2 })] };
+    const opts: DetectCollisionsOptions = { tolerances: { ...DEFAULT_TOLERANCES, requiredClear: 2 } };
+    const fast = detectCollisions([a, b], opts), ref = detectCollisions([a, b], { ...opts, kernel: false });
+    expect(fast.conflicts.length).toBeGreaterThan(0);
+    for (let k = 0; k < fast.conflicts.length; k++) {
+      for (const axis of ['x', 'y', 'z'] as const) {
+        expect(Object.is(fast.conflicts[k]!.at[axis], ref.conflicts[k]!.at[axis])).toBe(true);
+      }
+    }
   });
 });

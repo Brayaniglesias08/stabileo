@@ -2571,7 +2571,8 @@ export function verifyProvidedReinforcement(
         }
         return [{ t, Nu, cases: planned }];
       });
-      const capacity = prepareColumnCapacity({ AsProv_cm2: provArea, ...section, bars: colBars }, { axialLoads });
+      // Use the provided bars' area even if the section carries a cached steel area.
+      const capacity = prepareColumnCapacity({ ...section, AsProv_cm2: provArea, bars: colBars }, { axialLoads });
       for (const { t, Nu, cases } of demands) {
         for (const { Mprim, Msec, minMoment, isBiax, capAxis } of cases) {
           // computeColumnCapacity / computeBiaxialCapacity return capacity/demand;

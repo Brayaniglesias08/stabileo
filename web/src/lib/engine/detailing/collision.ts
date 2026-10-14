@@ -1,4 +1,4 @@
-import { prepareCollisionKernel, collisionRepairKernelAvailable, type CollisionGeometry } from './collision-kernel';
+import { prepareCollisionKernel, collisionRepairKernelAvailable, collisionQueryFusionEnabled, type CollisionGeometry } from './collision-kernel';
 /**
  * Bar-to-bar collision detection with a broad-phase spatial index.
  *
@@ -426,6 +426,11 @@ export interface CollisionResult {
   bucketScans: number;
   /** True when nothing worse than `marginal` was found. */
   constructible: boolean;
+  /**
+   * Bars left out because a coordinate, a radius or the diameter is not a finite number, by id.
+   * Absent when every bar was measured.
+   */
+  unmeasurable?: string[];
 }
 
 /**
@@ -508,10 +513,28 @@ interface PreparedSweep {
   retained?: BarConflict[];
 }
 
+/** Every coordinate, radius and the diameter of a bar is a finite number. */
+function measurableBar(bar: BarPath): boolean {
+  const point = (p?: Point3) => !p || (Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z));
+  const size = (v?: number) => v === undefined || Number.isFinite(v);
+  return Number.isFinite(bar.diameterMm) && bar.diameterMm >= 0
+    && bar.segments.every((sg) => point(sg.start) && point(sg.end) && point(sg.centre)
+      && size(sg.radius) && size(sg.sweepDeg));
+}
+
 export function detectCollisions(
   bars: readonly BarPath[],
   opts: DetectCollisionsOptions = {},
 ): CollisionResult {
+  // A bar that is not numbers is left out and named, on both paths. The kernel refuses any
+  // non-finite value in its buffers, and nothing above it fell back, so one malformed bar from
+  // upstream aborted a whole detailing run; the TypeScript path measured NaN as no conflict and
+  // never finished sampling a segment that reaches infinity.
+  const unmeasurable = bars.filter((b) => !measurableBar(b)).map((b) => b.id);
+  if (unmeasurable.length > 0) {
+    const measured = detectCollisions(bars.filter(measurableBar), opts);
+    return { ...measured, barCount: bars.length, unmeasurable };
+  }
   return sweepCollisions(bars, opts);
 }
 
@@ -569,29 +592,39 @@ function sweepCollisions(
       if (prepared?.candidates && !prepared.candidates.has(i)) continue;
       const a = sampled[i];
       tsCandidates.length = 0;
-      const candidates = prepared?.candidates?.get(i)
+      // Constant-placement full sweeps can keep candidates entirely in Rust. Repair
+      // updates already supply selected pairs; custom placement keeps callback interleaving.
+      const fused = kernel && collisionQueryFusionEnabled() && !placementFor
+        && opts.broadPhase !== false && !prepared?.candidates
+        ? kernel.query_measured(i, tolerances.placement, maxClear, prune) : null;
+      const candidates = fused ? tsCandidates : prepared?.candidates?.get(i)
         ?? (kernel && opts.broadPhase !== false ? kernel.candidates(i) : tsCandidates);
-      if (candidates === tsCandidates) {
+      if (!fused && candidates === tsCandidates) {
         if (opts.broadPhase === false) {
           for (let j = i + 1; j < sampled.length; j++) tsCandidates.push(j);
         } else {
           for (const p of a.hashPoints) hash.collectNear(p, i, tsCandidates, seen);
         }
       }
-      barPairsTested += candidates.length;
+      barPairsTested += fused ? fused[0] : candidates.length;
+      if (fused) narrowPhaseTests += fused[1];
 
       // Batch constant-placement queries. Custom placement callbacks retain their exact
       // interleaving with classification callbacks, including observable side effects.
-      const measured = kernel && !placementFor && candidates.length > 0
-        ? kernel.measure(i, candidates instanceof Uint32Array ? candidates : Uint32Array.from(candidates), tolerances.placement, maxClear, prune) : null;
-      for (let candidate = 0; candidate < candidates.length; candidate++) {
-        const j = candidates[candidate];
+      const measured = fused ?? (kernel && !placementFor && candidates.length > 0
+        ? kernel.measure(i, candidates instanceof Uint32Array ? candidates : Uint32Array.from(candidates), tolerances.placement, maxClear, prune) : null);
+      const count = fused ? (fused.length - 2) / 8 : candidates.length;
+      for (let candidate = 0; candidate < count; candidate++) {
+        const j = fused ? fused[2 + candidate * 8] : candidates[candidate];
         const b = sampled[j];
         // Placement is needed before the sweep; `required` is resolved after the pair has
         // been classified, because the class chooses the rule.
         const placement = placementFor
           ? placementFor(a.path, b.path)
           : tolerances.placement;
+        // A placement that is not a number places nothing: the pair is not measured, on either
+        // path (the kernel refuses the query; the reference compared NaN and reported nothing).
+        if (!Number.isFinite(placement)) continue;
 
         // ── Reject what cannot be reported, before measuring it ──
         //
@@ -620,8 +653,8 @@ function sweepCollisions(
 
         if (kernel) {
           const values = measured ?? kernel.measure(i, Uint32Array.of(j), placement, maxClear, prune);
-          const offset = measured ? candidate * 8 : 0;
-          narrowPhaseTests += values[offset + 7];
+          const offset = fused ? 3 + candidate * 8 : measured ? candidate * 8 : 0;
+          if (!fused) narrowPhaseTests += values[offset + 7];
           if (values[offset + 5] >= 0) {
             worst = { surface: values[offset], clearance: values[offset + 1],
               at: { x: values[offset + 2], y: values[offset + 3], z: values[offset + 4] },
@@ -720,6 +753,8 @@ function sweepCollisions(
  */
 export function prepareCollisionRepair(bars: readonly BarPath[], opts: DetectCollisionsOptions = {}) {
   if (!collisionRepairKernelAvailable() || opts.kernel === false || opts.broadPhase === false || opts.deduplicateBuckets === false) return null;
+  // A bar that is not numbers is left out by name, which only the full sweep does.
+  if (!bars.every(measurableBar)) return null;
   const ids = new Map(bars.map((bar, i) => [bar.id, i]));
   if (ids.size !== bars.length) return null;
   const raw = bars.map(bar => samplePath(bar, COLLISION_CHORD_TOLERANCE));
