@@ -43,6 +43,7 @@ import { weldTolerance } from '../model/weld-tolerance';
 import { getFixture, is2DFixture, is3DFixture } from '../templates/fixture-index';
 import { loadFixture } from '../templates/load-fixture';
 import { inferLoadCaseType } from '../engine/combinations-service';
+import { addsLoop, singleSolveModel } from '../engine/case-effects';
 import { t } from '../i18n';
 import { GRAVITY_SELF_WEIGHT, planSelfWeight } from '../engine/analysis-settings';
 import { type ModelData, shouldEmbedFlat2DModelIn3D, validateAndSolve2D, validateAndSolve2DAsync, buildSolverInput2D, validateAndSolve3D, validateAndSolve3DAsync, buildSolverInput3D as buildSolverInput3DFn, solveCombinations2D, solveCombinations3D as solveCombinations3DFn, solveCombinations3DParallel as solveCombinations3DParallelFn } from '../engine/solver-service';
@@ -825,12 +826,44 @@ export interface LoadCase {
    * read (`codes/families/origin.ts`). The generator states it; absent, it follows the type.
    */
   category?: import('../codes/families/origin').ActionCategory;
+  /**
+   * Other cases this one takes in, each times a factor, besides its own loads: a composite case
+   * (`engine/case-effects.ts`). Solved as one case, so a second-order or a nonlinear solve sees
+   * the whole of it.
+   */
+  includes?: Array<{ caseId: number; factor: number }>;
+  /**
+   * A composite case the combination generator wrote for one of its combinations ("create as
+   * composite cases", `store/generated-combinations.ts`): "replace generated loads" takes it back
+   * with its combination once nothing else takes it, and a later run knows the combination.
+   */
+  generated?: boolean;
+  /** A case of loads only to be taken in by others: not solved, nor listed in the results, on its own. */
+  reference?: boolean;
+  /** False: not solved on its own unless a combination needs it, nor listed in the results. */
+  solve?: boolean;
+  /**
+   * Notional loads (`direct-analysis.ts` `notionalLoads`): a fraction of the gravity load of
+   * another case at each node, horizontal along a direction. Written when solved.
+   */
+  notional?: { sourceCaseId: number; ratio: number; dir: '+X' | '-X' | '+Y' | '-Y' };
+  /**
+   * An imposed load's reduction for a case typed by hand: its loads times `ratio`, the one the
+   * bound loads code gives for the tributary area, member and storeys stated, and the occupancy
+   * of Table 4.1 its Lo and exclusions come from (`engine/loads/case-reduction.ts`).
+   */
+  reduction?: { ratio: number; tributaryAreaM2: number; elementKind: string; floorsSupported: number; occupancyKey?: string };
 }
 
 export interface LoadCombination {
   id: number;
   name: string;
   factors: Array<{ caseId: number; factor: number }>;
+  /**
+   * How the factored cases add: `linear` (the default), `srss` (the square root of the sum of their
+   * squares) or `abs` (the sum of their absolute values), quantity by quantity.
+   */
+  method?: 'linear' | 'srss' | 'abs';
   /** The code, edition, rule and purpose of a generated combination: what design reads to know it is its own. */
   origin?: import('../codes/families/origin').CombinationOrigin;
 }
@@ -3839,10 +3872,10 @@ function createModelStore() {
     },
 
     // ─── Load Case / Combination CRUD ───
-    addLoadCase(name: string, type: LoadCaseType = '', opts: { alternatives?: string; pattern?: boolean; category?: LoadCase['category'] } = {}): number {
+    addLoadCase(name: string, type: LoadCaseType = '', opts: { alternatives?: string; pattern?: boolean; category?: LoadCase['category']; generated?: boolean } = {}): number {
       if (!_undoBatching) _pushUndo?.();
       const id = nextId.loadCase++;
-      model.loadCases.push({ id, type, name, ...(opts.alternatives ? { alternatives: opts.alternatives } : {}), ...(opts.pattern ? { pattern: true } : {}), ...(opts.category ? { category: opts.category } : {}) });
+      model.loadCases.push({ id, type, name, ...(opts.alternatives ? { alternatives: opts.alternatives } : {}), ...(opts.pattern ? { pattern: true } : {}), ...(opts.category ? { category: opts.category } : {}), ...(opts.generated ? { generated: true } : {}) });
       return id;
     },
 
@@ -3864,6 +3897,11 @@ function createModelStore() {
       // single solve (which takes every stated row) and not the combinations.
       if (model.analysis?.selfWeight?.some((s) => s.caseId === id)) {
         model.analysis = { ...model.analysis, selfWeight: model.analysis.selfWeight.filter((s) => s.caseId !== id) };
+      }
+      // And the cases that take it in, or read their notional loads off it.
+      for (const lc of model.loadCases) {
+        if (lc.includes?.some((x) => x.caseId === id)) lc.includes = lc.includes.filter((x) => x.caseId !== id);
+        if (lc.notional?.sourceCaseId === id) delete lc.notional;
       }
       // Likewise a named envelope that takes the case on its own.
       if (model.resultScopes) {
@@ -3984,8 +4022,11 @@ function createModelStore() {
      * "Temperatura"), and a user's case of that name, pulled into the group, had its loads dropped
      * from every combination that took another alternative. When the name is taken, the new case
      * gets a numbered one.
+     *
+     * `reduced`: the loads come reduced already (the generator's live load), and a case reduced by
+     * hand (`LoadCase.reduction`) is never the one they go into, whatever its name.
      */
-    ensureLoadCase(name: string, type: LoadCaseType, opts: { existingId?: number | null; alternatives?: string; pattern?: boolean; own?: boolean; category?: LoadCase['category'] } = {}): number {
+    ensureLoadCase(name: string, type: LoadCaseType, opts: { existingId?: number | null; alternatives?: string; pattern?: boolean; own?: boolean; reduced?: boolean; category?: LoadCase['category'] } = {}): number {
       const found = findPlannedCase(model.loadCases, name, type, opts);
       if (!found) {
         let fresh = name;
@@ -4036,7 +4077,7 @@ function createModelStore() {
       }
     },
 
-    updateCombination(id: number, data: Partial<{ name: string; factors: Array<{ caseId: number; factor: number }> }>): void {
+    updateCombination(id: number, data: Partial<{ name: string; factors: Array<{ caseId: number; factor: number }>; method: LoadCombination['method'] }>): void {
       if (!_undoBatching) _pushUndo?.();
       const combo = model.combinations.find(c => c.id === id);
       if (!combo) return;
@@ -4050,6 +4091,38 @@ function createModelStore() {
         if (combo.origin && !combo.origin.edited && sig(combo.factors) !== sig(data.factors)) combo.origin = { ...combo.origin, edited: true };
         combo.factors = [...data.factors];
       }
+      if ('method' in data) {
+        const method = !data.method || data.method === 'linear' ? undefined : data.method;
+        // How the cases add is what the combination is, as its factors are: a code's combination
+        // set to SRSS or ABS is the user's now, which "replace generated loads" keeps.
+        if (combo.origin && !combo.origin.edited && method !== combo.method) combo.origin = { ...combo.origin, edited: true };
+        if (method) combo.method = method; else delete combo.method;
+      }
+    },
+
+    /**
+     * A case's composition and how it is solved (`engine/case-effects.ts`): the cases it takes in,
+     * whether it is a reference or solved on its own, its notional loads, its reduction, its
+     * alternatives group and pattern. A field given as undefined is removed.
+     *
+     * A case that would read itself, through the cases it takes in or its notional source, is
+     * refused and nothing changes (false): solved, a loop takes in nothing (`caseOrder`), so the
+     * cases in it came out empty and nothing said so. A case in a loop already, from a file, is
+     * still edited: only a loop it did not have is refused (`addsLoop`), so its factors change
+     * and any link of the loop can go.
+     */
+    updateLoadCaseFields(id: number, patch: Partial<Pick<LoadCase, 'includes' | 'reference' | 'solve' | 'notional' | 'reduction' | 'alternatives' | 'pattern'>>): boolean {
+      const lc = model.loadCases.find((c) => c.id === id);
+      if (!lc) return false;
+      if (('includes' in patch || 'notional' in patch) && addsLoop(model.loadCases, id, { ...('includes' in patch ? { includes: patch.includes } : {}), ...('notional' in patch ? { notional: patch.notional } : {}) })) return false;
+      if (!_undoBatching) _pushUndo?.();
+      for (const [k, v] of Object.entries(patch) as Array<[keyof typeof patch, unknown]>) {
+        const empty = v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0) || (k === 'solve' && v === true) || ((k === 'reference' || k === 'pattern') && v === false);
+        if (empty) delete (lc as unknown as Record<string, unknown>)[k];
+        else (lc as unknown as Record<string, unknown>)[k] = JSON.parse(JSON.stringify(v));
+      }
+      model.loadCases = [...model.loadCases];
+      return true;
     },
 
     updateLoadCaseId(loadId: number, caseId: number): void {
@@ -4100,13 +4173,14 @@ function createModelStore() {
       // Sliding joints are a Basic 2D feature; the 3D solve path does not expand
       // them, so it would silently treat slider ends as rigid. Block instead.
       if (this.hasSlidingJoints()) return t('advanced.sliding3dUnsupported');
+      // Every load once, as the cases say they are solved (`case-effects.ts` `singleSolveModel`).
       return validateAndSolve3D(
-        { nodes: model.nodes, elements: model.elements, supports: model.supports,
+        singleSolveModel({ nodes: model.nodes, elements: model.elements, supports: model.supports,
           loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro), groups: model.groups,
           plates: isPro ? model.plates : undefined,
           quads: isPro ? model.quads : undefined,
           constraints: isPro ? model.constraints : undefined,
-          connectors: isPro ? model.connectors : undefined },
+          connectors: isPro ? model.connectors : undefined }, model.loadCases),
         includeSelfWeight, leftHand,
       );
     },
@@ -4116,12 +4190,12 @@ function createModelStore() {
     async solve3DAsync(includeSelfWeight = false, leftHand = false, isPro = false): Promise<AnalysisResults3D | string | null> {
       if (this.hasSlidingJoints()) return t('advanced.sliding3dUnsupported');
       return validateAndSolve3DAsync(
-        { nodes: model.nodes, elements: model.elements, supports: model.supports,
+        singleSolveModel({ nodes: model.nodes, elements: model.elements, supports: model.supports,
           loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro), groups: model.groups,
           plates: isPro ? model.plates : undefined,
           quads: isPro ? model.quads : undefined,
           constraints: isPro ? model.constraints : undefined,
-          connectors: isPro ? model.connectors : undefined },
+          connectors: isPro ? model.connectors : undefined }, model.loadCases),
         includeSelfWeight, leftHand,
       );
     },
@@ -4562,16 +4636,18 @@ function createModelStore() {
  * The existing case `ensureLoadCase` writes a planned case into, or none (it will be created): the
  * one named by id, else, for a case of a group of the plan's own, one of its type and group under
  * its name or a numbered one, else one of its type and name. Apart so the load plan's preview
- * finds the same cases apply will write into (`apply-load-plan.ts`).
+ * finds the same cases apply will write into (`apply-load-plan.ts`). Loads reduced already
+ * (`reduced`) are never found a case reduced by hand, by name: they would be reduced twice.
  */
-export function findPlannedCase<C extends Pick<LoadCase, 'id' | 'type' | 'name' | 'alternatives'>>(
-  cases: readonly C[], name: string, type: string, opts: { existingId?: number | null; alternatives?: string; own?: boolean } = {},
+export function findPlannedCase<C extends Pick<LoadCase, 'id' | 'type' | 'name' | 'alternatives'> & { reduction?: unknown }>(
+  cases: readonly C[], name: string, type: string, opts: { existingId?: number | null; alternatives?: string; own?: boolean; reduced?: boolean } = {},
 ): C | undefined {
   const numbered = (n: string) => n === name || (n.startsWith(`${name} (`) && /^\(\d+\)$/.test(n.slice(name.length + 1)));
+  const open = (c: C) => !(opts.reduced && c.reduction !== undefined);
   return (opts.existingId != null ? cases.find((c) => c.id === opts.existingId) : undefined)
     ?? (opts.own
-      ? cases.find((c) => c.type === type && c.alternatives === opts.alternatives && numbered(c.name))
-      : cases.find((c) => c.type === type && c.name === name));
+      ? cases.find((c) => c.type === type && c.alternatives === opts.alternatives && numbered(c.name) && open(c))
+      : cases.find((c) => c.type === type && c.name === name && open(c)));
 }
 
 export const modelStore = createModelStore();
