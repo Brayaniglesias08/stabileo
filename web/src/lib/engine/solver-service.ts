@@ -2241,12 +2241,14 @@ function withDeclaredInactiveBundle<B extends { perCase: Map<number, AnalysisRes
  * (`combination-methods.ts` `magnitudeRefusal`). They were the magnitude of the nonlinear cases.
  */
 function magnitudeRefusal3D(model: ModelData, combinations: LoadCombination[]): string | null {
+  // Without an SRSS or ABS combination there is nothing to refuse, and no model to look through.
+  if (!combinations.some(isMagnitudeCombination)) return null;
   const named = magnitudeRefusal(hasNonlinearBehaviour(solvableModel(model)), combinations);
   return named ? t('svc.magnitudeNonlinear').replace('{names}', named.join(', ')) : null;
 }
 
-/** What `finishBundle` needs of the model: the plates' thicknesses, and whether P-Delta solved the combinations. */
-const magnitudeOptions = (model: ModelData) => ({ plates: model.plates, firstOrder: model.analysis?.perCombination === 'pdelta' });
+/** What `finishBundle` needs of the model: whether P-Delta solved the combinations. */
+const magnitudeOptions = (model: ModelData) => ({ firstOrder: model.analysis?.perCombination === 'pdelta' });
 
 export function solveCombinations3D(
   model: ModelData,

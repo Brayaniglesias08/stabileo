@@ -8,7 +8,10 @@
  * (`case-effects.ts`): a composite case's what it takes in, a reduced case's its reduced loads. It
  * read the model's own loads, so a composite case applied nothing against its reactions. A case
  * a combination takes without listing it (a reference case, one not solved alone) is no row of its
- * own, but its applied side is the combination's.
+ * own, but its applied side is the combination's. The single solve's row reads the loads that solve
+ * had (`case-effects.ts` `singleSolveModel`) and its self-weight once, as it applies it: read as the
+ * cases are solved one by one, a composite case's parts were counted twice and the older switch's
+ * weight once per dead-load case.
  *
  * An SRSS or ABS combination is a magnitude, in no equilibrium by nature: it is not checked, and
  * named as such (`magnitude`), rather than flagged as out of balance.
@@ -17,7 +20,7 @@ import { modelStore } from './model.svelte';
 import { resultsStore } from './results.svelte';
 import { uiStore } from './ui.svelte';
 import { staticsCheck, combinationStatics, type StaticsCheckRow, type ComboStaticsRow } from '../engine/statics-check';
-import { withCaseEffects } from '../engine/case-effects';
+import { withCaseEffects, singleSolveModel } from '../engine/case-effects';
 import { isMagnitudeCombination } from '../engine/result-scopes';
 import { toCsv } from '../engine/result-tables';
 
@@ -40,13 +43,17 @@ export function staticsRows(): StaticsRows | null {
     (perCase.size > 0 ? [...perCase].map(([id, r]) => [id, r.reactions]) : [[null, single!.reactions]]) as never,
   );
   const loadCases = modelStore.model.loadCases;
-  // The loads each case was solved with, as the solve writes them out (`case-effects.ts`).
-  const md = withCaseEffects({
+  const base = {
     nodes: modelStore.nodes, elements: modelStore.elements, supports: modelStore.supports,
     loads: modelStore.loads, materials: modelStore.materials, sections: modelStore.sections,
     quads: modelStore.quads, plates: modelStore.plates,
     analysis: modelStore.analysis, groups: modelStore.model.groups,
-  } as never, loadCases, { includeSelfWeight: uiStore.includeSelfWeight, leftHand: uiStore.axisConvention3D === 'leftHand' });
+  } as never;
+  // The loads each case was solved with, as the solve writes them out (`case-effects.ts`), or
+  // the single solve's.
+  const md = perCase.size > 0
+    ? withCaseEffects(base, loadCases, { includeSelfWeight: uiStore.includeSelfWeight, leftHand: uiStore.axisConvention3D === 'leftHand' })
+    : singleSolveModel(base, loadCases);
   const check = (reactions: Map<number | null, never>) => staticsCheck({
     model: md as never,
     reactionsByCase: reactions,

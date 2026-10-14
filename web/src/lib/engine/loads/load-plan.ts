@@ -69,8 +69,12 @@ export interface LoadModelData {
    */
   quads?: Map<number, { id: number; nodes: number[]; thickness?: number; materialId?: number }>;
   materials: Map<number, { id: number; rho: number }>;
-  /** `alternatives`: the group a case belongs to, a generated full load among its patterns. */
-  loadCases: Array<{ id: number; type: string; name: string; alternatives?: string; pattern?: boolean }>;
+  /**
+   * `alternatives`: the group a case belongs to, a generated full load among its patterns.
+   * `reduction`: a live load reduced by hand (`LoadCase.reduction`), which reduced live loads
+   * never go into.
+   */
+  loadCases: Array<{ id: number; type: string; name: string; alternatives?: string; pattern?: boolean; reduction?: unknown }>;
 }
 
 // ─── Inputs ──────────────────────────────────────────────────────
@@ -280,6 +284,11 @@ export interface PlannedCase {
    * enter the combinations beside it (`applyLoadPlan`).
    */
   own?: boolean;
+  /**
+   * Its loads are reduced already (the live load with `applyLiveReduction`): Apply never writes
+   * them into a case reduced by hand (`LoadCase.reduction`), which would reduce them again.
+   */
+  reduced?: boolean;
 }
 
 export interface PlannedDistributed {
@@ -645,9 +654,24 @@ export function buildLoadPlan(input: LoadPlanInput): LoadPlan {
   }
 
   // ── Cases ──
+  /*
+   * The live load, reduced here, never goes into a live case the user reduces by hand: the case's
+   * ratio would reduce it again (240 kN read 144 under a hand ratio of 0,6). It goes to the first
+   * live case without one, or to a case of its own, and a case reduced by hand stays the user's,
+   * entering the combinations beside it (`own`). The other order, a hand reduction on a case
+   * holding the generator's loads, is refused where it is asked for (`case-reduction.ts`).
+   */
+  const handReduced = input.applyLiveReduction ? input.model.loadCases.filter((c) => c.type === 'L' && c.reduction !== undefined) : [];
+  const live: PlannedCase = input.applyLiveReduction
+    ? {
+        existingId: input.model.loadCases.find((c) => c.type === 'L' && c.reduction === undefined)?.id ?? null,
+        type: 'L', nameKey: 'autoLoad.liveCase', reduced: true, ...(handReduced.length ? { own: true } : {}),
+      }
+    : { existingId: findCase(input.model, 'L'), type: 'L', nameKey: 'autoLoad.liveCase' };
+  if (handReduced.length) derivation.push(msg('loadPlan.derivation.liveBesideHandReduced', { names: handReduced.map((c) => c.name).join(', ') }));
   const cases: PlannedCase[] = [
     { existingId: findCase(input.model, 'D'), type: 'D', nameKey: 'autoLoad.deadCase' },
-    { existingId: findCase(input.model, 'L'), type: 'L', nameKey: 'autoLoad.liveCase' },
+    live,
   ];
 
   // ── Dead, live and roof live, where the area loads go (`plan-gravity.ts`, `plan-area-loads.ts`) ──
@@ -740,7 +764,7 @@ export function buildLoadPlan(input: LoadPlanInput): LoadPlan {
     if (!full) continue;
     full.alternatives = sym === 'L' ? LIVE_PATTERNS : ROOF_LIVE_PATTERNS;
     full.own = true;
-    full.existingId = input.model.loadCases.find((c) => c.type === sym && c.alternatives === full.alternatives && !c.pattern)?.id ?? null;
+    full.existingId = input.model.loadCases.find((c) => c.type === sym && c.alternatives === full.alternatives && !c.pattern && !(full.reduced && c.reduction !== undefined))?.id ?? null;
   }
   // One case per arrangement, a pattern of its group: it varies where its action is principal.
   const arrangementCase = area.arrangements.map((a) => {

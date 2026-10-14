@@ -16,7 +16,7 @@
   import { tp } from '../../lib/i18n';
   import ProCaseDetails from './loads/ProCaseDetails.svelte';
   import { parseDecimal } from '../../lib/utils/numeric-input';
-  import { caseOrder } from '../../lib/engine/case-effects';
+  import { caseOrder, reductionApplies } from '../../lib/engine/case-effects';
 
   /** The case whose composition is open below its row. */
   let open = $state<number | null>(null);
@@ -188,7 +188,8 @@
           {#if lc.reference}<span class="lc-alt" title={t('caseDetails.reference')} data-testid="lc-ref-{lc.id}">{t('caseDetails.referenceBadge')}</span>
           {:else if lc.solve === false}<span class="lc-alt" title={t('caseDetails.solve')}>{t('caseDetails.notSolvedBadge')}</span>{/if}
           {#if lc.notional}<span class="lc-alt" title={t('caseDetails.notional')}>{lc.notional.ratio} · {lc.notional.dir}</span>{/if}
-          {#if lc.reduction}<span class="lc-alt" title={t('caseDetails.reduction')}>× {lc.reduction.ratio.toFixed(2)}</span>{/if}
+          <!-- A ratio the case states but the solve does not apply (retyped from L) is no badge. -->
+          {#if lc.reduction && reductionApplies(lc)}<span class="lc-alt" title={t('caseDetails.reduction')}>× {lc.reduction.ratio.toFixed(2)}</span>{/if}
           {#if looped.has(lc.id)}<span class="lc-alt lc-loop" title={t('caseDetails.loop')} data-testid="lc-loop-{lc.id}">{t('caseDetails.loopBadge')}</span>{/if}</td>
         <td class="lc-count">{count}</td>
         <!-- The regulation for THIS case, from the row that names it: a row that says W wants

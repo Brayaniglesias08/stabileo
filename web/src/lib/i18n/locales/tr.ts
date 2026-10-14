@@ -3394,6 +3394,7 @@ const tr: Translations = {
   'design.error.solveFirst': 'Tasarım taleplerini hesaplamak için önce modeli çözün.',
   'design.error.noCombinations': 'Tasarlamadan önce en az bir yük kombinasyonu tanımlayın.',
   'design.error.noDemands': 'Mevcut sonuçlardan tasarım talebi çıkarılamadı.',
+  'design.error.noLinearCombination': 'Etkin doğrusal kombinasyon yok: SRSS ve ABS kombinasyonları işaretsiz büyüklüklerdir ve tasarımda kullanılmaz. Doğrusal bir kombinasyonu etkinleştirin.',
   'design.error.noAdapter': 'Seçili kod için kayıtlı bir tasarım yönetmeliği bağdaştırıcısı yok.',
   'design.error.codeUnsupported': '{code} donatı tasarlayamaz — yalnızca verilen bir düzenlemeyi değerlendirebilir.',
   'design.error.noConcreteMembers': '{code} is the reinforced-concrete code and this model has no concrete member: all {n} of its members are steel. The reinforcement design workflow does not apply to this structure.',

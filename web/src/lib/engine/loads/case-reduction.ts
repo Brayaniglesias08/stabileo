@@ -13,7 +13,9 @@
  *                                 by tributary area; it was offered for all four.
  *   not twice                     loads the generator wrote with its reduction on are reduced
  *                                 already (`load-plan.ts`, `applyLiveReduction`); a case holding
- *                                 them is not reduced again.
+ *                                 them is not reduced again. The other order is the generator's:
+ *                                 it never writes them into a case reduced here
+ *                                 (`PlannedCase.reduced`).
  *
  * Pure: the code, the case's loads and the generator's settings come in.
  */

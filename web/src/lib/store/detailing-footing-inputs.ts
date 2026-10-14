@@ -25,7 +25,7 @@
  * Nothing was rewritten. The bodies are the ones that were in the store, moved verbatim.
  */
 
-import { activePerCombo3D } from './active-results';
+import { activePerCombo3D, activeResultSet3D } from './active-results';
 import { SETTLEMENT_CASE_ID } from '../engine/settlement-case';
 import { modelStore, type ProvidedReinforcement } from './model.svelte';
 import { verificationStore } from './verification.svelte';
@@ -34,7 +34,7 @@ import { resultsStore } from './results.svelte';
 // must not depend on the design run having populated `verificationStore.contexts`.
 import { classifyElement } from '../engine/codes/argentina/cirsoc201';
 import { computeLocalAxes3D } from '../engine/local-axes-3d';
-import { withCaseEffects } from '../engine/case-effects';
+import { withCaseEffects, singleSolveModel } from '../engine/case-effects';
 import type { ModelData } from '../engine/solver-service';
 // A store is a locale boundary, and these readings cross it where the store did.
 import { t } from '../i18n';
@@ -94,9 +94,9 @@ export function collectFootingReactions(): Map<number, NodeReactions> {
 
   // With no combinations solved, the single active result set is the only reaction there is.
   // It is offered as ONE combination named for what it is, rather than silently treated as a
-  // factored envelope it may not be.
+  // factored envelope it may not be. Never a magnitude (`activeResultSet3D`).
   if (factored.size === 0) {
-    for (const r of resultsStore.results3D?.reactions ?? []) {
+    for (const r of activeResultSet3D()?.reactions ?? []) {
       if (!wanted.has(r.nodeId)) continue;
       factored.set(r.nodeId, [{
         combinationId: 0,
@@ -299,11 +299,11 @@ export function collectSlabColumns(): Map<number, SlabColumnJoint> {
         forces: indexForces(res.elementForces ?? []),
       });
     }
-  } else if (resultsStore.results3D) {
+  } else if (activeResultSet3D()) {
     sets.push({
       id: 0,
       name: t('detailing.footingRun.activeResultSet'),
-      forces: indexForces(resultsStore.results3D.elementForces ?? []),
+      forces: indexForces(activeResultSet3D()!.elementForces ?? []),
     });
   }
   sets.sort((a, b) => a.id - b.id);
@@ -312,8 +312,8 @@ export function collectSlabColumns(): Map<number, SlabColumnJoint> {
   // indexing changes neither summation order nor the per-load combination factors.
   // Rebuild on every call: load edits and combination edits must take effect immediately.
   const atLeg = (id: number) => legs.has(id);
-  const rawLoads = nodalLoadsAt(atLeg, false);
-  const solvedLoads = sets.some((set) => set.id !== 0) ? nodalLoadsAt(atLeg, true) : rawLoads;
+  const singleLoads = nodalLoadsAt(atLeg, false);
+  const solvedLoads = sets.some((set) => set.id !== 0) ? nodalLoadsAt(atLeg, true) : singleLoads;
   const factorsBySet = new Map<number, Map<number, number>>();
   for (const set of sets) if (set.id !== 0) factorsBySet.set(set.id, comboFactors(set.id));
 
@@ -376,7 +376,7 @@ export function collectSlabColumns(): Map<number, SlabColumnJoint> {
       // Downward positive: a member pushing the node down delivers load into the column.
       sum += -globalZ;
     }
-    return sum + deliveredAt((setId === 0 ? rawLoads : solvedLoads).get(nodeId) ?? [], factorsBySet.get(setId), setId);
+    return sum + deliveredAt((setId === 0 ? singleLoads : solvedLoads).get(nodeId) ?? [], factorsBySet.get(setId), setId);
   };
 
   /** Step in the column end moments across the joint, kN·m, about global x and y. */
@@ -518,7 +518,8 @@ export function footingRunFingerprint(): string {
  * inside the perimeter too. It carries the COMBINATION's factors, as the set's element forces do,
  * and each case as solved (`case-effects.ts`): a composite case its parts' loads, a reduced case
  * its reduced ones. Notional loads are horizontal and left out. The single active result set
- * (setId 0) is the solve of every load unfactored, its raw loads by construction.
+ * (setId 0) is the solve of every load, so its loads are that solve's (`singleSolveModel`): the
+ * raw loads counted a reference case and an unreduced L.
  */
 export function nodalLoadAtJoint(nodeId: number, setId: number): number {
   const loads = nodalLoadsAt((id) => id === nodeId, setId !== 0).get(nodeId) ?? [];
@@ -526,10 +527,10 @@ export function nodalLoadAtJoint(nodeId: number, setId: number): number {
 }
 
 type JointLoad = { nodeId: number; fz?: number; caseId?: number };
-/** The nodal loads on the nodes `at` takes, by node, in the model's order: raw, or as solved. */
+/** The nodal loads on the nodes `at` takes, by node, in the model's order: of the single solve, or by case as solved. */
 function nodalLoadsAt(at: (nodeId: number) => boolean, solved: boolean): Map<number, JointLoad[]> {
   const cases = modelStore.model.loadCases.map(({ notional: _n, ...c }) => c);
-  const loads = !solved ? modelStore.model.loads
+  const loads = !solved ? singleSolveModel(modelStore.model as unknown as ModelData, modelStore.model.loadCases).loads
     : withCaseEffects(modelStore.model as unknown as ModelData, cases, { includeSelfWeight: false, leftHand: false }).loads;
   const out = new Map<number, JointLoad[]>();
   for (const load of loads) {

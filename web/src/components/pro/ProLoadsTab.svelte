@@ -6,7 +6,7 @@
   import { windCaseReversible } from '../../lib/store/wind-reversal';
   import ProFloorLoadSection from './ProFloorLoadSection.svelte';
   import { expandCombinations, presentSymbols, type CaseCombination } from '../../lib/engine/loads/combination-cases';
-  import { addGeneratedCombinations, addCompositeCases, templateCombinationSpecs } from '../../lib/store/generated-combinations';
+  import { addGeneratedCombinations, addCompositeCases, combinationExists, templateCombinationSpecs } from '../../lib/store/generated-combinations';
   import { withNotionalVariants } from '../../lib/engine/loads/notional-combinations';
   import { modelStore, uiStore } from '../../lib/store';
   import { t } from '../../lib/i18n';
@@ -58,17 +58,9 @@
   let seismicBothSenses = $state(true);
   let windBySign = $state(false);
 
+  // Read through the composite cases: one written as a composite case is the same combination.
   function comboExists(factors: Array<{caseId: number; factor: number}>): boolean {
-    const sig = comboSignature(factors);
-    return combinations.some(c => comboSignature(c.factors) === sig);
-  }
-
-  function comboSignature(factors: Array<{caseId: number; factor: number}>): string {
-    return factors
-      .filter(f => Math.abs(f.factor) > 1e-9)
-      .sort((a, b) => a.caseId - b.caseId)
-      .map(f => `${f.caseId}:${f.factor.toFixed(2)}`)
-      .join('|');
+    return combinationExists(factors, combinations, modelStore.model.loadCases);
   }
 
   function buildCandidates(template: ComboTemplate): CandidateCombo[] {
