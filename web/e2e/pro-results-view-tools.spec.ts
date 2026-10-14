@@ -69,6 +69,7 @@ test.describe('@smoke PRO results, report, view and tools', () => {
     expect((await data(page, 'projectInfo')).job).toBe('Nave Norte');
     await page.getByTestId('pr-stage-analyse').click();
     await page.getByTestId('pr-cmd-report').click();
+    await page.getByTestId('rpt-figures').locator('summary').click();
     await page.getByTestId('rpt-add-figure').click();
     await expect(page.getByTestId('rpt-figure')).toHaveCount(1);
     await expect(page.getByTestId('rpt-envelope')).toBeChecked();

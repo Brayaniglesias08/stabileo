@@ -15,7 +15,8 @@ import {
   type FigureContent, type FigureOptions, type FigurePlan,
 } from './view-figure';
 
-export type ViewFormat = 'svg' | 'png';
+/** `jpg` is PRO's: a picture that every program opens, on white. */
+export type ViewFormat = 'svg' | 'png' | 'jpg';
 
 export interface ViewExportRequest {
   format: ViewFormat;
@@ -31,7 +32,7 @@ export function fileBase(): string {
 }
 
 const SLUG: Record<FigureContent, string> = {
-  model: 'estructura', reactions: 'reacciones', despiece: 'dcl', moment: 'M', shear: 'V', axial: 'N', deformed: 'deformada',
+  model: 'estructura', reactions: 'reacciones', despiece: 'dcl', moment: 'M', shear: 'V', axial: 'N', deformed: 'deformada', shellMap: 'placas',
 };
 
 /**
@@ -65,8 +66,9 @@ async function files(req: ViewExportRequest): Promise<Array<{ name: string; blob
     const name = ps.length === 1 && (req.sheet || contents.length > 1) ? `${base}_${t('viewExport.sheetFile')}` : `${base}_${SLUG[p.content]}`;
     if (req.format === 'svg') out.push({ name: `${name}.svg`, blob: new Blob([toSvg(p)], { type: 'image/svg+xml' }) });
     else {
-      const blob = await canvasToBlob(toCanvas(p));
-      if (blob) out.push({ name: `${name}.png`, blob });
+      const jpg = req.format === 'jpg';
+      const blob = await canvasToBlob(toCanvas(p), jpg ? 'image/jpeg' : 'image/png');
+      if (blob) out.push({ name: `${name}.${jpg ? 'jpg' : 'png'}`, blob });
     }
   }
   return out;

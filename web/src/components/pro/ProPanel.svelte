@@ -51,7 +51,7 @@
   import { modelStore, resultsStore, uiStore, verificationStore, tabManager, historyStore } from '../../lib/store';
   import AiDrawer from '../AiDrawer.svelte';
   import type { ReportConfig, ReportData } from '../../lib/engine/pro-report';
-  import { exportReportAs } from '../../lib/pro/report-export';
+  import { exportReportAs, type ReportFigureChoices } from '../../lib/pro/report-export';
   import { runGlobalSolve } from '../../lib/engine/live-calc';
   import { proExampleGroups, type ProExample } from '../../lib/data/pro-examples';
   import ProReportDialog from './ProReportDialog.svelte';
@@ -173,7 +173,7 @@
 
   /* The assembly lives in `lib/pro/report-export.ts`: this component is a
      layout shell, and the 600-line ceiling on it is what said so. */
-  function exportReport(config: ReportConfig) {
+  function exportReport(config: ReportConfig, figureOptions: ReportFigureChoices) {
     showReportDialog = false;
     void exportReportAs({
       config,
@@ -181,6 +181,7 @@
       verifications: [],
       advancedResults: advancedResultsRef,
       t,
+      figureOptions,
     });
   }
 
@@ -385,14 +386,13 @@
 </div>
 
 <ProReportDialog
-  open={showReportDialog}
+  bind:open={showReportDialog}
   hasResults={!!resultsStore.results3D}
   hasAdvanced={Object.keys(advancedResultsRef).length > 0}
   advancedRan={Object.keys(advancedResultsRef)}
   hasDiagnostics={resultsStore.diagnostics3D.length > 0}
   hasQuantities={hasLoadCarrying3D(modelStore.model)}
   ongenerate={exportReport}
-  onclose={() => { showReportDialog = false; }}
 />
 
 <style>

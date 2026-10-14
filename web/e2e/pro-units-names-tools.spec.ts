@@ -148,7 +148,7 @@ test.describe('@smoke PRO — units, names and table tools', () => {
     await expect(page.getByTestId('pdelta-summary')).toContainText('∞');
   });
 
-  test('the report shows the model with its numbers as Figure 1, and puts the labels back', async ({ pro: page }) => {
+  test('the report draws the model with its numbers as Figure 1, and leaves the labels alone', async ({ pro: page }) => {
     await loadModel(page, '3d-portal-frame');
     await solveModel(page);
     await page.getByTestId('pr-stage-model').click();
@@ -163,7 +163,8 @@ test.describe('@smoke PRO — units, names and table tools', () => {
     await report.waitForLoadState();
     const html = await report.content();
     expect(html).toContain('Figure 1.');
-    expect(html).toMatch(/<img class="screenshot" src="data:image\/png/);
+    // Drawn from the model as a vector figure, not captured from the screen.
+    expect(html).toMatch(/<img class="screenshot" src="data:image\/svg\+xml/);
     await page.getByTestId('pr-stage-model').click();
     await page.getByTestId('pr-cmd-view').click();
     await expect(page.getByTestId('view-label-nodes')).not.toBeChecked();

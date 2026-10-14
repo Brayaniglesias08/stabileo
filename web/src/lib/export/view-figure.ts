@@ -24,14 +24,22 @@ import { unitQ } from '../store/display-units.svelte';
 import { resultSetName } from './figure';
 import { createFigure3DRenderer, components3D } from './figure-3d';
 import type { DiagramType } from '../store/results.svelte';
+import type { AnalysisResults3D } from '../engine/types-3d';
+import { shellComponentLabelKey, shellComponentMeta, type ShellContourComponent } from '../engine/shell-stress';
 
-/** What a figure shows. */
-export type FigureContent = 'model' | 'reactions' | 'moment' | 'shear' | 'axial' | 'deformed' | 'despiece';
+/** What a figure shows. `shellMap`, a shell result in colour, is a 3D figure of PRO's. */
+export type FigureContent = 'model' | 'reactions' | 'moment' | 'shear' | 'axial' | 'deformed' | 'despiece' | 'shellMap';
 
 export const FIGURE_CONTENTS: readonly FigureContent[] = ['model', 'reactions', 'despiece', 'moment', 'shear', 'axial', 'deformed'];
 
+/** PRO's figures: Basic's, and its shells' results. */
+export const PRO_FIGURE_CONTENTS: readonly FigureContent[] = [...FIGURE_CONTENTS, 'shellMap'];
+
 /** Contents that need results. */
-export const NEEDS_RESULTS: ReadonlySet<FigureContent> = new Set(['reactions', 'moment', 'shear', 'axial', 'deformed', 'despiece']);
+export const NEEDS_RESULTS: ReadonlySet<FigureContent> = new Set(['reactions', 'moment', 'shear', 'axial', 'deformed', 'despiece', 'shellMap']);
+
+/** Where a 3D figure is looked at from: the reader's camera, or a fixed view. */
+export type FigureView = 'screen' | 'top' | 'front' | 'side' | 'iso';
 
 export interface FigureOptions {
   /** The loads on the model and reactions figures. */
@@ -47,6 +55,15 @@ export interface FigureOptions {
   style: InkStyle;
   /** Which pieces the free-body figure shows: the members, the joints, or both. */
   dcl?: 'members' | 'nodes' | 'all';
+  /** 3D: where the figure is looked at from (the camera when absent). */
+  view?: FigureView;
+  /** 3D: the shells, drawn as faces under the members (true when absent). */
+  shells?: boolean;
+  /** The shell result a `shellMap` figure paints. */
+  shellComponent?: ShellContourComponent;
+  /** 3D: the results to draw, in place of the ones on screen, and their name for the heading. */
+  results?: AnalysisResults3D | null;
+  resultsName?: string;
 }
 
 export const DEFAULT_FIGURE_OPTIONS: FigureOptions = {
@@ -64,8 +81,8 @@ export interface FrameView { zoom: number; panX: number; panY: number }
 export interface Figure2DRenderer {
   /** Draw `frame` on `ctx` (logical size w × h) with the given world-to-screen view. */
   render(ctx: CanvasRenderingContext2D, w: number, h: number, frame: ExportFrame, view: FrameView): void;
-  /** The structure's nodes as the 2D view places them. */
-  nodes(): Array<{ x: number; y: number }>;
+  /** The structure's nodes as the figure places them (a 3D figure, from the frame's view). */
+  nodes(frame?: ExportFrame): Array<{ x: number; y: number }>;
 }
 
 let renderer2D: Figure2DRenderer | null = null;
@@ -91,27 +108,35 @@ export function canDrawVector(): boolean {
 
 /** The viewport's diagram for a content. */
 export function diagramFor(content: FigureContent): DiagramType {
-  return content === 'model' || content === 'reactions' ? 'none' : content;
+  return content === 'model' || content === 'reactions' || content === 'shellMap' ? 'none' : content;
 }
 
 /** Heading of a figure: what it shows, its unit, and the results it comes from. */
-export function figureTitle(content: FigureContent): string {
+export function figureTitle(content: FigureContent, options?: Pick<FigureOptions, 'shellComponent' | 'resultsName' | 'results'>): string {
+  if (content === 'shellMap') {
+    const meta = shellComponentMeta(options?.shellComponent ?? 'vonMises');
+    const name = t(shellComponentLabelKey(meta.key));
+    const set = options?.resultsName ?? resultsLabel();
+    const what = `${t('figures.shellMap')}: ${name === shellComponentLabelKey(meta.key) ? meta.label : name} [${meta.unit}]`;
+    return set ? `${what} — ${set}` : what;
+  }
   const what =
     content === 'model' ? t('figures.model')
     : content === 'reactions' ? `${t('figures.reactions')} [${unitQ('force')}, ${unitQ('moment')}]`
     : content === 'despiece' ? t('figures.despiece')
-    : content === 'moment' ? `${t('figures.moment')}${planes(content)} [${unitQ('moment')}]`
-    : content === 'shear' ? `${t('figures.shear')}${planes(content)} [${unitQ('force')}]`
+    : content === 'moment' ? `${t('figures.moment')}${planes(content, options?.results)} [${unitQ('moment')}]`
+    : content === 'shear' ? `${t('figures.shear')}${planes(content, options?.results)} [${unitQ('force')}]`
     : content === 'axial' ? `${t('figures.axial')} [${unitQ('force')}]`
     : t('figures.deformed');
-  const set = NEEDS_RESULTS.has(content) ? resultsLabel() : '';
+  const set = NEEDS_RESULTS.has(content) ? (options?.resultsName ?? resultsLabel()) : '';
   return set ? `${what} — ${set}` : what;
 }
 
 /** In 3D, which planes a bending or shear figure draws (", Mz y My"). */
-function planes(content: 'moment' | 'shear'): string {
-  if (!uiStore.is3DWorkspace || !resultsStore.results3D) return '';
-  const names = components3D(content).map((k) => ({ momentZ: 'Mz', momentY: 'My', shearY: 'Vy', shearZ: 'Vz' } as Record<string, string>)[k] ?? k);
+function planes(content: 'moment' | 'shear', results?: AnalysisResults3D | null): string {
+  const r3d = results ?? resultsStore.results3D;
+  if (!uiStore.is3DWorkspace || !r3d) return '';
+  const names = components3D(content, r3d).map((k) => ({ momentZ: 'Mz', momentY: 'My', shearY: 'Vy', shearZ: 'Vz' } as Record<string, string>)[k] ?? k);
   return names.length ? ` (${names.join(', ')})` : '';
 }
 
@@ -172,13 +197,13 @@ export function plan2D(content: FigureContent, options: FigureOptions): FigurePl
   const r = rendererNow();
   if (!r) return null;
   const frame: ExportFrame = { content, options };
-  const view = fitView(r.nodes(), content === 'despiece' ? FIT_H_FREE_BODY : FIT_H);
+  const view = fitView(r.nodes(frame), content === 'despiece' ? FIT_H_FREE_BODY : FIT_H);
   // First pass: where does the drawing land?
   const probe = createSvgContext(FIT_W, FIT_H);
   r.render(inkContext(probe.ctx, options.style, textScale()), FIT_W, FIT_H, frame, view);
   let b: Bounds = probe.bounds();
   if (!(b.x1 > b.x0)) b = { x0: 0, y0: 0, x1: FIT_W, y1: FIT_H };
-  const title = options.titles ? figureTitle(content) : '';
+  const title = options.titles ? figureTitle(content, options) : '';
   const head = title ? Math.round(TITLE_PX * 2.2) : 0;
   const width = Math.ceil(b.x1 - b.x0 + 2 * PAD);
   const height = Math.ceil(b.y1 - b.y0 + 2 * PAD + head);
@@ -252,6 +277,6 @@ export function toCanvas(plan: FigurePlan, scale = PNG_SCALE): HTMLCanvasElement
   return c;
 }
 
-export function canvasToBlob(c: HTMLCanvasElement): Promise<Blob | null> {
-  return new Promise((res) => c.toBlob((b) => res(b), 'image/png'));
+export function canvasToBlob(c: HTMLCanvasElement, type: 'image/png' | 'image/jpeg' = 'image/png'): Promise<Blob | null> {
+  return new Promise((res) => c.toBlob((b) => res(b), type, type === 'image/jpeg' ? 0.92 : undefined));
 }

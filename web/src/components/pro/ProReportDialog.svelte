@@ -1,8 +1,25 @@
 <script lang="ts">
+  /**
+   * The calculation report, as a PDF: who it is from, what it carries and how its figures look.
+   *
+   * The same frame and folded sections as Basic's report (`components/export/`): each section
+   * closed, its title saying in one line what is chosen inside. Each result is printed as its
+   * table, its figures or both; the figures are drawn from the model (`pro/report-export.ts`),
+   * and figures added from the view still go at the end.
+   *
+   * Only the PDF: the same data as a spreadsheet is Project › Export › Excel, with its own
+   * choice of sheets.
+   */
   import { proNav } from '../../lib/store/pro-nav.svelte';
-  import { t } from '../../lib/i18n';
-
-  import type { ReportConfig } from '../../lib/engine/pro-report';
+  import { modelStore } from '../../lib/store';
+  import { t, tp } from '../../lib/i18n';
+  import ExportDialog from '../export/ExportDialog.svelte';
+  import ExportSection from '../export/ExportSection.svelte';
+  import type { ReportConfig, ReportPart, ReportResult, ResultMode } from '../../lib/engine/pro-report';
+  import type { ReportFigureChoices } from '../../lib/pro/report-export';
+  import type { FigureView } from '../../lib/export/view-figure';
+  import type { InkStyle } from '../../lib/export/paper-ink';
+  import { SHELL_CONTOUR_COMPONENTS, shellComponentLabelKey } from '../../lib/engine/shell-stress';
   import { reportFigures } from '../../lib/store/report-figures.svelte';
   import { captureFigure } from '../../lib/export/figure';
 
@@ -14,67 +31,60 @@
     advancedRan: string[];
     hasDiagnostics: boolean;
     hasQuantities: boolean;
-    ongenerate: (config: ReportConfig) => void;
-    onclose: () => void;
+    ongenerate: (config: ReportConfig, figures: ReportFigureChoices) => void;
   }
 
-  let { open, hasResults, hasAdvanced, advancedRan, hasDiagnostics, hasQuantities, ongenerate, onclose }: Props = $props();
+  let { open = $bindable(false), hasResults, hasAdvanced, advancedRan, hasDiagnostics, hasQuantities, ongenerate }: Props = $props();
 
-  // ─── Persistent state (localStorage) ─────────────────────
+  // ─── Remembered between sessions (localStorage) ─────────────
   // Migrate old storage key
   if (localStorage.getItem('dedaliano-report-config') !== null && localStorage.getItem('stabileo-report-config') === null) {
     localStorage.setItem('stabileo-report-config', localStorage.getItem('dedaliano-report-config')!);
     localStorage.removeItem('dedaliano-report-config');
   }
   const STORAGE_KEY = 'stabileo-report-config';
-
-  function loadSaved(): Partial<ReportConfig> {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch { return {}; }
+  type Sections = Omit<ReportConfig['sections'], 'parts'>;
+  interface Saved {
+    companyName?: string; companyLogo?: string | null;
+    sections?: Partial<Sections>; parts?: Partial<Record<ReportPart, boolean>>;
+    modes?: Partial<Record<ReportResult, ResultMode>>; figures?: Partial<ReportFigureChoices>;
   }
-
-  function save(cfg: Partial<ReportConfig>): void {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)); } catch { /* ignore */ }
+  function loadSaved(): Saved {
+    try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : {}; } catch { return {}; }
   }
-
   const saved = loadSaved();
 
   let companyName = $state(saved.companyName ?? '');
   let companyLogo = $state<string | null>(saved.companyLogo ?? null);
-
-  let secModelData = $state(true);
-  let secResults = $state(true);
-  let secAdvanced = $state(true);
-  let secDiagnostics = $state(true);
-  let secQuantities = $state(true);
-  let secLoads = $state(true);
-  let secEnvelope = $state(true);
-  let secStatics = $state(true);
-  let secDeflections = $state(true);
-  let secFigures = $state(true);
-  let figureError = $state(false);
-  function addFigure() {
-    const f = captureFigure();
-    figureError = !f;
-    if (f) reportFigures.add(f);
-  }
-
+  let sec = $state<Sections>({
+    modelData: true, results: true, verification: false, advancedAnalysis: true, storyDrift: false,
+    diagnostics: true, quantities: true, loads: true, envelope: true, statics: true, deflections: true, figures: true,
+    ...(saved.sections ?? {}),
+    // Never offered here: a code check is reported from the design, and story drift was never implemented.
+  });
+  let parts = $state<Record<ReportPart, boolean>>({
+    nodes: true, materials: true, sections: true, members: true, supports: true, shells: true, combinations: true, ...(saved.parts ?? {}),
+  });
+  let modes = $state<Record<ReportResult, ResultMode>>({ reactions: 'both', displacements: 'both', forces: 'both', shells: 'both', ...(saved.modes ?? {}) });
+  let figs = $state<ReportFigureChoices>({ style: 'color', values: true, view: 'screen', shellComponent: 'vonMises', ...(saved.figures ?? {}) });
   /** Which advanced analyses to print, of the ones that ran. */
   let advancedPicked = $state<Record<string, boolean>>({});
 
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        companyName, companyLogo, sections: $state.snapshot(sec), parts: $state.snapshot(parts),
+        modes: $state.snapshot(modes), figures: $state.snapshot(figs),
+      }));
+    } catch { /* this session only */ }
+  }
+
   /*
-   * A letterhead nobody filled in is not a letterhead.
-   *
-   * Five project fields sat at the top of the dialog above the choice of what
-   * to include, and an empty one still printed its label into the document.
-   * The disclosure opens itself when there is something in it, so a reader who
-   * has used it before does not have to go looking.
+   * A letterhead nobody filled in is not a letterhead: `hasProjectInfo` decides whether the
+   * report prints one at all, so leaving it blank is a decision the document honours.
    */
   const hasProjectInfo = $derived(!!(companyName.trim() || companyLogo));
-  let infoOpen = $state(!!(saved.companyName || saved.companyLogo));
-
+  let logoError = $state<string | null>(null);
   function handleLogoUpload(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -82,252 +92,208 @@
     logoError = null;
     if (file.size > 500_000) { logoError = t('report.logoTooLarge'); input.value = ''; return; }
     const reader = new FileReader();
-    reader.onload = () => {
-      companyLogo = reader.result as string;
-    };
+    reader.onload = () => { companyLogo = reader.result as string; persist(); };
     reader.readAsDataURL(file);
   }
 
-  let logoError = $state<string | null>(null);
-  function removeLogo() {
-    companyLogo = null;
+  let figureError = $state(false);
+  function addFigure() {
+    const f = captureFigure();
+    figureError = !f;
+    if (f) reportFigures.add(f);
   }
 
-  function handleGenerate(as: 'pdf' | 'xlsx' = 'pdf') {
-    // Persist company info for next time
-    save({ companyName, companyLogo });
+  const shells = $derived(open && modelStore.plates.size + modelStore.quads.size > 0);
+  const PARTS: Array<{ id: ReportPart; key: string }> = [
+    { id: 'nodes', key: 'report.nodes' }, { id: 'materials', key: 'report.materials' }, { id: 'sections', key: 'report.sections' },
+    { id: 'members', key: 'report.elements' }, { id: 'supports', key: 'report.supports' },
+    { id: 'shells', key: 'report.slabsAndWalls' }, { id: 'combinations', key: 'report.loadCombinations' },
+  ];
+  const partsShown = $derived(PARTS.filter((p) => p.id !== 'shells' || shells));
+  const RESULTS: Array<{ id: ReportResult; key: string; figures: string }> = [
+    { id: 'reactions', key: 'report.reactions', figures: 'proReport.figReactions' },
+    { id: 'displacements', key: 'report.displacements', figures: 'proReport.figDeformed' },
+    { id: 'forces', key: 'report.forces', figures: 'proReport.figForces' },
+    { id: 'shells', key: 'report.shellResults', figures: 'proReport.figShells' },
+  ];
+  const resultsShown = $derived(RESULTS.filter((r) => r.id !== 'shells' || shells));
+  const MODES: Array<{ id: ResultMode; key: string }> = [
+    { id: 'table', key: 'proReport.modeTable' }, { id: 'figure', key: 'proReport.modeFigure' }, { id: 'both', key: 'proReport.modeBoth' },
+  ];
+  const VIEWS: Array<{ id: FigureView; key: string }> = [
+    { id: 'screen', key: 'proExport.viewScreen' }, { id: 'top', key: 'proExport.viewTop' },
+    { id: 'front', key: 'proExport.viewFront' }, { id: 'side', key: 'proExport.viewSide' }, { id: 'iso', key: 'proExport.viewIso' },
+  ];
+  const STYLES: Array<{ id: InkStyle; key: string }> = [
+    { id: 'color', key: 'viewExport.styleColor' }, { id: 'bw', key: 'viewExport.styleBw' },
+  ];
 
+  const projectSummary = $derived(hasProjectInfo ? [companyName.trim(), companyLogo ? t('report.companyLogo') : ''].filter(Boolean).join(' · ') : t('report.projectInfoEmpty'));
+  const contentSummary = $derived.by(() => {
+    const out: string[] = [];
+    if (sec.modelData) out.push(t('proReport.partModel'));
+    if (sec.loads) out.push(t('proReport.partLoads'));
+    if (sec.results && hasResults) out.push(t('proReport.partResults'));
+    if (sec.advancedAnalysis && hasAdvanced) out.push(t('proReport.partAdvanced'));
+    if (sec.quantities && hasQuantities) out.push(t('proReport.partQuantities'));
+    if (sec.diagnostics && hasDiagnostics) out.push(t('proReport.partDiagnostics'));
+    return out.join(' · ') || '—';
+  });
+  const figuresSummary = $derived([
+    t(STYLES.find((s) => s.id === figs.style)?.key ?? 'viewExport.styleColor'),
+    t(VIEWS.find((v) => v.id === figs.view)!.key),
+    figs.values ? t('viewExport.optValues') : null,
+    reportFigures.list.length ? tp('proReport.addedN', { n: reportFigures.list.length }) : null,
+  ].filter(Boolean).join(' · '));
+
+  function handleGenerate() {
+    persist();
     ongenerate({
-      /* Which document. The choices above apply to both. */
-      format: as,
       companyName,
       companyLogo,
-      figures: secFigures ? reportFigures.list.map(({ dataUrl, caption }) => ({ dataUrl, caption })) : [],
-      /* Blank stays blank: an untouched letterhead prints nothing rather
-         than a row of empty labels. */
+      figures: sec.figures ? reportFigures.list.map(({ dataUrl, caption }) => ({ dataUrl, caption })) : [],
       hasProjectInfo,
       advancedPicked: { ...advancedPicked },
-      sections: {
-        modelData: secModelData,
-        results: secResults,
-        /* A code check is a DESIGN output and is reported from there. */
-        verification: false,
-        advancedAnalysis: secAdvanced,
-        /* Never implemented; the checkbox was permanently disabled. */
-        storyDrift: false,
-        diagnostics: secDiagnostics,
-        quantities: secQuantities,
-        loads: secLoads,
-        envelope: secEnvelope,
-        statics: secStatics,
-        deflections: secDeflections,
-        figures: secFigures,
-      },
-    });
-  }
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') onclose();
+      sections: { ...$state.snapshot(sec), verification: false, storyDrift: false, parts: $state.snapshot(parts) },
+      resultModes: $state.snapshot(modes),
+    }, $state.snapshot(figs));
   }
 </script>
 
-{#if open}
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<div class="rpt-overlay" onkeydown={handleKeydown} onclick={onclose} role="dialog" aria-modal="true">
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="rpt-dialog" onclick={(e) => e.stopPropagation()}>
-    <div class="rpt-header">
-      <h2>{t('report.configTitle')}</h2>
-      <button class="rpt-close" onclick={onclose}>&times;</button>
+<ExportDialog bind:open title={t('proReport.title')} testid="pro-report-dialog">
+  <ExportSection title={t('report.projectInfo')} summary={projectSummary} open={hasProjectInfo} testid="rpt-project">
+    <div class="rpt-logo-row">
+      <span>{t('report.companyLogo')}</span>
+      {#if companyLogo}
+        <img src={companyLogo} alt="Logo" class="rpt-logo-preview" />
+        <button type="button" class="rpt-link" onclick={() => { companyLogo = null; persist(); }}>{t('report.removeLogo')}</button>
+      {:else}
+        <label class="rpt-file-btn">{t('report.chooseLogo')}
+          <input type="file" accept="image/png,image/jpeg,image/svg+xml" onchange={handleLogoUpload} class="rpt-file-input" data-testid="rpt-logo-file" />
+        </label>
+        {#if logoError}<span class="rpt-error" role="alert" data-testid="rpt-logo-error">{logoError}</span>{/if}
+      {/if}
     </div>
+    <label class="xs-field">
+      <span>{t('report.companyName')}</span>
+      <input type="text" bind:value={companyName} onchange={persist} placeholder={t('report.companyNamePh')} />
+    </label>
+    <p class="xs-note">{t('report.projectDataMoved')}
+      <button type="button" class="rpt-link" onclick={() => { open = false; proNav.openProjectInfo(); }} data-testid="rpt-open-project-info">{t('report.openProjectInfo')}</button>
+    </p>
+  </ExportSection>
 
-    <div class="rpt-body">
-      <!--
-        ── Project data is a disclosure, and an empty one prints nothing ──
-        Five fields most reports do not use were the first thing in the
-        dialog, above the choice of what to include. Collapsed by default;
-        `hasProjectInfo` decides whether the report prints a letterhead at
-        all, so leaving it blank is a decision the document honours rather
-        than a row of empty labels.
-      -->
-      <details class="rpt-details" bind:open={infoOpen}>
-        <summary>{t('report.projectInfo')}{hasProjectInfo ? '' : ` — ${t('report.projectInfoEmpty')}`}</summary>
+  <ExportSection title={t('viewExport.sectionContent')} summary={contentSummary} open testid="rpt-content">
+    <label class="xs-check"><input type="checkbox" bind:checked={sec.modelData} onchange={persist} data-testid="rpt-model" />{t('proReport.modelData')}</label>
+    {#if sec.modelData}
+      <div class="xs-grid rpt-sub">
+        {#each partsShown as p (p.id)}
+          <label class="xs-check"><input type="checkbox" bind:checked={parts[p.id]} onchange={persist} data-testid={`rpt-part-${p.id}`} />{t(p.key)}</label>
+        {/each}
+      </div>
+    {/if}
+    <label class="xs-check"><input type="checkbox" bind:checked={sec.loads} onchange={persist} />{t('proReport.loads')}</label>
 
-        <div class="rpt-logo-row">
-          <label class="rpt-label">{t('report.companyLogo')}</label>
-          <div class="rpt-logo-area">
-            {#if companyLogo}
-              <img src={companyLogo} alt="Logo" class="rpt-logo-preview" />
-              <button class="rpt-btn-sm rpt-btn-danger" onclick={removeLogo}>{t('report.removeLogo')}</button>
-            {:else}
-              <label class="rpt-file-btn">{t('report.chooseLogo')}
-                <input type="file" accept="image/png,image/jpeg,image/svg+xml" onchange={handleLogoUpload} class="rpt-file-input" data-testid="rpt-logo-file" />
-              </label>
-              {#if logoError}<span class="rpt-error" role="alert" data-testid="rpt-logo-error">{logoError}</span>{/if}
-            {/if}
-          </div>
-        </div>
-
-        <div class="rpt-field">
-          <label class="rpt-label">{t('report.companyName')}</label>
-          <input type="text" bind:value={companyName} placeholder={t('report.companyNamePh')} class="rpt-input" />
-        </div>
-
-        <p class="rpt-hint">{t('report.projectDataMoved')}
-          <button type="button" class="rpt-link" onclick={() => { onclose(); proNav.openProjectInfo(); }} data-testid="rpt-open-project-info">{t('report.openProjectInfo')}</button>
-        </p>
-      </details>
-
-      <!-- Sections to include -->
-      <fieldset class="rpt-fieldset">
-        <legend>{t('report.includeSections')}</legend>
-        <div class="rpt-checks">
-          <label class="rpt-check"><input type="checkbox" bind:checked={secModelData} /> {t('report.secModelData')}</label>
-          <label class="rpt-check"><input type="checkbox" bind:checked={secLoads} /> {t('report.secLoads')}</label>
-          <label class="rpt-check"><input type="checkbox" bind:checked={secResults} disabled={!hasResults} /> {t('report.secResults')} {#if !hasResults}<span class="rpt-hint">({t('report.noData')})</span>{/if}</label>
-          {#if secResults && hasResults}
-            <div class="rpt-sub-checks">
-              <label class="rpt-check rpt-check-sub"><input type="checkbox" bind:checked={secEnvelope} data-testid="rpt-envelope" /> {t('report.env.title')}</label>
-              <label class="rpt-check rpt-check-sub"><input type="checkbox" bind:checked={secStatics} data-testid="rpt-statics" /> {t('pro.statics.title')}</label>
-              <label class="rpt-check rpt-check-sub"><input type="checkbox" bind:checked={secDeflections} data-testid="rpt-deflections" /> {t('defl.title')}</label>
-            </div>
-          {/if}
-          <!--
-            CIRSOC verification is not here.
-            ───────────────────────────────
-            A code check is a DESIGN output, produced by the design workflow
-            and reported from it. Offering it beside the analysis sections
-            invited a report that mixed "what the structure does" with
-            "whether it passes", and the second one arrives with its own
-            provenance, edition and staleness rules that this dialog knows
-            nothing about.
-
-            Story drift is gone too: it was permanently `hasDrift={false}`,
-            so it has never been anything but a disabled checkbox.
-          -->
-          <label class="rpt-check"><input type="checkbox" bind:checked={secAdvanced} disabled={!hasAdvanced} /> {t('report.secAdvanced')} {#if !hasAdvanced}<span class="rpt-hint">({t('report.noData')})</span>{/if}</label>
-          <!--
-            WHICH advanced analyses, and only the ones that ran.
-            ──────────────────────────────────────────────────
-            "Advanced analysis" was one checkbox over as many as six
-            different studies, so a report either carried all of them or
-            none — and nothing said which had actually been performed. A
-            reader cannot tell a modal analysis that was not asked for from
-            one that was asked for and produced nothing.
-          -->
-          {#if secAdvanced && advancedRan.length > 0}
-            <div class="rpt-sub-checks" data-testid="rpt-advanced-picks">
-              {#each advancedRan as key (key)}
-                <label class="rpt-check rpt-check-sub">
-                  <input type="checkbox" checked={advancedPicked[key] ?? true}
-                    data-testid="rpt-adv-{key}"
-                    onchange={(e) => (advancedPicked = { ...advancedPicked, [key]: e.currentTarget.checked })} />
-                  {t(`pro.adv.${key}`) === `pro.adv.${key}` ? key : t(`pro.adv.${key}`)}
-                </label>
+    <label class="xs-check" class:off={!hasResults}><input type="checkbox" bind:checked={sec.results} onchange={persist} disabled={!hasResults} data-testid="rpt-results" />{t('proReport.results')}{#if !hasResults}&nbsp;<span class="xs-note">({t('report.noData')})</span>{/if}</label>
+    {#if sec.results && hasResults}
+      <div class="rpt-sub">
+        {#each resultsShown as r (r.id)}
+          <div class="rpt-row">
+            <span title={t(r.figures)}>{t(r.key)}</span>
+            <div class="xs-seg">
+              {#each MODES as m (m.id)}
+                <button type="button" class:on={modes[r.id] === m.id} onclick={() => { modes[r.id] = m.id; persist(); }} data-testid={`rpt-mode-${r.id}-${m.id}`}>{t(m.key)}</button>
               {/each}
             </div>
-          {/if}
-          <label class="rpt-check"><input type="checkbox" bind:checked={secQuantities} disabled={!hasQuantities} /> {t('report.secQuantities')} {#if !hasQuantities}<span class="rpt-hint">({t('report.noData')})</span>{/if}</label>
-          <label class="rpt-check"><input type="checkbox" bind:checked={secDiagnostics} disabled={!hasDiagnostics} /> {t('report.secDiagnostics')} {#if !hasDiagnostics}<span class="rpt-hint">({t('report.noData')})</span>{/if}</label>
-          <label class="rpt-check"><input type="checkbox" bind:checked={secFigures} /> {t('report.figures')} ({reportFigures.list.length})</label>
-        </div>
-      </fieldset>
-
-      <!-- The figures: captures of the viewport as it is now, captioned and with its scale. -->
-      <fieldset class="rpt-fieldset" data-testid="rpt-figures">
-        <legend>{t('report.figures')}</legend>
-        <button class="rpt-btn-sm" onclick={addFigure} data-testid="rpt-add-figure">+ {t('report.addFigure')}</button>
-        {#if figureError}<span class="rpt-hint">{t('report.figureFailed')}</span>{/if}
-        {#each reportFigures.list as f, i (f.id)}
-          <div class="rpt-figure" data-testid="rpt-figure">
-            <img src={f.dataUrl} alt={f.caption} />
-            <input class="rpt-input" value={f.caption} onchange={(e) => reportFigures.caption(f.id, e.currentTarget.value)} aria-label={t('report.figureCaption')} />
-            <button class="rpt-btn-sm" disabled={i === 0} onclick={() => reportFigures.move(f.id, -1)} aria-label="↑">↑</button>
-            <button class="rpt-btn-sm rpt-btn-danger" onclick={() => reportFigures.remove(f.id)} aria-label={t('report.removeFigure')}>×</button>
           </div>
         {/each}
-        <p class="rpt-hint">{t('report.figuresHint')}</p>
-      </fieldset>
-    </div>
+        <label class="xs-check"><input type="checkbox" bind:checked={sec.envelope} onchange={persist} data-testid="rpt-envelope" />{t('report.env.title')}</label>
+        <label class="xs-check"><input type="checkbox" bind:checked={sec.statics} onchange={persist} data-testid="rpt-statics" />{t('pro.statics.title')}</label>
+        <label class="xs-check"><input type="checkbox" bind:checked={sec.deflections} onchange={persist} data-testid="rpt-deflections" />{t('defl.title')}</label>
+      </div>
+    {/if}
 
-    <!--
-      ── Two documents, one set of choices ──────────────────────────────
-      This dialog only ever produced the printable report, so a reader who
-      wanted the same results as a spreadsheet had to leave it, find Export,
-      and get a workbook that knew nothing about what they had just selected.
-      The sections chosen above apply to both: what differs is the document,
-      not the data.
-    -->
-    <div class="rpt-footer">
-      <button class="rpt-btn rpt-btn-secondary" onclick={onclose}>{t('report.cancel')}</button>
-      <button class="rpt-btn" onclick={() => handleGenerate('xlsx')} data-testid="rpt-xlsx"
-      >{t('report.generateXlsx')}</button>
-      <button class="rpt-btn rpt-btn-primary" onclick={() => handleGenerate('pdf')}
-              data-testid="rpt-pdf">{t('report.generate')}</button>
+    <label class="xs-check" class:off={!hasAdvanced}><input type="checkbox" bind:checked={sec.advancedAnalysis} onchange={persist} disabled={!hasAdvanced} />{t('report.secAdvanced')}{#if !hasAdvanced}&nbsp;<span class="xs-note">({t('report.noData')})</span>{/if}</label>
+    <!-- WHICH advanced analyses, and only the ones that ran. -->
+    {#if sec.advancedAnalysis && advancedRan.length > 0}
+      <div class="xs-grid rpt-sub" data-testid="rpt-advanced-picks">
+        {#each advancedRan as key (key)}
+          <label class="xs-check">
+            <input type="checkbox" checked={advancedPicked[key] ?? true} data-testid="rpt-adv-{key}"
+              onchange={(e) => (advancedPicked = { ...advancedPicked, [key]: e.currentTarget.checked })} />
+            {t(`pro.adv.${key}`) === `pro.adv.${key}` ? key : t(`pro.adv.${key}`)}
+          </label>
+        {/each}
+      </div>
+    {/if}
+    <label class="xs-check" class:off={!hasQuantities}><input type="checkbox" bind:checked={sec.quantities} onchange={persist} disabled={!hasQuantities} />{t('report.secQuantities')}{#if !hasQuantities}&nbsp;<span class="xs-note">({t('report.noData')})</span>{/if}</label>
+    <label class="xs-check" class:off={!hasDiagnostics}><input type="checkbox" bind:checked={sec.diagnostics} onchange={persist} disabled={!hasDiagnostics} />{t('report.secDiagnostics')}{#if !hasDiagnostics}&nbsp;<span class="xs-note">({t('report.noData')})</span>{/if}</label>
+  </ExportSection>
+
+  <ExportSection title={t('report.figures')} summary={figuresSummary} testid="rpt-figures">
+    <div class="xs-field">
+      <span>{t('viewExport.style')}</span>
+      <div class="xs-seg">
+        {#each STYLES as s (s.id)}
+          <button type="button" class:on={figs.style === s.id} onclick={() => { figs.style = s.id; persist(); }}>{t(s.key)}</button>
+        {/each}
+      </div>
     </div>
-  </div>
-</div>
-{/if}
+    <div class="xs-field">
+      <span>{t('proExport.view')}</span>
+      <div class="xs-seg">
+        {#each VIEWS as v (v.id)}
+          <button type="button" class:on={figs.view === v.id} onclick={() => { figs.view = v.id; persist(); }} data-testid={`rpt-view-${v.id}`}>{t(v.key)}</button>
+        {/each}
+      </div>
+    </div>
+    <label class="xs-check"><input type="checkbox" bind:checked={figs.values} onchange={persist} />{t('viewExport.optValuesLong')}</label>
+    {#if shells && modes.shells !== 'table'}
+      <label class="xs-field">
+        <span>{t('proExport.shellComponent')}</span>
+        <select bind:value={figs.shellComponent} onchange={persist}>
+          {#each SHELL_CONTOUR_COMPONENTS as m (m.key)}<option value={m.key}>{t(shellComponentLabelKey(m.key))}</option>{/each}
+        </select>
+      </label>
+    {/if}
+    <p class="xs-note">{t('proReport.figuresNote')}</p>
+
+    <label class="xs-check"><input type="checkbox" bind:checked={sec.figures} onchange={persist} />{t('proReport.addedFigures')} ({reportFigures.list.length})</label>
+    <div>
+      <button type="button" class="rpt-small" onclick={addFigure} data-testid="rpt-add-figure">+ {t('report.addFigure')}</button>
+      {#if figureError}<span class="xs-note">{t('report.figureFailed')}</span>{/if}
+    </div>
+    {#each reportFigures.list as f, i (f.id)}
+      <div class="rpt-figure" data-testid="rpt-figure">
+        <img src={f.dataUrl} alt={f.caption} />
+        <input type="text" value={f.caption} onchange={(e) => reportFigures.caption(f.id, e.currentTarget.value)} aria-label={t('report.figureCaption')} />
+        <button type="button" class="rpt-small" disabled={i === 0} onclick={() => reportFigures.move(f.id, -1)} aria-label="↑">↑</button>
+        <button type="button" class="rpt-small" onclick={() => reportFigures.remove(f.id)} aria-label={t('report.removeFigure')}>×</button>
+      </div>
+    {/each}
+    <p class="xs-note">{t('report.figuresHint')}</p>
+  </ExportSection>
+
+  {#snippet actions()}
+    <button type="button" onclick={() => (open = false)}>{t('report.cancel')}</button>
+    <button type="button" class="primary" onclick={handleGenerate} data-testid="rpt-pdf">{t('proReport.generate')}</button>
+  {/snippet}
+</ExportDialog>
 
 <style>
-  .rpt-overlay {
-    position: fixed; inset: 0; z-index: 9999;
-    background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
-  }
-  .rpt-dialog {
-    background: var(--st-surface-2); color: var(--st-text); border-radius: 10px;
-    width: 480px; max-height: 85vh; display: flex; flex-direction: column;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5); border: 1px solid var(--st-surface-3);
-  }
-  .rpt-header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 16px 20px; border-bottom: 1px solid var(--st-surface-3);
-  }
-  .rpt-header h2 { margin: 0; font-size: 16px; color: var(--st-text); }
-  .rpt-close { background: none; border:  none; color: var(--st-text-3); font-size: 22px; cursor: pointer; padding: 0 4px; }
-  .rpt-close:hover { color: var(--st-text); }
-  .rpt-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
-  .rpt-fieldset {
-    border: 1px solid var(--st-surface-3); border-radius: 6px; padding: 12px 14px; margin-bottom: 14px;
-  }
-  .rpt-fieldset legend { color: var(--st-text-2); font-size: 12px; font-weight: 600; padding: 0 6px; text-transform: uppercase; }
-  .rpt-field { margin-bottom: 10px; }
-  .rpt-label { display: block; font-size: 11px; color: var(--st-text-2); margin-bottom: 3px; }
-  .rpt-input {
-    width: 100%; padding: 6px 8px; background: var(--st-bg); border: 1px solid var(--st-surface-3); border-radius: 4px;
-    color: var(--st-text); font-size: 12px;
-  }
-  .rpt-input:focus { border-color: var(--st-text-2); outline: none; }
-  .rpt-input-sm { width: 80px; }
-  .rpt-logo-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-  .rpt-logo-area { display: flex; align-items: center; gap: 8px; }
-  .rpt-logo-preview { max-height: 40px; max-width: 120px; border-radius: 4px; border: 1px solid var(--st-surface-3); }
-  .rpt-file-btn { position: relative; display: inline-flex; padding: 3px 10px; font-size: 11px; color: var(--st-text-2); border: 1px solid var(--st-hair); border-radius: 4px; cursor: pointer; }
+  .rpt-sub { margin: 0 0 4px 22px; display: flex; flex-direction: column; gap: 4px; }
+  .rpt-sub.xs-grid { display: grid; }
+  .rpt-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--st-text-2); }
+  .rpt-logo-row { display: flex; align-items: center; gap: 8px; color: var(--st-text-2); }
+  .rpt-logo-preview { max-height: 32px; max-width: 120px; border-radius: 4px; border: 1px solid var(--st-hair); }
+  .rpt-file-btn { position: relative; display: inline-flex; padding: 3px 10px; font-size: 0.74rem; color: var(--st-text-2); border: 1px solid var(--st-hair-strong); border-radius: var(--st-radius); cursor: pointer; }
   .rpt-file-btn:focus-within { outline: 2px solid var(--st-interactive); outline-offset: 1px; }
   .rpt-file-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-  .rpt-error { margin-left: 6px; font-size: 11px; color: var(--st-danger); }
-  .rpt-link { margin-left: 4px; padding: 0; background: none; border: none; color: var(--st-interactive); cursor: pointer; font-size: inherit; text-decoration: underline; }
-  .rpt-checks { display: flex; flex-direction: column; gap: 6px; }
-  .rpt-check { font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
-  .rpt-check input[type="checkbox"] { accent-color: var(--st-text-2); }
-  .rpt-check input:disabled { opacity: 0.4; }
-  .rpt-hint { color: var(--st-text-3); font-size: 10px; }
-  .rpt-footer {
-    display: flex; justify-content: flex-end; gap: 8px;
-    padding: 12px 20px; border-top: 1px solid var(--st-surface-3);
-  }
-  .rpt-btn {
-    padding: 8px 20px; border-radius: 6px; font-size: 13px; font-weight: 600;
-    cursor: pointer; border: none; transition: background 0.15s;
-  }
-  .rpt-btn-primary { background: var(--st-accent); color: var(--st-text-on-accent); }
-  .rpt-btn-primary:hover { background: var(--st-accent-hover); }
-  .rpt-btn-secondary { background: var(--st-surface-3); color: var(--st-text-2); }
-  .rpt-btn-secondary:hover { background: var(--st-hair-strong); }
-  .rpt-btn-sm { padding: 3px 8px; font-size: 10px; border-radius: 3px; cursor: pointer; border: none; }
-  .rpt-btn-danger { background: var(--st-accent); color: var(--st-text); }
-  .rpt-btn-danger:hover { background: var(--st-accent); }
-  .rpt-figure { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
-  .rpt-figure img { width: 72px; height: auto; border: 1px solid var(--st-surface-3); }
-  .rpt-figure .rpt-input { flex: 1; }
+  .rpt-error { font-size: 0.72rem; color: var(--st-danger); }
+  .rpt-link { padding: 0; background: none; border: none; color: var(--st-interactive); cursor: pointer; font: inherit; text-decoration: underline; }
+  .rpt-small { padding: 2px 8px; font-size: 0.72rem; border-radius: var(--st-radius); border: 1px solid var(--st-hair-strong); background: var(--st-surface-2); color: var(--st-text-2); cursor: pointer; }
+  .rpt-small:disabled { opacity: 0.45; cursor: not-allowed; }
+  .rpt-figure { display: flex; gap: 6px; align-items: center; }
+  .rpt-figure img { width: 64px; height: auto; border: 1px solid var(--st-hair); }
+  .rpt-figure input { flex: 1; min-width: 0; padding: 3px 6px; background: var(--st-surface-2); border: 1px solid var(--st-hair-strong); border-radius: var(--st-radius); color: var(--st-text); font: inherit; }
 </style>

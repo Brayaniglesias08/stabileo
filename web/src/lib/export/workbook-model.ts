@@ -194,11 +194,19 @@ function selfWeightSheet(m: WorkbookModel): WorkbookSheet {
   return { name: 'SelfWeight', rows };
 }
 
-/** The model's sheets, in the order a reader looks for them. */
-export function modelSheets(m: WorkbookModel, solved: SolverInput3D | null): WorkbookSheet[] {
-  return [
-    nodesSheet(m), membersSheet(m), materialsSheet(m), sectionsSheet(m, solved), supportsSheet(m, solved),
-    ...shellSheets(m), casesSheet(m), loadsSheet(m), selfWeightSheet(m), combinationsSheet(m),
-    ...[constraintsSheet(m), groupsSheet(m)].filter((s): s is WorkbookSheet => !!s),
+/** The model's sheets' names, in the order `modelSheets` writes them (`Shells` stands for the shell sheets). */
+export const MODEL_SHEET_NAMES = [
+  'Nodes', 'Members', 'Materials', 'Sections', 'Supports', 'Shells', 'LoadCases', 'LoadData', 'SelfWeight', 'Combinations', 'Constraints', 'Groups',
+] as const;
+
+/** The model's sheets, in the order a reader looks for them; `want` leaves sheets out by name. */
+export function modelSheets(m: WorkbookModel, solved: SolverInput3D | null, want: (name: string) => boolean = () => true): WorkbookSheet[] {
+  const all: Array<[string, () => WorkbookSheet | WorkbookSheet[] | null]> = [
+    ['Nodes', () => nodesSheet(m)], ['Members', () => membersSheet(m)], ['Materials', () => materialsSheet(m)],
+    ['Sections', () => sectionsSheet(m, solved)], ['Supports', () => supportsSheet(m, solved)],
+    ['Shells', () => shellSheets(m)], ['LoadCases', () => casesSheet(m)], ['LoadData', () => loadsSheet(m)],
+    ['SelfWeight', () => selfWeightSheet(m)], ['Combinations', () => combinationsSheet(m)],
+    ['Constraints', () => constraintsSheet(m)], ['Groups', () => groupsSheet(m)],
   ];
+  return all.filter(([name]) => want(name)).flatMap(([, build]) => build() ?? []);
 }

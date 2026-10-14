@@ -43,6 +43,7 @@
   const LABEL: Record<FigureContent, string> = {
     model: 'figures.model', reactions: 'figures.reactions', despiece: 'figures.despiece',
     moment: 'figures.moment', shear: 'figures.shear', axial: 'figures.axial', deformed: 'figures.deformed',
+    shellMap: 'figures.shellMap',
   };
   const DCL: Array<{ id: 'members' | 'nodes' | 'all'; key: string }> = [
     { id: 'members', key: 'viewExport.dclMembers' },

@@ -70,6 +70,9 @@ export function cssOf(c: Rgba): string {
   return a >= 1 ? `rgb(${c.r},${c.g},${c.b})` : `rgba(${c.r},${c.g},${c.b},${a})`;
 }
 
+/** Prefix of a colour the ink leaves alone: `${RAW_INK}#ff8800`. */
+export const RAW_INK = 'raw:';
+
 /** The ink the figure uses: near black, a touch of the app's blue. */
 const INK = { r: 22, g: 30, b: 40 };
 
@@ -83,6 +86,8 @@ const INK = { r: 22, g: 30, b: 40 };
  *   translucent tint (a diagram's fill) is left as it is.
  */
 export function inkColor(css: string, style: InkStyle): string {
+  // A colour that carries a value (a contour's band) is drawn as given: the figure chose it for paper.
+  if (css.startsWith(RAW_INK)) return css.slice(RAW_INK.length);
   if (style === 'screen') return css;
   const c = parseColor(css);
   if (!c) return css;
