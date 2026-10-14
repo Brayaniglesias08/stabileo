@@ -51,4 +51,39 @@ describe('notional cases in the direct analysis', () => {
       expect(r.info.get(withN)!.notional).toBe('cases');
     });
   }
+
+  /*
+   * A composite case that takes the notional case in, as the generator writes one when it adds
+   * notional variants and creates composite cases: the combination takes notional loads through
+   * it, at any depth. Before, only a case typed N or with a notional definition counted, so the
+   * composite's notional load read as the combination's lateral load and, past 1.7, the analysis
+   * added its own 0.002 on top (uy 0.01532 against 0.00766 at 60 kN, reported "lateral").
+   */
+  for (const P of [20, 40, 60]) {
+    it(`reach a combination through a composite case, at any depth (P = ${P} kN)`, async () => {
+      const a = modelStore.addNode(0, 0, 0), b = modelStore.addNode(0, 0, 4);
+      modelStore.addElement(a, b, 'frame');
+      modelStore.addSupport(a, 'fixed3d');
+      const D = modelStore.model.loadCases[0]!.id;
+      modelStore.addNodalLoad3D(b, 0, 0, -P, 0, 0, 0, D);
+      const N = modelStore.addLoadCase('N', 'N');
+      modelStore.updateLoadCaseFields(N, { notional: { sourceCaseId: D, ratio: 0.002, dir: '+Y' } });
+      const C = modelStore.addLoadCase('D + N', '');
+      modelStore.updateLoadCaseFields(C, { includes: [{ caseId: D, factor: 1 }, { caseId: N, factor: 1 }] });
+      const C2 = modelStore.addLoadCase('outer', '');
+      modelStore.updateLoadCaseFields(C2, { includes: [{ caseId: C, factor: 1 }] });
+      const direct = modelStore.addCombination('D + N', [{ caseId: D, factor: 1 }, { caseId: N, factor: 1 }]);
+      const viaC = modelStore.addCombination('C', [{ caseId: C, factor: 1 }]);
+      const viaC2 = modelStore.addCombination('C2', [{ caseId: C2, factor: 1 }]);
+      const r = await runDirectAnalysis(data() as never, modelStore.model.loadCases, modelStore.model.combinations, { includeSelfWeight: false });
+      if (typeof r === 'string') throw new Error(r);
+      const uy = (combo: number) => r.perCombo.get(combo)!.displacements.find((x) => x.nodeId === b)!.uy;
+      expect(Math.abs(uy(direct))).toBeGreaterThan(0);
+      for (const combo of [viaC, viaC2]) {
+        expect(uy(combo)).toBeCloseTo(uy(direct), 9);
+        expect(r.info.get(combo)!.notional).toBe('cases');
+        expect(r.info.get(combo)!.b2).toBeCloseTo(r.info.get(direct)!.b2, 6);
+      }
+    });
+  }
 });

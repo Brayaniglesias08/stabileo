@@ -9,6 +9,7 @@ import '../index';
 import { historyStore } from '../history.svelte';
 import { duplicateCase, caseDeletionScope } from '../load-ops';
 import { checkModel } from '../../engine/model-diagnostics';
+import { caseOrder } from '../../engine/case-effects';
 
 beforeAll(async () => { await new Promise((r) => setTimeout(r, 0)); });
 beforeEach(() => { modelStore.clear(); historyStore.clear(); });
@@ -66,6 +67,43 @@ describe('a case that would read itself', () => {
       supports: modelStore.supports, loads: modelStore.loads as never, loadCases: modelStore.model.loadCases,
     }).find((d) => d.code === 'MODEL_CASE_LOOP');
     expect(found?.details).toEqual({ cases: 'A, B' });
+  });
+
+  /*
+   * A case in a loop already, from a file, can be edited: what is refused is a loop it did not
+   * have. Before, every change to its includes that left it in the loop was refused, so only the
+   * row that read itself could go, and a factor typed into any other row stayed on screen unsaved.
+   */
+  it('already in a loop from a file, is still edited, and any link of the loop removed', () => {
+    const D = modelStore.addLoadCase('D', 'D'), E = modelStore.addLoadCase('E', 'E');
+    const A = modelStore.addLoadCase('A', ''), B = modelStore.addLoadCase('B', ''), X = modelStore.addLoadCase('X', '');
+    // A takes in D, itself and B; B takes A in. Written past the store, as a file can hold them.
+    caseOf(A).includes = [{ caseId: D, factor: 1 }, { caseId: A, factor: 1 }, { caseId: B, factor: 1 }];
+    caseOf(B).includes = [{ caseId: A, factor: 1 }];
+    // A factor changed, a case that loops nothing added: the loop is no worse.
+    expect(modelStore.updateLoadCaseFields(A, { includes: [{ caseId: D, factor: 1.4 }, { caseId: A, factor: 1 }, { caseId: B, factor: 1 }] })).toBe(true);
+    expect(caseOf(A).includes![0]!.factor).toBe(1.4);
+    expect(modelStore.updateLoadCaseFields(A, { includes: [...caseOf(A).includes!, { caseId: E, factor: 1 }] })).toBe(true);
+    // A case brought into the loop is refused: X takes A in, then A takes X.
+    caseOf(X).includes = [{ caseId: A, factor: 1 }];
+    expect(modelStore.updateLoadCaseFields(A, { includes: [...caseOf(A).includes!, { caseId: X, factor: 1 }] })).toBe(false);
+    expect(caseOf(A).includes!.some((i) => i.caseId === X)).toBe(false);
+    // Each link removed, the one through B first, while A still reads itself.
+    expect(modelStore.updateLoadCaseFields(A, { includes: caseOf(A).includes!.filter((i) => i.caseId !== B) })).toBe(true);
+    expect(modelStore.updateLoadCaseFields(A, { includes: caseOf(A).includes!.filter((i) => i.caseId !== A) })).toBe(true);
+    expect(caseOf(A).includes!.map((i) => i.caseId)).toEqual([D, E]);
+  });
+
+  it('is named when it comes back to itself through a case the walk had finished', () => {
+    // A → B → C → A, then B → D → C: D reads itself through C, A and B.
+    const cases = [
+      { id: 1, type: '', includes: [{ caseId: 2, factor: 1 }] },
+      { id: 2, type: '', includes: [{ caseId: 3, factor: 1 }, { caseId: 4, factor: 1 }] },
+      { id: 3, type: '', includes: [{ caseId: 1, factor: 1 }] },
+      { id: 4, type: '', includes: [{ caseId: 3, factor: 1 }] },
+      { id: 5, type: '', includes: [{ caseId: 1, factor: 1 }] },
+    ];
+    expect([...caseOrder(cases as never).looped].sort()).toEqual([1, 2, 3, 4]);
   });
 });
 

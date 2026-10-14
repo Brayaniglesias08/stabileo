@@ -22,6 +22,7 @@ import { initSolver, isWasmReady, combineResults3D } from './wasm-solver';
 import { computeGoverning2D, computeGoverning3D } from './governing-case';
 import { hasNonlinearBehaviour } from './member-behaviour';
 import { allLoadsResult3D } from './shell-combos';
+import { singleSolveFactors } from './case-effects';
 import { reportSolverDiagnostics, reportModelDiagnostics } from './solve-diagnostics';
 import { solveForEdu } from '../../components/edu/edu-solver';
 import { hasInvalid2DDisplacements, hasInvalid3DDisplacements } from '../geometry/coordinate-system';
@@ -298,23 +299,29 @@ async function globalSolve3D(isStale: () => boolean): Promise<void> {
     if (!comboResult) return t('results.emptyModelError');
     if (modelStore.modelVersion !== solveEpoch) return null;
 
-    // "All loads" is an unfactored physical load state. Only a linear model can reuse
-    // the sum of independently solved cases: one-way members and lifting/curved supports
-    // need the active set of the combined loads, including settlements exactly once.
+    // "All loads" is an unfactored physical load state, the single solve's (`case-effects.ts`
+    // `singleSolveModel`). Only a linear model can reuse the sum of independently solved cases:
+    // one-way members and lifting/curved supports need the active set of the combined loads,
+    // including settlements exactly once. And the sum is taken at the single solve's factors
+    // (`singleSolveFactors`): at 1 each, a composite case's parts were counted twice. Where no
+    // factors give it (a notional case, the older self-weight switch on several dead-load cases),
+    // the single solve is solved.
+    const listedFactors = hasNonlinearBehaviour(modelStore.model) ? null : singleSolveFactors(modelStore.model.loadCases, {
+      // The rows a solve reads are PRO's; elsewhere the older switch (`analysisFor`).
+      legacySelfWeight: uiStore.includeSelfWeight && !(isPro && modelStore.model.analysis?.selfWeight),
+    });
+    const caseIds = [...comboResult.perCase.keys()];
+    const factors = caseIds.map((caseId) => ({ caseId, factor: listedFactors?.get(caseId) ?? 1 })).filter((f) => f.factor !== 0);
     let firstCaseResult;
-    if (hasNonlinearBehaviour(modelStore.model)) {
+    if (listedFactors === null || factors.length === 0) {
       const single = await modelStore.solve3DAsync(uiStore.includeSelfWeight, leftHand, isPro);
       if (isStale() || modelStore.modelVersion !== solveEpoch) return null;
       if (typeof single === 'string') return single;
       firstCaseResult = single;
     } else {
-      const caseIds = [...comboResult.perCase.keys()];
-      const combined = caseIds.length > 1
-        ? combineResults3D(caseIds.map((caseId) => ({ caseId, factor: 1 })), comboResult.perCase)
-        : null;
-      firstCaseResult = combined
-        ? allLoadsResult3D(combined, comboResult.perCase, modelStore.plates)
-        : comboResult.perCase.get(caseIds[0]);
+      const only = factors.length === 1 && factors[0]!.factor === 1 ? comboResult.perCase.get(factors[0]!.caseId) : null;
+      const combined = only ? null : combineResults3D(factors, comboResult.perCase);
+      firstCaseResult = only ?? (combined ? allLoadsResult3D(combined, comboResult.perCase, modelStore.plates, factors) : null);
     }
     if (!firstCaseResult) return t('results.emptyModelError');
 

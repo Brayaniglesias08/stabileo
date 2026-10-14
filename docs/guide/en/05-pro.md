@@ -343,9 +343,18 @@ floor loads), the card to write a load, and the load tables:
     kind and storeys, with the bound code's formula: Lo and the exclusions (heavy loads, passenger
     garages, public assembly, rows the table marks not reducible) come from the occupancy, and the
     case's loads are multiplied by the factor shown. A case holding loads the generator already
-    reduced is not reduced again.
+    reduced is not reduced again, and the generator, reducing its own live load, never writes it
+    into a case reduced by hand: it goes to a case of its own, beside yours in the combinations.
 
   **Notional cases** below the table creates one N case per source case and direction.
+
+  The solve without combinations, and **All loads** after a solve with them, take each listed
+  case's own loads once, reduced where the reduction applies (a reduction kept on a case retyped
+  from L is not applied, and its details say so). A reference case, or one not solved alone,
+  enters only through a composite case that takes it in, times its factor; a composite case adds
+  its own loads and what it takes from such cases, since its listed parts are there already.
+  Notional loads are not worked out there. The statics check of that solve, and the joint and
+  footing designs that read it when no linear combination is active, take the same loads.
 - **Self-weight:** a load of a case. Each row says which case it goes into, along which global
   direction, with which factor (−1 along Z is gravity) and on what: the whole model, a list of
   members or a group. On members it is ρ·A along the member, so a beam takes its own wL²/8; on
@@ -361,15 +370,16 @@ floor loads), the card to write a load, and the load tables:
   generating them, wind and earthquake can be taken in both senses: each case also enters with the
   opposite sign. They can be created **as composite cases** (each solved as one case, with a
   combination taking it at factor 1, filed as the combination it replaces would be, so the results
-  and design read it), and **with notional loads**: each strength combination without wind or
+  and design read it; generating again knows them, and replacing generated loads takes them back
+  with their combinations), and **with notional loads**: each strength combination without wind or
   earthquake gets one variant per direction, with each notional case at its source's factor. Each
   combination adds its cases **linearly**, by **SRSS** or by **ABS**: the last two combine every
   quantity on its own, along the members too, each case once with its factors added and a
   settlement once, as a linear combination does. They are magnitudes without a sign and in no
   equilibrium: listed with their results and diagrams, and left out of design, the governing
   combination, the envelopes, the statics check and the design reports (the project workbook lists
-  them under the source `magnitude`). A shell's σ1, σ2 and Von Mises are computed from the combined
-  components: a value of the magnitudes, not a stress state. With P-Delta per combination they are
+  them under the source `magnitude`). A shell's Von Mises, σ1 and σ2 combine each case's own values
+  the same way, so they are never below any single case's. With P-Delta per combination they are
   the magnitude of the first-order cases, and one with no second-order equilibrium at its summed
   load has no results; a model with one-way members, lifting supports or support curves refuses
   them. **Project rules** are your own combinations written in actions (for example

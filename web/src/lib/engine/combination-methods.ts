@@ -9,9 +9,13 @@
  *                  enters once, with its factors added, and the settlement once with factor 1, as a
  *                  linear combination takes them. Along a member the diagram is combined point by
  *                  point from the cases' own diagrams (`ElementForces3D.combined`, read by
- *                  `diagrams-3d.ts`), a variable member's piece by piece. A shell's σ1, σ2 and Von
- *                  Mises are recomputed from the combined components, as a linear combination's
- *                  are: a value of the magnitudes, not a stress state any load puts there.
+ *                  `diagrams-3d.ts`), a variable member's piece by piece. A shell's Von Mises
+ *                  (centroidal and nodal), σ1 and σ2 are combined by the method from each case's
+ *                  own values, as the engine gave them for its element, not recomputed from the
+ *                  combined components: those are magnitudes, and a stress computed from them
+ *                  lost the sign of σxx·σyy (an ABS of one case read 157 where the case read 178).
+ *                  Of one case they are its own values times the factor's size; of several, never
+ *                  below any of them.
  *
  * Such a combination is a magnitude, without a sign and in no equilibrium: it is listed with its
  * own results (`AnalysisResults3D.magnitude`) and read by nothing that needs a sign — design, the
@@ -25,10 +29,8 @@
 import type { AnalysisResults3D, ElementForces3D, FullEnvelope3D, PlateStress, QuadStress } from './types-3d';
 import type { LoadCase, LoadCombination } from '../store/model.svelte';
 import type { ResultPiece } from './variable-members';
-import type { PlateThickness } from './shell-combos';
 import { envelopeOver, isMagnitudeCombination } from './result-scopes';
 import { SETTLEMENT_CASE_ID } from './settlement-case';
-import { principalStresses, vonMisesPlane, worseFace } from './shell-stress';
 
 export type MagnitudeMethod = 'srss' | 'abs';
 
@@ -114,11 +116,23 @@ function scaledForces(ef: ElementForces3D, f: number): ElementForces3D {
 }
 
 /**
+ * A shell's stresses times `f`: its components, and its Von Mises by the factor's size, which is
+ * what a stress state times `f` has. Reversed, a state's largest principal stress is its smallest
+ * one reversed, and the other way round.
+ */
+function scaledShell<T extends { vonMises: number; nodalVonMises?: number[]; sigma1?: number; sigma2?: number }>(s: T, f: number): T {
+  const out = scaledRow(s, f, SHELL_KEEP);
+  out.vonMises = Math.abs(f) * s.vonMises;
+  if (s.nodalVonMises) out.nodalVonMises = s.nodalVonMises.map((v) => Math.abs(f) * v);
+  if (f < 0 && s.sigma1 !== undefined && s.sigma2 !== undefined) { out.sigma1 = f * s.sigma2; out.sigma2 = f * s.sigma1; }
+  return out;
+}
+
+/**
  * A case's results times `f`, all of them linear in the load: displacements, reactions, member
- * forces with their loads and pieces, shell stress components. The engine's combiner, which this
- * replaces here, drops the shell stresses and a variable member's pieces: an SRSS at 1,5 had no
- * stresses, and a variable member a prismatic diagram. σ1, σ2 and Von Mises are recomputed from
- * the combined components (`combinedPlates`, `combinedQuads`).
+ * forces with their loads and pieces, shell stresses. The engine's combiner, which this replaces
+ * here, drops the shell stresses and a variable member's pieces: an SRSS at 1,5 had no stresses,
+ * and a variable member a prismatic diagram.
  */
 function scaledResult(r: AnalysisResults3D, f: number): AnalysisResults3D {
   if (f === 1) return r;
@@ -126,8 +140,8 @@ function scaledResult(r: AnalysisResults3D, f: number): AnalysisResults3D {
     displacements: r.displacements.map((d) => scaledRow(d, f, NODE_KEEP)),
     reactions: r.reactions.map((d) => scaledRow(d, f, NODE_KEEP)),
     elementForces: r.elementForces.map((ef) => scaledForces(ef, f)),
-    ...(r.plateStresses ? { plateStresses: r.plateStresses.map((s) => scaledRow(s, f, SHELL_KEEP)) } : {}),
-    ...(r.quadStresses ? { quadStresses: r.quadStresses.map((s) => scaledRow(s, f, SHELL_KEEP)) } : {}),
+    ...(r.plateStresses ? { plateStresses: r.plateStresses.map((s) => scaledShell(s, f)) } : {}),
+    ...(r.quadStresses ? { quadStresses: r.quadStresses.map((s) => scaledShell(s, f)) } : {}),
   };
 }
 
@@ -141,35 +155,40 @@ function combinedMembrane(method: MagnitudeMethod, rows: ReadonlyArray<Membrane>
   return m;
 }
 
-/** The plates' stresses combined, σ1, σ2 and Von Mises recomputed as a linear combination's are. */
-function combinedPlates(method: MagnitudeMethod, lists: ReadonlyArray<readonly PlateStress[] | undefined>, plates?: PlateThickness): PlateStress[] {
-  return groupById(lists, 'elementId').map((rows) => {
-    const m = combinedMembrane(method, rows);
-    const t = plates?.get(rows[0]!.elementId)?.thickness ?? 0;
-    const pr = t > 0 ? worseFace(m, t) : { ...principalStresses(m.sigmaXx, m.sigmaYy, m.tauXy), vonMises: vonMisesPlane(m.sigmaXx, m.sigmaYy, m.tauXy) };
-    return { elementId: rows[0]!.elementId, ...m, sigma1: pr.sigma1, sigma2: pr.sigma2, vonMises: pr.vonMises };
-  });
+/**
+ * Von Mises of the parts combined, at the centre and at each node. A part without nodal values
+ * enters each node with its centroidal one, as a linear combination falls back to it.
+ */
+function combinedVonMises(method: MagnitudeMethod, rows: ReadonlyArray<{ vonMises: number; nodalVonMises?: number[] }>): { vonMises: number; nodalVonMises?: number[] } {
+  const vonMises = combine(method, rows.map((r) => r.vonMises));
+  const n = Math.max(0, ...rows.map((r) => r.nodalVonMises?.length ?? 0));
+  if (n === 0) return { vonMises };
+  return { vonMises, nodalVonMises: Array.from({ length: n }, (_, i) => combine(method, rows.map((r) => r.nodalVonMises?.[i] ?? r.vonMises))) };
 }
 
-/** The quads' stresses combined, Von Mises recomputed from the membrane; Q where every part has it. */
+/** The plates' stresses combined: Von Mises, σ1 and σ2 from the parts' own (`scaledShell`). */
+function combinedPlates(method: MagnitudeMethod, lists: ReadonlyArray<readonly PlateStress[] | undefined>): PlateStress[] {
+  return groupById(lists, 'elementId').map((rows) => ({
+    elementId: rows[0]!.elementId, ...combinedMembrane(method, rows),
+    sigma1: combine(method, rows.map((r) => r.sigma1)), sigma2: combine(method, rows.map((r) => r.sigma2)),
+    ...combinedVonMises(method, rows),
+  }));
+}
+
+/** The quads' stresses combined: Von Mises from the parts' own; Q where every part has it. */
 function combinedQuads(method: MagnitudeMethod, lists: ReadonlyArray<readonly QuadStress[] | undefined>): QuadStress[] {
   return groupById(lists, 'elementId').map((rows) => {
-    const m = combinedMembrane(method, rows);
     const q = rows.every((r) => r.qx !== undefined && r.qy !== undefined)
       ? { qx: combine(method, rows.map((r) => r.qx!)), qy: combine(method, rows.map((r) => r.qy!)) } : {};
-    return { elementId: rows[0]!.elementId, ...m, vonMises: vonMisesPlane(m.sigmaXx, m.sigmaYy, m.tauXy), ...q };
+    return { elementId: rows[0]!.elementId, ...combinedMembrane(method, rows), ...combinedVonMises(method, rows), ...q };
   });
 }
 
-/**
- * A combination of the factored cases by SRSS or ABS; null when none of its cases was solved.
- * `plates`: the plates' thicknesses, for their face stresses.
- */
+/** A combination of the factored cases by SRSS or ABS; null when none of its cases was solved. */
 export function magnitudeCombination(
   method: MagnitudeMethod,
   factors: ReadonlyArray<{ caseId: number; factor: number }>,
   perCase: ReadonlyMap<number, AnalysisResults3D>,
-  plates?: PlateThickness,
 ): AnalysisResults3D | null {
   // A case named twice enters once, with its factors added, as a linear combination takes it:
   // 1,2 D and 0,2 D are 1,4 D, not two terms squared apart.
@@ -199,7 +218,7 @@ export function magnitudeCombination(
     displacements: byId(method, parts.map((p) => p.displacements), 'nodeId', NODE_KEEP),
     reactions: byId(method, parts.map((p) => p.reactions), 'nodeId', NODE_KEEP),
     elementForces,
-    ...(parts.some((p) => p.plateStresses?.length) ? { plateStresses: combinedPlates(method, parts.map((p) => p.plateStresses), plates) } : {}),
+    ...(parts.some((p) => p.plateStresses?.length) ? { plateStresses: combinedPlates(method, parts.map((p) => p.plateStresses)) } : {}),
     ...(parts.some((p) => p.quadStresses?.length) ? { quadStresses: combinedQuads(method, parts.map((p) => p.quadStresses)) } : {}),
     magnitude: { method },
   };
@@ -220,7 +239,7 @@ export function finishBundle<B extends CombinationBundle>(
   bundle: B | string | null,
   cases: ReadonlyArray<Pick<LoadCase, 'id' | 'reference' | 'solve'>>,
   combinations: ReadonlyArray<Pick<LoadCombination, 'id' | 'factors' | 'method'>>,
-  opts: { plates?: PlateThickness; firstOrder?: boolean } = {},
+  opts: { firstOrder?: boolean } = {},
 ): B | string | null {
   if (!bundle || typeof bundle === 'string') return bundle;
   const magnitude = combinations.filter(isMagnitudeCombination);
@@ -231,7 +250,7 @@ export function finishBundle<B extends CombinationBundle>(
     perCombo = new Map(perCombo);
     const unstable = new Set(bundle.unstable ?? []);
     for (const c of magnitude) {
-      const r = unstable.has(c.id) ? null : magnitudeCombination(c.method as MagnitudeMethod, c.factors, bundle.perCase, opts.plates);
+      const r = unstable.has(c.id) ? null : magnitudeCombination(c.method as MagnitudeMethod, c.factors, bundle.perCase);
       if (r) perCombo.set(c.id, opts.firstOrder ? { ...r, magnitude: { method: r.magnitude!.method, firstOrder: true } } : r);
       else perCombo.delete(c.id);
     }

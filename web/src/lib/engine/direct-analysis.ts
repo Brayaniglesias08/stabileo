@@ -14,9 +14,10 @@
  *          the ratio of second- to first-order drift exceeds 1.7 (C2.2b(4)); in a gravity-only
  *          combination they always apply, along +X, −X, +Y and −Y in turn, and the direction
  *          giving the largest sway is kept.
- *          A combination that takes notional cases (`case-effects.ts`) has its notional loads in
- *          them: the analysis adds none of its own, and their horizontal load is not the
- *          combination's lateral load. They act where the cases put them, at any drift ratio.
+ *          A combination that takes notional cases (`case-effects.ts`), directly or through a
+ *          composite case at any depth, has its notional loads in them: the analysis adds none of
+ *          its own, and their horizontal load is not the combination's lateral load. They act
+ *          where the cases put them, at any drift ratio.
  *   C2.3a  0.80 on every stiffness: applied to E of every material, so axial, flexural, torsional
  *          and shell stiffness alike.
  *   C2.3b  τb on the flexural stiffness of steel members: 1 while αPr/Pns ≤ 0.5, else
@@ -41,7 +42,8 @@ import type { SolverInput3D, SolverLoad3D, AnalysisResults3D, SolverNode3D } fro
 import { computeLocalAxes3D } from './local-axes-3d';
 import { input3DToWireObject } from './wasm-solver';
 import { correctPDeltaForces, solvePDelta3DCorrected, amplification } from './pdelta-forces';
-import { withCaseEffects } from './case-effects';
+import { caseOrder, withCaseEffects } from './case-effects';
+import { isCompositeCase } from './loads/combination-cases';
 export { amplification } from './pdelta-forces';
 
 export type TauBMode = 'iterate' | 'unity';
@@ -272,8 +274,26 @@ export async function runDirectAnalysis(
   const perCombo = new Map<number, AnalysisResults3D>();
   const info = new Map<number, DirectComboInfo>();
   const extra = settings.tauB === 'unity' ? 0.001 : 0;
-  // The notional cases: a combination that takes one has its C2.2b loads already.
-  const notionalCases = new Set(loadCases.filter((c) => c.notional || (c.type ?? '').toUpperCase() === 'N').map((c) => c.id));
+  // The notional cases: a combination that takes one has its C2.2b loads already. A composite case
+  // is no load type, whatever it is typed: it is read through what it takes in.
+  const notionalCases = new Set(loadCases.filter((c) => c.notional || (!isCompositeCase(c) && (c.type ?? '').toUpperCase() === 'N')).map((c) => c.id));
+  /*
+   * How much of each notional case a combination takes, through the composite cases too: a
+   * composite that takes a notional case in, at any depth, carries its loads times the product of
+   * the factors on the way (`case-effects.ts`). Read by the factor's own case only, a composite of
+   * D and N had its notional load read as the combination's lateral load and, past 1.7, the
+   * analysis added its own 0.002 on top. A case in a loop takes nothing in, as `withCaseEffects`
+   * solves it.
+   */
+  const caseById = new Map(loadCases.map((c) => [c.id, c]));
+  const { looped } = caseOrder(loadCases);
+  const notionalIn = (id: number, k: number, out: Map<number, number>, seen: ReadonlySet<number>) => {
+    if (k === 0 || seen.has(id)) return;
+    if (notionalCases.has(id)) { out.set(id, (out.get(id) ?? 0) + k); return; }
+    const c = caseById.get(id);
+    if (!c || looped.has(id)) return;
+    for (const inc of c.includes ?? []) notionalIn(inc.caseId, k * inc.factor, out, new Set([...seen, id]));
+  };
 
   await Promise.all(combinations.map(async (combo) => {
     const loads = comboSolverLoads3D(combo, caseLoads);
@@ -282,8 +302,15 @@ export async function runDirectAnalysis(
     if (loads.length === 0 && !imposedHere) return;
     const on = imposedHere ? buildSolverInput3D({ ...solvable, loads: imposedOf(solvable.loads, factorOf) }, false, leftHand) : base;
     if (!on) return;
-    const takesNotional = combo.factors.some((f) => f.factor !== 0 && notionalCases.has(f.caseId));
-    const part = (keep: boolean) => comboSolverLoads3D({ ...combo, factors: combo.factors.filter((f) => notionalCases.has(f.caseId) === keep) }, caseLoads);
+    const share = new Map<number, number>();
+    for (const f of combo.factors) notionalIn(f.caseId, f.factor, share, new Set());
+    const notionalFactors = [...share].filter(([, k]) => Math.abs(k) > 1e-12).map(([caseId, factor]) => ({ caseId, factor }));
+    const takesNotional = notionalFactors.length > 0;
+    // The notional part, and the rest: the combination's loads less the notional cases' share,
+    // which a composite case carries mixed in with its gravity.
+    const part = (keep: boolean) => keep
+      ? comboSolverLoads3D({ ...combo, factors: notionalFactors }, caseLoads)
+      : [...loads, ...comboSolverLoads3D({ ...combo, factors: notionalFactors.map((f) => ({ ...f, factor: -f.factor })) }, caseLoads)];
     const { gravity, lateral } = nodeGravity(base, takesNotional ? part(false) : loads, leftHand);
     const hMag = Math.hypot(lateral.x, lateral.y);
     const totalGravity = [...gravity.values()].reduce((s, g) => s + Math.max(g, 0), 0);

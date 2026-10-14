@@ -356,9 +356,19 @@ combinaciones; cargas de piso), la tarjeta para escribir una carga y las tablas 
     elemento y pisos, con la fórmula de la norma asignada: Lo y las exclusiones (sobrecargas
     pesadas, garajes de autos, lugares de reunión, filas que la tabla marca no reducibles) salen del
     destino, y las cargas del caso se multiplican por el factor. Un caso con cargas que el generador
-    ya redujo no se reduce otra vez.
+    ya redujo no se reduce otra vez, y el generador, que reduce su propia sobrecarga, nunca la
+    escribe en un caso reducido a mano: va a un caso propio, junto al tuyo en las combinaciones.
 
   **Casos nocionales**, debajo de la tabla, crea un caso N por cada caso de origen y dirección.
+
+  El cálculo sin combinaciones, y **Todas las cargas** después de uno con ellas, toman las cargas
+  propias de cada caso listado una vez, reducidas donde la reducción corresponde (una reducción que
+  queda en un caso que dejó de ser L no se aplica, y sus detalles lo dicen). Un caso de referencia,
+  o uno que no se resuelve solo, entra sólo a través de un caso compuesto que lo incluye, por su
+  factor; un caso compuesto suma sus cargas propias y lo que toma de esos casos, porque sus partes
+  listadas ya están. Las cargas nocionales no se calculan ahí. La verificación de estática de ese
+  cálculo, y el diseño de uniones y bases que lo leen cuando no hay ninguna combinación lineal
+  activa, toman las mismas cargas.
 - **Peso propio:** es una carga de un caso. Cada fila dice en qué caso entra, en qué dirección
   global, con qué factor (−1 en Z es la gravedad) y sobre qué: todo el modelo, una lista de barras
   o un grupo. En las barras es ρ·A a lo largo de la barra, así que una viga toma su propio wL²/8;
@@ -373,16 +383,17 @@ combinaciones; cargas de piso), la tarjeta para escribir una carga y las tablas 
   (0,6 D + 0,6 W y D + 0,75 L + 0,45 W + 0,75 (Lr ó S ó R)). Al generarlas se puede pedir el viento y el sismo en los dos sentidos: cada caso
   entra también con el signo opuesto. Se pueden crear **como casos compuestos** (cada una se resuelve como un caso, con una
   combinación que lo toma a factor 1, archivada como lo sería la combinación que reemplaza, así los
-  resultados y el diseño la leen) y **con cargas nocionales**: cada combinación de resistencia sin
+  resultados y el diseño la leen; generar otra vez los reconoce, y reemplazar las cargas generadas
+  los quita junto con sus combinaciones) y **con cargas nocionales**: cada combinación de resistencia sin
   viento ni sismo recibe una variante por dirección, con cada caso nocional al factor de su origen.
   Cada combinación suma sus casos en forma **lineal**, por **SRSS** o por **ABS**: las dos últimas
   combinan cada valor por separado, también a lo largo de las barras, cada caso una vez con sus
   factores sumados y un asentamiento una vez, como lo hace una lineal. Son magnitudes sin signo y
   sin equilibrio: se listan con sus resultados y diagramas, y quedan fuera del diseño, de la
   combinación determinante, de las envolventes, del control de estática y de los informes de
-  diseño (el libro del proyecto las lista con la fuente `magnitude`). σ1, σ2 y Von Mises de una
-  lámina se calculan con las componentes combinadas: un valor de las magnitudes, no un estado de
-  tensiones. Con P-Delta por combinación son la magnitud de los casos de primer orden, y una sin
+  diseño (el libro del proyecto las lista con la fuente `magnitude`). Von Mises, σ1 y σ2 de una
+  lámina combinan del mismo modo los valores de cada caso, así que nunca quedan por debajo de los
+  de un caso solo. Con P-Delta por combinación son la magnitud de los casos de primer orden, y una sin
   equilibrio de segundo orden con su carga sumada no tiene resultados; un modelo con barras de un
   solo sentido, apoyos que se levantan o curvas de apoyo las rechaza. En **Reglas del proyecto** se escriben combinaciones propias
   en acciones (por ejemplo 1,2 D + 1,0 E + 0,5 L), para resistencia o servicio; se guardan con el

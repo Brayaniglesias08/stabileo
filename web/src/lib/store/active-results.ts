@@ -40,6 +40,28 @@ export function activePerCombo3D(): Map<number, AnalysisResults3D> {
   return narrowPerCombo(all, activeCombinationIds());
 }
 
+/**
+ * The one result set footings, joints and floors read when no linear combination is active.
+ *
+ * With no combination solved it is the result on screen, as before. With combinations solved and
+ * none of them active and linear (every active one an SRSS or ABS, say), it is the solve of every
+ * load ("All loads", `singleResults3D`): the result on screen could be the magnitude, read as a
+ * signed state (a footing's 60,13 kN for 56,0). Never a result that is a magnitude; null when
+ * there is no other, and the caller says why (`noLinearCombinationActive`).
+ */
+export function activeResultSet3D(): AnalysisResults3D | null {
+  const shown = resultsStore.results3D;
+  if (resultsStore.perCombo3D.size === 0) return shown && !shown.magnitude ? shown : null;
+  const single = resultsStore.singleResults3D;
+  return single && !single.magnitude ? single : null;
+}
+
+/** Combinations are solved, none active and linear, and an SRSS or ABS one among them. */
+export function noLinearCombinationActive(): boolean {
+  if (resultsStore.perCombo3D.size === 0 || activePerCombo3D().size > 0) return false;
+  return modelStore.model.combinations.some((c) => isMagnitudeCombination(c) && resultsStore.perCombo3D.has(c.id));
+}
+
 /** The active combinations, as design consumers list them. */
 export function activeCombinations() {
   const ids = new Set(activeCombinationIds());

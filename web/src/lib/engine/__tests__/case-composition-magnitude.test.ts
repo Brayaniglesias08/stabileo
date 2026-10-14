@@ -25,6 +25,7 @@ import { computeSectionProperties } from '../../data/section-shapes';
 import { t } from '../../i18n';
 import { computeGoverning3D, type GoverningPerElement3D } from '../governing-case';
 import type { AnalysisResults3D } from '../types-3d';
+import { magnitudeCombination } from '../combination-methods';
 
 beforeAll(async () => { await initSolver(); });
 beforeEach(() => {
@@ -260,6 +261,63 @@ describe('what an SRSS or ABS combination is combined from', () => {
     expect(part.pieces?.length).toBe(ef(r.perCase.get(1)!, e).pieces!.length);
     for (const x of [0.1, 0.3, 0.5, 0.8]) {
       expect(evaluateDiagramAt(ef(r.perCombo.get(s)!, e), 'momentY', x)).toBeCloseTo(Math.abs(1.5 * evaluateDiagramAt(ef(r.perCase.get(1)!, e), 'momentY', x)), 6);
+    }
+  });
+
+  /*
+   * Von Mises (element and nodal), σ1 and σ2 of a shell come from the cases' own values, each
+   * combined by the method. Recomputed from the combined components they lost the sign of
+   * σxx·σyy: an ABS of D × 1 read 157,02 on a quad whose case read 177,60, below its only term.
+   */
+  it('a shell\'s Von Mises and principal stresses, from the cases\' own values', () => {
+    const quad = { elementId: 7, sigmaXx: 100, sigmaYy: -80, tauXy: 10, mx: 2, my: -1, mxy: 0.5, vonMises: 180, nodalVonMises: [170, 180, 175, 160] };
+    const plate = { elementId: 8, sigmaXx: 100, sigmaYy: -80, tauXy: 10, mx: 0, my: 0, mxy: 0, sigma1: 120, sigma2: -90, vonMises: 190, nodalVonMises: [185, 190, 180] };
+    const quad2 = { ...quad, sigmaXx: -30, sigmaYy: 60, vonMises: 90, nodalVonMises: [80, 90, 85, 70] };
+    const plate2 = { ...plate, sigma1: 40, sigma2: -70, vonMises: 95, nodalVonMises: [90, 95, 80] };
+    const res = (q: typeof quad, p: typeof plate): AnalysisResults3D => ({ displacements: [], reactions: [], elementForces: [], quadStresses: [q], plateStresses: [p] });
+    const perCase = new Map([[1, res(quad, plate)], [2, res(quad2, plate2)]]);
+    for (const method of ['abs', 'srss'] as const) {
+      // One term: the case's own values, exactly; a factor scales them by its size.
+      const one = magnitudeCombination(method, [{ caseId: 1, factor: 1 }], perCase)!;
+      expect(one.quadStresses![0]!.vonMises).toBe(180);
+      expect(one.quadStresses![0]!.nodalVonMises).toEqual([170, 180, 175, 160]);
+      expect(one.plateStresses![0]!.vonMises).toBe(190);
+      expect(one.plateStresses![0]!.nodalVonMises).toEqual([185, 190, 180]);
+      expect(one.plateStresses![0]!.sigma1).toBe(120);
+      expect(one.plateStresses![0]!.sigma2).toBeGreaterThanOrEqual(-90);
+      const scaled = magnitudeCombination(method, [{ caseId: 1, factor: -1.5 }], perCase)!;
+      expect(scaled.quadStresses![0]!.vonMises).toBeCloseTo(270, 9);
+      expect(scaled.plateStresses![0]!.vonMises).toBeCloseTo(285, 9);
+      // Reversed, the state's largest principal is 1,5 × 90 and its smallest 1,5 × 120 in compression.
+      expect(scaled.plateStresses![0]!.sigma1).toBeCloseTo(135, 9);
+      expect(scaled.plateStresses![0]!.sigma2).toBeCloseTo(180, 9);
+      // Two terms: never below either term.
+      const two = magnitudeCombination(method, [{ caseId: 1, factor: 1 }, { caseId: 2, factor: 1.6 }], perCase)!;
+      const vm = two.quadStresses![0]!.vonMises, pvm = two.plateStresses![0]!.vonMises;
+      expect(vm).toBeCloseTo(method === 'abs' ? 180 + 1.6 * 90 : Math.hypot(180, 1.6 * 90), 9);
+      expect(pvm).toBeCloseTo(method === 'abs' ? 190 + 1.6 * 95 : Math.hypot(190, 1.6 * 95), 9);
+      two.quadStresses![0]!.nodalVonMises!.forEach((v, i) => {
+        expect(v).toBeGreaterThanOrEqual(quad.nodalVonMises[i]!);
+        expect(v).toBeGreaterThanOrEqual(1.6 * quad2.nodalVonMises[i]!);
+      });
+      expect(two.plateStresses![0]!.sigma1).toBeGreaterThanOrEqual(Math.max(120, 1.6 * 40));
+    }
+  });
+
+  it('a solved quad: an ABS of D × 1 reads the case\'s Von Mises', () => {
+    const n: number[][] = [];
+    for (let i = 0; i <= 2; i++) { n.push([]); for (let k = 0; k <= 2; k++) n[i]!.push(modelStore.addNode(i, 0, k)); }
+    const mat = [...modelStore.materials.keys()][0]!;
+    for (let i = 0; i < 2; i++) for (let k = 0; k < 2; k++) modelStore.addQuad([n[i]![k]!, n[i + 1]![k]!, n[i + 1]![k + 1]!, n[i]![k + 1]!], mat, 0.2);
+    for (let i = 0; i <= 2; i++) modelStore.addSupport(n[i]![0]!, 'fixed3d');
+    for (let i = 0; i <= 2; i++) modelStore.addNodalLoad3D(n[i]![2]!, 3, 0, -20, 0, 0, 0, 1);
+    const s = modelStore.addCombination('D abs', [{ caseId: 1, factor: 1 }]);
+    modelStore.updateCombination(s, { method: 'abs' });
+    const r = solve();
+    for (const c of r.perCase.get(1)!.quadStresses!) {
+      const m = r.perCombo.get(s)!.quadStresses!.find((x) => x.elementId === c.elementId)!;
+      expect(m.vonMises).toBeCloseTo(c.vonMises, 9);
+      if (c.nodalVonMises) expect(m.nodalVonMises).toEqual(c.nodalVonMises);
     }
   });
 });

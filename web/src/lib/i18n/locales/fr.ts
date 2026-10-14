@@ -3394,6 +3394,7 @@ const fr: Translations = {
   'design.error.solveFirst': "Calculez d'abord le modèle pour obtenir les sollicitations de dimensionnement.",
   'design.error.noCombinations': 'Définissez au moins une combinaison de charges avant de dimensionner.',
   'design.error.noDemands': "Aucune sollicitation de dimensionnement n'a pu être extraite des résultats actuels.",
+  'design.error.noLinearCombination': 'Aucune combinaison linéaire n\'est active : les combinaisons SRSS et ABS sont des grandeurs sans signe et ne servent pas au dimensionnement. Activez une combinaison linéaire.',
   'design.error.noAdapter': "Aucun adaptateur de norme n'est enregistré pour le code sélectionné.",
   'design.error.codeUnsupported': '{code} ne peut pas dimensionner les armatures — il peut seulement évaluer une disposition donnée.',
   'design.error.noConcreteMembers': '{code} is the reinforced-concrete code and this model has no concrete member: all {n} of its members are steel. The reinforcement design workflow does not apply to this structure.',
