@@ -289,7 +289,8 @@ export async function pdelta3DInWorker(input: any, maxIter: number, tol: number)
 export async function certifyInWorker(dim: '2d' | '3d', input: any): Promise<any> {
   await ensurePool();
   const target = pool.find((pw) => pw.warmed && pw.pending.size === 0);
-  return runJob(dim === '2d' ? 'certify2d' : 'certify3d', input, target);
+  const job = ({ '2d': 'certify2d', '3d': 'certify3d' } as const)[dim];
+  return runJob(job, input, target);
 }
 
 /**

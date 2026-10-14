@@ -144,6 +144,43 @@ impl Mul for Interval {
 mod tests {
     use super::*;
 
+    // Tests below pin down each guard that mutation testing showed untested.
+
+    #[test]
+    fn sqrt_rejects_negative_and_accepts_zero() {
+        assert!(!Interval::new(-1.0, 4.0).sqrt().is_finite());
+        let r = Interval::new(0.0, 4.0).sqrt();
+        assert!(r.is_finite() && r.lo == 0.0 && r.hi >= 2.0);
+        assert!(!Interval::new(f64::NAN, 4.0).sqrt().is_finite());
+        assert!(!Interval::new(1.0, f64::INFINITY).sqrt().is_finite());
+    }
+
+    #[test]
+    fn div_rejects_zero_and_non_finite() {
+        let one = Interval::point(1.0);
+        assert!(!one.div(Interval::new(-1.0, 1.0)).is_finite());
+        assert!(!one.div(Interval::new(0.0, 1.0)).is_finite());
+        assert!(!Interval::new(f64::NAN, 1.0).div(Interval::point(2.0)).is_finite());
+        assert!(!one.div(Interval::new(1.0, f64::NAN)).is_finite());
+        assert!(one.div(Interval::point(2.0)).is_finite());
+    }
+
+    #[test]
+    fn mul_rejects_any_non_finite_operand() {
+        // f64::min/max ignore NaN, so without the guard a NaN operand could
+        // produce a finite (wrong) interval.
+        let a = Interval::new(1.0, 2.0);
+        assert!(!(a * Interval::new(f64::NAN, 3.0)).is_finite());
+        assert!(!(Interval::new(1.0, f64::NAN) * a).is_finite());
+        assert!(!(a * Interval::new(1.0, f64::INFINITY)).is_finite());
+    }
+
+    #[test]
+    fn neg_reflects_endpoints() {
+        let n = -Interval::new(1.0, 3.0);
+        assert_eq!((n.lo, n.hi), (-3.0, -1.0));
+    }
+
     // Error-free transformations give the exact real result as an unevaluated
     // pair (s, e) with s + e exact. Inclusion lo ≤ s+e ≤ hi is then checked
     // without rounding: lo − s and hi − s are exact (Sterbenz / one-ulp gaps)

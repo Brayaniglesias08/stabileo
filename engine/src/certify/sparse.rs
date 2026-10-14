@@ -351,6 +351,82 @@ mod tests {
     }
 
     #[test]
+    fn bound_honest_with_small_sigma() {
+        // K = 0.01·I (σ ≈ 0.01 < 1): bound = ρ/σ ≫ ρ. Check abs and rel bounds
+        // against the exact error of a perturbed solution.
+        let k = csc_lower(&[0.01, 0.0, 0.0, 0.01], 2);
+        let ustar = [3.0, -4.0]; // f = K u* exactly representable
+        let f = [0.03, -0.04];
+        let ut = [3.0 + 1e-3, -4.0 - 2e-3];
+        let c = certify_sparse_spd_system(&k, &pts(&f), &ut);
+        let Certificate::Certified { abs_bound, rel_bound, .. } = c else { panic!("{c:?}") };
+        let err = ((ut[0] - ustar[0]).powi(2) + (ut[1] - ustar[1]).powi(2)).sqrt();
+        let unorm = (ut[0] * ut[0] + ut[1] * ut[1]).sqrt();
+        assert!(err <= abs_bound && abs_bound < 10.0 * err, "err {err} bound {abs_bound}");
+        assert!(err / unorm <= rel_bound && rel_bound < 10.0 * err / unorm, "rel {rel_bound}");
+    }
+
+    #[test]
+    fn gershgorin_counts_off_diagonal_residuals() {
+        // K = [[1, .9], [.9, 1]] (λ_min = 0.1) with the wrong factor L = I:
+        // R = K − I = [[0, .9], [.9, 0]], Gershgorin gives exactly −0.9. Any
+        // mishandling of the off-diagonal row sums would report ≥ 0.
+        let k = csc_lower(&[1.0, 0.9, 0.9, 1.0], 2);
+        let sym = Rc::new(symbolic_cholesky(&k));
+        let mut lv = vec![0.0; sym.l_nnz];
+        for c in 0..2 {
+            for p in sym.l_col_ptr[c]..sym.l_col_ptr[c + 1] {
+                if sym.l_row_idx[p] == c {
+                    lv[p] = 1.0;
+                }
+            }
+        }
+        let l = NumericCholesky { symbolic: sym, l_values: lv };
+        let vals: Vec<Interval> = k.values.iter().map(|&x| Interval::point(x)).collect();
+        let mu = gram_gershgorin(&vals, &l).unwrap();
+        assert!(mu <= -0.89 && mu >= -0.91, "μ = {mu}");
+    }
+
+    #[test]
+    fn lambda_min_lower_uses_the_enclosure_not_the_approximation() {
+        // The f64 approximation is positive definite, but the matrix the
+        // enclosures describe is indefinite: must refuse.
+        let a = csc_lower(&[2.0, 0.1, 0.1, 2.0], 2);
+        let vals: Vec<Interval> = [1.0, 0.1, -1.0].iter().map(|&x| Interval::point(x)).collect();
+        assert_eq!(a.values.len(), 3);
+        assert!(certify_lambda_min_lower(&a, &vals).is_err());
+        // Misaligned or non-finite enclosures are refused too.
+        assert!(certify_lambda_min_lower(&a, &vals[..2]).is_err());
+        let bad = vec![Interval::point(2.0), Interval::new(f64::NAN, 0.0), Interval::point(2.0)];
+        assert!(certify_lambda_min_lower(&a, &bad).is_err());
+    }
+
+    #[test]
+    fn prod_encloses_underflowing_products() {
+        // 1e-200 · 1e-200 underflows to 0 in f64 but the exact product is > 0.
+        let p = prod(1e-200, 1e-200);
+        assert!(p.lo <= 0.0 && p.hi > 0.0, "{p:?}");
+        let p = prod(-1e-200, 1e-200);
+        assert!(p.lo < 0.0 && p.hi >= 0.0, "{p:?}");
+        assert_eq!(prod(0.0, 5.0), Interval::ZERO);
+        assert_eq!(prod(5.0, 0.0), Interval::ZERO);
+        let p = prod(3.0, 7.0);
+        assert!(p.lo <= 21.0 && 21.0 <= p.hi && p.hi - p.lo < 1e-13);
+    }
+
+    #[test]
+    fn dimension_and_finiteness_checks() {
+        let k = csc_lower(&[4.0, 1.0, 1.0, 3.0], 2);
+        assert!(!certify_sparse_spd_system(&k, &pts(&[1.0]), &[0.0, 0.0]).is_certified());
+        assert!(!certify_sparse_spd_system(&k, &pts(&[1.0, 2.0]), &[0.0]).is_certified());
+        assert!(!certify_sparse_spd_system(&k, &pts(&[1.0, f64::NAN]), &[0.0, 0.0]).is_certified());
+        assert!(!certify_sparse_spd_system(&k, &pts(&[1.0, 2.0]), &[0.0, f64::INFINITY]).is_certified());
+        let mut kn = k.clone();
+        kn.values[0] = f64::NAN;
+        assert!(!certify_sparse_spd_system(&kn, &pts(&[1.0, 2.0]), &[0.0, 0.0]).is_certified());
+    }
+
+    #[test]
     fn gershgorin_rejects_a_wrong_factor() {
         // A factor of a *different* matrix must not certify K: L Lᵀ = 4I but K = I.
         let k = csc_lower(&[1.0, 0.0, 0.0, 1.0], 2);

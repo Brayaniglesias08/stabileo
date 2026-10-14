@@ -834,7 +834,7 @@ export function certifyLinear3D(input: SolverInput3D): CertifiedLinear3D {
 
 /** The certificate of a solve already prepared as a wire object, on this thread (the worker's fallback). */
 export function certifyLinearWire(dim: '2d' | '3d', wire: Record<string, any>): { certificate: LinearCertificate; forceBounds: Array<ForceBound2D | ForceBound3D> } {
-  const certify = dim === '2d' ? wasmCertifyLinear2d : wasmCertifyLinear3d;
+  const certify = { '2d': wasmCertifyLinear2d, '3d': wasmCertifyLinear3d }[dim];
   if (!wasmReady || !certify) throw new Error('WASM certificate export not available.');
   assertFiniteWire(wire);
   const { certificate, forceBounds } = certify(wire);
