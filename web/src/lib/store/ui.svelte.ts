@@ -50,13 +50,10 @@ export function isAnalysisMode(v: unknown): v is AnalysisMode {
 export type ILQuantity = 'Rz' | 'Ry' | 'Rx' | 'My' | 'Mz' | 'V' | 'M';
 export type SupportTool = 'fixed' | 'pinned' | 'roller' | 'spring';
 /**
- * Which creator a viewport node-pick is filling.
- *
- * Named rather than written inline in three places: `'stair'` is here because
- * a stair flight is built from the two nodes of its bottom edge, and adding it
- * to a union spelled out at each use site is how one of them gets missed.
+ * Which creator a viewport node-pick is filling. Named rather than written inline at each use
+ * site, which is how one of them gets missed when a creator is added.
  */
-export type ShellPickTarget = 'plate' | 'quad' | 'mesh' | 'stair';
+export type ShellPickTarget = 'plate' | 'quad' | 'mesh';
 export type LoadTool = 'nodal' | 'distributed' | 'thermal';
 export type NodalLoadDir = 'fz' | 'fx' | 'my';
 export type SelectMode = 'nodes' | 'elements' | 'shells' | 'loads' | 'stress' | 'supports';

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { modelStore, uiStore } from '../../lib/store';
   import DataTable from '../DataTable.svelte';
-  import ProStairSection from './ProStairSection.svelte';
   import { t, tp } from '../../lib/i18n';
   import { selectShellFamily } from '../../lib/engine/shell-family-selector';
   import ProMesher from './ProMesher.svelte';
@@ -310,8 +309,10 @@
       </button>
     {/if}
 
-    <!-- Stairs: the same plate, with its far edge lifted -->
-    <ProStairSection />
+    <!--
+      Stairs are not modelled here: they belong to the design desk, where a stair is stated by its
+      flight, landings and supports and designed (roadmap, review at the close of stage 1).
+    -->
 
     <!-- Quick mesh generator -->
     <div class="section">
