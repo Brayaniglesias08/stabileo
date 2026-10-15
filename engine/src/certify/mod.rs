@@ -4,6 +4,7 @@ pub mod buckling;
 pub mod combinations;
 pub mod constrained;
 pub mod design;
+pub mod dynamics;
 pub mod exact;
 pub mod forces;
 pub mod interval;

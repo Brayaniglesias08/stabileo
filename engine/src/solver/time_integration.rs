@@ -8,6 +8,44 @@ use super::mass_matrix;
 use super::damping;
 use super::constraints::FreeConstraintSystem;
 
+/// The discrete system a time-history run integrated and the full state it
+/// computed, in the solver's reduced (free, constraint-independent) DOF space.
+/// Read by `certify::dynamics`; the matrices are the f64 ones the solver used.
+#[derive(Debug, Clone)]
+pub struct DynamicTrace {
+    pub k: CscMatrix,
+    pub m: CscMatrix,
+    /// Rayleigh coefficients: `C = a0·M + a1·K` (both 0 without damping).
+    pub a0: f64,
+    pub a1: f64,
+    /// Newmark parameters actually used (for HHT-α: `(1−α)²/4`, `½ − α`).
+    pub beta: f64,
+    pub gamma: f64,
+    pub alpha: Option<f64>,
+    pub dt: f64,
+    /// Raw load vector `f_n` at every step n = 0..=N.
+    pub f: Vec<Vec<f64>>,
+    pub u: Vec<Vec<f64>>,
+    pub v: Vec<Vec<f64>>,
+    pub a: Vec<Vec<f64>>,
+}
+
+impl DynamicTrace {
+    #[allow(clippy::too_many_arguments)]
+    fn start(k: &CscMatrix, m: &CscMatrix, a0: f64, a1: f64, beta: f64, gamma: f64, alpha: Option<f64>, dt: f64) -> Self {
+        DynamicTrace {
+            k: k.clone(), m: m.clone(), a0, a1, beta, gamma, alpha, dt,
+            f: Vec::new(), u: Vec::new(), v: Vec::new(), a: Vec::new(),
+        }
+    }
+    fn push(&mut self, f: &[f64], u: &[f64], v: &[f64], a: &[f64]) {
+        self.f.push(f.to_vec());
+        self.u.push(u.to_vec());
+        self.v.push(v.to_vec());
+        self.a.push(a.to_vec());
+    }
+}
+
 /// Solve a 2D linear time-history analysis.
 ///
 /// Supports Newmark-beta (default: average acceleration) and HHT-alpha methods.
@@ -15,6 +53,22 @@ use super::constraints::FreeConstraintSystem;
 /// at each time step for efficiency.
 pub fn solve_time_history_2d(
     input: &TimeHistoryInput,
+) -> Result<TimeHistoryResult, String> {
+    solve_time_history_2d_inner(input, None)
+}
+
+/// `solve_time_history_2d` that also returns the full discrete trajectory.
+pub fn solve_time_history_2d_traced(
+    input: &TimeHistoryInput,
+) -> Result<(TimeHistoryResult, DynamicTrace), String> {
+    let mut trace = None;
+    let res = solve_time_history_2d_inner(input, Some(&mut trace))?;
+    Ok((res, trace.ok_or("no trace recorded")?))
+}
+
+fn solve_time_history_2d_inner(
+    input: &TimeHistoryInput,
+    mut trace: Option<&mut Option<DynamicTrace>>,
 ) -> Result<TimeHistoryResult, String> {
     super::linear::validate_input_2d(&input.solver)?;
     let referenced_material_ids = super::dynamic_validation::referenced_material_ids_2d(&input.solver);
@@ -118,6 +172,11 @@ pub fn solve_time_history_2d(
     let f_0_nf = compute_force_at_step(input, &dof_num, nf, m_ground_r.as_deref(), &f_static, 0, dt);
     let f_0 = if let Some(ref cs) = cs { cs.reduce_vector(&f_0_nf) } else { f_0_nf };
     compute_initial_acceleration(&m_s, c_s, &k_s, &u, &v, &f_0, ns, &mut a_vec);
+    if let Some(t) = trace.as_deref_mut() {
+        let mut tr = DynamicTrace::start(&k_s, &m_s, a0, a1, beta, gamma, input.alpha, dt);
+        tr.push(&f_0, &u, &v, &a_vec);
+        *t = Some(tr);
+    }
 
     // 9. Prepare history storage -- track all nodes
     let tracked_nodes: Vec<usize> = dof_num.node_order.clone();
@@ -193,6 +252,9 @@ pub fn solve_time_history_2d(
         u = u_new;
         v = v_new;
         a_vec = a_new;
+        if let Some(Some(t)) = trace.as_deref_mut() {
+            t.push(&f_next, &u, &v, &a_vec);
+        }
         f_prev = f_next;
 
         // Record history — expand to nf for recording
@@ -888,6 +950,22 @@ fn compute_reactions_at_state(
 pub fn solve_time_history_3d(
     input: &TimeHistoryInput3D,
 ) -> Result<TimeHistoryResult3D, String> {
+    solve_time_history_3d_inner(input, None)
+}
+
+/// `solve_time_history_3d` that also returns the full discrete trajectory.
+pub fn solve_time_history_3d_traced(
+    input: &TimeHistoryInput3D,
+) -> Result<(TimeHistoryResult3D, DynamicTrace), String> {
+    let mut trace = None;
+    let res = solve_time_history_3d_inner(input, Some(&mut trace))?;
+    Ok((res, trace.ok_or("no trace recorded")?))
+}
+
+fn solve_time_history_3d_inner(
+    input: &TimeHistoryInput3D,
+    mut trace: Option<&mut Option<DynamicTrace>>,
+) -> Result<TimeHistoryResult3D, String> {
     super::linear::validate_input_3d(&input.solver)?;
     let referenced_material_ids = super::dynamic_validation::referenced_material_ids_3d(&input.solver);
     super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
@@ -994,6 +1072,11 @@ pub fn solve_time_history_3d(
     let f_0_nf = compute_force_at_step_3d(input, &dof_num, nf, &m_ground_r_3d, &f_static, 0, dt);
     let f_0 = if let Some(ref cs) = cs3 { cs.reduce_vector(&f_0_nf) } else { f_0_nf };
     compute_initial_acceleration(&m_s, c_s, &k_s, &u, &v, &f_0, ns, &mut a_vec);
+    if let Some(t) = trace.as_deref_mut() {
+        let mut tr = DynamicTrace::start(&k_s, &m_s, a0, a1, beta, gamma, input.alpha, dt);
+        tr.push(&f_0, &u, &v, &a_vec);
+        *t = Some(tr);
+    }
 
     // 9. Prepare history storage
     let tracked_nodes: Vec<usize> = dof_num.node_order.clone();
@@ -1067,6 +1150,9 @@ pub fn solve_time_history_3d(
         u = u_new;
         v = v_new;
         a_vec = a_new;
+        if let Some(Some(t)) = trace.as_deref_mut() {
+            t.push(&f_next, &u, &v, &a_vec);
+        }
         f_prev = f_next;
 
         // Expand and record
