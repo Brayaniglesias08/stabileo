@@ -420,3 +420,41 @@ fn certified_ec3_utilization_end_to_end_2d() {
         assert!(r.utilization_upper - r.utilization_lower <= 1e-9 * (1.0 + f64_max));
     }
 }
+
+/// EC2 (Pa / N units) end to end: the kN model's demands are scaled by 1000
+/// with the bounds widened for the scaling rounding.
+#[test]
+fn certified_ec2_utilization_end_to_end_2d() {
+    use dedaliano_engine::postprocess::ec2_check::{check_ec2_members, Ec2CheckInput, Ec2MemberData};
+    let mc = building_2d();
+    let analysis = certify_multi_case_2d(&mc).unwrap();
+    let demands = ec2_demands(&scale_demands(&steel_demands_from_combinations_2d(&analysis, 21).unwrap(), 1000.0));
+    let mut ids: Vec<usize> = mc.solver.elements.values().map(|e| e.id).collect();
+    ids.sort();
+    let members: Vec<Ec2MemberData> = ids
+        .iter()
+        .map(|&id| {
+            serde_json::from_value(serde_json::json!({
+                "elementId": id, "fck": 30e6, "fyk": 500e6, "b": 0.3, "h": 0.6, "d": 0.55,
+                "asTension": 1.5e-3, "asCompression": 4e-4, "dPrime": 0.05, "asw": 1.0e-4, "sStirrup": 0.15
+            }))
+            .unwrap()
+        })
+        .collect();
+    let res = certify_ec2_members(&CertifiedEc2CheckInput { members: members.clone(), demands: demands.clone() });
+    for (m, r) in members.iter().zip(&res) {
+        assert!(r.certified, "{}: {:?}", m.element_id, r.reason);
+        let f64_max = demands
+            .iter()
+            .filter(|d| d.forces.element_id == m.element_id)
+            .map(|d| {
+                let c = &check_ec2_members(&Ec2CheckInput { members: vec![m.clone()], forces: vec![d.forces.clone()] })[0];
+                c.flexure_ratio.max(c.shear_ratio)
+            })
+            .fold(0.0, f64::max);
+        assert!(r.utilization_lower <= f64_max * (1.0 + 1e-12) && f64_max <= r.utilization_upper * (1.0 + 1e-12),
+            "{}: {f64_max} ∉ [{}, {}]", m.element_id, r.utilization_lower, r.utilization_upper);
+        assert!(r.utilization_upper - r.utilization_lower <= 1e-9 * (1.0 + f64_max));
+        eprintln!("EC2 elem {}: U ∈ [{:.6}, {:.6}] {}", m.element_id, r.utilization_lower, r.utilization_upper, r.governing_check);
+    }
+}

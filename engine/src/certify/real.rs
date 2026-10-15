@@ -13,9 +13,9 @@
 //!   With f64 every comparison is decided and behaves like `<` / `<=` (NaN
 //!   compares false, exactly like the original `if`).
 //!
-//! Interval transcendental functions (`powf`) assume the platform libm `pow` is
-//! accurate to within 8 ulps (every mainstream libm is within 1–2 ulps); the
-//! result is widened by that much. `sqrt` is correctly rounded by IEEE 754.
+//! Interval transcendental functions (`powf`, `tan`) assume the platform libm
+//! `pow` / `tan` are accurate to within 8 ulps (every mainstream libm is within
+//! 1–2 ulps); the result is widened by that much. `sqrt` is correctly rounded by IEEE 754.
 
 use std::ops::{Add, Mul, Neg, Sub};
 
@@ -61,6 +61,8 @@ pub trait Real:
     fn max(self, o: Self) -> Self;
     /// `self^e` for a positive base.
     fn powf(self, e: Self) -> Self;
+    /// `tan` (interval version: arguments in (−π/2, π/2) only).
+    fn tan(self) -> Self;
     /// Smallest set containing both (only reached on undecided branches).
     fn hull(self, o: Self) -> Self;
     fn lt(self, o: Self) -> Tri;
@@ -121,6 +123,10 @@ impl Real for f64 {
     #[inline]
     fn powf(self, e: Self) -> Self {
         f64::powf(self, e)
+    }
+    #[inline]
+    fn tan(self) -> Self {
+        f64::tan(self)
     }
     #[inline]
     fn hull(self, _o: Self) -> Self {
@@ -210,6 +216,16 @@ impl Real for Interval {
         let hi = (mx + mx.abs() * POW_ULPS + f64::MIN_POSITIVE).next_up();
         Interval::new(lo, hi)
     }
+    fn tan(self) -> Self {
+        // Increasing on (−π/2, π/2); 1.57 < π/2 keeps clear of the pole.
+        if !self.is_finite() || !(self.lo > -1.57 && self.hi < 1.57) {
+            return Interval::NAN;
+        }
+        let (a, b) = (self.lo.tan(), self.hi.tan());
+        let lo = (a - a.abs() * POW_ULPS - f64::MIN_POSITIVE).next_down();
+        let hi = (b + b.abs() * POW_ULPS + f64::MIN_POSITIVE).next_up();
+        Interval::new(lo, hi)
+    }
     fn hull(self, o: Self) -> Self {
         if !self.is_finite() || !o.is_finite() {
             return Interval::NAN;
@@ -294,6 +310,16 @@ mod tests {
         let r = iv(2.0, 3.0).powf(iv(-1.0, 2.0));
         assert!(r.lo <= 1.0 / 3.0 && r.hi >= 9.0);
         assert!(!iv(-1.0, 2.0).powf(iv(1.0, 1.0)).is_finite());
+    }
+
+    #[test]
+    fn tan_encloses_and_refuses_near_pole() {
+        for k in 1..300 {
+            let t = k as f64 * 0.005;
+            let r = Interval::point(t).tan();
+            assert!(r.lo < t.tan() && t.tan() < r.hi);
+        }
+        assert!(!iv(1.0, 1.6).tan().is_finite());
     }
 
     #[test]

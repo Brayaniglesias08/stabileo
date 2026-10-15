@@ -204,10 +204,13 @@ inconclusive at this precision.
   one arm when decided and the hull of both when the box straddles the condition
   (e.g. AISC H1-1a/H1-1b at `Pr/Pc = 0.2`, which is discontinuous; E3 inelastic/elastic;
   F2 plastic/inelastic/elastic LTB). `min`, `max`, `abs` are exact on intervals.
-* **Transcendentals.** `x^y` (AISC E3-2 `0.658^(Fy/Fe)`) is evaluated at the corners of
-  the box (monotone in each argument for `x > 0`) and widened by 8 ulps relative plus
-  the smallest normal: this **assumes the platform libm `pow` is accurate to 8 ulps**
-  (mainstream libms are within 1–2). `sqrt` is correctly rounded by IEEE 754.
+* **Transcendentals.** `x^y` (AISC E3-2 `0.658^(Fy/Fe)`, EC2 `(100ρ fck)^(1/3)`, `k^1.5`)
+  is evaluated at the corners of the box (monotone in each argument for `x > 0`) and
+  widened by 8 ulps relative plus the smallest normal; `tan` (EC2 strut angle) likewise
+  on `(−1.57, 1.57)`, refusing outside. This **assumes the platform libm `pow`/`tan` are
+  accurate to 8 ulps** (mainstream libms are within 1–2). `sqrt` is correctly rounded by
+  IEEE 754. An exponent written `1.0/3.0` is enclosed as the interval quotient, which
+  contains the real 1/3.
 * **Refusal.** A demand whose value or bound is non-finite or negative, a capacity not
   certified positive where a demand exists, or any non-finite enclosure makes the
   member `certified: false` with a reason — never a ratio.
@@ -219,15 +222,18 @@ inconclusive at this precision.
   combination is refused. Values *between* stations are not covered (as in the f64
   envelope).
 
-Wasm: `certify_steel_members`, `certify_ec3_members` (bounded demands in; `ec3_demands`
-converts the station demand sets), `certify_steel_multi_case_2d/3d`
+Wasm: `certify_steel_members`, `certify_ec3_members`, `certify_ec2_members` (bounded
+demands in; `ec3_demands` / `ec2_demands` convert the station demand sets and
+`scale_demands` changes units, e.g. kN → N for EC2's Pa-based formulas, widening each
+bound by the scaling's rounding), `certify_steel_multi_case_2d/3d`
 (multi-case model + members in, `{ analysis, steel }` out).
 
 | Check | Status |
 |---|---|
 | AISC 360 (`steel_check`): tension D2 (yield + rupture), compression E3, flexure F2 (LTB) / F6, shear G2, interaction H1 | **certified** |
 | EC3 (`ec3_check`): tension 6.2.3, flexural buckling 6.3.1 (χ curves a–d), LTB 6.3.2, weak-axis flexure 6.2.5, shear 6.2.6, simplified interaction 6.3.3 | **certified** |
-| CIRSOC 201 (`cirsoc201_check`), RC (`rc_check`, `ec2_check`), timber, masonry, CFS, connections, foundations, serviceability | not certified (f64 only) |
+| EC2 (`ec2_check`): RC flexure 6.1 (rectangular block, singly / doubly reinforced, compression-steel yield branch), shear 6.2 (VRd,c with the NEd axial term over the whole NEd interval, VRd,s, VRd,max) | **certified** |
+| CIRSOC 201 (`cirsoc201_check`), ACI RC (`rc_check`), timber, masonry, CFS, connections, foundations, serviceability | not certified (f64 only) |
 
 EC3 note: an unbraced length `lb = 0` gives `Mcr = x/0`; the f64 check reads it as no
 LTB reduction, the interval check refuses (division by an interval containing 0).
