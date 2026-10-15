@@ -525,7 +525,10 @@ mod tests {
         // 2β ≥ γ but below (2γ+1)²/16: unconditional with a real branch
         let s = scheme_stability(0.3, 0.6);
         assert!(s.unconditionally_stable && !s.high_frequency_complex);
-        // the exact check sees through f64: β = 0.1 (slightly above 1/10), γ = 0.2 + 0.0... not ≥ ½
+        // the boundary 2β = γ is decided exactly: one ulp of γ above ½ with β = ¼
+        // is no longer unconditionally stable
+        let s = scheme_stability(0.25, 0.5f64.next_up());
+        assert!(!s.unconditionally_stable && s.conditionally_stable);
         assert!(!scheme_stability(0.1, 0.2).conditionally_stable);
         assert!(!scheme_stability(f64::NAN, 0.5).unconditionally_stable);
     }

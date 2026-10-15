@@ -829,13 +829,60 @@ fn sample_moment(s: &Sample, f: &ElemF, x: &[f64], lam: f64) -> f64 {
     -x[c + 2] + s.tf * (f.dx * x[c + 1] - f.dz * x[c]) - lam * s.lm
 }
 
+/// Solve `B X = R` (B p×p dense, R p×w) by Gaussian elimination with partial
+/// pivoting; `None` if B is numerically singular.
+fn dense_solve(mut bm: Vec<Vec<f64>>, mut r: Vec<Vec<f64>>) -> Option<Vec<Vec<f64>>> {
+    let p = bm.len();
+    for c in 0..p {
+        let piv = (c..p).max_by(|&x, &y| bm[x][c].abs().total_cmp(&bm[y][c].abs()))?;
+        if bm[piv][c].abs() < 1e-300 {
+            return None;
+        }
+        bm.swap(c, piv);
+        r.swap(c, piv);
+        for i in c + 1..p {
+            let f = bm[i][c] / bm[c][c];
+            if f != 0.0 {
+                let (top, bot) = bm.split_at_mut(i);
+                for (v, pv) in bot[0][c..].iter_mut().zip(&top[c][c..]) {
+                    *v -= f * pv;
+                }
+                let (rt, rb) = r.split_at_mut(i);
+                for (v, pv) in rb[0].iter_mut().zip(&rt[c]) {
+                    *v -= f * pv;
+                }
+            }
+        }
+    }
+    for c in (0..p).rev() {
+        let d = bm[c][c];
+        for v in r[c].iter_mut() {
+            *v /= d;
+        }
+        for i in 0..c {
+            let f = bm[i][c];
+            if f != 0.0 {
+                let (top, bot) = r.split_at_mut(c);
+                for (v, pv) in top[i].iter_mut().zip(&bot[0]) {
+                    *v -= f * pv;
+                }
+            }
+        }
+    }
+    Some(r)
+}
+
 /// Dense tableau simplex: min Σ μ s.t. A μ = b (b ≥ 0), μ ≥ 0. Returns the
-/// basic solution μ and the dual y (Aᵀ y ≤ 1, maximizing bᵀ y).
+/// basic solution μ and the dual y (Aᵀ y ≤ 1, maximizing bᵀ y). Heuristic
+/// (f64): the tableau is rebuilt from the original data every few pivots and
+/// the ratio test is Harris's two-pass test, which keeps it well-behaved on the
+/// highly degenerate limit-analysis LPs.
 fn simplex_min_sum(a: &[Vec<f64>], b: &[f64]) -> Option<(Vec<f64>, Vec<f64>)> {
     let p = a.len();
     let n = a[0].len();
     let w = n + p + 1;
-    let mut tab: Vec<Vec<f64>> = (0..p)
+    // original [A | I | b]
+    let orig: Vec<Vec<f64>> = (0..p)
         .map(|i| {
             let mut r = a[i].clone();
             r.extend((0..p).map(|j| if i == j { 1.0 } else { 0.0 }));
@@ -843,80 +890,136 @@ fn simplex_min_sum(a: &[Vec<f64>], b: &[f64]) -> Option<(Vec<f64>, Vec<f64>)> {
             r
         })
         .collect();
+    let mut tab = orig.clone();
     let mut basis: Vec<usize> = (n..n + p).collect();
-    let eps = 1e-10;
+    let reinvert = |basis: &[usize]| -> Option<Vec<Vec<f64>>> {
+        let bm: Vec<Vec<f64>> = (0..p).map(|i| basis.iter().map(|&j| orig[i][j]).collect()).collect();
+        let mut t = dense_solve(bm, orig.clone())?;
+        // clamp tiny negative basic values from round-off
+        for row in t.iter_mut() {
+            if row[w - 1] < 0.0 && row[w - 1] > -1e-12 {
+                row[w - 1] = 0.0;
+            }
+        }
+        Some(t)
+    };
+    let pivot = |tab: &mut Vec<Vec<f64>>, ir: usize, jc: usize| {
+        let piv = tab[ir][jc];
+        for v in tab[ir].iter_mut() {
+            *v /= piv;
+        }
+        let prow = tab[ir].clone();
+        for (i, r) in tab.iter_mut().enumerate() {
+            if i != ir && r[jc] != 0.0 {
+                let f = r[jc];
+                for (v, pv) in r.iter_mut().zip(&prow) {
+                    *v -= f * pv;
+                }
+            }
+        }
+    };
     let run = |tab: &mut Vec<Vec<f64>>, basis: &mut Vec<usize>, cost: &dyn Fn(usize) -> f64, allow: &dyn Fn(usize) -> bool| -> bool {
         let max_iter = 50 * (n + p);
         let mut degenerate = 0;
+        let mut since = 0;
         for _ in 0..max_iter {
-            // reduced costs
+            if since >= 25 {
+                match reinvert(basis) {
+                    Some(t) => *tab = t,
+                    None => return false,
+                }
+                since = 0;
+            }
             let mut best: Option<(usize, f64)> = None;
             for j in 0..n + p {
                 if !allow(j) || basis.contains(&j) {
                     continue;
                 }
                 let rc = cost(j) - basis.iter().zip(tab.iter()).map(|(&bi, row)| cost(bi) * row[j]).sum::<f64>();
-                if rc < -eps {
+                if rc < -1e-10 {
                     let better = match best {
                         None => true,
-                        Some((_, v)) => if degenerate > 50 { false } else { rc < v },
+                        Some((_, v)) => degenerate <= 50 && rc < v,
                     };
                     if better {
                         best = Some((j, rc));
                     }
                 }
             }
-            let Some((jc, _)) = best else { return true };
-            let mut row: Option<(usize, f64)> = None;
-            for i in 0..p {
-                if tab[i][jc] > eps {
-                    let ratio = tab[i][w - 1] / tab[i][jc];
-                    let take = match row {
-                        None => true,
-                        Some((ri, r)) => ratio < r - 1e-14 || (ratio <= r + 1e-14 && basis[i] < basis[ri]),
-                    };
-                    if take {
-                        row = Some((i, ratio));
-                    }
+            let Some((jc, _)) = best else {
+                if since == 0 {
+                    return true;
+                }
+                // confirm optimality on a freshly rebuilt tableau
+                match reinvert(basis) {
+                    Some(t) => *tab = t,
+                    None => return false,
+                }
+                since = 0;
+                continue;
+            };
+            let cmax = tab.iter().fold(0.0f64, |m, r| m.max(r[jc].abs()));
+            let ptol = 1e-9 * cmax.max(1e-300);
+            // Harris pass 1: largest step with a small feasibility tolerance
+            let delta = 1e-11;
+            let mut theta = f64::INFINITY;
+            for r in tab.iter() {
+                if r[jc] > ptol {
+                    theta = theta.min((r[w - 1].max(0.0) + delta) / r[jc]);
                 }
             }
-            let Some((ir, ratio)) = row else { return false }; // unbounded
-            degenerate = if ratio.abs() < 1e-14 { degenerate + 1 } else { 0 };
-            let piv = tab[ir][jc];
-            for v in tab[ir].iter_mut() {
-                *v /= piv;
+            if !theta.is_finite() {
+                return false; // unbounded
             }
-            let prow = tab[ir].clone();
-            for (i, r) in tab.iter_mut().enumerate() {
-                if i != ir && r[jc] != 0.0 {
-                    let f = r[jc];
-                    for (v, pv) in r.iter_mut().zip(&prow) {
-                        *v -= f * pv;
-                    }
+            // pass 2: among rows within that step, the largest pivot
+            let mut row: Option<usize> = None;
+            for (i, r) in tab.iter().enumerate() {
+                if r[jc] > ptol && r[w - 1].max(0.0) / r[jc] <= theta && row.is_none_or(|k| r[jc] > tab[k][jc]) {
+                    row = Some(i);
                 }
             }
+            let Some(ir) = row else { return false };
+            degenerate = if tab[ir][w - 1].abs() < 1e-14 { degenerate + 1 } else { 0 };
+            pivot(tab, ir, jc);
             basis[ir] = jc;
+            since += 1;
         }
         false
     };
     // Phase 1
-    let ok = run(&mut tab, &mut basis, &|j| if j >= n { 1.0 } else { 0.0 }, &|_| true);
-    if !ok {
+    if !run(&mut tab, &mut basis, &|j| if j >= n { 1.0 } else { 0.0 }, &|_| true) {
         return None;
     }
     let infeas: f64 = (0..p).filter(|&i| basis[i] >= n).map(|i| tab[i][w - 1]).sum();
     if infeas > 1e-9 {
         return None;
     }
+    // Drive artificial variables (at zero level) out of the basis: left there,
+    // a phase-2 pivot could make them positive, i.e. violate A μ = b. A row with
+    // no usable real column is redundant and keeps its artificial at zero.
+    for i in 0..p {
+        if basis[i] < n {
+            continue;
+        }
+        let Some(jc) = (0..n)
+            .filter(|j| !basis.contains(j))
+            .max_by(|&x, &y| tab[i][x].abs().total_cmp(&tab[i][y].abs()))
+            .filter(|&j| tab[i][j].abs() > 1e-9)
+        else {
+            continue;
+        };
+        pivot(&mut tab, i, jc);
+        basis[i] = jc;
+    }
+    tab = reinvert(&basis)?;
     // Phase 2 (artificial columns kept to read B⁻¹, never re-enter)
-    let ok = run(&mut tab, &mut basis, &|j| if j >= n { 0.0 } else { 1.0 }, &|j| j < n);
-    if !ok {
+    if !run(&mut tab, &mut basis, &|j| if j >= n { 0.0 } else { 1.0 }, &|j| j < n) {
         return None;
     }
     let mut mu = vec![0.0; n];
     for i in 0..p {
         if basis[i] < n {
-            mu[basis[i]] = tab[i][w - 1];
+            mu[basis[i]] = tab[i][w - 1].max(0.0);
         }
     }
     // y_k = c_Bᵀ B⁻¹ e_k, B⁻¹ = artificial columns of the tableau.
@@ -1258,7 +1361,7 @@ fn best_mechanism(
         let c = least_squares(&colsf, &tv);
         let mut v = vec![Q::zero(); n];
         for (cj, bj) in c.iter().zip(&basis) {
-            let cq = q_heur(*cj);
+            let cq = q(*cj).unwrap_or_else(Q::zero);
             if cq.is_zero() {
                 continue;
             }
@@ -1335,8 +1438,8 @@ pub fn plastic_candidates(model: &PlasticModel, solver: Option<&PlasticResult>) 
         }
     };
     if lp.lambda > 0.0 && lp.lambda.is_finite() {
-        let lam = q_heur(lp.lambda);
-        let z: Vec<Q> = lp.z.iter().map(|v| q_heur(*v)).collect();
+        let lam = q(lp.lambda).unwrap_or_else(Q::zero);
+        let z: Vec<Q> = lp.z.iter().map(|v| q(*v).unwrap_or_else(Q::zero)).collect();
         consider(to_static(exact_field(&eq, &lam, &z), lam.clone()), "limit-analysis LP", &mut best_static);
     }
     if let Some((lam_s, xs)) = solver.and_then(|r| solver_state_field(model, r)) {
@@ -1344,7 +1447,7 @@ pub fn plastic_candidates(model: &PlasticModel, solver: Option<&PlasticResult>) 
         let resid: Vec<f64> = xs.iter().zip(&eqf.xp).map(|(x, p)| x - lam_s * p).collect();
         let z = least_squares(&eqf.null, &resid);
         let lam = q(lam_s).unwrap_or_else(Q::zero);
-        let zq: Vec<Q> = z.iter().map(|v| q_heur(*v)).collect();
+        let zq: Vec<Q> = z.iter().map(|v| q(*v).unwrap_or_else(Q::zero)).collect();
         consider(to_static(exact_field(&eq, &lam, &zq), lam), "incremental solver final state", &mut best_static);
     }
 

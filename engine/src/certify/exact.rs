@@ -75,24 +75,6 @@ pub fn to_f64(x: &Q) -> f64 {
     x.to_f64().unwrap_or(f64::NAN)
 }
 
-/// Rationalize an f64 heuristic value. Exact (any dyadic is fine for a
-/// candidate), but rounded to 40 significant bits first so later exact
-/// arithmetic does not carry 53-bit noise around.
-pub fn q_heur(x: f64) -> Q {
-    if !x.is_finite() || x == 0.0 {
-        return Q::zero();
-    }
-    let e = x.abs().log2().floor() as i32;
-    let scale = 2f64.powi(39 - e);
-    let m = (x * scale).round();
-    let num = BigInt::from(m as i64);
-    if 39 - e >= 0 {
-        Q::new(num, BigInt::one() << (39 - e) as usize)
-    } else {
-        Q::from_integer(num * (BigInt::one() << (e - 39) as usize))
-    }
-}
-
 pub fn qabs(x: &Q) -> Q {
     x.abs()
 }
@@ -242,13 +224,5 @@ mod tests {
         // inconsistent
         let a = vec![vec![qi(1), qi(1)], vec![qi(2), qi(2)]];
         assert!(rref_solve(&a, Some(&[qi(1), qi(3)]), 2).particular.is_none());
-    }
-
-    #[test]
-    fn heuristic_rationalization_is_close() {
-        for &x in &[0.1, -3.7e5, 1e-9, 2.0f64.sqrt()] {
-            let r = q_heur(x);
-            assert!((to_f64(&r) - x).abs() <= x.abs() * 1e-11);
-        }
     }
 }
