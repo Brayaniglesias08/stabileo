@@ -388,6 +388,29 @@ mod tests {
     }
 
     #[test]
+    fn gershgorin_row_sums_reach_both_rows() {
+        // Wrong factor L = I again, but with one large diagonal so only one row
+        // is binding: each off-diagonal residual must enter BOTH row sums.
+        for (d0, d1) in [(1.0, 6.0), (6.0, 1.0)] {
+            let k = csc_lower(&[d0, 0.9, 0.9, d1], 2);
+            let sym = Rc::new(symbolic_cholesky(&k));
+            let mut lv = vec![0.0; sym.l_nnz];
+            for c in 0..2 {
+                for p in sym.l_col_ptr[c]..sym.l_col_ptr[c + 1] {
+                    if sym.l_row_idx[p] == c {
+                        lv[p] = 1.0;
+                    }
+                }
+            }
+            let l = NumericCholesky { symbolic: sym, l_values: lv };
+            let vals: Vec<Interval> = k.values.iter().map(|&x| Interval::point(x)).collect();
+            let mu = gram_gershgorin(&vals, &l).unwrap();
+            // R = K − I: binding row has diagonal 0 and off-diagonal 0.9.
+            assert!(mu <= -0.89 && mu >= -0.91, "diag ({d0}, {d1}): μ = {mu}");
+        }
+    }
+
+    #[test]
     fn lambda_min_lower_uses_the_enclosure_not_the_approximation() {
         // The f64 approximation is positive definite, but the matrix the
         // enclosures describe is indefinite: must refuse.
