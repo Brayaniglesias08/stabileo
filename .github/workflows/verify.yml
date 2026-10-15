@@ -87,12 +87,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rust-src
+      # engine/.cargo/config.toml links with clang + mold.
+      - name: Install mold linker
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y mold
+        timeout-minutes: 5
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
       - name: Large certificate tests
         working-directory: engine
-        run: cargo test --release --test certify -- --ignored --nocapture
+        run: cargo test --release --test certify --test certify_plastic_3d -- --ignored --nocapture
 
   # Differential test against OpenSees (an independent FE code): catches
   # element-matrix, fixed-end-force, axis-convention and reaction bugs that the
