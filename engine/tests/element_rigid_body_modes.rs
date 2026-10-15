@@ -467,7 +467,7 @@ fn connector_zero_length_rigid_modes_and_kernel() {
 /// spring pushes back with k_shear·θ·L: a spring to ground. The documentation
 /// (connector.rs) allows finite-length connectors. Consequence: reactions do not
 /// balance the loads in moment (see `connector_finite_length_moment_equilibrium`
-/// in determinate_exact.rs). Pinned here so a fix is noticed.
+/// in connector_k_findings.rs). Pinned here so a fix is noticed.
 #[test]
 fn connector_finite_length_violates_rigid_rotation() {
     let k2 = connector_stiffness_2d(1e3, 1e3, 1e3, 1.0, 0.0);
