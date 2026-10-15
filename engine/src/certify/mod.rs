@@ -1,6 +1,7 @@
 //! A posteriori certification of solver results. See `docs/verification/CERTIFY.md`.
 
 pub mod buckling;
+pub mod bundle;
 pub mod combinations;
 pub mod constrained;
 pub mod design;

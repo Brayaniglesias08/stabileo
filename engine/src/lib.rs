@@ -76,6 +76,26 @@ pub fn certify_linear_3d(input: JsValue) -> Result<JsValue, JsValue> {
     to_js_value(&out)
 }
 
+/// Solve a 3D linear static model and export its certificate bundle
+/// (docs/verification/CERTIFY.md, "Independent checking: certificate bundles"):
+/// JSON in → bundle JSON out, checkable with `lake exe certcheck`.
+#[wasm_bindgen]
+pub fn export_linear_bundle_3d(json: &str) -> Result<String, JsValue> {
+    let input: types::SolverInput3D = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let bundle = certify::bundle::export_linear_bundle_3d(&input).map_err(|e| JsValue::from_str(&e))?;
+    Ok(bundle.to_json())
+}
+
+/// 2D version of `export_linear_bundle_3d`.
+#[wasm_bindgen]
+pub fn export_linear_bundle_2d(json: &str) -> Result<String, JsValue> {
+    let input: types::SolverInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let bundle = certify::bundle::export_linear_bundle_2d(&input).map_err(|e| JsValue::from_str(&e))?;
+    Ok(bundle.to_json())
+}
+
 /// Solve 2D P-Delta analysis. JSON in → JSON out.
 #[wasm_bindgen]
 pub fn solve_pdelta_2d(json: &str, max_iter: usize, tolerance: f64) -> Result<String, JsValue> {

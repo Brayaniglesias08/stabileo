@@ -124,6 +124,92 @@ assumed), `‖R‖₂² = λ_max(RᵀR) ≤ 1 + ‖RᵀR − I‖_F` with `RᵀR
 rotations. With inclined supports `abs_bound` is on the error over all DOFs in global
 axes (and `rel_bound` relative to `‖ũ_glob‖₂` over all DOFs). A node carrying several
 supports one of which is inclined is refused (`Uncertified`). Not yet formalized in Lean.
+## Independent checking: certificate bundles
+
+The scalable certificate can be exported as a *bundle* and re-checked by a third party
+without trusting the Rust interval code, the rounding model, or the f64 factorization.
+The re-check is an executable Lean function whose soundness is a Lean theorem.
+
+**Export (Rust).** `certify::bundle::export_linear_bundle(k, f, u)` runs the Gram
+residual + Gershgorin certificate and writes the data it used;
+`export_linear_bundle_{2d,3d}(input)` solve a model and export the bundle of its reduced
+free-DOF system from the sparse assembly (any model size). Wasm:
+`export_linear_bundle_{2d,3d}(json) -> bundle JSON`.
+
+**Format** (`stabileo.linear-certificate.v1`, JSON). Every f64 is written exactly as an
+integer pair `[m, e]` meaning `m · 2^e` (`m` odd, or `[0, 0]`), so the checker sees the
+exact dyadic rationals the engine used.
+
+| field | meaning |
+|---|---|
+| `n` | number of unknowns |
+| `k` | `{colPtr, rowIdx, values}`: lower triangle of the symmetric `K` (CSC); each stored `(a, b, v)` means `K[a][b] = K[b][a] = v` |
+| `fLo`, `fHi` | enclosure `fLo ≤ f ≤ fHi` of the right-hand side (`f_F − K_FR u_R`; a point unless displacements are prescribed) |
+| `u` | the computed solution `ũ` |
+| `perm` | fill-reducing permutation, `perm[new] = old` |
+| `l` | `{colPtr, rowIdx, values}`: the f64 Cholesky factor `L` of `P K Pᵀ − tI` in permuted numbering; it denotes `L'` with `L'[perm[a]][c] = L[a][c]` |
+| `mu` | the claimed `μ`, `λ_min(K) ≥ μ > 0` |
+| `bound` | the claimed bound `b`: `‖K⁻¹f − ũ‖₂ ≤ b` |
+| `info` | display copies of μ, b, ρ, relative bound (ignored by the checker) |
+
+**Check (Lean, `lake exe certcheck <bundle.json>...`).** `Certify.Bundle.check`
+(`verify/Certify/BundleCheck.lean`, core Lean + `Std` only, so it compiles natively
+without Mathlib) works in exact arithmetic on dyadic rationals (`Dy`: `m · 2^e` with a
+GMP `Int` mantissa; no gcd per operation, unlike `Rat`):
+
+1. `R = K − L' L'ᵀ` exactly, one dense column of its lower triangle at a time, in fixed
+   point (`L` scaled to integers by `2^-E`, `E` the smallest exponent in `L`; `R` by
+   `2^-E2`, `E2 = min(2E, smallest exponent in K)`), from the columns and the
+   (transposed) rows of `L'`; the cost is that of forming `L Lᵀ`, `Σ_c nnz(L_c)²/2`
+   exact multiply-adds;
+2. Gershgorin, for every row: `μ ≤ Rᵢᵢ − Σ_{j≠i} |Rᵢⱼ|`, accumulated into one array;
+3. `K ũ` exactly, the residual interval `[fLo − Kũ, fHi − Kũ]` and
+   `ρ² = Σᵢ max(|loᵢ|, |hiᵢ|)²`;
+4. `0 < μ`, `0 ≤ b` and `ρ² ≤ (b μ)²` — no square roots (`√ρ² / μ ≤ b` follows:
+   `Certify.Bundle.sqrt_div_le_of_sq_le`).
+
+Exit status 0 if every bundle is accepted, 1 if one is rejected, 2 on a parse error.
+The JSON reader (`verify/Certify/BundleParse.lean`) is trusted: it only turns `[m, e]`
+into the dyadic `m · 2^e` and CSC into column lists.
+
+Timings (Apple Silicon, one core, `check` only; the machine was shared):
+
+| model | n | nnz(K) | nnz(L) | `certcheck` |
+|---|---|---|---|---|
+| `ex-3d-portal-frame` | 24 | 88 | 159 | < 1 ms |
+| `ex-3d-tower` | 48 | 236 | 557 | 2 ms |
+| `ex-3d-nave-industrial` | 1308 | 6 041 | 49 359 | 0.5 s |
+| 6×6×8 frame building (generated) | 2352 | 13 048 | 365 762 | 11 s |
+| 8×8×12 frame building (generated) | 5832 | 33 048 | 1 525 164 | 80 s (0.8 GB) |
+
+The cost is dominated by the bignum multiply-adds of step 1 (about 90 ns each); the
+f64 export of the same bundles takes 4 ms to 4 s.
+
+**Soundness (`verify/Certify/BundleSound.lean`).**
+
+* `Certify.Bundle.check_sound`: if `check d = true`, then for the real matrix
+  `K = kMat d` and vector `ũ = uVec d` denoted by the bundle and *every* `f` with
+  `fLo ≤ f ≤ fHi`: `K (K⁻¹ f) = f`, every solution of `K u = f` equals `K⁻¹ f`, and
+  `‖K⁻¹ f − ũ‖₂ ≤ bound`. The proof applies `certified_error_bound_gram` with
+  `L = lMat d`, point enclosures of the exact `R` (`resid_eq`), the residual interval
+  above and `ρ = b μ`. The computation is related to the mathematics by `Dy.val_add`,
+  `Dy.val_mul`, … (dyadic arithmetic is exact), `intAt_val` (the fixed-point encoding is
+  exact), `resCol_val` (each dense column is the exact residual column), `gershSums_val`
+  (the Gershgorin array holds exactly `Rₜₜ − Σ_{j≠t} |Rₜⱼ|`) and `mulVec_eq` (`K ũ`).
+* `Certify.Bundle.check_sound_coercive`: `check d = true → μ‖x‖² ≤ xᵀKx` for all `x`.
+
+Nothing about `L` or `perm` is checked: `L' L'ᵀ ⪰ 0` for every real `L'`, so a wrong
+factor or a non-permutation can only make the Gershgorin test fail.
+
+**Tests.** `engine/tests/certify_bundle.rs` (`export_bundles`) writes bundles for three
+fixtures (`ex-3d-portal-frame`, `ex-3d-tower`, `ex-3d-nave-industrial`) to
+`target/cert-bundles/`, plus three tampered copies of each whose claims are false or
+unsupportable: `bound / 1024`, `ũ` moved by `4b` in one component with `b` kept (then
+`‖u* − ũ'‖ ≥ 3b`, so acceptance would contradict `check_sound`), and `μ = 2 min Kᵢᵢ`
+(`> λ_min`, contradicting `check_sound_coercive`). `verify/scripts/check-bundles.sh`
+regenerates them, runs `certcheck`, and requires every original to be accepted and
+every tampered copy rejected. The ignored test `export_large_bundles` writes the generated
+frame buildings above to `target/cert-bundles-large/`.
 
 ## Buckling load-factor enclosure
 

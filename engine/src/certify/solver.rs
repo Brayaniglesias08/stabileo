@@ -513,11 +513,73 @@ pub(super) fn gather_u_3d(dof_num: &DofNumbering, displacements: &[Displacement3
     Ok(u)
 }
 
-/// Reduced system from the full sparse K (lower-triangle CSC, free DOFs first):
-/// K_FF ũ_F = f_F − K_FR u_R, the right-hand side enclosed in intervals.
-fn certify_reduced_sparse(k_ff: &CscMatrix, k_full: &CscMatrix, nf: usize, f: &[f64], u: &[f64]) -> Certificate {
+/// The reduced free-DOF system `(K_FF, enclosure of f_F − K_FR u_R, ũ_F)` of the
+/// solver's sparse assembly, for given results of `solve_2d(input)`. Used for any
+/// model size by certificate bundles (`certify::bundle`).
+pub fn reduced_sparse_2d(
+    input: &SolverInput,
+    results: &AnalysisResults,
+) -> Result<(CscMatrix, Vec<Interval>, Vec<f64>), Certificate> {
+    if !input.constraints.is_empty() {
+        return Err(Certificate::uncertified("unsupported: constraints (constrained solver path)"));
+    }
+    if input.supports.values().any(|s| s.support_type == "inclinedRoller") {
+        return Err(Certificate::uncertified("unsupported: inclined supports"));
+    }
+    let dof_num = DofNumbering::build_2d(input);
+    let stiff = assemble_stiffness_sparse_2d(input, &dof_num);
+    if !stiff.inclined_transforms_2d.is_empty() {
+        return Err(Certificate::uncertified("unsupported: inclined supports"));
+    }
+    let f = assemble_load_vector_2d(input, &input.loads, &dof_num, &stiff.inclined_transforms_2d);
+    let u = gather_u_2d(&dof_num, &results.displacements)?;
+    let (f_eff, u_f) = reduce_rhs_sparse(&stiff.k_full, dof_num.n_free, &f, &u)?;
+    Ok((stiff.k_ff, f_eff, u_f))
+}
+
+/// 3D version of `reduced_sparse_2d`, for results of `solve_3d(input)`.
+pub fn reduced_sparse_3d(
+    input: &SolverInput3D,
+    results: &AnalysisResults3D,
+) -> Result<(CscMatrix, Vec<Interval>, Vec<f64>), Certificate> {
+    reduced_sparse_3d_expanded(&expand_curved_beams_3d(input), results)
+}
+
+/// `reduced_sparse_3d` for an input already passed through `expand_curved_beams_3d`.
+fn reduced_sparse_3d_expanded(
+    input: &SolverInput3D,
+    results: &AnalysisResults3D,
+) -> Result<(CscMatrix, Vec<Interval>, Vec<f64>), Certificate> {
+    if !input.constraints.is_empty() {
+        return Err(Certificate::uncertified("unsupported: constraints (constrained solver path)"));
+    }
+    if input.supports.values().any(|s| s.is_inclined.unwrap_or(false)) {
+        return Err(Certificate::uncertified("unsupported: inclined supports"));
+    }
+    let dof_num = DofNumbering::build_3d(input);
+    let stiff = assemble_stiffness_sparse_3d(input, &dof_num, true);
+    if !stiff.inclined_transforms.is_empty() {
+        return Err(Certificate::uncertified("unsupported: inclined supports"));
+    }
+    let Some(k_full) = stiff.k_full.as_ref() else {
+        return Err(Certificate::uncertified("sparse assembly did not build the full K"));
+    };
+    let f = assemble_load_vector_sparse_3d(input, &input.loads, &dof_num, &stiff.inclined_transforms);
+    let u = gather_u_3d(&dof_num, &results.displacements)?;
+    let (f_eff, u_f) = reduce_rhs_sparse(k_full, dof_num.n_free, &f, &u)?;
+    Ok((stiff.k_ff, f_eff, u_f))
+}
+
+/// From the full sparse K (lower-triangle CSC, free DOFs first): the enclosure of
+/// f_F − K_FR u_R and ũ_F.
+fn reduce_rhs_sparse(
+    k_full: &CscMatrix,
+    nf: usize,
+    f: &[f64],
+    u: &[f64],
+) -> Result<(Vec<Interval>, Vec<f64>), Certificate> {
     if !u.iter().all(|x| x.is_finite()) {
-        return Certificate::uncertified("non-finite displacement in solver output");
+        return Err(Certificate::uncertified("non-finite displacement in solver output"));
     }
     let mut f_eff: Vec<Interval> = f[..nf].iter().map(|&x| Interval::point(x)).collect();
     for j in 0..k_full.n {
@@ -530,7 +592,7 @@ fn certify_reduced_sparse(k_ff: &CscMatrix, k_full: &CscMatrix, nf: usize, f: &[
             }
         }
     }
-    certify_sparse_spd_system(k_ff, &f_eff, &u[..nf])
+    Ok((f_eff, u[..nf].to_vec()))
 }
 
 /// Reduced system from the full dense K (n×n, free DOFs first) and full u:
@@ -640,4 +702,24 @@ impl PreparedK {
             }
         }
     }
+}
+
+/// Reduced system from the full sparse K (lower-triangle CSC, free DOFs first):
+/// K_FF ũ_F = f_F − K_FR u_R, the right-hand side enclosed in intervals.
+fn certify_reduced_sparse(k_ff: &CscMatrix, k_full: &CscMatrix, nf: usize, f: &[f64], u: &[f64]) -> Certificate {
+    if !u.iter().all(|x| x.is_finite()) {
+        return Certificate::uncertified("non-finite displacement in solver output");
+    }
+    let mut f_eff: Vec<Interval> = f[..nf].iter().map(|&x| Interval::point(x)).collect();
+    for j in 0..k_full.n {
+        for p in k_full.col_ptr[j]..k_full.col_ptr[j + 1] {
+            let i = k_full.row_idx[p];
+            let v = k_full.values[p];
+            // Stored (i, j) with i ≥ j: the free×restrained block has i ≥ nf > j.
+            if i >= nf && j < nf && u[i] != 0.0 && v != 0.0 {
+                f_eff[j] = f_eff[j] - Interval::point(v) * Interval::point(u[i]);
+            }
+        }
+    }
+    certify_sparse_spd_system(k_ff, &f_eff, &u[..nf])
 }

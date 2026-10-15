@@ -44,6 +44,11 @@ jobs:
       - name: No sorry, no extra axioms
         working-directory: verify
         run: nix develop ..#verify -c ./scripts/check-axioms.sh
+      # Independent re-check of exported certificate bundles by the verified
+      # Lean checker (certcheck); tampered bundles must be rejected.
+      - name: Certificate bundles
+        working-directory: verify
+        run: nix develop ..#verify -c ./scripts/check-bundles.sh
 
   kani:
     runs-on: ubuntu-latest
