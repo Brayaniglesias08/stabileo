@@ -17,6 +17,7 @@ import type { SolverInput3D, SolverElement3D, AnalysisResults3D, FullEnvelope3D 
 import { finishSolve3D, finishPDelta3D } from './solve-finish';
 import { plainDeepCopy, findUncloneablePath } from '../utils/plain-deep-copy';
 import { errorText } from '../utils/error-text';
+import { tagCertifyJob } from './certify-tags';
 
 let wasmReady = false;
 let wasmInitPromise: Promise<void> | null = null;
@@ -350,6 +351,11 @@ export async function initSolver(): Promise<void> {
     wasmCertifyLinear3d = wasm.certify_linear_3d ?? null;
     wasmCertifyBuckling2d = wasm.certify_buckling_2d ?? null;
     wasmCertifyBuckling3d = wasm.certify_buckling_3d ?? null;
+    certifyExports.clear();
+    for (const name of CERTIFY_EXPORTS) {
+      const fn = (wasm as Record<string, unknown>)[name];
+      if (typeof fn === 'function') certifyExports.set(name, fn as (...args: any[]) => any);
+    }
 
     wasmReady = true;
   })();
@@ -795,11 +801,44 @@ export type LinearCertificate =
 
 /** Per-member bound on |force(exact) − force(computed)|, kN / kN·m. */
 export interface ForceBound2D { elementId: number; n: number; v: number; m: number }
-/** Per-member bound on |force(exact) − force(computed)|, local axes, kN / kN·m. */
-export interface ForceBound3D { elementId: number; n: number; vy: number; vz: number; t: number; my: number; mz: number }
+/**
+ * Per-member bound on |force(exact) − force(computed)|, local axes, kN / kN·m. `bimoment`
+ * (kN·m², warping members; 0 otherwise) is null when it is unbounded.
+ */
+export interface ForceBound3D { elementId: number; n: number; vy: number; vz: number; t: number; my: number; mz: number; bimoment?: number | null }
+/**
+ * Per-shell bound on |resultant(exact) − resultant(computed)|, element axes, in the units the
+ * solver reports them. `kind` keys the element: quads, plates and 9-node quads count ids apart.
+ */
+export interface ShellBound {
+  elementId: number; kind: 'quad' | 'plate' | 'quad9';
+  sigmaXx: number; sigmaYy: number; tauXy: number; mx: number; my: number; mxy: number;
+  qx: number | null; qy: number | null;
+}
 
 export interface CertifiedLinear2D { results: AnalysisResults; certificate: LinearCertificate; forceBounds: ForceBound2D[] }
-export interface CertifiedLinear3D { results: AnalysisResults3D; certificate: LinearCertificate; forceBounds: ForceBound3D[] }
+export interface CertifiedLinear3D { results: AnalysisResults3D; certificate: LinearCertificate; forceBounds: ForceBound3D[]; shellBounds?: ShellBound[] }
+
+/** Per-member bound on the forces at every diagram station of a combination (`stationBounds`). */
+export interface StationBound2D { elementId: number; axial: number; shear: number; moment: number }
+export interface StationBound3D { elementId: number; axial: number; shearY: number; shearZ: number; torsion: number; momentY: number; momentZ: number }
+
+/** One load case of a certified multi-case solve: a linear certificate of its own. */
+export interface CaseCertificate<F> { name: string; certificate: LinearCertificate; forceBounds: F[] }
+/**
+ * A combination, or the envelope, of a certified multi-case solve. `dispAbsBound` bounds
+ * ‖u*_c − ũ_c‖₂ (the envelope: every max-abs value within it of the exact envelope).
+ */
+export interface CombinationCertificate<F, S> {
+  name: string; certified: boolean; reason?: string;
+  dispAbsBound: number | null; forceBounds: F[]; stationBounds: S[];
+}
+/** `certify_multi_case_2d/3d` without its results (the solve's, already on screen). */
+export interface MultiCaseCertificate<F = ForceBound2D | ForceBound3D, S = StationBound2D | StationBound3D> {
+  cases: CaseCertificate<F>[];
+  combinations: CombinationCertificate<F, S>[];
+  envelope: CombinationCertificate<F, S>;
+}
 
 /**
  * The structure is certified stable for every load factor ≤ `lambdaLower`, and
@@ -833,12 +872,60 @@ export function certifyLinear3D(input: SolverInput3D): CertifiedLinear3D {
 }
 
 /** The certificate of a solve already prepared as a wire object, on this thread (the worker's fallback). */
-export function certifyLinearWire(dim: '2d' | '3d', wire: Record<string, any>): { certificate: LinearCertificate; forceBounds: Array<ForceBound2D | ForceBound3D> } {
+export function certifyLinearWire(dim: '2d' | '3d', wire: Record<string, any>): LinearCertificateOnly {
   const certify = { '2d': wasmCertifyLinear2d, '3d': wasmCertifyLinear3d }[dim];
   if (!wasmReady || !certify) throw new Error('WASM certificate export not available.');
   assertFiniteWire(wire);
-  const { certificate, forceBounds } = certify(wire);
-  return { certificate, forceBounds };
+  const { certificate, forceBounds, shellBounds } = certify(wire);
+  return { certificate, forceBounds, shellBounds: shellBounds ?? [] };
+}
+
+/** A linear certificate without the results it re-solved (3D carries the shells' bounds). */
+export interface LinearCertificateOnly { certificate: LinearCertificate; forceBounds: Array<ForceBound2D | ForceBound3D>; shellBounds?: ShellBound[] }
+
+/**
+ * The engine's other certify exports, by name, called through `callCertify` (`certify-jobs.ts`
+ * runs them in a worker when there is one). Absent from older WASM builds.
+ */
+const CERTIFY_EXPORTS = [
+  'certify_multi_case_2d', 'certify_multi_case_3d',
+  'certify_modal_2d', 'certify_modal_3d', 'certify_pdelta_2d', 'certify_pdelta_3d',
+  'certify_spectral_2d', 'certify_spectral_3d', 'certify_harmonic_2d', 'certify_harmonic_3d',
+  'certify_time_history_2d', 'certify_time_history_3d', 'certify_plastic_2d',
+  'certify_steel_members', 'certify_ec3_members', 'certify_ec2_members',
+  'export_linear_bundle_2d', 'export_linear_bundle_3d',
+] as const;
+export type CertifyExport = (typeof CERTIFY_EXPORTS)[number];
+const certifyExports = new Map<string, (...args: any[]) => any>();
+
+/** Whether this WASM build carries the certify export `name`. */
+export function hasCertify(name: string): boolean {
+  return certifyExports.has(name);
+}
+
+/**
+ * Call a certify export on this thread. A JSON-string answer is parsed, except a certificate
+ * bundle's (`export_linear_bundle_*`), which is returned as the text to save. The `results`
+ * the certifying exports carry (a re-solve of what is on screen) are dropped.
+ */
+export function callCertify(name: string, args: unknown[]): any {
+  const fn = certifyExports.get(name);
+  if (!wasmReady || !fn) throw new Error(`WASM certificate export ${name} not available.`);
+  for (const a of args) if (a && typeof a === 'object') assertFiniteWire(a);
+  return readCertifyAnswer(name, fn(...args));
+}
+
+/** A certify export's answer as the callers read it (shared with the worker). */
+export function readCertifyAnswer(name: string, raw: unknown): any {
+  if (name.startsWith('export_')) return raw;
+  const out = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (out && typeof out === 'object' && !Array.isArray(out)) {
+    const { results: _r, ...rest } = out as Record<string, unknown>;
+    // `certify_steel_multi_case_*` nests the analysis, results and all.
+    if (rest.analysis && typeof rest.analysis === 'object') { const { results: _a, ...analysis } = rest.analysis as Record<string, unknown>; rest.analysis = analysis; }
+    return rest;
+  }
+  return out;
 }
 
 /** 2D buckling with its certificate, through the same guards as `solveBuckling`. */
@@ -879,14 +966,15 @@ export function solvePDelta(input: SolverInput, maxIter = 20, tolerance = 1e-4) 
   refuse(guards?.refuse2D(input));
   const merged = mergeAllHingedJoints2D(input);
   let result;
+  const json = serializeInput2D(merged);
   try {
-    result = normalizePDeltaResult(JSON.parse(wasmSolvePdelta2d(serializeInput2D(merged), maxIter, tolerance)));
+    result = normalizePDeltaResult(JSON.parse(wasmSolvePdelta2d(json, maxIter, tolerance)));
   } catch (e) {
     if (guards && NO_FREE_DOFS.test(thrownText(e))) return linearPDelta(solve(merged), 'noFreeDofs');
     throw e;
   }
   if (guards && result.linearResults && !(maxDisplacement(result.linearResults) > 0)) return linearPDelta(result.linearResults, 'noLoads');
-  return result;
+  return tagCertifyJob(result, { name: 'certify_pdelta_2d', args: [json, maxIter, tolerance] });
 }
 
 /** Solve 2D buckling analysis via WASM. */
@@ -929,7 +1017,7 @@ export function solveModal(
     if (NO_FREE_DOFS.test(thrownText(e))) noFreeDofs('modal');
     throw e;
   }
-  return filterModal(result, ['X', 'Y']);
+  return tagCertifyJob(filterModal(result, ['X', 'Y']), { name: 'certify_modal_2d', args: [payload, numModes] });
 }
 
 /** Solve 2D spectral analysis via WASM. */
@@ -965,7 +1053,7 @@ export function solveSpectral(config: {
     reductionFactor: config.reductionFactor,
   });
   const resultJson = wasmSolveSpectral2d(payload);
-  return JSON.parse(resultJson);
+  return tagCertifyJob(JSON.parse(resultJson), { name: 'certify_spectral_2d', args: [payload] });
 }
 
 /** Solve 2D plastic analysis via WASM. */
@@ -1032,8 +1120,9 @@ export function solvePDelta3D(input: SolverInput3D, maxIter = 20, tolerance = 1e
   const wire = input3DToWireObject(input);
   refuse(guards?.refuse3D(input));
   let result;
+  const json = JSON.stringify(wire);
   try {
-    result = JSON.parse(wasmSolvePdelta3d(JSON.stringify(wire), maxIter, tolerance));
+    result = JSON.parse(wasmSolvePdelta3d(json, maxIter, tolerance));
   } catch (e) {
     if (guards && NO_FREE_DOFS.test(thrownText(e))) return linearPDelta(solve3D(input), 'noFreeDofs');
     throw e;
@@ -1041,7 +1130,7 @@ export function solvePDelta3D(input: SolverInput3D, maxIter = 20, tolerance = 1e
   // Same as `solve3D` (`solve-finish.ts`). The no-free-DOF answer above is solve3D's, already finished.
   finishPDelta3D(result, input);
   if (guards && result?.linearResults && !(maxDisplacement(result.linearResults) > 0)) return linearPDelta(result.linearResults, 'noLoads');
-  return normalizePDeltaResult(result);
+  return tagCertifyJob(normalizePDeltaResult(result), { name: 'certify_pdelta_3d', args: [json, maxIter, tolerance] });
 }
 
 /** Solve 3D modal analysis via WASM. */
@@ -1049,8 +1138,9 @@ export function solveModal3D(input: SolverInput3D, densities: Map<number, number
   if (!wasmReady || !wasmSolveModal3d) throw new Error('WASM Modal 3D solver not available.');
   refuse(guards?.refuse3D(input));
   let run;
+  let payload = '';
   try {
-    run = eigen3D(guards ? guards.eigenInput3D(input) : input, (i) => JSON.parse(wasmSolveModal3d!(JSON.stringify({
+    run = eigen3D(guards ? guards.eigenInput3D(input) : input, (i) => JSON.parse(wasmSolveModal3d!(payload = JSON.stringify({
       // The whole model, through the same serializer every other 3D analysis uses. This built its
       // own subset and left out quads, plates, constraints and connectors — so a slab contributed
       // neither stiffness nor mass to PRO's modal analysis.
@@ -1062,7 +1152,7 @@ export function solveModal3D(input: SolverInput3D, densities: Map<number, number
     throw e;
   }
   const out = filterModal(run.result, ['X', 'Y', 'Z']);
-  return { ...out, discardedModes: [...run.held, ...out.discardedModes] };
+  return tagCertifyJob({ ...out, discardedModes: [...run.held, ...out.discardedModes] }, { name: 'certify_modal_3d', args: [payload, numModes] });
 }
 
 /** Solve 3D buckling analysis via WASM. */
@@ -1115,7 +1205,7 @@ export function solveSpectral3D(config: {
     reductionFactor: config.reductionFactor,
   });
   const resultJson = wasmSolveSpectral3d(payload);
-  return JSON.parse(resultJson);
+  return tagCertifyJob(JSON.parse(resultJson), { name: 'certify_spectral_3d', args: [payload] });
 }
 
 /** Solve 2D corotational (large displacement) analysis via WASM. */
@@ -1152,7 +1242,7 @@ export function solveTimeHistory2D(config: {
     method: config.method,
   });
   const resultJson = wasmSolveTimeHistory2d(payload);
-  return JSON.parse(resultJson);
+  return tagCertifyJob(JSON.parse(resultJson), { name: 'certify_time_history_2d', args: [payload] });
 }
 
 // ─── Kinematic analysis ──────────────────────────────────────────
@@ -1500,7 +1590,8 @@ export function solveTimeHistory3D(config: any): any {
   if (config.solver && config.solver.nodes instanceof Map) {
     config = { ...config, solver: JSON.parse(serializeInput3D(config.solver)) };
   }
-  return JSON.parse(wasmSolveTimeHistory3d(JSON.stringify(config)));
+  const json = JSON.stringify(config);
+  return tagCertifyJob(JSON.parse(wasmSolveTimeHistory3d(json)), { name: 'certify_time_history_3d', args: [json] });
 }
 
 /** Solve 3D plastic analysis via WASM. */
@@ -1714,7 +1805,8 @@ export function solveHarmonic2D(config: any): any {
   if (config.solver && config.solver.nodes instanceof Map) {
     config = { ...config, solver: JSON.parse(serializeInput2D(config.solver)) };
   }
-  return JSON.parse(wasmSolveHarmonic2d(JSON.stringify(config)));
+  const json = JSON.stringify(config);
+  return tagCertifyJob(JSON.parse(wasmSolveHarmonic2d(json)), { name: 'certify_harmonic_2d', args: [json] });
 }
 
 /** Solve 3D harmonic analysis via WASM. */
@@ -1723,7 +1815,8 @@ export function solveHarmonic3D(config: any): any {
   if (config.solver && config.solver.nodes instanceof Map) {
     config = { ...config, solver: JSON.parse(serializeInput3D(config.solver)) };
   }
-  return JSON.parse(wasmSolveHarmonic3d(JSON.stringify(config)));
+  const json = JSON.stringify(config);
+  return tagCertifyJob(JSON.parse(wasmSolveHarmonic3d(json)), { name: 'certify_harmonic_3d', args: [json] });
 }
 
 // ─── Creep & Shrinkage Solvers ────────────────────────────────────

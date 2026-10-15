@@ -51,7 +51,8 @@ describe('certified linear static results', () => {
     const out = certifyLinear3D(cantilever3D());
     expect(out.certificate.status).toBe('certified');
     expect(out.forceBounds).toHaveLength(1);
-    expect(Object.keys(out.forceBounds[0]).sort()).toEqual(['elementId', 'mz', 'my', 'n', 't', 'vy', 'vz'].sort());
+    expect(Object.keys(out.forceBounds[0]).sort()).toEqual(['bimoment', 'elementId', 'mz', 'my', 'n', 't', 'vy', 'vz'].sort());
+    expect(out.forceBounds[0].bimoment).toBe(0); // not a warping member
   });
 });
 

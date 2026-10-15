@@ -1,5 +1,6 @@
 // Results store
 
+import { carryCertifyJob } from '../engine/certify-tags';
 import type { AnalysisResults, InfluenceLineResult, Section, Material } from './model.svelte';
 import type { ElementForces, FullEnvelope, ConstraintForce, SolverDiagnostic, SolveTimings } from '../engine/types';
 import { modelFindings } from '../engine/model-findings';
@@ -289,6 +290,8 @@ function createResultsStore() {
   let _onResultsPublish: (() => void) | null = null;
   /** Told of every base static solve published (as the solver returned it) and of every clear; see `certificate.svelte.ts`. */
   let _onStaticPublish: ((r: object | null, dim: '2d' | '3d') => void) | null = null;
+  /** Told of every combination bundle published (as the solver returned it); see `certificate.svelte.ts`. */
+  let _onComboPublish: ((perCase: Map<number, object>, perCombo: Map<number, object>, dim: '2d' | '3d') => void) | null = null;
   /**
    * What a 3D result is put through before it is published: members of variable section back to
    * one member each (`engine/variable-members.ts`), whichever analysis produced it. Idempotent.
@@ -410,6 +413,7 @@ function createResultsStore() {
      *  structural mutation (self-weight / axis-convention toggle). */
     _setOnResultsPublish(fn: () => void) { _onResultsPublish = fn; },
     _setOnStaticPublish(fn: (r: object | null, dim: '2d' | '3d') => void) { _onStaticPublish = fn; },
+    _setOnComboPublish(fn: (perCase: Map<number, object>, perCombo: Map<number, object>, dim: '2d' | '3d') => void) { _onComboPublish = fn; },
     _setNormalise3D(r: (x: AnalysisResults3D) => AnalysisResults3D, e: (x: FullEnvelope3D) => FullEnvelope3D, adv?: Normalise3DAdvanced) {
       _normalise3D = r; _normaliseEnvelope3D = e; _normaliseAdvanced3D = adv ?? null;
     },
@@ -730,7 +734,7 @@ function createResultsStore() {
 
     get pdeltaResult() { return pdeltaResult; },
     setPDeltaResult(r: PDeltaResult) {
-      r = { ...r, results: drawn(r.results), ...(r.linearResults ? { linearResults: drawn(r.linearResults) } : {}) };
+      r = carryCertifyJob(r, { ...r, results: drawn(r.results), ...(r.linearResults ? { linearResults: drawn(r.linearResults) } : {}) });
       hold();
       this.clearAdvanced();
       pdeltaResult = r;
@@ -792,11 +796,11 @@ function createResultsStore() {
     get plasticStep() { return plasticStep; },
     set plasticStep(v: number) { plasticStep = v; },
     setPlasticResult(r: PlasticResult) {
-      r = {
+      r = carryCertifyJob(r, {
         ...r,
         steps: (r.steps ?? []).map((st) => ({ ...st, results: st.results && drawn(st.results) })),
         hinges: (r.hinges ?? []).map((h) => ((h as { kind?: string }).kind === 'axial' ? h : { ...h, moment: _signOf(h.elementId) * h.moment })),
-      };
+      });
       hold();
       this.clearAdvanced();
       plasticResult = r;
@@ -823,7 +827,7 @@ function createResultsStore() {
     // ─── 3D Advanced Analysis Results ─────────────────────────────
     get pdeltaResult3D() { return pdeltaResult3D; },
     setPDeltaResult3D(r: PDeltaResult3D) {
-      if (_normaliseAdvanced3D) r = _normaliseAdvanced3D.pdelta(r);
+      if (_normaliseAdvanced3D) r = carryCertifyJob(r, _normaliseAdvanced3D.pdelta(r));
       hold();
       this.clearAdvanced();
       pdeltaResult3D = r;
@@ -837,7 +841,7 @@ function createResultsStore() {
 
     get modalResult3D() { return modalResult3D; },
     setModalResult3D(r: ModalResult3D) {
-      if (_normaliseAdvanced3D) r = _normaliseAdvanced3D.modes(r);
+      if (_normaliseAdvanced3D) r = carryCertifyJob(r, _normaliseAdvanced3D.modes(r));
       hold();
       this.clearAdvanced();
       staticUnder3D();
@@ -965,6 +969,7 @@ function createResultsStore() {
     },
 
     setCombinationResults(pc: Map<number, AnalysisResults>, pco: Map<number, AnalysisResults>, env: FullEnvelope) {
+      _onComboPublish?.(pc, pco, '2d');
       pc = new Map([...pc].map(([k, v]) => [k, drawn(v)]));
       pco = new Map([...pco].map(([k, v]) => [k, drawn(v)]));
       env = envelopeToDrawnAxes(env, _signOf);
@@ -1209,6 +1214,7 @@ function createResultsStore() {
     setGoverning3D(g: Map<number, GoverningPerElement3D>) { governing3D = g; },
 
     setCombinationResults3D(pc: Map<number, AnalysisResults3D>, pco: Map<number, AnalysisResults3D>, env: FullEnvelope3D, unstable: readonly number[] = []) {
+      _onComboPublish?.(pc, pco, '3d');
       if (_normalise3D) {
         const n = _normalise3D;
         pc = new Map([...pc].map(([k, r]) => [k, n(r)]));

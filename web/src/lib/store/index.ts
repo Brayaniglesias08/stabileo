@@ -122,6 +122,7 @@ resultsStore._setNormalise3D(
 
 // Each base linear solve published is certified in the background (`certificate.svelte.ts`).
 resultsStore._setOnStaticPublish((r, dim) => certificateStore.track(r, dim));
+resultsStore._setOnComboPublish((pc, pco, dim) => certificateStore.trackCombinations(pc, pco, dim));
 
 resultsStore._setOnResultsPublish(() => {
   verificationStore.bumpSolveGeneration();

@@ -24,3 +24,14 @@ export function formatLambda(x: number | null, dir: 'up' | 'down'): string {
   if (x === null || !Number.isFinite(x)) return '∞';
   return String(roundDirected(x, dir, 4));
 }
+
+/** An enclosure endpoint to `sig` significant figures, rounded toward `dir`; `∞` when there is none. */
+export function formatDirected(x: number | null, dir: 'up' | 'down', sig = 6): string {
+  if (x === null || !Number.isFinite(x)) return dir === 'up' ? '∞' : '−∞';
+  return String(roundDirected(x, dir, sig));
+}
+
+/** `[lo, hi]`, each end rounded outward. */
+export function formatEnclosure(lo: number | null, hi: number | null, sig = 6): string {
+  return `[${formatDirected(lo, 'down', sig)}, ${formatDirected(hi, 'up', sig)}]`;
+}

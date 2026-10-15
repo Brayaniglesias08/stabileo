@@ -975,6 +975,53 @@ export function certifiableInputOf(results: object): CertifiableInput | null {
   return certifiableInputs.get(results) ?? null;
 }
 
+/**
+ * The multi-case wire input behind every case and combination result one engine multi-case solve
+ * returned (`certify_multi_case_2d/3d` takes it as it is), with the engine names of each case and
+ * combination by id. Each result object is keyed to it; a result rebuilt afterwards (a settlement
+ * added, a spectral part superposed, helper nodes pruned…) is a new object, and is not certified.
+ */
+export interface CertifiableMultiCase {
+  dim: '2d' | '3d';
+  wire: () => Record<string, any>;
+  caseNames: Map<number, string>;
+  comboNames: Map<number, string>;
+}
+const certifiableMulti = new WeakMap<object, { input: CertifiableMultiCase; id: number }>();
+
+function invert<K, V>(m: Map<K, V>): Map<V, K> {
+  return new Map([...m].map(([k, v]) => [v, k]));
+}
+
+function certifiableMultiCase(perCase: Map<number, object>, perCombo: Map<number, object>, input: CertifiableMultiCase): void {
+  for (const [id, r] of perCase) if (input.caseNames.has(id)) certifiableMulti.set(r, { input, id });
+  for (const [id, r] of perCombo) if (input.comboNames.has(id)) certifiableMulti.set(r, { input, id });
+}
+
+/**
+ * What of a published combination bundle can be certified: the multi-case input, the cases and
+ * combinations (by id) that are still that solve's results, and whether the envelope is (every
+ * combination of it is, and every one is published). Null when none is.
+ */
+export function certifiableMultiCaseOf(
+  perCase: Map<number, object>,
+  perCombo: Map<number, object>,
+): { input: CertifiableMultiCase; cases: Set<number>; combos: Set<number>; envelope: boolean } | null {
+  let input: CertifiableMultiCase | null = null;
+  const own = (id: number, r: object) => {
+    const tag = certifiableMulti.get(r);
+    if (!tag || tag.id !== id) return false;
+    input ??= tag.input;
+    return tag.input === input;
+  };
+  const cases = new Set([...perCase].filter(([id, r]) => own(id, r)).map(([id]) => id));
+  const combos = new Set([...perCombo].filter(([id, r]) => own(id, r)).map(([id]) => id));
+  if (!input) return null;
+  const found: CertifiableMultiCase = input;
+  const envelope = combos.size > 0 && combos.size === perCombo.size && combos.size === found.comboNames.size;
+  return { input: found, cases, combos, envelope };
+}
+
 export function validateAndSolve2D(
   model: ModelData,
   includeSelfWeight = false,
@@ -1230,6 +1277,11 @@ function solveCombinations2DCore(
       const id = comboNameToId.get(cr.name);
       if (id != null) perCombo.set(id, cr.results);
     }
+    certifiableMultiCase(perCase, perCombo, {
+      dim: '2d',
+      wire: () => ({ solver: input2DToWireObject(baseInput), loadCases: mcLoadCases, combinations: mcCombinations }),
+      caseNames: invert(caseNameToId), comboNames: invert(comboNameToId),
+    });
 
     console.log(`[solveCombinations2D] WASM multi-case: ${tWasm.toFixed(0)} ms | Cases: ${perCase.size} | Combos: ${perCombo.size}`);
 
@@ -2464,6 +2516,13 @@ function solveCombinations3DCore(
       const id = comboNameToId.get(cr.name);
       if (id != null) perCombo.set(id, cr.results);
     }
+    // The axial shares given back below add the same load-only term to the exact and the computed
+    // forces, so the certificate's bounds on their difference stand.
+    certifiableMultiCase(perCase, perCombo, {
+      dim: '3d',
+      wire: () => ({ solver: input3DToWireObject(baseInput), loadCases: mcLoadCases, combinations: mcCombinations }),
+      caseNames: invert(caseNameToId), comboNames: invert(comboNameToId),
+    });
 
     // The axial part of member loads, given back to the members (`axial-shares.ts`): to each
     // case from its own loads, to each combination with its factors, and the envelope, which
@@ -2900,6 +2959,24 @@ async function solveCombinations3DParallelCore(
     const envelope = computeEnvelope3D(allComboResults);
     if (!envelope) return t('svc.envelopeError3d');
     if (hasShells) enrichComboShellStresses(perCase, perCombo, envelope.maxAbsResults3D, combinations, model.plates ?? new Map());
+    /*
+     * Certified as the multi-case export would solve it: the same cases from the same wire input
+     * (the solve is deterministic), combined by the engine's own `combine_results_3d`, as the
+     * multi-case solve combines them.
+     */
+    certifiableMultiCase(perCase, perCombo, {
+      dim: '3d',
+      wire: () => ({
+        solver: baseWire,
+        loadCases: caseInputs.filter((c) => perCase.has(c.caseId)).map((c) => ({ name: `case#${c.caseId}`, loads: c.input.loads })),
+        combinations: combinations.filter((c) => perCombo.has(c.id)).map((c) => ({
+          name: `combo#${c.id}`,
+          factors: c.factors.filter((x) => perCase.has(x.caseId)).reduce<Record<string, number>>((f, x) => ({ ...f, [`case#${x.caseId}`]: (f[`case#${x.caseId}`] ?? 0) + x.factor }), {}),
+        })),
+      }),
+      caseNames: new Map([...perCase.keys()].map((id) => [id, `case#${id}`])),
+      comboNames: new Map(combinations.filter((c) => perCombo.has(c.id)).map((c) => [c.id, `combo#${c.id}`])),
+    });
 
     const tPost = performance.now() - t1;
     console.log(`[solveCombinations3D parallel] Solve: ${tSolve.toFixed(0)} ms | Combine+envelope: ${tPost.toFixed(0)} ms | Cases: ${perCase.size} | Combos: ${perCombo.size} | Workers: ${Math.min(caseInputs.length, navigator.hardwareConcurrency ?? 4)}`);
