@@ -11,7 +11,9 @@
 #   scripts/kani-safe.sh truss_ dense_         # harnesses whose name contains a filter
 # Env: KANI_TIER (default all; "fast" skips harnesses marked `// kani: nightly`
 #      on a line above their #[kani::proof]), KANI_MEM_GB (default 12), KANI_TIMEOUT_S (default 900),
-#      KANI_REPORT (default target/kani-report.tsv), KANI_TARGET_DIR (default target/agent-kani).
+#      KANI_REPORT (default target/kani-report.tsv), KANI_TARGET_DIR (default target/agent-kani),
+#      KANI_EXTRA_ARGS (extra cargo-kani arguments, e.g.
+#      "-Z concrete-playback --concrete-playback=print" to print counterexamples).
 # Exit status is non-zero if any harness did not finish with SUCCESSFUL.
 set -uo pipefail
 
@@ -71,7 +73,7 @@ for h in $harnesses; do
 	start=$(date +%s)
 	# The nix shell points DEVELOPER_DIR/SDKROOT at its Apple SDK, which breaks the
 	# /usr/bin/gcc xcrun shim that goto-cc uses for preprocessing on macOS.
-	env -u DEVELOPER_DIR -u SDKROOT cargo kani -p dedaliano-engine -Z stubbing --target-dir "$target_dir" --harness "kani_proofs::$h" --exact > "$log" 2>&1 &
+	env -u DEVELOPER_DIR -u SDKROOT cargo kani -p dedaliano-engine -Z stubbing --target-dir "$target_dir" --harness "kani_proofs::$h" --exact ${KANI_EXTRA_ARGS:-} > "$log" 2>&1 &
 	pid=$!
 	peak=0
 	status=
