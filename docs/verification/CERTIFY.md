@@ -101,6 +101,8 @@ in 2D; always the sparse assembly in 3D).
 
 The certificate's `sigma` is `μ` and `residual_norm` is `‖r‖₂` (reduced quantities);
 `abs_bound` is on the free-DOF error. Code: `engine/src/certify/constrained.rs`.
+Not yet formalized in Lean (the coercivity and Gram/Gershgorin steps are the ones
+proved above; the `‖C‖₂` mapping is elementary but unproved there).
 
 ## Inclined supports
 
@@ -121,7 +123,7 @@ assumed), `‖R‖₂² = λ_max(RᵀR) ≤ 1 + ‖RᵀR − I‖_F` with `RᵀR
 `‖T‖₂ ≤ max(1, max_R √(1 + ‖RᵀR − I‖_F))`, which is `1 + O(ε)` for the solver's
 rotations. With inclined supports `abs_bound` is on the error over all DOFs in global
 axes (and `rel_bound` relative to `‖ũ_glob‖₂` over all DOFs). A node carrying several
-supports one of which is inclined is refused (`Uncertified`).
+supports one of which is inclined is refused (`Uncertified`). Not yet formalized in Lean.
 
 ## Buckling load-factor enclosure
 
@@ -224,7 +226,8 @@ unit vectors with zero thermal load, and each resultant gets
 `‖row_i(L)‖₂ · ‖T‖₂ · ‖u* − ũ‖₂`. As for member forces, `L` is the map *as the f64
 recovery evaluates it* (its entries carry the recovery's rounding) and rounding in
 evaluating `s(ũ)` is not included. Von Mises and principal stresses are not linear and
-get no bound; neither do solid shells or curved shells.
+get no bound; neither do solid shells or curved shells. Warping and shell bounds are
+not yet formalized in Lean (they are instances of `force_bound` with a different `k`).
 
 Lean (`verify/Certify/Forces.lean`): `abs_mulVec_sub_le` (`|(B(u − ũ))ᵢ| ≤
 ‖row_i B‖ ‖u − ũ‖`) and `force_bound`: if `‖row_i k‖ ≤ r`, `‖Tx‖ ≤ τ‖x‖` for all `x`
