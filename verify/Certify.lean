@@ -6,3 +6,4 @@ import Certify.Gram
 import Certify.Buckling
 import Certify.Modal
 import Certify.Forces
+import Certify.Kahan
