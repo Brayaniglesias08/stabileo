@@ -58,6 +58,10 @@ fn assert_encloses(label: &str, c: &PlasticCertificate, exact: f64, rel: f64) {
     assert!(lo <= exact * (1.0 + 1e-15) && exact * (1.0 - 1e-15) <= up, "{label}: {exact} ∉ [{lo}, {up}]");
     assert!((up - lo) / exact <= rel, "{label}: enclosure too wide [{lo}, {up}] (rel {:e})", (up - lo) / exact);
     eprintln!("{label}: λ_c = {exact} ∈ [{lo}, {up}], rel width {:.2e}, solver {:?} within={:?}", (up - lo) / exact, c.solver_collapse_factor, c.solver_within_bounds);
+    // the incremental solver lands in the enclosure, up to its own f64 round-off
+    if let Some(dev) = c.solver_deviation {
+        assert!(dev < 1e-9, "{label}: solver {:?} outside [{lo}, {up}] (deviation {dev:e})", c.solver_collapse_factor);
+    }
 }
 
 fn certify(input: &PlasticInput) -> PlasticCertificate {
@@ -76,6 +80,41 @@ fn fixed_beam_udl_single_and_multi_element() {
         let c = certify(&inp);
         assert_encloses(&format!("fixed beam UDL n={n}"), &c, exact, 1e-9);
     }
+}
+
+#[test]
+fn fixed_beam_udl_solver_hinge_at_midspan_for_any_element_count() {
+    // The span hinge forms where the moment peaks, not at an element end:
+    // λ_c = 16 Mp/(q L²) whatever the discretisation (it used to read 60.28 for
+    // one element and 58.59 for five).
+    let (l, qv) = (6.0, 10.0);
+    let exact = 16.0 * MP / (qv * l * l);
+    for n in [1, 2, 3, 5, 7] {
+        let loads = (1..=n).map(|e| udl(e, -qv)).collect();
+        let res = solve_plastic_2d(&plastic(make_beam(n, l, E, A_SEC, IZ_SEC, "fixed", Some("fixed"), loads))).unwrap();
+        assert!(res.is_mechanism && res.warnings.is_empty(), "n={n}: {:?}", res.warnings);
+        assert!((res.collapse_factor - exact).abs() < 1e-6 * exact, "n={n}: {} vs {exact}", res.collapse_factor);
+        // the last hinge is at midspan: x = L/2 on the member that holds it
+        let last = res.hinges.last().unwrap();
+        let x = (last.element_id - 1) as f64 * l / n as f64 + last.position * l / n as f64;
+        assert!((x - l / 2.0).abs() < 1e-6 * l, "n={n}: last hinge at x = {x}");
+        // results are reported on the model's own members and nodes
+        for st in &res.steps {
+            assert_eq!(st.results.element_forces.len(), n);
+            assert_eq!(st.results.displacements.len(), n + 1);
+        }
+    }
+}
+
+#[test]
+fn solver_warns_when_it_stops_before_a_mechanism() {
+    let loads = vec![udl(1, -10.0)];
+    let mut inp = plastic(make_beam(1, 6.0, E, A_SEC, IZ_SEC, "fixed", Some("fixed"), loads));
+    inp.max_hinges = Some(1);
+    let res = solve_plastic_2d(&inp).unwrap();
+    assert!(!res.is_mechanism);
+    assert!(res.warnings.iter().any(|w| w.contains("lower bound")), "{:?}", res.warnings);
+    assert!(res.collapse_factor <= 37.5);
 }
 
 #[test]
@@ -338,12 +377,14 @@ impl Lcg {
 
 /// Multi-bay, multi-storey frames with nodal loads only (hinges can only form at
 /// nodes), beams split at midspan, random column/beam capacities and some pinned
-/// beam ends. The incremental solver is an independent reference: it must agree
-/// with the enclosure in most cases and may only fall below it otherwise.
+/// beam ends. The incremental solver is an independent reference: with hinge
+/// unloading handled it must land in the enclosure every time (it used to fall
+/// below it when a hinge that should have closed stayed free: case 8, 148.80 vs
+/// [151.5405, 151.5405]).
 #[test]
 fn random_frames_agree_with_incremental_solver() {
     let mut g = Lcg(2024);
-    let (mut checked, mut agree) = (0, 0);
+    let (mut checked, mut agree, mut unloaded) = (0, 0, 0);
     for case in 0..24 {
         let bays = 1 + (g.next() * 3.0) as usize;
         let stories = 1 + (g.next() * 6.0) as usize;
@@ -394,14 +435,20 @@ fn random_frames_agree_with_incremental_solver() {
             // stays free): never above the certified upper bound.
             assert!(res.collapse_factor <= up * (1.0 + 1e-9), "case {case}: solver {} vs [{lo}, {up}]", res.collapse_factor);
             checked += 1;
+            assert!(res.warnings.is_empty(), "case {case}: {:?}", res.warnings);
+            if res.hinges.iter().any(|h| h.unloaded_at.is_some()) {
+                unloaded += 1;
+            }
             if c.solver_deviation.unwrap() < 1e-9 {
                 agree += 1;
             } else {
-                eprintln!("case {case}: solver {} below certified [{lo}, {up}]", res.collapse_factor);
+                eprintln!("case {case}: solver {} outside certified [{lo}, {up}]", res.collapse_factor);
             }
         }
     }
-    assert!(checked >= 12 && agree * 4 >= checked * 3, "agree {agree} of {checked}");
+    assert!(checked >= 12 && agree == checked, "agree {agree} of {checked}");
+    // the unloading path is exercised
+    assert!(unloaded >= 1, "no case unloaded a hinge");
 }
 
 /// Moment sign conventions (nodal `my`, member couples, transverse loads) agree

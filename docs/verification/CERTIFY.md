@@ -705,15 +705,25 @@ model, independently of how the solver got its number:
   sections (or a least-squares combination of the null basis). Heuristic failures only
   cost a bound (`Uncertified`), never soundness.
 
-Finding: the incremental solver *overestimates* `λ_c` when a member's maximum moment
-is interior (distributed load on a member without interior nodes) — it records the
-span hinge at an element end. Fixed–fixed beam under UDL as one element: solver 60.28,
-certified `[37.5 − 1ulp, 37.5]` (= 16Mp/qL²); five elements: solver 58.59. With nodal
-loads only it usually lies inside the enclosure (to round-off), but it can also fall
-*below* it: it never checks whether a formed hinge unloads, so a hinge that should
-turn elastic stays free and the "mechanism" it reports does not dissipate consistently
-(e.g. a 3-bay frame of the random test: solver 148.80, certified [151.540540540539,
-151.540540540541]). Such a result is safe but not the collapse load.
+Findings (fixed): the incremental solver used to *overestimate* `λ_c` when a member's
+maximum moment was interior (distributed load on a member without interior nodes) — it
+recorded the span hinge at an element end: fixed–fixed beam under UDL, one element 60.28,
+five elements 58.59, certified `[37.5 − 1ulp, 37.5]` (= 16Mp/qL²); inclined member 310.0
+vs 192.857. It also never checked whether a formed hinge unloads, so it could fall
+*below* the enclosure (3-bay frame of the random test: 148.80 vs [151.540540540539,
+151.540540540541]). `solve_plastic_2d` now (i) searches the moment diagram of every
+loaded member for interior extrema (exact diagram between sections, 48 stations plus
+load breakpoints, golden-section refinement of local minima of the load increment) and
+splits the member where a span hinge forms (`PlasticHinge.position` ∈ [0, 1]; results
+stay on the model's own members and nodes); (ii) before each increment closes a hinge
+whose rotation would reverse (relative end rotation recovered from the unreleased
+element stiffness; `unloadedAt`), reopens a closed one loaded past Mp again, and at a
+mechanism closes a hinge that would unload under the mechanism's motion (with hinge h
+closed, the unit moment at h is `P·φ / θ_h(φ)`), tied hinges being opened one at a
+time so the mechanism tested is single; (iii) reports `warnings` when the result is not
+guaranteed (unresolved reversal, a peak moving past a fixed hinge, event limit reached,
+final field over Mp). All certify tests and the 24 random frames now land inside the
+enclosure up to f64 round-off (`solverDeviation < 1e-9`, asserted).
 
 Not included: 3D plastic analysis, N–M (or biaxial) interaction, second-order effects,
 shakedown. Not formalized in Lean.
@@ -728,16 +738,25 @@ Newmark `β, γ` actually used, `Δt`, the load vectors `f_n` — and the full c
 state `(u_n, v_n, a_n)`, n = 0..N. These are the data; the certificate is about the
 **discrete scheme**:
 
-    (E_n)  M a_n + C v_n + K u_n = f̂_n
+    (E_n)  M a_n + C v_n + K u_n = f_n                                  (Newmark; HHT at n = 0)
+    (E_n)  M a_n + (1+α)(C v_n + K u_n) − α(C v_{n−1} + K u_{n−1})
+               = (1+α) f_n − α f_{n−1}                                 (HHT-α, n ≥ 1)
     (U)    u_{n+1} = u_n + Δt v_n + Δt² ((½ − β) a_n + β a_{n+1})
     (V)    v_{n+1} = v_n + Δt ((1 − γ) a_n + γ a_{n+1})
 
-with `f̂_0 = f_0`, `f̂_n = f_n` (Newmark), `f̂_n = (1+α) f_n − α f_{n−1}` (the solver's
-"HHT-α"). Finding: the solver's HHT path is Newmark with `β = (1−α)²/4`, `γ = ½ − α`
-and that load blend; it does not apply the HHT averaging to `K u` and `C v`, so it is
-dissipative but first-order accurate. The certificate states the scheme as implemented.
+HHT-α uses Hilber's sign, `α ∈ [−1/3, 0]`, with `β = (1−α)²/4`, `γ = ½ − α`; the
+solver rounds `γ` and integrates with `α = ½ − γ` (exact in f64), so `γ = ½ − α` holds
+exactly for the recorded `α`. Finding (fixed): the solver's "HHT-α" used to be
+Newmark with those `β, γ` and only the load blend `(1+α) f_{n+1} − α f_n` — without the
+α-weighting of `K u` and `C v` it was dissipative but first-order accurate. It is now
+the scheme above; `test_hht_alpha_second_order_convergence` shows the error ratio ≈ 4
+when Δt halves (α = −0.05, −0.1, −0.3) and `test_hht_alpha_damps_high_frequencies`
+the numerical damping at `ωΔt ≈ 33`.
 
-* **Stability (`stabilityCertified`).** Exact rational checks on the f64 `β, γ`:
+* **Stability (`stabilityCertified`).** HHT-α: generalized-α with `α_m = 0`,
+  `α_f = −α`, unconditionally stable (Chung & Hulbert 1993) when `γ = ½ − α`,
+  `−½ ≤ α ≤ 0` and `β ≥ ¼ − α/2`, checked exactly on the f64 values; outside that
+  range nothing is certified. Newmark: exact rational checks on the f64 `β, γ`:
   `γ ≥ ½` and `2β ≥ γ` ⇒ unconditionally stable (spectral radius ≤ 1 for every mode,
   `ξ ≥ 0`); `β ≥ (2γ+1)²/16` is reported separately (`highFrequencyComplex`). For
   `γ ≥ ½`, `β < γ/2` (conditionally stable, e.g. linear acceleration) the condition is
@@ -755,13 +774,14 @@ dissipative but first-order accurate. The certificate states the scheme as imple
   largest term of (E) over all steps), and the (U), (V) residuals relative to the peak
   ‖u‖_∞, ‖v‖_∞. Rounded up.
 * **Energy balance.** Interval enclosures of `E_n = ½ v_nᵀMv_n + ½ u_nᵀKu_n` (first
-  and last), the discrete external work `Σ ½(f̂_n + f̂_{n+1})·(u_{n+1} − u_n)`, the
+  and last), the discrete external work `Σ ½(f̂_n + f̂_{n+1})·(u_{n+1} − u_n)` (`f̂_n = f_n` for Newmark), the
   Rayleigh dissipation `Σ Δt v̄ᵀCv̄` (`v̄ = (v_n + v_{n+1})/2`), and the imbalance
   `E_N − E_0 + D − W`. For average acceleration (β = ¼, γ = ½) the identity
   `E_{n+1} − E_n + Δt v̄ᵀCv̄ = ½(f̂_n + f̂_{n+1})·(u_{n+1} − u_n)` holds exactly for the exact
   discrete trajectory (from (U), (V), (E_n), (E_{n+1}) and `K = Kᵀ`), so the imbalance
   measures the computed trajectory's departure from it; for other parameters it also
-  contains the scheme's algorithmic dissipation and is reported, not judged.
+  contains the scheme's algorithmic dissipation (HHT-α included, with the work taken
+  over `f̂_n = (1+α) f_n − α f_{n−1}`) and is reported, not judged.
 * **What this certifies.** That the reported trajectory solves the *discrete* scheme up
   to the reported residuals, and (when `stabilityCertified`) that the scheme is stable
   for this model and step. It does **not** bound the error of the computed trajectory

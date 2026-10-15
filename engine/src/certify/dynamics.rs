@@ -6,7 +6,7 @@
 //! Newmark parameters, all taken as exact data:
 //!
 //! * **Stability of the scheme for this model.** Exact rational checks of the
-//!   Newmark parameters (`γ ≥ ½`, `2β ≥ γ` unconditional), or for a conditionally
+//!   HHT-α parameters (unconditional range), or of the Newmark parameters (`γ ≥ ½`, `2β ≥ γ` unconditional), or for a conditionally
 //!   stable choice (`γ ≥ ½`, `β < γ/2`) the step bound `Δt² · λ_max(M⁻¹K) <
 //!   1/(γ/2 − β)` with a *certified upper bound* on `λ_max` (`μM − K ≻ 0` by the
 //!   Gram residual + Gershgorin check). Model hypotheses (`M ≻ 0`, `K ≻ 0`,
@@ -51,6 +51,19 @@ fn half() -> Q {
     Q::new(1.into(), 2.into())
 }
 
+/// Stability class of HHT-α (Hilber's sign, `M a_{n+1} + (1+α)(C v_{n+1} +
+/// K u_{n+1}) − α(C v_n + K u_n) = …`): it is the generalized-α method with
+/// `α_m = 0`, `α_f = −α`, unconditionally stable (Chung & Hulbert 1993) when
+/// `γ = ½ − α`, `−½ ≤ α ≤ 0` and `β ≥ ¼ − α/2` — checked exactly on the f64
+/// values (the solver takes α = ½ − γ, so the first holds exactly). Otherwise
+/// nothing is certified: the conditional (Newmark) criterion does not apply.
+pub fn hht_stability(alpha: f64, beta: f64, gamma: f64) -> SchemeStability {
+    let none = SchemeStability { unconditionally_stable: false, high_frequency_complex: false, conditionally_stable: false, omega_crit_sq: None };
+    let (Some(a), Some(b), Some(g)) = (q(alpha), q(beta), q(gamma)) else { return none };
+    let ok = g == half() - &a && a >= -half() && a <= qi(0) && b >= half() * half() - &a / qi(2);
+    SchemeStability { unconditionally_stable: ok, ..none }
+}
+
 pub fn scheme_stability(beta: f64, gamma: f64) -> SchemeStability {
     let (Some(b), Some(g)) = (q(beta), q(gamma)) else {
         return SchemeStability { unconditionally_stable: false, high_frequency_complex: false, conditionally_stable: false, omega_crit_sq: None };
@@ -72,7 +85,9 @@ pub fn scheme_stability(beta: f64, gamma: f64) -> SchemeStability {
 #[serde(rename_all = "camelCase")]
 pub struct ResidualReport {
     pub steps: usize,
-    /// max_n ‖f̂_n − M a_n − C v_n − K u_n‖_∞ (certified upper bound).
+    /// max_n of the ∞-norm residual of the equation of motion (E_n) — Newmark:
+    /// `f_n − M a_n − C v_n − K u_n`; HHT-α (n ≥ 1): `(1+α) f_n − α f_{n−1} − M a_n
+    /// − (1+α)(C v_n + K u_n) + α(C v_{n−1} + K u_{n−1})` (certified upper bound).
     pub max_abs_equation: f64,
     /// `max_abs_equation` / max_n (largest |term| of the equation at step n).
     pub max_rel_equation: f64,
@@ -244,6 +259,9 @@ fn certify_lambda_max_upper(k: &CscMatrix, m: &CscMatrix) -> Result<f64, String>
 fn stability(tr: &DynamicTrace, cert: &mut DynamicsCertificate) {
     let p = &cert.parameters;
     let mut reasons = Vec::new();
+    if tr.alpha.is_some() && !p.unconditionally_stable {
+        reasons.push("HHT-α parameters outside the unconditionally stable range (γ = ½ − α, −½ ≤ α ≤ 0, β ≥ ¼ − α/2)".into());
+    }
     cert.mass_lambda_min_lower = match certify_lambda_min_lower(&tr.m, &point_vals(&tr.m)) {
         Ok(v) => Some(v),
         Err(e) => {
@@ -262,7 +280,7 @@ fn stability(tr: &DynamicTrace, cert: &mut DynamicsCertificate) {
         reasons.push("Rayleigh coefficients are not both non-negative".into());
     }
     let mut scheme_ok = p.unconditionally_stable;
-    if !p.unconditionally_stable {
+    if !p.unconditionally_stable && tr.alpha.is_none() {
         if !p.conditionally_stable {
             reasons.push("γ < ½: the scheme amplifies (negative numerical damping)".into());
         } else if cert.mass_lambda_min_lower.is_some() {
@@ -331,29 +349,43 @@ fn residuals(tr: &DynamicTrace) -> Result<(ResidualReport, EnergyReport, TimeErr
     struct State {
         mv: Vec<Interval>,
         kv: Vec<Interval>,
+        /// C v_n + K u_n
+        elastic: Vec<Interval>,
         f: Vec<Interval>,
         energy: Interval,
     }
-    let state = |n: usize| -> (State, f64, f64) {
+    // Equation (E_n): M a_n + C v_n + K u_n = f_n at n = 0 and for Newmark;
+    // for HHT-α at n ≥ 1: M a_n + (1+α)(C v_n + K u_n) − α(C v_{n−1} + K u_{n−1})
+    // = (1+α) f_n − α f_{n−1}.
+    let state = |n: usize, prev: Option<&State>| -> (State, f64, f64) {
         let (u, v, a) = (pts(&tr.u[n]), pts(&tr.v[n]), pts(&tr.a[n]));
         let ma = sym_matvec(&tr.m, &a);
         let mv = sym_matvec(&tr.m, &v);
         let kv = sym_matvec(&tr.k, &v);
         let ku = sym_matvec(&tr.k, &u);
         let f = fhat(n);
+        let elastic: Vec<Interval> = (0..ns).map(|i| a0 * mv[i] + a1 * kv[i] + ku[i]).collect();
+        let hht = match (tr.alpha, prev) {
+            (Some(al), Some(p)) if n > 0 => Some((ip(al), p)),
+            _ => None,
+        };
         let mut rmax = 0.0f64;
         let mut scale = 0.0f64;
         for i in 0..ns {
-            let cv = a0 * mv[i] + a1 * kv[i];
-            let r = f[i] - ma[i] - cv - ku[i];
+            let (cur, old) = match hht {
+                Some((al, p)) => ((one + al) * elastic[i], al * p.elastic[i]),
+                None => (elastic[i], Interval::ZERO),
+            };
+            let r = f[i] - ma[i] - cur + old;
             rmax = rmax.max(r.mag());
-            scale = scale.max(f[i].mag()).max(ma[i].mag()).max(cv.mag()).max(ku[i].mag());
+            let cv = a0 * mv[i] + a1 * kv[i];
+            scale = scale.max(f[i].mag()).max(ma[i].mag()).max(cv.mag()).max(ku[i].mag()).max(cur.mag()).max(old.mag());
         }
         let energy = halfi * dot(&v, &mv) + halfi * dot(&u, &ku);
-        (State { mv, kv, f, energy }, rmax, scale)
+        (State { mv, kv, elastic, f, energy }, rmax, scale)
     };
 
-    let (mut prev, r0, s0) = state(0);
+    let (mut prev, r0, s0) = state(0, None);
     let mut max_req = r0;
     let mut max_scale = s0;
     let e_init = prev.energy;
@@ -370,7 +402,7 @@ fn residuals(tr: &DynamicTrace) -> Result<(ResidualReport, EnergyReport, TimeErr
     }
     let bz = tr.beta - 1.0 / 6.0;
     for n in 0..n_states - 1 {
-        let (cur, rn, sn) = state(n + 1);
+        let (cur, rn, sn) = state(n + 1, Some(&prev));
         max_req = max_req.max(rn);
         max_scale = max_scale.max(sn);
         emax = emax.max(cur.energy.mag());
@@ -419,7 +451,7 @@ fn residuals(tr: &DynamicTrace) -> Result<(ResidualReport, EnergyReport, TimeErr
         damping_dissipation: pair(diss),
         imbalance: pair(imb),
         relative_imbalance: up_div(imb.mag(), emax.max(work.mag())),
-        identity_exact_for_scheme: tr.beta == 0.25 && tr.gamma == 0.5,
+        identity_exact_for_scheme: tr.beta == 0.25 && tr.gamma == 0.5 && tr.alpha.unwrap_or(0.0) == 0.0,
     };
     let time = TimeErrorEstimate {
         max_local_displacement_error: est,
@@ -432,8 +464,8 @@ fn residuals(tr: &DynamicTrace) -> Result<(ResidualReport, EnergyReport, TimeErr
 /// per-step residuals, energy balance, and a labelled time-error estimate.
 pub fn certify_dynamics(tr: &DynamicTrace) -> DynamicsCertificate {
     let scheme = if tr.alpha.is_some() {
-        "Newmark with HHT parameters β = (1−α)²/4, γ = ½ − α and load f̂ = (1+α) f_{n+1} − α f_n (as implemented; \
-         not the HHT stiffness/damping averaging)"
+        "HHT-α: M a_{n+1} + (1+α)(C v_{n+1} + K u_{n+1}) − α(C v_n + K u_n) = (1+α) f_{n+1} − α f_n, \
+         Newmark updates with β = (1−α)²/4, γ = ½ − α"
             .to_string()
     } else {
         "Newmark".to_string()
@@ -445,7 +477,10 @@ pub fn certify_dynamics(tr: &DynamicTrace) -> DynamicsCertificate {
         gamma: tr.gamma,
         alpha: tr.alpha,
         dt: tr.dt,
-        parameters: scheme_stability(tr.beta, tr.gamma),
+        parameters: match tr.alpha {
+            Some(al) => hht_stability(al, tr.beta, tr.gamma),
+            None => scheme_stability(tr.beta, tr.gamma),
+        },
         mass_lambda_min_lower: None,
         stiffness_lambda_min_lower: None,
         rayleigh_nonnegative,

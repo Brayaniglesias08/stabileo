@@ -64,26 +64,36 @@ fn mv(a: &[Vec<Q>], x: &[f64]) -> Vec<Q> {
     a.iter().map(|row| row.iter().zip(&xq).map(|(p, r)| p * r).sum()).collect()
 }
 
-/// Exact residuals of the discrete scheme for the recorded trajectory.
+/// Exact residuals of the discrete scheme for the recorded trajectory. Equation
+/// of motion: `M a_n + C v_n + K u_n = f_n` (Newmark, and n = 0), HHT-α for
+/// n ≥ 1: `M a_n + (1+α)(C v_n + K u_n) − α(C v_{n−1} + K u_{n−1}) = (1+α) f_n − α f_{n−1}`.
 fn exact_residuals(tr: &DynamicTrace) -> (Q, Q, Q) {
     let (k, m) = (dense(&tr.k), dense(&tr.m));
     let (a0, a1, b, g, dt) = (q(tr.a0).unwrap(), q(tr.a1).unwrap(), q(tr.beta).unwrap(), q(tr.gamma).unwrap(), q(tr.dt).unwrap());
     let half = Q::new(1.into(), 2.into());
     let one = Q::from_integer(1.into());
+    // C v_n + K u_n, exactly
+    let elastic = |n: usize| -> Vec<Q> {
+        let (mvv, kv, ku) = (mv(&m, &tr.v[n]), mv(&k, &tr.v[n]), mv(&k, &tr.u[n]));
+        (0..tr.k.n).map(|i| &a0 * &mvv[i] + &a1 * &kv[i] + &ku[i]).collect()
+    };
     let mut req = Q::zero();
+    let mut prev = elastic(0);
     for n in 0..tr.u.len() {
-        let (ma, mvv, kv, ku) = (mv(&m, &tr.a[n]), mv(&m, &tr.v[n]), mv(&k, &tr.v[n]), mv(&k, &tr.u[n]));
+        let ma = mv(&m, &tr.a[n]);
+        let cur = elastic(n);
         for i in 0..tr.k.n {
-            let f = match (n, tr.alpha) {
-                (0, _) | (_, None) => q(tr.f[n][i]).unwrap(),
+            let f = |s: usize| q(tr.f[s][i]).unwrap();
+            let r = match (n, tr.alpha) {
+                (0, _) | (_, None) => f(n) - &ma[i] - &cur[i],
                 (_, Some(al)) => {
                     let al = q(al).unwrap();
-                    (&one + &al) * q(tr.f[n][i]).unwrap() - al * q(tr.f[n - 1][i]).unwrap()
+                    (&one + &al) * f(n) - &al * f(n - 1) - &ma[i] - (&one + &al) * &cur[i] + &al * &prev[i]
                 }
             };
-            let r = f - &ma[i] - &a0 * &mvv[i] - &a1 * &kv[i] - &ku[i];
             req = req.max(r.abs());
         }
+        prev = cur;
     }
     let (mut ru, mut rv) = (Q::zero(), Q::zero());
     for n in 0..tr.u.len() - 1 {
@@ -139,10 +149,39 @@ fn hht_and_rayleigh_damping() {
     let tr = trace(&inp);
     let c = certify_dynamics(&tr);
     assert!(c.stability_certified && c.parameters.unconditionally_stable, "{c:?}");
-    assert!(c.scheme.contains("as implemented"));
-    let (req, _, _) = exact_residuals(&tr);
-    assert!(q(c.residual.as_ref().unwrap().max_abs_equation).unwrap() >= req);
+    assert!(c.scheme.contains("HHT") && c.scheme.contains("(1+α)(C v_{n+1} + K u_{n+1})"));
+    // γ = ½ − α exactly for the α integrated
+    assert_eq!(q(tr.gamma).unwrap(), Q::new(1.into(), 2.into()) - q(tr.alpha.unwrap()).unwrap());
+    let (req, ru, rv) = exact_residuals(&tr);
+    let r = c.residual.as_ref().unwrap();
+    assert!(q(r.max_abs_equation).unwrap() >= req);
+    assert!(r.max_rel_displacement_update * umax(&tr) >= to_f64(&ru) * (1.0 - 1e-12));
+    assert!(r.max_rel_velocity_update * vmax(&tr) >= to_f64(&rv) * (1.0 - 1e-12));
+    // the solver's trajectory satisfies the HHT equation of motion to round-off
+    assert!(r.max_rel_equation < 1e-9, "{r:?}");
     assert!(!c.energy.as_ref().unwrap().identity_exact_for_scheme);
+    // and, being dissipative, does not satisfy the Newmark one: the old scheme's
+    // residual (load blend only) is far from round-off
+    let mut newmark = tr.clone();
+    newmark.alpha = None;
+    let (req_nm, _, _) = exact_residuals(&newmark);
+    assert!(to_f64(&req_nm) > 1e3 * to_f64(&req), "{} vs {}", to_f64(&req_nm), to_f64(&req));
+    // α outside the unconditional range is not certified stable
+    let mut t = tr.clone();
+    t.beta = 0.2;
+    assert!(!certify_dynamics(&t).stability_certified);
+
+    // HHT with Rayleigh damping: the α-weighting of C v is in the residual too
+    let mut inp = cantilever(3, 2e-4, 120, 0.25, 0.5);
+    inp.alpha = Some(-0.3);
+    inp.damping_xi = Some(0.05);
+    let tr = trace(&inp);
+    let c = certify_dynamics(&tr);
+    assert!(c.stability_certified, "{c:?}");
+    let (req, _, _) = exact_residuals(&tr);
+    let r = c.residual.as_ref().unwrap();
+    assert!(q(r.max_abs_equation).unwrap() >= req);
+    assert!(r.max_rel_equation < 1e-9, "{r:?}");
 
     let mut inp = cantilever(3, 2e-4, 120, 0.25, 0.5);
     inp.damping_xi = Some(0.05);
