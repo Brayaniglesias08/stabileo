@@ -1,10 +1,13 @@
 //! A posteriori certification of solver results. See `docs/verification/CERTIFY.md`.
 
 pub mod buckling;
+pub mod combinations;
+pub mod design;
 pub mod forces;
 pub mod interval;
 pub mod linear;
 pub mod modal;
+pub mod real;
 pub mod solver;
 pub mod sparse;
 
@@ -13,5 +16,5 @@ pub use linear::{
 };
 pub use solver::{
     certify_linear_2d, certify_linear_2d_full, certify_linear_3d, certify_linear_3d_full, certify_results_2d,
-    certify_results_3d, CertifiedResults2D, CertifiedResults3D,
+    certify_results_3d, certify_load_cases_2d, certify_load_cases_3d, CertifiedResults2D, CertifiedResults3D,
 };

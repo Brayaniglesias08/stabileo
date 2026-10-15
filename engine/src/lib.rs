@@ -647,6 +647,80 @@ pub fn solve_multi_case_3d(input: JsValue) -> Result<JsValue, JsValue> {
     to_js_value(&result)
 }
 
+/// Solve 2D multi-case load combinations and certify every case, combination
+/// and the envelope (docs/verification/CERTIFY.md, "Load combinations and
+/// envelopes"). JsValue in → `{ results, cases, combinations, envelope }`.
+#[wasm_bindgen]
+pub fn certify_multi_case_2d(input: JsValue) -> Result<JsValue, JsValue> {
+    let input: solver::load_cases::MultiCaseInput = from_js_value(input)?;
+    let out = certify::combinations::certify_multi_case_2d(&input).map_err(|e| JsValue::from_str(&e))?;
+    to_js_value(&out)
+}
+
+/// 3D version of `certify_multi_case_2d`.
+#[wasm_bindgen]
+pub fn certify_multi_case_3d(input: JsValue) -> Result<JsValue, JsValue> {
+    let input: solver::load_cases::MultiCaseInput3D = from_js_value(input)?;
+    let out = certify::combinations::certify_multi_case_3d(&input).map_err(|e| JsValue::from_str(&e))?;
+    to_js_value(&out)
+}
+
+/// Certified AISC 360 member checks: utilization enclosures from bounded
+/// demands (docs/verification/CERTIFY.md, "Certified design checks").
+/// JSON `CertifiedSteelCheckInput` in → JSON results.
+#[wasm_bindgen]
+pub fn certify_steel_members(json: &str) -> Result<String, JsValue> {
+    let input: certify::design::CertifiedSteelCheckInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::design::certify_steel_members(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Certified EC3 member checks: utilization enclosures from bounded demands.
+/// JSON `CertifiedEc3CheckInput` in → JSON results.
+#[wasm_bindgen]
+pub fn certify_ec3_members(json: &str) -> Result<String, JsValue> {
+    let input: certify::design::CertifiedEc3CheckInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::design::certify_ec3_members(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Certified EC2 RC checks (flexure 6.1, shear 6.2) from bounded demands.
+/// JSON `CertifiedEc2CheckInput` in → JSON results.
+#[wasm_bindgen]
+pub fn certify_ec2_members(json: &str) -> Result<String, JsValue> {
+    let input: certify::design::CertifiedEc2CheckInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::design::certify_ec2_members(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Solve + certify a 2D multi-case model, then certify AISC 360 checks for the
+/// given members over every station × combination. JSON in → JSON
+/// `{ analysis, steel }`.
+#[wasm_bindgen]
+pub fn certify_steel_multi_case_2d(json: &str) -> Result<String, JsValue> {
+    let input: certify::design::SteelMultiCaseInput2D = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let out = certify::design::certify_steel_multi_case_2d(&input).map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&out)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// 3D version of `certify_steel_multi_case_2d`.
+#[wasm_bindgen]
+pub fn certify_steel_multi_case_3d(json: &str) -> Result<String, JsValue> {
+    let input: certify::design::SteelMultiCaseInput3D = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let out = certify::design::certify_steel_multi_case_3d(&input).map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&out)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
 // ==================== Harmonic Analysis ====================
 
 /// Solve 2D harmonic (frequency response) analysis. JSON: HarmonicInput

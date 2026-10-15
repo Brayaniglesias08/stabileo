@@ -77,6 +77,29 @@ pub fn certify_sparse_spd_system(k: &CscMatrix, f: &[Interval], u: &[f64]) -> Ce
     }
 }
 
+/// Residual certificate for `K ũ = f` given μ > 0 that the caller has ALREADY
+/// certified as a lower bound on λ_min(K) (e.g. by `certify_lambda_min_lower`
+/// on this same `k`). Used to certify several right-hand sides against one K.
+pub(crate) fn certify_with_certified_mu(k: &CscMatrix, f: &[Interval], u: &[f64], mu: f64) -> Certificate {
+    let n = k.n;
+    if f.len() != n || u.len() != n || k.col_ptr.len() != n + 1 {
+        return Certificate::uncertified("dimension mismatch");
+    }
+    if !f.iter().all(|x| x.is_finite()) {
+        return Certificate::uncertified("non-finite entry in f");
+    }
+    if !u.iter().all(|x| x.is_finite()) {
+        return Certificate::uncertified("non-finite entry in ũ");
+    }
+    if n == 0 {
+        return Certificate::Certified { abs_bound: 0.0, rel_bound: 0.0, sigma: 0.0, residual_norm: 0.0 };
+    }
+    if !(mu > 0.0 && mu.is_finite()) {
+        return Certificate::uncertified(format!("μ must be positive and finite, got {mu}"));
+    }
+    finish(k, f, u, mu)
+}
+
 /// Certified μ > 0 with λ_min(A) ≥ μ for the exact symmetric matrix `A` whose
 /// lower-triangle entries are enclosed by `vals` (aligned with `a.values`).
 /// `a.values` holds f64 approximations of those entries; it is only used to

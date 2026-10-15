@@ -162,6 +162,100 @@ Lean (`verify/Certify/Forces.lean`): `abs_mulVec_sub_le` (`|(B(u − ũ))ᵢ| �
 (`τ ≥ 0`) and `‖u − ũ‖ ≤ b`, then `|((kT)(u − ũ))ᵢ| ≤ r τ b`. The bound `‖T‖₂ ≤ 1 + 4ε`
 is assumed, not proved.
 
+## Load combinations and envelopes
+
+`engine/src/certify/combinations.rs` (wasm: `certify_multi_case_2d/3d`). A combination
+is `Σ cᵢ · (case i)`; its exact value is `Σ cᵢ u*ᵢ` — the exact solution for the combined
+loads, since the reduced system is linear in `f` (prescribed displacements enter each
+case's right-hand side and combine the same way).
+
+* **Cases.** All cases share one stiffness, so its coercivity (σ from the dense interval
+  Cholesky, or μ from the Gram + Gershgorin check) is certified once
+  (`certify_load_cases_2d/3d`); each case then costs one interval residual, giving
+  `‖u*ᵢ − ũᵢ‖₂ ≤ bᵢ`. `certify_results_2d/3d` are the one-case special case.
+* **Combination displacements.** `‖Σcᵢu*ᵢ − ũ_c‖₂ ≤ Σ|cᵢ|bᵢ + ‖Σcᵢũᵢ − ũ_c‖₂`. The
+  second term is the f64 rounding of the combination itself: `Σcᵢũᵢ` is enclosed in
+  interval arithmetic and compared with the *reported* `ũ_c`, so a misreported
+  combination is caught (the bound grows to cover it). All sums are rounded up.
+  Factors that are exactly 0 are skipped; any uncertified case with a non-zero factor
+  makes the combination uncertified.
+* **Combination member forces.** End forces are affine in `u` with load terms that do
+  not depend on `u` (`f = k T u − fef`), so `|F_c* − F̃_c| ≤ Σ|cᵢ|ΔFᵢ + |Σcᵢ F̃ᵢ − F̃_c|`
+  per component, with `ΔFᵢ` from the member force bounds below.
+* **Diagram stations.** The diagram evaluators compute `M(x) = M_start − V_start·x +
+  (load terms)`, `V(x) = V_start + …`, `N(x) = N_start + …`, `T(x)` linear between ends,
+  so at every station the error is at most `ΔM + ΔV·L`, `ΔV`, `ΔN`, `ΔT` (3D: `M_z` uses
+  `ΔV_y`, `M_y` uses `ΔV_z`). These are the `stationBounds`.
+* **Envelopes.** `max_k`, `min_k` and max-abs over combinations are 1-Lipschitz in the
+  sup norm, so every envelope value (max-abs results, envelope diagram ordinates) is
+  within the largest combination bound of the exact envelope. The envelope is
+  certified only if every combination is, and only for members bounded in every
+  combination. Max-abs displacements are bounded in magnitude (the sign may flip on a
+  tie).
+
+Not included (inherited from the member force bounds): f64 rounding in each case's
+force formulas and in evaluating the diagram polynomials. Reactions are not bounded.
+Constraints and inclined supports are unsupported, as for single cases.
+
+## Certified design checks
+
+`engine/src/certify/design.rs`, `engine/src/certify/real.rs`. A utilization ratio is a
+function of the design forces; given certified enclosures `[F − ΔF, F + ΔF]` (from the
+member force / combination station bounds above) the code formulas are evaluated in
+outward-rounded interval arithmetic, so `[lower, upper]` contains the exact real
+utilization for *every* force in the box. `certifiedOk = upper < 1` certifies the member
+passes; `certifiedFail = lower > 1` certifies it fails; otherwise the result is
+inconclusive at this precision.
+
+* **One implementation.** The formulas are written once, generic over a small trait
+  `Real` implemented for `f64` (the ordinary check) and `Interval`. Data enter as
+  `T::exact`, decimal code constants (0.877, 4.71, φ factors …) as `T::lit` (the
+  interval version widens by one ulp each way, enclosing the real decimal constant), π
+  as a one-ulp enclosure. A test checks the two instantiations agree on point inputs
+  (enclosure contains the f64 value, width ≤ 1e-12 relative) over thousands of random
+  members, so they cannot drift.
+* **Branches.** Comparisons return `True / False / Unknown`. `branch(c, a, b)` evaluates
+  one arm when decided and the hull of both when the box straddles the condition
+  (e.g. AISC H1-1a/H1-1b at `Pr/Pc = 0.2`, which is discontinuous; E3 inelastic/elastic;
+  F2 plastic/inelastic/elastic LTB). `min`, `max`, `abs` are exact on intervals.
+* **Transcendentals.** `x^y` (AISC E3-2 `0.658^(Fy/Fe)`, EC2 `(100ρ fck)^(1/3)`, `k^1.5`)
+  is evaluated at the corners of the box (monotone in each argument for `x > 0`) and
+  widened by 8 ulps relative plus the smallest normal; `tan` (EC2 strut angle) likewise
+  on `(−1.57, 1.57)`, refusing outside. This **assumes the platform libm `pow`/`tan` are
+  accurate to 8 ulps** (mainstream libms are within 1–2). `sqrt` is correctly rounded by
+  IEEE 754. An exponent written `1.0/3.0` is enclosed as the interval quotient, which
+  contains the real 1/3.
+* **Refusal.** A demand whose value or bound is non-finite or negative, a capacity not
+  certified positive where a demand exists, or any non-finite enclosure makes the
+  member `certified: false` with a reason — never a ratio.
+* **Members over all demand points.** A member is certified over every demand set given
+  for it (max over sets of the per-set enclosures). `steel_demands_from_combinations_*`
+  supplies N, M, V (3D: N, M_y, M_z, V_y) at evenly spaced stations (default 21, as the
+  envelope diagrams) of every combination with that combination's station bounds;
+  an uncertified combination is an error and a member missing a bound in some
+  combination is refused. Values *between* stations are not covered (as in the f64
+  envelope).
+
+Wasm: `certify_steel_members`, `certify_ec3_members`, `certify_ec2_members` (bounded
+demands in; `ec3_demands` / `ec2_demands` convert the station demand sets and
+`scale_demands` changes units, e.g. kN → N for EC2's Pa-based formulas, widening each
+bound by the scaling's rounding), `certify_steel_multi_case_2d/3d`
+(multi-case model + members in, `{ analysis, steel }` out).
+
+| Check | Status |
+|---|---|
+| AISC 360 (`steel_check`): tension D2 (yield + rupture), compression E3, flexure F2 (LTB) / F6, shear G2, interaction H1 | **certified** |
+| EC3 (`ec3_check`): tension 6.2.3, flexural buckling 6.3.1 (χ curves a–d), LTB 6.3.2, weak-axis flexure 6.2.5, shear 6.2.6, simplified interaction 6.3.3 | **certified** |
+| EC2 (`ec2_check`): RC flexure 6.1 (rectangular block, singly / doubly reinforced, compression-steel yield branch), shear 6.2 (VRd,c with the NEd axial term over the whole NEd interval, VRd,s, VRd,max) | **certified** |
+| CIRSOC 201 (`cirsoc201_check`), ACI RC (`rc_check`), timber, masonry, CFS, connections, foundations, serviceability | not certified (f64 only) |
+
+EC3 note: an unbraced length `lb = 0` gives `Mcr = x/0`; the f64 check reads it as no
+LTB reduction, the interval check refuses (division by an interval containing 0).
+
+Inherited limitations: rounding in the f64 evaluation of member forces and diagram
+polynomials (see member force bounds) is not included; capacities are certified as the
+real-number value of the code formula for the given section data.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.
