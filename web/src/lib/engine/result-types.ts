@@ -16,7 +16,10 @@ export interface PlasticHinge {
   moment: number;
   loadFactor: number;
   step: number;
+  /** Fraction of the member length: 0 start, 1 end, in between for a span hinge. */
   position?: number;
+  /** Load factor at which the hinge unloaded elastically and closed (engine solver). */
+  unloadedAt?: number;
 }
 
 export interface PlasticStep {
@@ -31,6 +34,8 @@ export interface PlasticResult {
   hinges: PlasticHinge[];
   isMechanism: boolean;
   redundancy: number;
+  /** Why the collapse factor may not be the collapse load (engine solver; absent when it is). */
+  warnings?: string[];
 }
 
 export interface PlasticConfig {

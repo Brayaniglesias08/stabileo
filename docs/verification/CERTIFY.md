@@ -701,15 +701,25 @@ model, independently of how the solver got its number:
   sections (or a least-squares combination of the null basis). Heuristic failures only
   cost a bound (`Uncertified`), never soundness.
 
-Finding: the incremental solver *overestimates* `λ_c` when a member's maximum moment
-is interior (distributed load on a member without interior nodes) — it records the
-span hinge at an element end. Fixed–fixed beam under UDL as one element: solver 60.28,
-certified `[37.5 − 1ulp, 37.5]` (= 16Mp/qL²); five elements: solver 58.59. With nodal
-loads only it usually lies inside the enclosure (to round-off), but it can also fall
-*below* it: it never checks whether a formed hinge unloads, so a hinge that should
-turn elastic stays free and the "mechanism" it reports does not dissipate consistently
-(e.g. a 3-bay frame of the random test: solver 148.80, certified [151.540540540539,
-151.540540540541]). Such a result is safe but not the collapse load.
+Findings (fixed): the incremental solver used to *overestimate* `λ_c` when a member's
+maximum moment was interior (distributed load on a member without interior nodes) — it
+recorded the span hinge at an element end: fixed–fixed beam under UDL, one element 60.28,
+five elements 58.59, certified `[37.5 − 1ulp, 37.5]` (= 16Mp/qL²); inclined member 310.0
+vs 192.857. It also never checked whether a formed hinge unloads, so it could fall
+*below* the enclosure (3-bay frame of the random test: 148.80 vs [151.540540540539,
+151.540540540541]). `solve_plastic_2d` now (i) searches the moment diagram of every
+loaded member for interior extrema (exact diagram between sections, 48 stations plus
+load breakpoints, golden-section refinement of local minima of the load increment) and
+splits the member where a span hinge forms (`PlasticHinge.position` ∈ [0, 1]; results
+stay on the model's own members and nodes); (ii) before each increment closes a hinge
+whose rotation would reverse (relative end rotation recovered from the unreleased
+element stiffness; `unloadedAt`), reopens a closed one loaded past Mp again, and at a
+mechanism closes a hinge that would unload under the mechanism's motion (with hinge h
+closed, the unit moment at h is `P·φ / θ_h(φ)`), tied hinges being opened one at a
+time so the mechanism tested is single; (iii) reports `warnings` when the result is not
+guaranteed (unresolved reversal, a peak moving past a fixed hinge, event limit reached,
+final field over Mp). All certify tests and the 24 random frames now land inside the
+enclosure up to f64 round-off (`solverDeviation < 1e-9`, asserted).
 
 Not included: 3D plastic analysis, N–M (or biaxial) interaction, second-order effects,
 shakedown. Not formalized in Lean.
