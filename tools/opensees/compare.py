@@ -15,9 +15,9 @@ Usage:
 
 Every OpenSees run happens in a fresh interpreter (openseespy keeps state
 across ops.wipe()). Models are reported as ok / mismatch, or skipped as
-unsupported (no clean OpenSees equivalent), known_bug (open engine bug, see
-known_engine_bugs), stabileo_failed / ill_conditioned (mechanisms and
-near-singular systems, where neither answer is meaningful) or unloaded.
+unsupported (no clean OpenSees equivalent), stabileo_failed /
+ill_conditioned (mechanisms and near-singular systems, where neither answer
+is meaningful) or unloaded.
 
 Exit status: 0 = no discrepancy above tolerance, 1 = discrepancies,
 2 = harness error.
@@ -37,7 +37,10 @@ Conventions (read from the engine source, see README.md):
     negated: n_start = -f_I,x) and end = -f_J (axial: n_end = f_J,x).
   * Releases/hinges map to -release / -releasey / -releasez; Timoshenko
     sections to ElasticTimoshenkoBeam with Avz = asY, Avy = asZ (the engine
-    pairs asY with Iy, i.e. shear along local z).
+    pairs asY with Iy, i.e. shear along local z). ElasticTimoshenkoBeam has
+    no releases: a released Timoshenko end connects to its own node, tied to
+    the joint by equalDOF on every DOF but the released rotation (2D always;
+    3D when the member's local axes lie along global axes).
   * Member loads other than full-length uniform ones are applied at nodes
     inserted along the member (exact; see opensees_2d / opensees_3d).
 """
@@ -100,6 +103,24 @@ def local_axes_3d(pi, pj, elem):
         ey, ez = ([c * ey[k] + s * ez[k] for k in range(3)],
                   [-s * ey[k] + c * ez[k] for k in range(3)])
     return ex, ey, ez
+
+
+def _global_axis(v, tol=1e-12):
+    """Index of the global axis a unit vector lies along, or Unsupported."""
+    for k in range(3):
+        if abs(abs(v[k]) - 1.0) <= tol and all(abs(v[i]) <= tol for i in range(3) if i != k):
+            return k
+    raise Unsupported("Timoshenko release on a member with skew local axes")
+
+
+def _hinge_node(ops, tag, joint, dofs, slaves):
+    """A node at `joint` sharing its `dofs` (equalDOF): the released end of a
+    Timoshenko member (ElasticTimoshenkoBeam has no -release). Its constraint
+    force is part of the joint's reaction."""
+    ops.node(tag, *ops.nodeCoord(joint))
+    ops.equalDOF(joint, tag, *dofs)
+    slaves.append((joint, tag))
+    return tag
 
 
 # 3-point Gauss-Legendre on [0, 1]: exact for polynomials of degree <= 5.
@@ -182,11 +203,6 @@ def check_supported_2d(d):
     for e in d["elements"].values():
         if e["type"] not in ("frame", "truss"):
             why.append(f"element type {e['type']}")
-    secs = {s["id"]: s for s in d["sections"].values()}
-    for e in d["elements"].values():
-        s = secs[e["sectionId"]]
-        if e["type"] == "frame" and s.get("asY") and (e.get("hingeStart") or e.get("hingeEnd")):
-            why.append("Timoshenko frame with hinges")
     for s in d["supports"].values():
         t = s["type"]
         if t in ("inclinedRoller",):
@@ -217,10 +233,6 @@ def check_supported_3d(d):
             why.append(f"element type {e['type']}")
         if e.get("releaseTStart") or e.get("releaseTEnd"):
             why.append("torsion release")
-        s = secs[e["sectionId"]]
-        rel = any(e.get(k) for k in ("releaseMyStart", "releaseMyEnd", "releaseMzStart", "releaseMzEnd"))
-        if e["type"] == "frame" and (s.get("asY") or s.get("asZ")) and rel:
-            why.append("Timoshenko frame with releases")
     for s in d["supports"].values():
         if s.get("isInclined"):
             why.append("inclined support")
@@ -395,6 +407,7 @@ def opensees_2d(d):
             acc[k] += f[k]
 
     pieces = {}
+    hinge_slaves = []  # (joint node, hinge node)
     for e in elems:
         L, c, s_ = geo[e["id"]]
         pi, pj = nodes[e["nodeI"]], nodes[e["nodeJ"]]
@@ -426,7 +439,16 @@ def opensees_2d(d):
             subs.append(sub)
             if sec.get("asY"):
                 G = E / (2 * (1 + m["nu"]))
-                ops.element("ElasticTimoshenkoBeam", sub, chain[k], chain[k + 1],
+                ni, nj = chain[k], chain[k + 1]
+                # ElasticTimoshenkoBeam has no -release: a hinged end gets
+                # its own node sharing the joint's translations (exact).
+                if first and e.get("hingeStart"):
+                    tag += 1
+                    ni = _hinge_node(ops, tag, ni, [1, 2], hinge_slaves)
+                if last and e.get("hingeEnd"):
+                    tag += 1
+                    nj = _hinge_node(ops, tag, nj, [1, 2], hinge_slaves)
+                ops.element("ElasticTimoshenkoBeam", sub, ni, nj,
                             E, G, sec["a"], sec["iz"], sec["asY"], e["id"])
             else:
                 rel = (1 if first and e.get("hingeStart") else 0) + (2 if last and e.get("hingeEnd") else 0)
@@ -488,7 +510,7 @@ def opensees_2d(d):
         r = list(ops.nodeReaction(nid))[:ndf] + ([0.0] if ndf == 2 else [])
         if nid in art_rot:
             r[2] = 0.0
-        for n2, g in spring_elems:
+        for n2, g in spring_elems + hinge_slaves:
             if n2 == nid:
                 rg = ops.nodeReaction(g)
                 for k in range(ndf):
@@ -658,6 +680,7 @@ def opensees_3d(d):
             acc[k] += f[k]
 
     pieces = {}  # eid -> [sub-element tags, first .. last]
+    hinge_slaves = []  # (joint node, hinge node)
     for e in elems:
         L, ex, ey, ez = geo[e["id"]]
         pi, pj = nodes[e["nodeI"]], nodes[e["nodeJ"]]
@@ -695,7 +718,19 @@ def opensees_3d(d):
                 big = 1e12 * sec["a"]
                 avy = sec.get("asZ") or big
                 avz = sec.get("asY") or big
-                ops.element("ElasticTimoshenkoBeam", sub, chain[s_i], chain[s_i + 1],
+                ni, nj = chain[s_i], chain[s_i + 1]
+                for at_end, end in ((first, "Start"), (last, "End")):
+                    released = [ax for ax, key in ((ey, "releaseMy"), (ez, "releaseMz")) if at_end and e.get(key + end)]
+                    if not released:
+                        continue
+                    kept = [ax for ax in (ex, ey, ez) if not any(ax is r for r in released)]
+                    tag += 1
+                    dofs = [1, 2, 3] + [4 + _global_axis(ax) for ax in kept]
+                    if end == "Start":
+                        ni = _hinge_node(ops, tag, ni, dofs, hinge_slaves)
+                    else:
+                        nj = _hinge_node(ops, tag, nj, dofs, hinge_slaves)
+                ops.element("ElasticTimoshenkoBeam", sub, ni, nj,
                             E, G, sec["a"], sec["j"], sec["iy"], sec["iz"], avy, avz, e["id"])
             else:
                 args = []
@@ -765,7 +800,7 @@ def opensees_3d(d):
         r = list(ops.nodeReaction(nid))[:ndf] + [0.0] * (6 - ndf)
         if nid in art_rot:
             r[3:] = [0.0, 0.0, 0.0]
-        for n2, g in spring_elems:
+        for n2, g in spring_elems + hinge_slaves:
             if n2 == nid:
                 rg = ops.nodeReaction(g)
                 for k in range(ndf):
@@ -973,36 +1008,11 @@ def opensees_isolated(model):
 KAPPA_MAX = 1e12
 
 
-def known_engine_bugs(d):
-    """Open engine bugs this harness found; such models are reported as
-    known_bug instead of failing the run. Remove an entry once fixed."""
-    why = []
-    secs = {s["id"]: s for s in d["sections"].values()}
-    timo = {e["id"] for e in d["elements"].values()
-            if e["type"] == "frame" and (secs[e["sectionId"]].get("asY") or secs[e["sectionId"]].get("asZ"))}
-    for l in d["loads"]:
-        x = l["data"]
-        if l["type"] not in ("distributed", "pointOnElement") or x.get("elementId") not in timo:
-            continue
-        if l["type"] == "pointOnElement":
-            why.append("Timoshenko member: point load uses Euler-Bernoulli fixed-end forces")
-            continue
-        partial = x.get("a") not in (None, 0, 0.0) or x.get("b") is not None
-        trap = any(x.get(i, 0.0) != x.get(j, 0.0) for i, j in (("qI", "qJ"), ("qYI", "qYJ"), ("qZI", "qZJ")))
-        if partial or trap:
-            why.append("Timoshenko member: non-uniform load uses Euler-Bernoulli fixed-end forces")
-    # (engine/tests/opensees_differential_regressions.rs, timoshenko_*)
-    return sorted(set(why))
-
-
 def run_one(name, model, binary, tol, verbose, dump_dir=None):
     dim = 3 if _is_3d(model) else 2
     why = check_supported_3d(model) if dim == 3 else check_supported_2d(model)
     if why:
         return dict(name=name, dim=dim, status="unsupported", why=why)
-    known = known_engine_bugs(model)
-    if known:
-        return dict(name=name, dim=dim, status="known_bug", why=known)
     try:
         sres = normalize_stabileo(stabileo(model, binary), dim)
     except RuntimeError as ex:
@@ -1096,7 +1106,7 @@ def main():
             for k, v in r["max_err"].items():
                 g[k] = max(g.get(k, 0.0), v)
         print("max normalized error over compared models:", {k: f"{v:.2e}" for k, v in sorted(g.items())})
-    for st in ("unsupported", "known_bug"):
+    for st in ("unsupported",):
         reasons = Counter(w for r in results if r["status"] == st for w in r["why"])
         if reasons:
             print(f"{st} reasons:", dict(reasons))

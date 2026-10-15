@@ -58,6 +58,7 @@ Conventions were taken from the engine source:
 | 3D local axes `compute_local_axes_3d` (default ref, `localY*`, `rollAngle`) | `geomTransf Linear` with `vecxz = ez` (ported, so local y = ey) |
 | `frame` | `elasticBeamColumn` |
 | `asY` (2D) / `asY`,`asZ` (3D) | `ElasticTimoshenkoBeam`, Avz = asY, Avy = asZ (the engine pairs asY with Iy) |
+| hinges / releases on Timoshenko members | the released end on its own node, `equalDOF` to the joint on every other DOF (3D: only when the local axes lie along global axes); its constraint force is added to the joint's reaction |
 | `truss` | `Truss` + `Elastic` material |
 | hinges / `releaseMy*`, `releaseMz*` | `-release` / `-releasey`, `-releasez` |
 | supports (2D types; 3D flags OR-ed per node) | `fix` |
@@ -74,7 +75,8 @@ compared; a model loading such a rotation is skipped.
 
 Not covered (reported as `unsupported`): thermal loads, constraints,
 connectors, plates/shells/solid shells, curved beams, warping (`cw`), inclined
-supports, left-handed axes, torsion releases, Timoshenko members with releases.
+supports, left-handed axes, torsion releases, Timoshenko releases on members
+whose local axes are skew to the global ones.
 
 OpenSees 3.8 quirks the converter works around (do not "simplify" them away):
 `ElasticBeam2d` ignores `-release` for the trapezoidal `-beamUniform` form;
@@ -94,17 +96,16 @@ Fixed (regression tests in `engine/tests/opensees_differential_regressions.rs`):
   ignoring the jump at the load (the 3D path was right).
 * 2D rigid supports with an extra spring (e.g. `rollerX` + `kx`): the spring
   was assembled but its force was missing from the reaction.
-
-Open (`known_bug`, skipped by the harness; `#[ignore]`d tests):
-
-* Timoshenko members use Euler–Bernoulli fixed-end forces: point loads,
-  partial and trapezoidal loads on members with `asY`/`asZ` give wrong
-  displacements and end forces (13.6 % on a short cantilever). For transverse
-  loads the shear-flexible fixed-end forces follow from the Euler–Bernoulli
-  ones `[V_i, M_i, V_j, M_j]` and φ = 12EI/(G·As·L²), with the simply supported
-  reactions `R_i = V_i − (M_i+M_j)/L`, `R_j = V_j + (M_i+M_j)/L`:
+* Timoshenko members (`asY`/`asZ`) used Euler–Bernoulli fixed-end forces:
+  point loads, couples, partial and trapezoidal loads gave wrong
+  displacements and end forces (13.6 % on a short cantilever; up to ~1e-2
+  normalized error on the random models). The fixed-end forces now integrate
+  the load against the exact Timoshenko shape functions (section-rotation
+  shapes for couples; `engine/src/element/fef.rs`). For transverse forces
+  this equals the Euler–Bernoulli ones `[V_i, M_i, V_j, M_j]` corrected with
+  φ = 12EI/(G·As·L²) and the simply supported reactions
+  `R_i = V_i − (M_i+M_j)/L`, `R_j = V_j + (M_i+M_j)/L`:
   `V_i' = (V_i + φR_i)/(1+φ)`, `V_j' = (V_j + φR_j)/(1+φ)`,
-  `M_i' = (M_i + φ/2·(M_i−M_j))/(1+φ)`, `M_j' = (M_j − φ/2·(M_i−M_j))/(1+φ)`
-  (checked against the closed-form cantilever). Concentrated couples need the
-  rotation shape functions instead. Every FEF call site that has φ (2D, 3D
-  both planes, dense/sparse assembly and force recovery) must apply it.
+  `M_i' = (M_i + φ/2·(M_i−M_j))/(1+φ)`, `M_j' = (M_j − φ/2·(M_i−M_j))/(1+φ)`;
+  unit tests check every load type, with every release combination, against
+  a force-method solution of the shear-flexible beam.
