@@ -13,7 +13,7 @@ of `A` is nonpositive has dimension at most `j`. Justifies the upper count in
   `U : n × j` ⇒ count `≤ j`.
 Also the single-mode residual enclosure for a symmetric matrix
 (`exists_eigenvalue_near`, Bauer–Fike for normal matrices).
-Kahan's block theorem (lower count) is cited, not formalized.
+Kahan's block theorem (lower count) is in `Certify.Kahan`.
 -/
 import Certify.Gram
 

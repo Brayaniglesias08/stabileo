@@ -25,6 +25,9 @@ theorems=(
 	Certify.exists_eigenvalue_near
 	Certify.abs_mulVec_sub_le
 	Certify.force_bound
+	Certify.kahan_count_of_sep
+	Certify.kahan_union_count
+	Certify.kahan_lower_count
 )
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

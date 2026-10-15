@@ -112,9 +112,16 @@ singular). `engine/src/certify/modal.rs` certifies three things.
   with `|I| = j` rows/columns deleted is positive definite, `dim V = n − |I|`), or
   `V = ker Uᵀ` when `A + c U Uᵀ ≻ 0` for some `U ∈ ℝ^{n×j}` (Finsler; checked by the
   Gram residual + Gershgorin certificate).
-* **At least `j` eigenvalues `λ < μ`.** Kahan's block residual theorem applied to
-  `Y = K^{1/2}Φ`, `R = CY − Y diag(ν̂)`: `j` eigenvalues of `C` (with multiplicity) lie
-  within `‖R‖₂ / σ_min(Y)` of the `ν̂ᵢ`. This is a **cited theorem, not yet formalized**.
+* **At least `j` eigenvalues `λ < μ`.** Kahan's block residual theorem (Frobenius
+  form) applied to `Y = K^{1/2}Φ`, `R = CY − Y diag(ν̂)`: if `‖Yz‖² ≥ g‖z‖²` (`g > 0`)
+  and `‖R‖_F ≤ r`, at least `j` eigenvalues of `C` (with multiplicity) lie in
+  `⋃ᵢ [ν̂ᵢ − ρ, ν̂ᵢ + ρ]`, `ρ = r/√g`; in particular at least `j` are `≥ min ν̂ − ρ`.
+  The Rust takes `r² = Σᵢ ‖sᵢ‖²/σ_K` (column `i` of `R` is `K^{-1/2}sᵢ`, so this bounds
+  `‖R‖_F²`, not just `‖R‖₂²`) and `g` a Gershgorin lower bound on `λ_min(ΦᵀKΦ) =
+  σ_min(Y)²`, i.e. exactly the proved constant. Then `ν ≥ min ν̂ − ρ > 0` gives
+  `λ = 1/ν ≤ 1/(min ν̂ − ρ) < μ`. Proof: in eigen-coordinates `R̂ₖᵢ = (λₖ − ν̂ᵢ)Ŷₖᵢ`; if
+  fewer than `j` eigenvalues qualify, some `z ≠ 0` has `Yz` orthogonal to their
+  eigenvectors, and Cauchy–Schwarz gives `g‖z‖² ≤ ‖Yz‖² < (r²/ρ²)‖z‖² = g‖z‖²`.
 
 Lean (`verify/Certify/Modal.lean`), with `NonposSubspace A S := ∀ x ∈ S, xᵀAx ≤ 0`:
 
@@ -130,6 +137,13 @@ Lean (`verify/Certify/Modal.lean`), with `NonposSubspace A S := ∀ x ∈ S, x�
 * `exists_eigenvalue_near`: for real symmetric `C`, `y ≠ 0` and any `ν`, some
   `e = hC.eigenvalues k` has `|e − ν| ≤ ‖Cy − νy‖₂ / ‖y‖₂` (via the spectral theorem).
   The change of variables to the pencil (`K^{±1/2}`, `σ_K`) is not formalized.
+* `kahan_count_of_sep` (`verify/Certify/Kahan.lean`): `C` symmetric, `Y : n × m`,
+  `∀ z, g‖z‖² ≤ ‖Yz‖²` (`g > 0`), `Σᵢⱼ (CY − Y diag ν)ᵢⱼ² ≤ r²`; if every eigenvalue
+  `λₖ` with `¬P k` has `r² < g(λₖ − νⱼ)²` for all `j`, then `m ≤ #{k | P k}`.
+  Corollaries (`r ≥ 0`, `ρ = r/√g`): `kahan_union_count`, `m ≤ #{k | ∃ j, |λₖ − νⱼ| ≤ ρ}`;
+  `kahan_lower_count`, with `νmin ≤ νⱼ` for all `j`, `m ≤ #{k | νmin − ρ ≤ λₖ}` (the
+  form the Rust uses). As above, the pencil change of variables (`C = K^{-1/2}MK^{-1/2}`,
+  `‖K^{-1/2}s‖² ≤ ‖s‖²/σ_K`, `ΦᵀKΦ = YᵀY`, Gershgorin for `g`) is not formalized.
 
 ## Member force bounds
 
@@ -157,7 +171,6 @@ modelled by abstract `down, up : ℝ → ℝ` with `down x ≤ x ≤ up x`.
 
 ## Out of scope for v1
 
-Mechanism certificates (exact rational null vectors), a Lean proof of Kahan's
-theorem (used for the modal lower count), and proving the f64 implementation matches the Lean algorithm. (Large
+Mechanism certificates (exact rational null vectors), and proving the f64 implementation matches the Lean algorithm. (Large
 models are covered by the Gram/Gershgorin certificate above; the dense interval
 Cholesky is used only below the solver's sparse threshold.)
