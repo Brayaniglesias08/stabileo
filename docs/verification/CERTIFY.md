@@ -183,6 +183,54 @@ Not included (inherited from the member force bounds): f64 rounding in each case
 force formulas and in evaluating the diagram polynomials. Reactions are not bounded.
 Constraints and inclined supports are unsupported, as for single cases.
 
+## Certified design checks
+
+`engine/src/certify/design.rs`, `engine/src/certify/real.rs`. A utilization ratio is a
+function of the design forces; given certified enclosures `[F − ΔF, F + ΔF]` (from the
+member force / combination station bounds above) the code formulas are evaluated in
+outward-rounded interval arithmetic, so `[lower, upper]` contains the exact real
+utilization for *every* force in the box. `certifiedOk = upper < 1` certifies the member
+passes; `certifiedFail = lower > 1` certifies it fails; otherwise the result is
+inconclusive at this precision.
+
+* **One implementation.** The formulas are written once, generic over a small trait
+  `Real` implemented for `f64` (the ordinary check) and `Interval`. Data enter as
+  `T::exact`, decimal code constants (0.877, 4.71, φ factors …) as `T::lit` (the
+  interval version widens by one ulp each way, enclosing the real decimal constant), π
+  as a one-ulp enclosure. A test checks the two instantiations agree on point inputs
+  (enclosure contains the f64 value, width ≤ 1e-12 relative) over thousands of random
+  members, so they cannot drift.
+* **Branches.** Comparisons return `True / False / Unknown`. `branch(c, a, b)` evaluates
+  one arm when decided and the hull of both when the box straddles the condition
+  (e.g. AISC H1-1a/H1-1b at `Pr/Pc = 0.2`, which is discontinuous; E3 inelastic/elastic;
+  F2 plastic/inelastic/elastic LTB). `min`, `max`, `abs` are exact on intervals.
+* **Transcendentals.** `x^y` (AISC E3-2 `0.658^(Fy/Fe)`) is evaluated at the corners of
+  the box (monotone in each argument for `x > 0`) and widened by 8 ulps relative plus
+  the smallest normal: this **assumes the platform libm `pow` is accurate to 8 ulps**
+  (mainstream libms are within 1–2). `sqrt` is correctly rounded by IEEE 754.
+* **Refusal.** A demand whose value or bound is non-finite or negative, a capacity not
+  certified positive where a demand exists, or any non-finite enclosure makes the
+  member `certified: false` with a reason — never a ratio.
+* **Members over all demand points.** A member is certified over every demand set given
+  for it (max over sets of the per-set enclosures). `steel_demands_from_combinations_*`
+  supplies N, M, V (3D: N, M_y, M_z, V_y) at evenly spaced stations (default 21, as the
+  envelope diagrams) of every combination with that combination's station bounds;
+  an uncertified combination is an error and a member missing a bound in some
+  combination is refused. Values *between* stations are not covered (as in the f64
+  envelope).
+
+Wasm: `certify_steel_members` (bounded demands in), `certify_steel_multi_case_2d/3d`
+(multi-case model + members in, `{ analysis, steel }` out).
+
+| Check | Status |
+|---|---|
+| AISC 360 (`steel_check`): tension D2 (yield + rupture), compression E3, flexure F2 (LTB) / F6, shear G2, interaction H1 | **certified** |
+| EC3 (`ec3_check`), CIRSOC 201 (`cirsoc201_check`), RC (`rc_check`, `ec2_check`), timber, masonry, CFS, connections, foundations, serviceability | not certified (f64 only) |
+
+Inherited limitations: rounding in the f64 evaluation of member forces and diagram
+polynomials (see member force bounds) is not included; capacities are certified as the
+real-number value of the code formula for the given section data.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.

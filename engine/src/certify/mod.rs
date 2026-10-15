@@ -2,10 +2,12 @@
 
 pub mod buckling;
 pub mod combinations;
+pub mod design;
 pub mod forces;
 pub mod interval;
 pub mod linear;
 pub mod modal;
+pub mod real;
 pub mod solver;
 pub mod sparse;
 

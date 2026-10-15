@@ -265,3 +265,118 @@ fn mismatched_or_constrained_inputs_refuse() {
         assert!(!out.envelope.certified);
     }
 }
+
+// ───────────────────────── certified design checks ─────────────────────────
+
+use dedaliano_engine::certify::design::*;
+use dedaliano_engine::postprocess::steel_check::{check_steel_members, ElementDesignForces, SteelCheckInput, SteelMemberData};
+
+/// W310x97-like section in kN, m (fy, E in kN/m²).
+fn w_member(id: usize, lb: f64) -> SteelMemberData {
+    serde_json::from_value(serde_json::json!({
+        "elementId": id, "fy": 345e3, "fu": 450e3, "ag": 1.23e-2, "aw": 3.08e-3,
+        "lby": lb, "lbz": lb, "iy": 2.22e-4, "iz": 7.25e-5, "ry": 0.134, "rz": 0.0768,
+        "zy": 1.59e-3, "zz": 7.23e-4, "sy": 1.44e-3, "sz": 4.77e-4, "j": 9.1e-7, "cw": 1.56e-6,
+        "lb": lb, "cb": 1.0, "e": 200e6, "depth": 0.308
+    }))
+    .unwrap()
+}
+
+fn f64_unity(m: &SteelMemberData, f: &ElementDesignForces) -> f64 {
+    check_steel_members(&SteelCheckInput { members: vec![m.clone()], forces: vec![f.clone()] })[0].unity_ratio
+}
+
+fn members_for(input: &MultiCaseInput) -> Vec<SteelMemberData> {
+    let mut ids: Vec<usize> = input.solver.elements.values().map(|e| e.id).collect();
+    ids.sort();
+    ids.into_iter().map(|id| w_member(id, 3.5)).collect()
+}
+
+/// End to end: multi-case solve → certified combinations → station demands →
+/// certified AISC utilization. The enclosure contains the f64 utilization of
+/// every demand point and is tight.
+#[test]
+fn certified_steel_utilization_end_to_end_2d() {
+    let mc = building_2d();
+    let members = members_for(&mc);
+    let out = certify_steel_multi_case_2d(&SteelMultiCaseInput2D { multi_case: mc.clone(), members: members.clone(), stations: None })
+        .unwrap();
+    let demands = steel_demands_from_combinations_2d(&out.analysis, 21).unwrap();
+    assert_eq!(demands.len(), mc.combinations.len() * members.len() * 21);
+    for (m, r) in members.iter().zip(&out.steel) {
+        assert!(r.certified, "{}: {:?}", m.element_id, r.reason);
+        let f64_max = demands
+            .iter()
+            .filter(|d| d.forces.element_id == m.element_id)
+            .map(|d| f64_unity(m, &d.forces))
+            .fold(0.0, f64::max);
+        assert!(r.utilization_lower <= f64_max * (1.0 + 1e-12) && f64_max <= r.utilization_upper * (1.0 + 1e-12),
+            "{}: {f64_max} ∉ [{}, {}]", m.element_id, r.utilization_lower, r.utilization_upper);
+        assert!(r.utilization_upper - r.utilization_lower <= 1e-9 * (1.0 + f64_max), "{r:?}");
+        assert_eq!(r.certified_ok, r.utilization_upper < 1.0);
+        eprintln!("elem {}: U ∈ [{:.6}, {:.6}] ({}), ok={}", m.element_id, r.utilization_lower, r.utilization_upper, r.governing_check, r.certified_ok);
+    }
+}
+
+#[test]
+fn certified_steel_utilization_end_to_end_3d() {
+    let mc = building_3d();
+    let mut ids: Vec<usize> = mc.solver.elements.values().map(|e| e.id).collect();
+    ids.sort();
+    let members: Vec<SteelMemberData> = ids.iter().map(|&id| w_member(id, 3.0)).collect();
+    let out = certify_steel_multi_case_3d(&SteelMultiCaseInput3D { multi_case: mc, members: members.clone(), stations: Some(11) })
+        .unwrap();
+    assert!(out.analysis.combinations.iter().all(|c| c.certified));
+    let n_ok = out.steel.iter().filter(|r| r.certified).count();
+    assert_eq!(n_ok, members.len(), "{:?}", out.steel.iter().find(|r| !r.certified));
+    for r in &out.steel {
+        assert!(r.utilization_upper - r.utilization_lower <= 1e-8 * (1.0 + r.utilization_upper), "{r:?}");
+    }
+}
+
+/// Fed a wrong combination result, the certified utilization still encloses
+/// the utilization from the correct results (the bound widens; it never
+/// under-bounds).
+#[test]
+fn certified_steel_covers_truth_under_tampering() {
+    let mc = building_2d();
+    let members = members_for(&mc);
+    let honest = certify_multi_case_results_2d(&mc, solve_multi_case_2d(&mc).unwrap());
+    let honest_demands = steel_demands_from_combinations_2d(&honest, 21).unwrap();
+
+    let mut results = solve_multi_case_2d(&mc).unwrap();
+    let ef = &mut results.combination_results[1].results.element_forces[0];
+    let tampered_id = ef.element_id;
+    ef.m_start += 40.0;
+    ef.v_start -= 15.0;
+    let tampered = certify_multi_case_results_2d(&mc, results);
+    let demands = steel_demands_from_combinations_2d(&tampered, 21).unwrap();
+    let res = certify_steel_members(&CertifiedSteelCheckInput { members: members.clone(), demands });
+    for (m, r) in members.iter().zip(&res) {
+        assert!(r.certified);
+        let truth = honest_demands
+            .iter()
+            .filter(|d| d.forces.element_id == m.element_id)
+            .map(|d| f64_unity(m, &d.forces))
+            .fold(0.0, f64::max);
+        assert!(truth <= r.utilization_upper * (1.0 + 1e-12), "{}: truth {truth} > {}", m.element_id, r.utilization_upper);
+        if m.element_id == tampered_id {
+            assert!(r.utilization_upper - r.utilization_lower > 1e-3, "tampering must widen: {r:?}");
+        }
+    }
+
+    // An uncertified combination: no member is certified.
+    let mut bad = honest.clone();
+    bad.combinations[0].certified = false;
+    assert!(steel_demands_from_combinations_2d(&bad, 21).is_err());
+    // A combination missing a member's bound: that member refuses.
+    let mut bad = honest;
+    let gone = bad.combinations[2].station_bounds.remove(0).element_id;
+    let res = certify_steel_members(&CertifiedSteelCheckInput {
+        members: members.clone(),
+        demands: steel_demands_from_combinations_2d(&bad, 21).unwrap(),
+    });
+    for r in &res {
+        assert_eq!(r.certified, r.element_id != gone, "{r:?}");
+    }
+}
