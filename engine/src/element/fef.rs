@@ -36,27 +36,28 @@ pub fn fef_distributed_2d(q_i: f64, q_j: f64, l: f64) -> [f64; 6] {
 /// Fixed-end forces for partial distributed load (2D).
 /// Load from position a to b on element of length L.
 /// qI at position a, qJ at position b.
-/// Uses Simpson's rule integration (N=20 segments).
+///
+/// The integrand (a linear load times the cubic Hermite shape functions) is a
+/// degree-4 polynomial on [a, b], so 3-point Gauss-Legendre (exact through
+/// degree 5) gives the consistent nodal loads exactly. (Composite Simpson with
+/// 20 panels, used before, is exact only through degree 3 and left a ~1e-6
+/// relative error, found by differential testing against OpenSees.)
 pub fn fef_partial_distributed_2d(q_i: f64, q_j: f64, a: f64, b: f64, l: f64) -> [f64; 6] {
     if (b - a).abs() < 1e-12 {
         return [0.0; 6];
     }
 
-    let n_seg = 20;
-    let dx = (b - a) / n_seg as f64;
+    let half = 0.5 * (b - a);
+    let mid = 0.5 * (a + b);
+    let g = (0.6f64).sqrt();
     let mut fy_i = 0.0;
     let mut mz_i = 0.0;
     let mut fy_j = 0.0;
     let mut mz_j = 0.0;
 
-    for i in 0..=n_seg {
-        let x = a + i as f64 * dx;
-        let t = if (b - a).abs() > 1e-12 {
-            (x - a) / (b - a)
-        } else {
-            0.0
-        };
-        let q = q_i + t * (q_j - q_i);
+    for (t, w) in [(-g, 5.0 / 9.0), (0.0, 8.0 / 9.0), (g, 5.0 / 9.0)] {
+        let x = mid + half * t;
+        let q = q_i + (t + 1.0) * 0.5 * (q_j - q_i);
 
         // Hermite shape functions for fixed-fixed beam
         let xi = x / l;
@@ -65,16 +66,7 @@ pub fn fef_partial_distributed_2d(q_i: f64, q_j: f64, a: f64, b: f64, l: f64) ->
         let n3 = 3.0 * xi * xi - 2.0 * xi * xi * xi;
         let n4 = x * xi * (xi - 1.0);
 
-        // Simpson weight
-        let w = if i == 0 || i == n_seg {
-            1.0
-        } else if i % 2 == 1 {
-            4.0
-        } else {
-            2.0
-        };
-
-        let qw = q * w * dx / 3.0;
+        let qw = q * w * half;
         fy_i += n1 * qw;
         mz_i += n2 * qw;
         fy_j += n3 * qw;
@@ -306,7 +298,7 @@ pub fn fef_distributed_3d(q_yi: f64, q_yj: f64, q_zi: f64, q_zj: f64, l: f64) ->
 }
 
 /// Fixed-end forces for 3D partial distributed load (from position a to b).
-/// Uses Simpson's rule via the 2D partial function for each bending plane.
+/// Uses the (exact) 2D partial function for each bending plane.
 pub fn fef_partial_distributed_3d(
     q_yi: f64, q_yj: f64,
     q_zi: f64, q_zj: f64,
@@ -519,6 +511,25 @@ mod tests {
         // M = qL²/12 = -10*36/12 = -30
         assert!((fef[2] - (-30.0)).abs() < 1e-6);
         assert!((fef[5] - 30.0).abs() < 1e-6);
+    }
+
+    /// The partial-load integration is exact: over [0, L] it reproduces the
+    /// closed-form trapezoid, and split at any c it is additive. (The former
+    /// 20-panel Simpson rule missed the degree-4 term by ~1e-6 relative.)
+    #[test]
+    fn test_fef_partial_is_exact() {
+        let (l, qi, qj) = (7.3, -12.0, 31.0);
+        let full = fef_distributed_2d(qi, qj, l);
+        let part = fef_partial_distributed_2d(qi, qj, 0.0, l, l);
+        let c = 2.9;
+        let qc = qi + (qj - qi) * c / l;
+        let left = fef_partial_distributed_2d(qi, qc, 0.0, c, l);
+        let right = fef_partial_distributed_2d(qc, qj, c, l, l);
+        for k in 0..6 {
+            let scale = full[k].abs().max(1.0);
+            assert!((part[k] - full[k]).abs() < 1e-13 * scale, "k={k}: {} vs {}", part[k], full[k]);
+            assert!((left[k] + right[k] - full[k]).abs() < 1e-13 * scale, "k={k}");
+        }
     }
 
     /// Equivalent loads must be statically equivalent to the couple they

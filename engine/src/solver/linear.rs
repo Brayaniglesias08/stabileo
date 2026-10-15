@@ -3739,27 +3739,29 @@ pub(crate) fn build_reactions_2d(
             }
             my = -kz * ry_disp;
         } else {
-            // Rigid support: reaction from restrained partition
-            if let Some(&d) = dof_num.map.get(&(sup.node_id, 0)) {
-                if d >= nf {
-                    let idx = d - nf;
-                    rx = reactions_vec[idx];
-                }
-            }
-            if let Some(&d) = dof_num.map.get(&(sup.node_id, 1)) {
-                if d >= nf {
-                    let idx = d - nf;
-                    rz = reactions_vec[idx];
-                }
-            }
-            if dof_num.dofs_per_node >= 3 {
-                if let Some(&d) = dof_num.map.get(&(sup.node_id, 2)) {
+            // Rigid support: reaction from the restrained partition. A free
+            // DOF of a non-"spring" support can still carry a spring (e.g. a
+            // rollerX with kx): assemble_stiffness_2d adds its stiffness, so
+            // its force −k·u belongs in the reaction too (as in
+            // build_reactions_3d); dropping it broke global equilibrium.
+            // Inclined rollers keep their rotated-frame handling.
+            let springs = [sup.kx, sup.ky, sup.kz];
+            let mut vals = [0.0f64; 3];
+            for (i, val) in vals.iter_mut().enumerate().take(dof_num.dofs_per_node.min(3)) {
+                if let Some(&d) = dof_num.map.get(&(sup.node_id, i)) {
                     if d >= nf {
-                        let idx = d - nf;
-                        my = reactions_vec[idx];
+                        *val = reactions_vec[d - nf];
+                    } else if sup.support_type != "inclinedRoller" {
+                        let k = springs[i].unwrap_or(0.0);
+                        if k > 0.0 {
+                            *val = -k * u_full[d];
+                        }
                     }
                 }
             }
+            rx = vals[0];
+            rz = vals[1];
+            my = vals[2];
         }
 
         reactions.push(Reaction {
@@ -4502,10 +4504,24 @@ pub(crate) fn compute_internal_forces_2d_with_loads(
                 }
             }
 
+            // Axial point loads on the bar (px) reach its nodes by the lever
+            // rule (truss_member_load_2d), so the axial force jumps at the
+            // load: N(0) = EAδ/L + F_i, N(L) = EAδ/L − F_j — as the 3D truss
+            // path does. Reporting EAδ/L at both ends was off by the load
+            // share (found by differential testing against OpenSees).
+            let (mut fa_i, mut fa_j) = (0.0, 0.0);
+            for load in loads_by_elem.get(&elem.id).unwrap_or(&empty_loads) {
+                if let SolverLoad::PointOnElement(pl) = load {
+                    let px = pl.px.unwrap_or(0.0);
+                    fa_i += px * (1.0 - pl.a / l);
+                    fa_j += px * pl.a / l;
+                }
+            }
+
             forces.push(ElementForces {
                 element_id: elem.id,
-                n_start: n_axial,
-                n_end: n_axial,
+                n_start: n_axial + fa_i,
+                n_end: n_axial - fa_j,
                 v_start: 0.0,
                 v_end: 0.0,
                 m_start: 0.0,
