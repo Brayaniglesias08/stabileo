@@ -56,6 +56,8 @@ pub trait Real:
     fn sq(self) -> Self;
     fn abs(self) -> Self;
     fn min(self, o: Self) -> Self;
+    /// `min`, but a NaN `self` stays NaN (f64::min would return `o`).
+    fn min_keep_nan(self, o: Self) -> Self;
     fn max(self, o: Self) -> Self;
     /// `self^e` for a positive base.
     fn powf(self, e: Self) -> Self;
@@ -107,6 +109,10 @@ impl Real for f64 {
     #[inline]
     fn min(self, o: Self) -> Self {
         f64::min(self, o)
+    }
+    #[inline]
+    fn min_keep_nan(self, o: Self) -> Self {
+        if self.is_nan() { self } else { f64::min(self, o) }
     }
     #[inline]
     fn max(self, o: Self) -> Self {
@@ -177,6 +183,9 @@ impl Real for Interval {
             return Interval::NAN;
         }
         Interval::new(self.lo.min(o.lo), self.hi.min(o.hi))
+    }
+    fn min_keep_nan(self, o: Self) -> Self {
+        Real::min(self, o) // already NaN-propagating
     }
     fn max(self, o: Self) -> Self {
         if !self.is_finite() || !o.is_finite() {

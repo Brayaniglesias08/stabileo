@@ -219,13 +219,18 @@ inconclusive at this precision.
   combination is refused. Values *between* stations are not covered (as in the f64
   envelope).
 
-Wasm: `certify_steel_members` (bounded demands in), `certify_steel_multi_case_2d/3d`
+Wasm: `certify_steel_members`, `certify_ec3_members` (bounded demands in; `ec3_demands`
+converts the station demand sets), `certify_steel_multi_case_2d/3d`
 (multi-case model + members in, `{ analysis, steel }` out).
 
 | Check | Status |
 |---|---|
 | AISC 360 (`steel_check`): tension D2 (yield + rupture), compression E3, flexure F2 (LTB) / F6, shear G2, interaction H1 | **certified** |
-| EC3 (`ec3_check`), CIRSOC 201 (`cirsoc201_check`), RC (`rc_check`, `ec2_check`), timber, masonry, CFS, connections, foundations, serviceability | not certified (f64 only) |
+| EC3 (`ec3_check`): tension 6.2.3, flexural buckling 6.3.1 (χ curves a–d), LTB 6.3.2, weak-axis flexure 6.2.5, shear 6.2.6, simplified interaction 6.3.3 | **certified** |
+| CIRSOC 201 (`cirsoc201_check`), RC (`rc_check`, `ec2_check`), timber, masonry, CFS, connections, foundations, serviceability | not certified (f64 only) |
+
+EC3 note: an unbraced length `lb = 0` gives `Mcr = x/0`; the f64 check reads it as no
+LTB reduction, the interval check refuses (division by an interval containing 0).
 
 Inherited limitations: rounding in the f64 evaluation of member forces and diagram
 polynomials (see member force bounds) is not included; capacities are certified as the

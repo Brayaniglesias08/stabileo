@@ -677,6 +677,17 @@ pub fn certify_steel_members(json: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 
+/// Certified EC3 member checks: utilization enclosures from bounded demands.
+/// JSON `CertifiedEc3CheckInput` in → JSON results.
+#[wasm_bindgen]
+pub fn certify_ec3_members(json: &str) -> Result<String, JsValue> {
+    let input: certify::design::CertifiedEc3CheckInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::design::certify_ec3_members(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
 /// Solve + certify a 2D multi-case model, then certify AISC 360 checks for the
 /// given members over every station × combination. JSON in → JSON
 /// `{ analysis, steel }`.

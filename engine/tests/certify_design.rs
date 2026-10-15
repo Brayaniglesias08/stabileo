@@ -380,3 +380,43 @@ fn certified_steel_covers_truth_under_tampering() {
         assert_eq!(r.certified, r.element_id != gone, "{r:?}");
     }
 }
+
+/// EC3 end to end on the same certified station demands.
+#[test]
+fn certified_ec3_utilization_end_to_end_2d() {
+    use dedaliano_engine::postprocess::ec3_check::{check_ec3_members, Ec3CheckInput, Ec3MemberData};
+    let mc = building_2d();
+    let analysis = certify_multi_case_2d(&mc).unwrap();
+    let demands = ec3_demands(&steel_demands_from_combinations_2d(&analysis, 21).unwrap());
+    let mut ids: Vec<usize> = mc.solver.elements.values().map(|e| e.id).collect();
+    ids.sort();
+    // IPE 300-like, kN and m.
+    let members: Vec<Ec3MemberData> = ids
+        .iter()
+        .map(|&id| {
+            serde_json::from_value(serde_json::json!({
+                "elementId": id, "fy": 355e3, "e": 210e6, "a": 5.381e-3, "wplY": 6.28e-4, "welY": 5.57e-4,
+                "wplZ": 1.25e-4, "welZ": 8.05e-5, "iy": 8.356e-5, "iz": 6.04e-6, "it": 2.01e-7, "iw": 1.26e-7,
+                "lcrY": 3.5, "lcrZ": 3.5, "lb": 3.5, "bucklingCurveY": "a", "c1": 1.13, "av": 2.568e-3
+            }))
+            .unwrap()
+        })
+        .collect();
+    let res = certify_ec3_members(&CertifiedEc3CheckInput { members: members.clone(), demands: demands.clone() });
+    for (m, r) in members.iter().zip(&res) {
+        assert!(r.certified, "{}: {:?}", m.element_id, r.reason);
+        let f64_max = demands
+            .iter()
+            .filter(|d| d.forces.element_id == m.element_id)
+            .map(|d| {
+                let c = &check_ec3_members(&Ec3CheckInput { members: vec![m.clone()], forces: vec![d.forces.clone()] })[0];
+                [c.compression_ratio, c.tension_ratio, c.flexure_ratio_y, c.flexure_ratio_z, c.shear_ratio, c.interaction_ratio]
+                    .into_iter()
+                    .fold(0.0, f64::max)
+            })
+            .fold(0.0, f64::max);
+        assert!(r.utilization_lower <= f64_max * (1.0 + 1e-12) && f64_max <= r.utilization_upper * (1.0 + 1e-12),
+            "{}: {f64_max} ∉ [{}, {}]", m.element_id, r.utilization_lower, r.utilization_upper);
+        assert!(r.utilization_upper - r.utilization_lower <= 1e-9 * (1.0 + f64_max));
+    }
+}
