@@ -110,10 +110,16 @@ pub fn certify_linear_system_auto_interval_rhs(k: &[f64], n: usize, f: &[Interva
     if n == 0 {
         return Certificate::Certified { abs_bound: 0.0, rel_bound: 0.0, sigma: 0.0, residual_norm: 0.0 };
     }
-    let lambda = match estimate_lambda_min(k, n) {
-        Ok(l) => l,
-        Err(reason) => return Certificate::uncertified(reason),
-    };
+    match certify_sigma_auto(k, n) {
+        Ok(sigma) => finish(k, n, f, u, sigma),
+        Err(reason) => Certificate::uncertified(reason),
+    }
+}
+
+/// A σ > 0 with `S − σI` certified positive definite (interval Cholesky), σ
+/// chosen as in `certify_linear_system_auto`. `k` must be n×n and finite.
+pub fn certify_sigma_auto(k: &[f64], n: usize) -> Result<f64, String> {
+    let lambda = estimate_lambda_min(k, n)?;
     let mut last_err = String::new();
     for factor in [0.9, 0.5, 0.1, 0.01] {
         let sigma = factor * lambda;
@@ -121,7 +127,7 @@ pub fn certify_linear_system_auto_interval_rhs(k: &[f64], n: usize, f: &[Interva
             break;
         }
         match shifted_cholesky(k, n, sigma) {
-            Ok(()) => return finish(k, n, f, u, sigma),
+            Ok(()) => return Ok(sigma),
             Err(fail) => {
                 last_err = fail.message;
                 // Performance heuristic only (never affects soundness): when the
@@ -133,9 +139,23 @@ pub fn certify_linear_system_auto_interval_rhs(k: &[f64], n: usize, f: &[Interva
             }
         }
     }
-    Certificate::uncertified(format!(
-        "could not certify S − σI positive definite (λ̂ = {lambda:.3e}): {last_err}"
-    ))
+    Err(format!("could not certify S − σI positive definite (λ̂ = {lambda:.3e}): {last_err}"))
+}
+
+/// Residual certificate for `K ũ = f` given a σ that the caller has ALREADY
+/// certified (`S − σI ≻ 0`, e.g. by `certify_sigma_auto` on this same `k`).
+/// Used to certify several right-hand sides against one stiffness.
+pub(crate) fn certify_with_certified_sigma(k: &[f64], n: usize, f: &[Interval], u: &[f64], sigma: f64) -> Certificate {
+    if let Err(reason) = check_inputs(k, n, f, u) {
+        return Certificate::uncertified(reason);
+    }
+    if n == 0 {
+        return Certificate::Certified { abs_bound: 0.0, rel_bound: 0.0, sigma: 0.0, residual_norm: 0.0 };
+    }
+    if !(sigma > 0.0 && sigma.is_finite()) {
+        return Certificate::uncertified(format!("sigma must be positive and finite, got {sigma}"));
+    }
+    finish(k, n, f, u, sigma)
 }
 
 fn check_inputs(k: &[f64], n: usize, f: &[Interval], u: &[f64]) -> Result<(), String> {

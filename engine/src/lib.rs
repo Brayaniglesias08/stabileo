@@ -647,6 +647,24 @@ pub fn solve_multi_case_3d(input: JsValue) -> Result<JsValue, JsValue> {
     to_js_value(&result)
 }
 
+/// Solve 2D multi-case load combinations and certify every case, combination
+/// and the envelope (docs/verification/CERTIFY.md, "Load combinations and
+/// envelopes"). JsValue in → `{ results, cases, combinations, envelope }`.
+#[wasm_bindgen]
+pub fn certify_multi_case_2d(input: JsValue) -> Result<JsValue, JsValue> {
+    let input: solver::load_cases::MultiCaseInput = from_js_value(input)?;
+    let out = certify::combinations::certify_multi_case_2d(&input).map_err(|e| JsValue::from_str(&e))?;
+    to_js_value(&out)
+}
+
+/// 3D version of `certify_multi_case_2d`.
+#[wasm_bindgen]
+pub fn certify_multi_case_3d(input: JsValue) -> Result<JsValue, JsValue> {
+    let input: solver::load_cases::MultiCaseInput3D = from_js_value(input)?;
+    let out = certify::combinations::certify_multi_case_3d(&input).map_err(|e| JsValue::from_str(&e))?;
+    to_js_value(&out)
+}
+
 // ==================== Harmonic Analysis ====================
 
 /// Solve 2D harmonic (frequency response) analysis. JSON: HarmonicInput

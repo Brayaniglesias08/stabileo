@@ -148,6 +148,41 @@ Lean (`verify/Certify/Forces.lean`): `abs_mulVec_sub_le` (`|(B(u − ũ))ᵢ| �
 (`τ ≥ 0`) and `‖u − ũ‖ ≤ b`, then `|((kT)(u − ũ))ᵢ| ≤ r τ b`. The bound `‖T‖₂ ≤ 1 + 4ε`
 is assumed, not proved.
 
+## Load combinations and envelopes
+
+`engine/src/certify/combinations.rs` (wasm: `certify_multi_case_2d/3d`). A combination
+is `Σ cᵢ · (case i)`; its exact value is `Σ cᵢ u*ᵢ` — the exact solution for the combined
+loads, since the reduced system is linear in `f` (prescribed displacements enter each
+case's right-hand side and combine the same way).
+
+* **Cases.** All cases share one stiffness, so its coercivity (σ from the dense interval
+  Cholesky, or μ from the Gram + Gershgorin check) is certified once
+  (`certify_load_cases_2d/3d`); each case then costs one interval residual, giving
+  `‖u*ᵢ − ũᵢ‖₂ ≤ bᵢ`. `certify_results_2d/3d` are the one-case special case.
+* **Combination displacements.** `‖Σcᵢu*ᵢ − ũ_c‖₂ ≤ Σ|cᵢ|bᵢ + ‖Σcᵢũᵢ − ũ_c‖₂`. The
+  second term is the f64 rounding of the combination itself: `Σcᵢũᵢ` is enclosed in
+  interval arithmetic and compared with the *reported* `ũ_c`, so a misreported
+  combination is caught (the bound grows to cover it). All sums are rounded up.
+  Factors that are exactly 0 are skipped; any uncertified case with a non-zero factor
+  makes the combination uncertified.
+* **Combination member forces.** End forces are affine in `u` with load terms that do
+  not depend on `u` (`f = k T u − fef`), so `|F_c* − F̃_c| ≤ Σ|cᵢ|ΔFᵢ + |Σcᵢ F̃ᵢ − F̃_c|`
+  per component, with `ΔFᵢ` from the member force bounds below.
+* **Diagram stations.** The diagram evaluators compute `M(x) = M_start − V_start·x +
+  (load terms)`, `V(x) = V_start + …`, `N(x) = N_start + …`, `T(x)` linear between ends,
+  so at every station the error is at most `ΔM + ΔV·L`, `ΔV`, `ΔN`, `ΔT` (3D: `M_z` uses
+  `ΔV_y`, `M_y` uses `ΔV_z`). These are the `stationBounds`.
+* **Envelopes.** `max_k`, `min_k` and max-abs over combinations are 1-Lipschitz in the
+  sup norm, so every envelope value (max-abs results, envelope diagram ordinates) is
+  within the largest combination bound of the exact envelope. The envelope is
+  certified only if every combination is, and only for members bounded in every
+  combination. Max-abs displacements are bounded in magnitude (the sign may flip on a
+  tie).
+
+Not included (inherited from the member force bounds): f64 rounding in each case's
+force formulas and in evaluating the diagram polynomials. Reactions are not bounded.
+Constraints and inclined supports are unsupported, as for single cases.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.
