@@ -590,3 +590,120 @@ fn solid_shell_rigid_modes_and_kernel() {
         assert_kernel(&name, &k, 24, 6, 1e-10, 1e-10);
     }
 }
+
+// ─── assembled model ────────────────────────────────────────────────────────
+
+/// The ASSEMBLED free-free stiffness (no supports) of a mixed 3D model — a curved
+/// beam expanded into frame segments, straight frames with releases and an
+/// orientation vector, a truss, MITC4 quads and DKT triangles sharing nodes —
+/// annihilates the six global rigid motions and has no zero eigenvalue beyond
+/// them and the truss-only node's rotations. The shell part is planar: on a
+/// warped quad the flat MITC4 is not rigid-invariant (see
+/// `mitc4_warped_rigid_residual_grows_with_warp`). This checks the DOF numbering and scatter of every element
+/// family together, and the curved-beam expansion (whose K is the frames').
+#[test]
+fn assembled_free_model_rigid_modes_and_kernel() {
+    use dedaliano_engine::solver::assembly::assemble_stiffness_3d;
+    use dedaliano_engine::solver::dof::DofNumbering;
+    use dedaliano_engine::solver::linear::expand_curved_beams_3d;
+    use dedaliano_engine::types::*;
+    use std::collections::HashMap;
+
+    let pts: [(usize, [f64; 3]); 9] = [
+        (1, [0.0, 0.0, 0.0]),
+        (2, [3.0, 0.2, 0.0]),
+        (3, [3.2, 2.5, 0.0]),
+        (4, [-0.1, 2.3, 0.0]),
+        (5, [1.5, 4.0, 0.0]),  // triangle apex on edge 3–4
+        (6, [1.6, 1.2, 3.0]),  // curved beam mid
+        (7, [3.0, 0.2, 2.5]),  // column top above 2
+        (8, [0.0, 0.0, 2.5]),  // column top above 1
+        (9, [6.0, 0.0, 0.0]),  // truss end
+    ];
+    let mut nodes = HashMap::new();
+    for (id, p) in pts {
+        nodes.insert(id.to_string(), SolverNode3D { id, x: p[0], y: p[1], z: p[2] });
+    }
+    let mut materials = HashMap::new();
+    materials.insert("1".into(), SolverMaterial { id: 1, e: 30_000.0, nu: 0.2 });
+    let mut sections = HashMap::new();
+    sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.02, iy: 2e-4, iz: 1e-4, j: 5e-5, cw: None, as_y: None, as_z: None });
+    let frame = |id: usize, i: usize, j: usize, ty: &str, rel: bool| SolverElement3D {
+        id, elem_type: ty.into(), node_i: i, node_j: j, material_id: 1, section_id: 1,
+        release_my_start: false, release_my_end: rel, release_mz_start: false, release_mz_end: false,
+        release_t_start: false, release_t_end: false,
+        local_yx: if id == 2 { Some(0.3) } else { None }, local_yy: if id == 2 { Some(1.0) } else { None },
+        local_yz: if id == 2 { Some(0.2) } else { None }, roll_angle: None,
+    };
+    let mut elements = HashMap::new();
+    for e in [frame(1, 1, 8, "frame", false), frame(2, 2, 7, "frame", true), frame(3, 8, 7, "frame", false), frame(4, 2, 9, "truss", false), frame(5, 1, 9, "truss", false), frame(6, 9, 7, "truss", false)] {
+        elements.insert(e.id.to_string(), e);
+    }
+    let mut quads = HashMap::new();
+    quads.insert("1".into(), SolverQuadElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.15 });
+    let mut plates = HashMap::new();
+    plates.insert("1".into(), SolverPlateElement { id: 1, nodes: [4, 3, 5], material_id: 1, thickness: 0.15 });
+    let input = SolverInput3D {
+        nodes, materials, sections, elements, supports: HashMap::new(), loads: vec![], constraints: vec![],
+        left_hand: None, plates, quads, quad9s: HashMap::new(), solid_shells: HashMap::new(),
+        curved_shells: HashMap::new(),
+        curved_beams: vec![CurvedBeamInput { node_start: 8, node_mid: 6, node_end: 7, material_id: 1, section_id: 1, num_segments: 6, hinge_start: false, hinge_end: false }],
+        connectors: HashMap::new(), solver_options: None,
+    };
+    let input = expand_curved_beams_3d(&input);
+    assert!(input.nodes.len() > 9, "curved beam was not expanded");
+    let dof = DofNumbering::build_3d(&input);
+    assert_eq!(dof.dofs_per_node, 6);
+    let asm = assemble_stiffness_3d(&input, &dof);
+    let n = dof.n_total;
+    // The curved beam's mid node is only a geometric definition point; if the
+    // expansion leaves it unconnected its 6 DOFs are free (zero rows).
+    let mut ids: Vec<usize> = input.nodes.values().map(|nd| nd.id).collect();
+    ids.sort();
+    let connected: Vec<usize> = ids
+        .iter()
+        .copied()
+        .filter(|&id| (0..6).any(|d| {
+            let g = dof.map[&(id, d)];
+            (0..n).any(|j| asm.k[g * n + j] != 0.0)
+        }))
+        .collect();
+    let by_id: HashMap<usize, [f64; 3]> = input.nodes.values().map(|nd| (nd.id, [nd.x, nd.y, nd.z])).collect();
+    // Permute K into node-major order over connected nodes for the shared helpers.
+    let order: Vec<usize> = connected.iter().flat_map(|&id| (0..6).map(move |d| (id, d))).map(|key| dof.map[&key]).collect();
+    let m = order.len();
+    let mut k = vec![0.0; m * m];
+    for (a, &ga) in order.iter().enumerate() {
+        for (b, &gb) in order.iter().enumerate() {
+            k[a * m + b] = asm.k[ga * n + gb];
+        }
+    }
+    let coords: Vec<[f64; 3]> = connected.iter().map(|id| by_id[id]).collect();
+    assert!(asm.artificial_dofs.is_empty(), "unexpected artificial DOFs {:?}", asm.artificial_dofs);
+    check("assembled free model", &k, &coords, Layout::Spatial { rot: true, warp: false }, 1e-9);
+    // Kernel: the 6 rigid motions plus the 3 rotations of node 9, which only
+    // trusses reach (zero rows; assembly adds no artificial stiffness there).
+    // The released my_end of element 2 meets stiff members at node 7: no mechanism.
+    assert_kernel("assembled free model", &k, m, 9, 1e-11, 1e-12);
+}
+
+/// FINDING (known limitation of flat shell elements, quantified): MITC4 on a
+/// WARPED quad (nodes not coplanar) projects onto a mean plane and does not
+/// annihilate rigid rotations; the relative residual grows ~linearly with the
+/// warp ratio h/L. Pinned so a warping correction (e.g. rigid offsets to the
+/// mean plane) shows up; the curved shell is the element for warped geometry and
+/// passes (`curved_shell_rigid_modes_and_kernel`, warped inputs).
+#[test]
+fn mitc4_warped_rigid_residual_grows_with_warp() {
+    let mut last = 0.0;
+    for w in [1e-4, 1e-3, 1e-2, 5e-2] {
+        // 2 × 2 square with corners alternately ±w out of plane (warp ratio w/2).
+        let c = [[0.0, 0.0, w], [2.0, 0.0, -w], [2.0, 2.0, w], [0.0, 2.0, -w]];
+        let k = to_global(&mitc4_local_stiffness(&c, E, 0.3, 0.1), &quad_transform_3d(&c), 24);
+        let res = worst_rigid_residual(&k, &c, Layout::Spatial { rot: true, warp: false });
+        eprintln!("MITC4 warp {w:e}: rigid residual {res:.3e}");
+        assert!(res > last, "residual should grow with warp");
+        last = res;
+    }
+    assert!(last > 1e-3, "warped MITC4 now rigid-invariant ({last:e}): update the finding");
+}
