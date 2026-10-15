@@ -18,9 +18,9 @@
 //!      is sound), or `A + c·UUᵀ ≻ 0` with `U = MΦ` (Finsler; dense Gram
 //!      residual + Gershgorin, moderate n only);
 //!    * at least `j` eigenvalues λ < μ: with `Y = K^{1/2}Φ` (full column rank)
-//!      and `R = CY − Y diag(ν̂)`, Kahan's theorem gives `j` eigenvalues of C
-//!      (with multiplicity) within `‖R‖₂ / σ_min(Y)` of the ν̂ᵢ; here
-//!      `‖R‖₂² ≤ Σᵢ ‖sᵢ‖²/σ_K` and `σ_min(Y)² = λ_min(ΦᵀKΦ)`, bounded below by
+//!      and `R = CY − Y diag(ν̂)`, Kahan's theorem (Lean: kahan_lower_count) gives `j` eigenvalues of C
+//!      (with multiplicity) within `‖R‖_F / σ_min(Y)` of the ν̂ᵢ; here
+//!      `‖R‖_F² ≤ Σᵢ ‖sᵢ‖²/σ_K` and `σ_min(Y)² = λ_min(ΦᵀKΦ)`, bounded below by
 //!      Gershgorin on the interval j×j matrix ΦᵀKΦ. This also covers repeated
 //!      frequencies, where single-mode enclosures overlap.
 //!    Cutoffs are tried in gaps of the computed spectrum, highest first.
