@@ -142,7 +142,13 @@ definiteness is first lost:
 
 The enclosure `λ̲ ≤ λ_cr ≤ λ̄` is about the f64 `K` and `K_G` as assembled (with `K_G`
 built from the computed linear axial forces), not about rounding-free versions of them.
-Constraints are not supported.
+
+With constraints the solver solves the reduced pencil `(Cᵀ K C) φ_q = λ (Cᵀ N C) φ_q`.
+The certificate is about that pencil with the f64 `K`, `N`, `C` entries taken as exact:
+both reduced matrices are enclosed entrywise in interval arithmetic (as in "Constraints"
+above), `A(λ) = CᵀKC − λ CᵀNC` is enclosed from those enclosures, and the lower and
+upper bounds are certified exactly as above (the Rayleigh vector is the returned mode
+read at the independent DOFs).
 
 Lean: `Certify.buckling_enclosure` (`verify/Certify/Buckling.lean`), built on
 `stable_segment`, `not_stable_of_interval_rayleigh` and `stable_of_gram`; the
@@ -169,6 +175,13 @@ singular). `engine/src/certify/modal.rs` certifies three things.
 * **At least `j` eigenvalues `λ < μ`.** Kahan's block residual theorem applied to
   `Y = K^{1/2}Φ`, `R = CY − Y diag(ν̂)`: `j` eigenvalues of `C` (with multiplicity) lie
   within `‖R‖₂ / σ_min(Y)` of the `ν̂ᵢ`. This is a **cited theorem, not yet formalized**.
+
+With constraints the same three certificates are applied to the reduced pencil
+`(Cᵀ K C, Cᵀ M C)` the solver solves (f64 sparse `K`, `M`, `C` taken as exact; both
+reduced matrices enclosed entrywise in intervals, every use of their entries — `Kφ`,
+`Mφ`, the Gram/Gershgorin and deleted-principal-submatrix checks, the dense Finsler
+matrix — goes through those enclosures), with the computed modes read at the
+independent DOFs.
 
 Lean (`verify/Certify/Modal.lean`), with `NonposSubspace A S := ∀ x ∈ S, xᵀAx ≤ 0`:
 

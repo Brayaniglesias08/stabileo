@@ -555,6 +555,85 @@ fn certify_buckling_euler_column() {
     }
 }
 
+/// Two identical pinned columns tied at mid-height: the in-phase mode loads
+/// no tie, so the constrained λ_cr is the single column's. Both certified
+/// enclosures contain that same exact value, so they must intersect.
+#[test]
+fn certify_buckling_constrained_columns() {
+    let (l, e, a, iz, p, ne) = (5.0, 200_000.0, 0.01, 1e-4, 100.0, 16);
+    let single = make_column(ne, l, e, a, iz, "pinned", "rollerX", -p);
+    let one = certify_buckling_2d(&single, 1).unwrap();
+    let (lo1, hi1) = assert_buckling_enclosure("single", &one.certificate);
+    let mut nodes = vec![];
+    let mut elems = vec![];
+    for c in 0..2 {
+        let base = c * (ne + 1);
+        for i in 0..=ne {
+            nodes.push((base + i + 1, i as f64 * l / ne as f64, 2.0 * c as f64));
+        }
+        for i in 0..ne {
+            elems.push((c * ne + i + 1, "frame", base + i + 1, base + i + 2, 1, 1, false, false));
+        }
+    }
+    let mut two = make_input(
+        nodes,
+        vec![(1, e, 0.3)],
+        vec![(1, a, iz)],
+        elems,
+        vec![(1, 1, "pinned"), (2, ne + 1, "rollerX"), (3, ne + 2, "pinned"), (4, 2 * ne + 2, "rollerX")],
+        vec![
+            SolverLoad::Nodal(SolverNodalLoad { node_id: ne + 1, fx: -p, fz: 0.0, my: 0.0 }),
+            SolverLoad::Nodal(SolverNodalLoad { node_id: 2 * ne + 2, fx: -p, fz: 0.0, my: 0.0 }),
+        ],
+    );
+    two.constraints = vec![Constraint::EqualDOF(EqualDOFConstraint {
+        master_node: ne / 2 + 1, slave_node: ne + 1 + ne / 2 + 1, dofs: vec![1],
+    })];
+    let out = certify_buckling_2d(&two, 1).unwrap();
+    let (lo2, hi2) = assert_buckling_enclosure("tied", &out.certificate);
+    let hi2 = hi2.expect("Rayleigh upper bound");
+    let hi1 = hi1.expect("Rayleigh upper bound");
+    eprintln!("single [{lo1:.9e}, {hi1:.9e}], tied [{lo2:.9e}, {hi2:.9e}]");
+    assert!(lo2 <= hi1 && lo1 <= hi2, "enclosures of the same λ_cr do not intersect");
+    assert!((hi2 - lo2) / lo2 < 1e-3, "enclosure too wide");
+
+    // A tie that is not a symmetry: column B twice as stiff and tied, so the
+    // pair buckles together above the single column's λ_cr.
+    let mut stiff = two.clone();
+    stiff.sections.insert("2".into(), SolverSection { id: 2, a, iz: 2.0 * iz, as_y: None });
+    for el in stiff.elements.values_mut() {
+        if el.node_i > ne + 1 {
+            el.section_id = 2;
+        }
+    }
+    let out = certify_buckling_2d(&stiff, 1).unwrap();
+    let (lo3, _) = assert_buckling_enclosure("tied stiff pair", &out.certificate);
+    assert!(lo3 > hi1, "tying to a stiffer column must raise λ_cr: {lo3} vs {hi1}");
+}
+
+/// 3D: a building fixture with a diaphragm on every floor.
+#[test]
+fn certify_buckling_3d_diaphragms() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ex-3d-building-case1-input.json");
+    let mut input: SolverInput3D = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let supported: Vec<usize> = input.supports.values().map(|s| s.node_id).collect();
+    let mut floors: HashMap<u64, Vec<usize>> = HashMap::new();
+    for n in input.nodes.values().filter(|n| !supported.contains(&n.id)) {
+        floors.entry(n.y.to_bits()).or_default().push(n.id);
+    }
+    for mut ids in floors.into_values() {
+        ids.sort();
+        input.constraints.push(Constraint::Diaphragm(DiaphragmConstraint {
+            master_node: ids[0], slave_nodes: ids[1..].to_vec(), plane: "XZ".into(),
+        }));
+    }
+    let out = certify_buckling_3d(&input, 1).unwrap();
+    let (lo, hi) = assert_buckling_enclosure("building + diaphragms", &out.certificate);
+    let hi = hi.expect("Rayleigh upper bound");
+    eprintln!("building + diaphragms: λ_cr ∈ [{lo:.9e}, {hi:.9e}]");
+    assert!((hi - lo) / lo < 1e-3, "enclosure too wide");
+}
+
 #[test]
 fn certify_buckling_3d_fixtures() {
     let mut certified = 0;
@@ -611,6 +690,45 @@ fn certify_modal_3d_fixtures() {
         }
     }
     assert!(complete >= 3, "only {complete} fixtures certified complete");
+}
+
+/// Constrained modal: a diaphragm on every floor of a building fixture (3D)
+/// and tied columns (2D). Every computed ω² lies in its certified enclosure.
+#[test]
+fn certify_modal_constrained() {
+    use dedaliano_engine::certify::modal::{certify_modal_2d, certify_modal_3d, ModalCertificate};
+    let check = |name: &str, c: &ModalCertificate, omegas: Vec<f64>| -> usize {
+        let ModalCertificate::Certified { modes, complete_modes, .. } = c else { panic!("{name}: {c:?}") };
+        for (e, w) in modes.iter().zip(omegas) {
+            let w2 = w * w;
+            assert!(e.omega2_lower <= w2 && w2 <= e.omega2_upper, "{name}: {e:?}");
+            assert!((e.omega2_upper - e.omega2_lower) / w2 < 1e-6, "{name}: enclosure too wide {e:?}");
+        }
+        eprintln!("{name}: {complete_modes}/{} complete", modes.len());
+        *complete_modes
+    };
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ex-3d-building-case1-input.json");
+    let mut input: SolverInput3D = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let supported: Vec<usize> = input.supports.values().map(|s| s.node_id).collect();
+    let mut floors: HashMap<u64, Vec<usize>> = HashMap::new();
+    for n in input.nodes.values().filter(|n| !supported.contains(&n.id)) {
+        floors.entry(n.y.to_bits()).or_default().push(n.id);
+    }
+    for mut ids in floors.into_values() {
+        ids.sort();
+        input.constraints.push(Constraint::Diaphragm(DiaphragmConstraint {
+            master_node: ids[0], slave_nodes: ids[1..].to_vec(), plane: "XZ".into(),
+        }));
+    }
+    let densities: HashMap<String, f64> = input.materials.values().map(|m| (m.id.to_string(), 7.85)).collect();
+    let out = certify_modal_3d(&input, &densities, 6).unwrap();
+    let complete = check("building + diaphragms", &out.certificate, out.results.modes.iter().map(|m| m.omega).collect());
+    assert!(complete >= 1);
+
+    let input = tied_columns_2d();
+    let densities: HashMap<String, f64> = input.materials.values().map(|m| (m.id.to_string(), 2.5)).collect();
+    let out = certify_modal_2d(&input, &densities, 3).unwrap();
+    check("tied columns 2d", &out.certificate, out.results.modes.iter().map(|m| m.omega).collect());
 }
 
 // ───────────────────────── fuzz with an oracle ─────────────────────────

@@ -251,6 +251,32 @@ pub(crate) fn certify_constrained_system(k: &KRef, nf: usize, f: &[f64], u: &[f6
     finish(abs_bound, &u[..nf], mu, rho)
 }
 
+/// Interval enclosure of the reduced symmetric matrix `Cᵀ M C` for a
+/// symmetric `M` (nf×nf, lower-triangle CSC): lower-triangle pattern with
+/// midpoint values, and entry enclosures aligned with them.
+pub(crate) fn reduce_symmetric_enclosed(m: &CscMatrix, cm: &ConstraintMap) -> (CscMatrix, Vec<Interval>) {
+    let mut slots: Vec<(usize, usize, Interval)> = Vec::new();
+    let mut add = |i: usize, j: usize, v: f64| {
+        let mv = Interval::point(v);
+        for &(a, ca) in &cm.c[i] {
+            let cam = Interval::point(ca) * mv;
+            for &(b, cb) in &cm.c[j] {
+                slots.push((a, b, cam * Interval::point(cb)));
+            }
+        }
+    };
+    for c in 0..m.n {
+        for p in m.col_ptr[c]..m.col_ptr[c + 1] {
+            let (r, v) = (m.row_idx[p], m.values[p]);
+            add(r, c, v);
+            if r != c {
+                add(c, r, v);
+            }
+        }
+    }
+    symmetric_part_lower(cm.p, slots)
+}
+
 /// Lower-triangle CSC of the symmetric part of the matrix whose ordered-slot
 /// contributions are `slots`, with interval enclosures of its entries
 /// (aligned with `values`, which are midpoints). Every diagonal is present.
