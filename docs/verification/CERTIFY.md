@@ -502,6 +502,60 @@ Honesty test (`tests/certify_nonlinear.rs`): an independent dense reference (Cho
 reference lies inside every enclosure (to 1e-14 relative, its own accuracy). Not
 formalized in Lean.
 
+## Harmonic (steady-state) response
+
+`engine/src/certify/harmonic.rs` (wasm: `certify_harmonic_2d/3d`).
+
+**Model.** At each reported frequency, `ω` is the solver's f64 `2π·f` (a mismatch with
+the reported `omega` is refused) and the exact steady state solves
+
+    A u = f,    A = K_d + iωC,    K_d = K − ω²M,    C = a₀M + a₁K,
+
+with `K`, `M` the f64 sparse assemblies on the free DOFs, `f` the assembled load, and
+`(a₀, a₁)` the Rayleigh coefficients the solver derived (returned by
+`solve_harmonic_{2d,3d}_with_damping`; reported in the certificate). This is the full
+(untruncated) Rayleigh-damped system; the solver's modal superposition with a filtered
+set of modes is one approximation of it. Constraints and inclined supports are refused.
+
+**Lemma (rotated coercivity).** For `s ≥ 0` let `B(s) = K_d + sωC =
+(1 + sωa₁)K − (ω² − sωa₀)M` (real symmetric). If `λ_min(B(s)) ≥ μ_s > 0` then for every
+complex `x`, `‖Ax‖₂ ≥ μ‖x‖₂` with `μ = μ_s/√(1 + s²)`; so `A` is invertible and for any
+`ũ`, `‖u* − ũ‖₂ ≤ ‖f − Aũ‖₂/μ`.
+
+*Proof.* `K`, `M` are real symmetric, so `a = xᴴK_dx` and `c = xᴴCx` are real and
+`xᴴAx = a + iωc`. Then `Re((1 − is)xᴴAx) = a + sωc = xᴴB(s)x`, and for `x = p + iq`,
+`xᴴB(s)x = pᵀBp + qᵀBq ≥ μ_s‖x‖²`. Hence `√(1+s²)·‖x‖‖Ax‖ ≥ |1 − is|·|xᴴAx| ≥ μ_s‖x‖²`. ∎
+
+`s = 0` is plain coercivity of `K − ω²M` (below the first resonance). Above it, damping
+supplies it: in modal terms `B(s) ≻ 0` iff `s > (ω² − λⱼ)/(2ξⱼωⱼω)` for every mode
+below `ω`, so with `C ≻ 0` (`a₁ > 0`) some `s` always works at any `ω` — including at
+resonance. `B(s)` is enclosed entrywise (`1 + sωa₁` and `ω² − sωa₀` in intervals) and
+certified with the Gram residual + Gershgorin check on the real n×n matrix; no 2n×2n
+system and no normal equations `AᴴA` are formed, so there is no size cap. `s` is tried
+from `{previous point's s, 0, 0.1, 0.3, 1, …, 10⁵}`; soundness does not depend on it.
+An undamped system above its first resonance (`C = 0`, `K_d` indefinite) is refused: its
+invertibility would need a σ_min certificate of an indefinite matrix, not implemented.
+
+**Candidate and residual.** The solver reports only the target DOF, so the certificate
+computes its own full `ũ`: with `H = B(s)` (sparse Cholesky) and `G = ωC − sK_d`,
+`(1 − is)A = H + iG`; CG in the H-inner product on `(I + W²)u = (I − iW)H⁻¹(1 − is)f`,
+`W = H⁻¹G` (`I + W²` is H-self-adjoint, `⪰ I`), plus two steps of refinement. Nothing
+about it is trusted: `r = f − Aũ` (real and imaginary parts) is enclosed in interval
+arithmetic and `absBound = ‖r‖₂/μ` rounded up.
+
+**Output.** Per frequency: `absBound` (whole free vector), `mu`, `shift` (`s`), and
+enclosures `ũ_t ± absBound` of the exact real part, imaginary part and amplitude at the
+target DOF; `reportedError = absBound + |ũ_t − reported_t|` bounds `|u*_t − reported_t|`,
+and therefore includes the solver's modal-truncation error (test: the reported peak
+6.258509e-2 vs. the certified exact 6.258518e-2, `reportedWithin = false`). The exact
+peak amplitude over the sampled frequencies is enclosed by the max of the per-point
+enclosures (the max is 1-Lipschitz). The phase is not bounded.
+
+Honesty tests (`tests/certify_nonlinear.rs`): the same system solved by LU of the real
+2n×2n block matrix with double-double residual refinement, at frequencies below, near,
+at and above the first resonance; the reference lies within every bound. Unit tests use
+decoupled systems with closed-form solutions. Not formalized in Lean.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.
@@ -511,6 +565,8 @@ modelled by abstract `down, up : ℝ → ℝ` with `down x ≤ x ≤ up x`.
 
 ## Out of scope for v1
 
-Mechanism certificates (exact rational null vectors), and proving the f64 implementation matches the Lean algorithm. (Large
+Corotational / large-displacement nonlinear static solvers (their residuals involve
+rotations and are not polynomial in `u`; the quadratic Kantorovich argument of "P-Delta"
+does not apply as is), material nonlinearity, time integration. Mechanism certificates (exact rational null vectors), and proving the f64 implementation matches the Lean algorithm. (Large
 models are covered by the Gram/Gershgorin certificate above; the dense interval
 Cholesky is used only below the solver's sparse threshold.)

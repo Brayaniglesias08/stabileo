@@ -779,6 +779,21 @@ pub fn certify_steel_multi_case_3d(json: &str) -> Result<String, JsValue> {
 
 // ==================== Harmonic Analysis ====================
 
+/// Solve 2D harmonic analysis and certify the steady state at every
+/// frequency: enclosures of the exact response of the Rayleigh-damped model
+/// at the target DOF and bounds on the reported values' error, which include
+/// the solver's modal truncation (docs/verification/CERTIFY.md).
+/// JSON in → `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_harmonic_2d(json: &str) -> Result<String, JsValue> {
+    let input: solver::harmonic::HarmonicInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::harmonic::certify_harmonic_2d(&input)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
 /// Solve 2D harmonic (frequency response) analysis. JSON: HarmonicInput
 #[wasm_bindgen]
 pub fn solve_harmonic_2d(json: &str) -> Result<String, JsValue> {
@@ -787,6 +802,21 @@ pub fn solve_harmonic_2d(json: &str) -> Result<String, JsValue> {
     let result = solver::harmonic::solve_harmonic_2d(&input)
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&result)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Solve 3D harmonic analysis and certify the steady state at every
+/// frequency: enclosures of the exact response of the Rayleigh-damped model
+/// at the target DOF and bounds on the reported values' error, which include
+/// the solver's modal truncation (docs/verification/CERTIFY.md).
+/// JSON in → `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_harmonic_3d(json: &str) -> Result<String, JsValue> {
+    let input: solver::harmonic::HarmonicInput3D = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::harmonic::certify_harmonic_3d(&input)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&results)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 

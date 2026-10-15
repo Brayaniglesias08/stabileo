@@ -877,3 +877,132 @@ fn certify_spectral_3d_building() {
     assert!(within(base_shear, ref_shear, 1e-14 * ref_shear));
     eprintln!("spectral 3D: disp err ≤ {max_displacement_error:.2e} (max |u| {umax:.2e})");
 }
+
+// ───────────────────────── harmonic response ─────────────────────────
+
+use dedaliano_engine::certify::harmonic::{certify_harmonic_2d, certify_point, HarmonicCertificate};
+use dedaliano_engine::solver::harmonic::HarmonicInput;
+
+/// Reference steady state of (K − ω²M + iω(a₀M + a₁K))u = f: LU of the real
+/// 2n×2n block matrix in f64, iterative refinement with double-double residuals.
+fn reference_harmonic(k: &CscMatrix, m: &CscMatrix, f: &[f64], a: (f64, f64), w: f64) -> (Vec<DD>, Vec<DD>) {
+    let n = k.n;
+    let (kd, md) = (dense_lower(k), dense_lower(m));
+    let n2 = 2 * n;
+    let mut big = vec![0.0; n2 * n2];
+    for i in 0..n {
+        for j in 0..n {
+            let kdij = kd[i * n + j] - w * w * md[i * n + j];
+            let wc = w * (a.0 * md[i * n + j] + a.1 * kd[i * n + j]);
+            big[i * n2 + j] = kdij;
+            big[i * n2 + n + j] = -wc;
+            big[(n + i) * n2 + j] = wc;
+            big[(n + i) * n2 + n + j] = kdij;
+        }
+    }
+    let piv = lu_factor(&mut big, n2).expect("reference block matrix singular");
+    let (w2, ww) = {
+        let (p, e) = two_prod(w, w);
+        (DD { hi: p, lo: e }, DD::new(w))
+    };
+    let mut xr = vec![DD::default(); n];
+    let mut xi = vec![DD::default(); n];
+    let matvec = |a: &[f64], x: &[DD]| -> Vec<DD> {
+        (0..n).map(|i| (0..n).fold(DD::default(), |s, j| s.add(x[j].mulf(a[i * n + j])))).collect()
+    };
+    for _ in 0..6 {
+        let (kr, ki, mr, mi) = (matvec(&kd, &xr), matvec(&kd, &xi), matvec(&md, &xr), matvec(&md, &xi));
+        let mut rhs = vec![0.0; n2];
+        for j in 0..n {
+            let kdr = kr[j].sub(w2.mul(mr[j]));
+            let kdi = ki[j].sub(w2.mul(mi[j]));
+            let cr = mr[j].mulf(a.0).add(kr[j].mulf(a.1));
+            let ci = mi[j].mulf(a.0).add(ki[j].mulf(a.1));
+            rhs[j] = DD::new(f[j]).sub(kdr.sub(ww.mul(ci))).hi;
+            rhs[n + j] = kdi.add(ww.mul(cr)).neg().hi;
+        }
+        let d = lu_apply(&big, &piv, &rhs, n2).unwrap();
+        for j in 0..n {
+            xr[j] = xr[j].add(DD::new(d[j]));
+            xi[j] = xi[j].add(DD::new(d[n + j]));
+        }
+    }
+    (xr, xi)
+}
+
+fn harmonic_model_2d(input: &SolverInput) -> (CscMatrix, CscMatrix, Vec<f64>, DofNumbering) {
+    let dof = DofNumbering::build_2d(input);
+    let k = assemble_stiffness_sparse_2d(input, &dof).k_ff;
+    let m = assemble_mass_matrix_2d_sparse(input, &dof, &densities());
+    let f = assemble_load_vector_2d(input, &input.loads, &dof, &[])[..dof.n_free].to_vec();
+    (k, m, f, dof)
+}
+
+#[test]
+fn certify_harmonic_point_honest() {
+    let input = grid_frame(1, 3, -20.0);
+    let (k, m, f, _) = harmonic_model_2d(&input);
+    let modal = solve_modal_2d(&input, &densities(), 3).unwrap();
+    let w1 = modal.modes[0].omega;
+    let a = (0.05 * w1, 0.002);
+    for (label, w) in [("static", 0.0), ("0.5ω1", 0.5 * w1), ("0.99ω1", 0.99 * w1), ("ω1", w1), ("1.5ω1", 1.5 * w1)]
+    {
+        let pc = certify_point(&k, &m, &f, a, w, 0.0).unwrap_or_else(|e| panic!("{label}: {e}"));
+        let (xr, xi) = reference_harmonic(&k, &m, &f, a, w);
+        let err = (0..k.n)
+            .map(|j| xr[j].sub(DD::new(pc.u_re[j])).hi.powi(2) + xi[j].sub(DD::new(pc.u_im[j])).hi.powi(2))
+            .sum::<f64>()
+            .sqrt();
+        let unorm = pc.u_re.iter().chain(&pc.u_im).map(|x| x * x).sum::<f64>().sqrt();
+        eprintln!(
+            "harmonic {label}: s={} μ={:.2e} err={err:.2e} bound={:.2e} (‖u‖={unorm:.2e})",
+            pc.shift, pc.mu, pc.abs_bound
+        );
+        assert!(err <= pc.abs_bound, "{label}: err {err:e} > bound {:e}", pc.abs_bound);
+        assert!(pc.abs_bound < 1e-8 * unorm, "{label}: loose bound");
+    }
+}
+
+#[test]
+fn certify_harmonic_sweep_2d() {
+    let input = grid_frame(1, 3, -20.0);
+    let modal = solve_modal_2d(&input, &densities(), 3).unwrap();
+    let f1 = modal.modes[0].frequency;
+    let hi = HarmonicInput {
+        solver: input.clone(),
+        densities: densities(),
+        frequencies: vec![0.0, 0.5 * f1, 0.95 * f1, f1, 1.2 * f1, 2.0 * f1, 5.0 * f1],
+        damping_ratio: 0.05,
+        response_node_id: 8,
+        response_dof: "x".into(),
+    };
+    let out = certify_harmonic_2d(&hi).unwrap();
+    let HarmonicCertificate::Certified { a0, a1, points, peak_amplitude, max_reported_error, reported_within } =
+        &out.certificate
+    else {
+        panic!("{:?}", out.certificate)
+    };
+    let (k, m, f, dof) = harmonic_model_2d(&input);
+    let t = dof.map[&(8, 0)];
+    for pt in points {
+        let (xr, xi) = reference_harmonic(&k, &m, &f, (*a0, *a1), pt.omega);
+        let (re, im) = (xr[t].hi, xi[t].hi);
+        assert!(pt.real.contains(re) && pt.imag.contains(im), "f={}: ({re}, {im}) {pt:?}", pt.frequency);
+        assert!(pt.amplitude.contains((re * re + im * im).sqrt()));
+    }
+    eprintln!(
+        "sweep: peak ∈ [{:.6e}, {:.6e}] reported {:.6e}, max reported error {max_reported_error:.2e}, within {reported_within}",
+        peak_amplitude.lo, peak_amplitude.hi, out.results.peak_amplitude
+    );
+    // A tampered result is caught.
+    let mut res = out.results.clone();
+    res.response_points[3].real *= 1.001;
+    let c = dedaliano_engine::certify::harmonic::certify_harmonic_results_2d(&hi, &res, (*a0, *a1));
+    let HarmonicCertificate::Certified { reported_within, .. } = c else { panic!() };
+    assert!(!reported_within);
+    // A wrong damping model: the solver's answer is outside the enclosures.
+    let c = dedaliano_engine::certify::harmonic::certify_harmonic_results_2d(&hi, &out.results, (2.0 * a0, 2.0 * a1));
+    if let HarmonicCertificate::Certified { reported_within, .. } = c {
+        assert!(!reported_within, "answer for another damping model reported as within");
+    }
+}

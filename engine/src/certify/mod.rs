@@ -5,6 +5,7 @@ pub mod combinations;
 pub mod constrained;
 pub mod design;
 pub mod forces;
+pub mod harmonic;
 pub mod interval;
 pub mod linear;
 pub mod modal;

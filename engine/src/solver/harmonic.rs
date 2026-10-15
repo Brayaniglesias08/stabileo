@@ -68,6 +68,12 @@ fn default_response_dof_3d() -> String { "z".into() }
 // ==================== 2D Harmonic Analysis ====================
 
 pub fn solve_harmonic_2d(input: &HarmonicInput) -> Result<HarmonicResult, String> {
+    solve_harmonic_2d_with_damping(input).map(|(r, _)| r)
+}
+
+/// `solve_harmonic_2d` plus the Rayleigh coefficients `(a₀, a₁)` it used
+/// (`C = a₀M + a₁K`): the damping model the certificate refers to.
+pub fn solve_harmonic_2d_with_damping(input: &HarmonicInput) -> Result<(HarmonicResult, (f64, f64)), String> {
     super::linear::validate_input_2d(&input.solver)?;
     let referenced_material_ids = super::dynamic_validation::referenced_material_ids_2d(&input.solver);
     super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
@@ -123,10 +129,10 @@ pub fn solve_harmonic_2d(input: &HarmonicInput) -> Result<HarmonicResult, String
         } else {
             target_dof
         };
-        if let Some((response_points, peak_frequency, peak_amplitude)) =
+        if let Some((response_points, peak_frequency, peak_amplitude, damping)) =
             solve_harmonic_modal_sparse(k_sp, m_sp, &f_sp, &input.frequencies, input.damping_ratio, target_s)
         {
-            return Ok(HarmonicResult { response_points, peak_frequency, peak_amplitude });
+            return Ok((HarmonicResult { response_points, peak_frequency, peak_amplitude }, damping));
         }
         // Sparse modal found no usable modes (or Lanczos failed). The dense
         // paths below are O(n²) memory — past the dense ceiling, fail loudly
@@ -162,10 +168,10 @@ pub fn solve_harmonic_2d(input: &HarmonicInput) -> Result<HarmonicResult, String
         target_dof
     };
 
-    if let Some((response_points, peak_frequency, peak_amplitude)) =
+    if let Some((response_points, peak_frequency, peak_amplitude, damping)) =
         solve_harmonic_modal(&k_s, &m_s, &f_s, ns, &input.frequencies, input.damping_ratio, target_s)
     {
-        return Ok(HarmonicResult { response_points, peak_frequency, peak_amplitude });
+        return Ok((HarmonicResult { response_points, peak_frequency, peak_amplitude }, damping));
     }
 
     // Fallback: direct 2n×2n block LU per frequency
@@ -206,16 +212,22 @@ pub fn solve_harmonic_2d(input: &HarmonicInput) -> Result<HarmonicResult, String
         });
     }
 
-    Ok(HarmonicResult {
+    Ok((HarmonicResult {
         response_points,
         peak_frequency: peak_freq,
         peak_amplitude: peak_amp,
-    })
+    }, (a0, a1)))
 }
 
 // ==================== 3D Harmonic Analysis ====================
 
 pub fn solve_harmonic_3d(input: &HarmonicInput3D) -> Result<HarmonicResult, String> {
+    solve_harmonic_3d_with_damping(input).map(|(r, _)| r)
+}
+
+/// `solve_harmonic_3d` plus the Rayleigh coefficients `(a₀, a₁)` it used
+/// (`C = a₀M + a₁K`): the damping model the certificate refers to.
+pub fn solve_harmonic_3d_with_damping(input: &HarmonicInput3D) -> Result<(HarmonicResult, (f64, f64)), String> {
     super::linear::validate_input_3d(&input.solver)?;
     let referenced_material_ids = super::dynamic_validation::referenced_material_ids_3d(&input.solver);
     super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
@@ -267,10 +279,10 @@ pub fn solve_harmonic_3d(input: &HarmonicInput3D) -> Result<HarmonicResult, Stri
     } else {
         target_dof
     };
-    if let Some((response_points, peak_frequency, peak_amplitude)) =
+    if let Some((response_points, peak_frequency, peak_amplitude, damping)) =
         solve_harmonic_modal_sparse(k_sp, m_sp, &f_sp, &input.frequencies, input.damping_ratio, target_s)
     {
-        return Ok(HarmonicResult { response_points, peak_frequency, peak_amplitude });
+        return Ok((HarmonicResult { response_points, peak_frequency, peak_amplitude }, damping));
     }
 
     // Dense path: only below the dense ceiling — a sparse-modal failure on a
@@ -301,10 +313,10 @@ pub fn solve_harmonic_3d(input: &HarmonicInput3D) -> Result<HarmonicResult, Stri
     };
 
     // Try dense modal superposition
-    if let Some((response_points, peak_frequency, peak_amplitude)) =
+    if let Some((response_points, peak_frequency, peak_amplitude, damping)) =
         solve_harmonic_modal(&k_s, &m_s, &f_s, ns, &input.frequencies, input.damping_ratio, target_s)
     {
-        return Ok(HarmonicResult { response_points, peak_frequency, peak_amplitude });
+        return Ok((HarmonicResult { response_points, peak_frequency, peak_amplitude }, damping));
     }
 
     // Fallback: direct 2n×2n block LU per frequency
@@ -345,14 +357,18 @@ pub fn solve_harmonic_3d(input: &HarmonicInput3D) -> Result<HarmonicResult, Stri
         });
     }
 
-    Ok(HarmonicResult {
+    Ok((HarmonicResult {
         response_points,
         peak_frequency: peak_freq,
         peak_amplitude: peak_amp,
-    })
+    }, (a0, a1)))
 }
 
 // ==================== Modal Frequency Response ====================
+
+/// Response points, peak frequency, peak amplitude and the Rayleigh
+/// coefficients `(a₀, a₁)` the sweep used.
+type ModalSweep = (Vec<HarmonicResponsePoint>, f64, f64, (f64, f64));
 
 /// Shared post-eigensolve logic: given eigen-decomposition, compute modal
 /// frequency response via superposition.
@@ -367,7 +383,7 @@ fn harmonic_modal_from_eigen(
     frequencies: &[f64],
     damping_ratio: f64,
     target_dof: usize,
-) -> Option<(Vec<HarmonicResponsePoint>, f64, f64)> {
+) -> Option<ModalSweep> {
     let f_max = frequencies.iter().cloned().fold(0.0f64, f64::max);
     let omega_max = 2.0 * std::f64::consts::PI * f_max;
     let omega_cutoff_sq = (2.0 * omega_max) * (2.0 * omega_max);
@@ -463,7 +479,7 @@ fn harmonic_modal_from_eigen(
         });
     }
 
-    Some((response_points, peak_freq, peak_amp))
+    Some((response_points, peak_freq, peak_amp, (a0, a1)))
 }
 
 /// Modal superposition harmonic solver (dense eigensolve).
@@ -471,7 +487,7 @@ fn solve_harmonic_modal(
     k: &[f64], m: &[f64], f: &[f64], n: usize,
     frequencies: &[f64], damping_ratio: f64,
     target_dof: usize,
-) -> Option<(Vec<HarmonicResponsePoint>, f64, f64)> {
+) -> Option<ModalSweep> {
     if frequencies.is_empty() || n == 0 { return None; }
 
     let n_modes = 100.min(n / 2).max(2);
@@ -495,7 +511,7 @@ fn solve_harmonic_modal_sparse(
     k_csc: &CscMatrix, m: &CscMatrix, f: &[f64],
     frequencies: &[f64], damping_ratio: f64,
     target_dof: usize,
-) -> Option<(Vec<HarmonicResponsePoint>, f64, f64)> {
+) -> Option<ModalSweep> {
     let n = k_csc.n;
     if frequencies.is_empty() || n == 0 { return None; }
 

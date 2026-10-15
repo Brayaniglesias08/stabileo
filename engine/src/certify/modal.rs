@@ -650,9 +650,9 @@ fn enclose(sigma_k: f64, lam: f64, mp: &ModeParts) -> ModeEnclosure {
     ModeEnclosure { omega2_computed: lam, omega2_lower, omega2_upper }
 }
 
-type Pattern = Vec<Vec<(usize, Option<usize>, Option<usize>)>>;
+pub(crate) type Pattern = Vec<Vec<(usize, Option<usize>, Option<usize>)>>;
 
-fn union_pattern(a: &CscMatrix, b: &CscMatrix) -> Option<Pattern> {
+pub(crate) fn union_pattern(a: &CscMatrix, b: &CscMatrix) -> Option<Pattern> {
     let sorted = |m: &CscMatrix| {
         (0..m.n).all(|j| m.row_idx[m.col_ptr[j]..m.col_ptr[j + 1]].windows(2).all(|w| w[0] < w[1]))
     };
