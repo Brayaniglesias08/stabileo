@@ -6,11 +6,14 @@ pub mod combinations;
 pub mod constrained;
 pub mod design;
 pub mod forces;
+pub mod harmonic;
 pub mod interval;
 pub mod linear;
 pub mod modal;
+pub mod pdelta;
 pub mod real;
 pub mod solver;
+pub mod spectral;
 pub mod sparse;
 
 pub use linear::{

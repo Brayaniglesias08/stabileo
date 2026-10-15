@@ -428,6 +428,220 @@ Inherited limitations: rounding in the f64 evaluation of member forces and diagr
 polynomials (see member force bounds) is not included; capacities are certified as the
 real-number value of the code formula for the given section data.
 
+## P-Delta (second-order) displacements
+
+`engine/src/certify/pdelta.rs` (wasm: `certify_pdelta_2d/3d`).
+
+**Model.** The P-Delta solver iterates `(K + K_G(u)) u = f`, the geometric stiffness
+built from axial forces read back from the displacements. Element by element
+(`KgAffineTerm`, `geometric_stiffness_terms_{2d,3d}`):
+
+    K_G(u) = Σ_e N_e(u) G_e,    N_e(u) = e·a·(t_eᵀu / l − α·ΔT),
+
+with `G_e` the element's global geometric stiffness at unit axial force computed by the
+same element routine the solver uses (frames: Przemieniecki, 3D condensed for end
+releases; trusses/cables: string stiffness), `t_e` the elongation coefficients (entries of
+the element's transformation), and `e`, `a`, `l`, `α`, `ΔT` the f64 element data. The
+certified model takes these f64 values, the sparse triplet-assembled `K` (full, free DOFs
+first) and the assembled `f` as exact; the solver's own f64 `K_G(ũ)` equals `Σ N_e G_e`
+only up to rounding, which does not matter because `ũ` is only a candidate. (The small
+dense path, `n_total < 64`, iterates on the dense assembly, which differs from the
+triplet one by rounding.) Restrained DOFs keep their returned (prescribed) values `u_R`.
+Constraints and inclined supports are refused.
+
+The free equations `F(x) = [(K + K_G(u))u − f]_F`, `u = [x; u_R]`, are *exactly quadratic*:
+with `c_e = e·a/l` and `x = ũ + δ`,
+
+    F(ũ + δ) = F(ũ) + J δ + q(δ, δ),
+    J = (K + K_G(ũ))_FF + Σ_e c_e (G_e ũ)_F t_eᵀ,     q(x, y) = Σ_e c_e (t_eᵀx)(G_e y)_F,
+
+because `K_G` is affine in `u` (`K_G(ũ + δ) = K_G(ũ) + Σ c_e (t_eᵀδ) G_e`). `J` is not
+symmetric.
+
+**Bounds.**
+
+* `‖q(x, y)‖₂ ≤ β‖x‖₂‖y‖₂` with `β = max_d Σ_{e ∋ d} w_e`, `w_e = |c_e|·‖t_e‖₂·‖G_e‖_F`
+  (restricted to free DOFs). Proof: `‖q(x,y)‖ ≤ Σ_e w_e ‖x_e‖‖y_e‖ ≤ (Σ w_e‖x_e‖²)^{½}
+  (Σ w_e‖y_e‖²)^{½}` (Cauchy–Schwarz) and `Σ_e w_e‖x_e‖² = Σ_d x_d² Σ_{e∋d} w_e ≤ β‖x‖²`.
+* `xᵀJx ≥ μ‖x‖²`: `sym(J)` (same sparsity as `K`: each `c_e g_e t_eᵀ` lives on the
+  element's DOFs) is enclosed entrywise in intervals and certified by the Gram residual +
+  Gershgorin check. Then `‖Jx‖ ≥ μ‖x‖`, `J` is invertible and `‖J⁻¹‖₂ ≤ 1/μ`.
+* `‖J⁻¹F(ũ)‖₂ ≤ η := ‖d‖₂ + ‖F(ũ) − J d‖₂ / μ` for *any* vector `d` (an f64 Newton
+  step: Cholesky of `sym(J)` plus refinement with `J`; never trusted), since
+  `J⁻¹F = d + J⁻¹(F − Jd)`. `F(ũ)` and `J d` are evaluated in interval arithmetic.
+
+**Lemma (Newton–Kantorovich for a quadratic map).** Let `F(ũ + δ) = F(ũ) + Jδ + q(δ,δ)`
+with `q` bilinear, `J` invertible, `‖J⁻¹F(ũ)‖ ≤ η`, `‖J⁻¹q(x,y)‖ ≤ γ‖x‖‖y‖`. If
+`4γη < 1`, then `F` has exactly one zero `u*` in the open ball `‖u − ũ‖ < 1/(2γ)`, and
+`‖u* − ũ‖ ≤ r := 2η / (1 + √(1 − 4γη))` (the smaller root of `γr² − r + η = 0`).
+
+*Proof.* Zeros of `F(ũ + ·)` are the fixed points of `T(δ) = −J⁻¹F(ũ) − J⁻¹q(δ,δ)`. On
+`B_s = {‖δ‖ ≤ s}`: `‖T(δ)‖ ≤ η + γs² ≤ s` for `s ∈ [r, r₊]`, and since
+`q(δ,δ) − q(δ',δ') = q(δ − δ', δ) + q(δ', δ − δ')`, `‖T(δ) − T(δ')‖ ≤ 2γs‖δ − δ'‖`, a
+contraction for `s < 1/(2γ)`. With `4γη < 1`, `r < 1/(2γ)`, so Banach's theorem on
+`B_r` gives existence of a zero with `‖δ‖ ≤ r`; for any `s ∈ [r, 1/(2γ))` it is the only
+one in `B_s`, hence the only one with `‖δ‖ < 1/(2γ)`. ∎
+
+Applied with `γ = β/μ` (`‖J⁻¹q(x,y)‖ ≤ ‖q(x,y)‖/μ`). The Rust validates the root
+instead of trusting the formula: `r` is computed rounded up and accepted only if
+`η + γr² ≤ r` and `2γr < 1` hold with directed rounding; `uniqueness_radius = 1/(2γ)`
+rounded down. With `β = 0` (no axial-force-dependent terms) it reduces to the linear
+bound `η`.
+
+**Stability of the exact state.** If `λ_min(sym(K + K_G(ũ))_FF) ≥ μ_A` (Gram +
+Gershgorin), then `λ_min(sym(K + K_G(u*))) ≥ μ_A − βr`, because
+`|xᵀ(K_G(u*) − K_G(ũ))x| = |Σ_e c_e(t_eᵀδ) x_eᵀG_e x_e| ≤ ‖δ‖ Σ_e w_e ‖x_e‖² ≤ βr‖x‖²`.
+When positive it is reported as `stabilityMargin`: the exact second-order state is
+stable (`K + K_G(u*) ≻ 0`), independently of the solver's Cholesky/LU path.
+
+**Output.** `absBound = r` on `‖u*_F − ũ_F‖₂`, `relBound`, `uniquenessRadius`, `mu`,
+`beta`, `residualNorm` (`≥ ‖F(ũ)‖₂`), `newtonStep` (`η`), `stabilityMargin`. The
+solver's iteration count does not matter: an iteration-limited answer is certified with
+a bound on its distance to the true fixed point (tests: 2 iterations at 0.8·P_cr, true
+error 2.24e-8, bound 2.26e-8). Past the critical load the reversed-sway LU answer is
+never certified stable. Uncertified when `sym(J)` is not certified positive definite
+(e.g. a candidate near an unstable equilibrium) or `4γη < 1` fails (candidate too far
+for the curvature bound).
+
+Honesty test (`tests/certify_nonlinear.rs`): the exact fixed point of the same model by
+Newton's method with double-double residuals. Not formalized in Lean.
+
+## Response spectrum (SRSS / CQC)
+
+`engine/src/certify/spectral.rs` (wasm: `certify_spectral_2d/3d`).
+
+**What is certified.** The spectral response, combined by the solver's rule (SRSS, or
+CQC with the solver's correlation coefficients), of the **exact lowest `m` modes** of the
+pencil `(K, M)` — `m` the number of modes in the input — with the spectrum evaluated at
+the exact periods. `K` and `M` are the f64 sparse assemblies (as in "Modal enclosures"),
+the influence vector `r` the solver's (unit translation in the direction), `Sa(T)` the
+piecewise-linear interpolation of the spectrum points (constant beyond the ends), times
+`9.81` (when in g, the f64 constant) `× I / R` (exact real quotient). Nothing the input
+says about ω, periods, participation factors or effective masses is trusted; the mode
+shapes and ω are candidates. Mass-participation truncation is not accounted for: the
+certificate is for the response of exactly the lowest `m` modes (that they *are* the
+lowest `m`, with none missing, is part of the certificate). Constraints, inclined
+supports, curved beams and warping DOFs are refused.
+
+**Modal response through the eigenprojector.** With `C = K^{-1/2}MK^{-1/2}` (eigenvalues
+`ν = 1/λ`), `y = K^{1/2}φ` and `b = K^{-1/2}Mr`, for an exact simple eigenpair
+
+    u_i* = φ (φᵀMr)/(φᵀMφ) · Sa(Tᵢ)/ωᵢ² = K^{-1/2} Πᵢ b · Sa(Tᵢ),     Πᵢ = yyᵀ/‖y‖²
+
+(`φᵀMφ = νᵢ‖y‖²`, `λᵢνᵢ = 1`), independent of the normalization and sign of `φ`. For the
+computed `φ̃` (projector `Π̃` of `ỹ = K^{1/2}φ̃`), `K^{-1/2}Π̃b = φ̃ (φ̃ᵀMr)/(φ̃ᵀKφ̃)`, so
+
+    ‖u_i* − αᵢ φ̃‖₂ ≤ eᵢ := sinθᵢ · ‖Mr‖₂ · |Sa(Tᵢ)| / σ_K,    αᵢ = (φ̃ᵀMr)/(φ̃ᵀKφ̃) · Sa(Tᵢ),
+
+using `‖K^{-1/2}‖₂ ≤ σ_K^{-1/2}`, `‖b‖₂ ≤ ‖Mr‖₂ σ_K^{-1/2}`, `‖Πᵢ − Π̃‖₂ = sinθᵢ`
+(rank-one orthogonal projectors). `αᵢ` is an interval (`Sa` over the period enclosure).
+
+**Isolation and eigenvector error (Davis–Kahan, single vector).** The modes are sorted by
+ω̃² (strictly increasing; repeated frequencies are refused — the modal response of a
+multiple eigenvalue depends on the basis, so the SRSS/CQC of "the exact modes" is not
+defined). Cutoffs `0 = μ₀ < μ₁ < … < μ_m` are placed in the gaps (midpoint in ν; the
+last one at `(1 + t)λ̃_m`, the largest `t ∈ {0.5, …, 0.001}` that certifies) and at each
+`μ_j` the two completeness certificates of "Modal enclosures" give `#{λ < μ_j} ≥ j` and
+`#{λ ≤ μ_j} ≤ j`. Hence exactly one eigenvalue `λ_j` (simple) lies in `(μ_{j−1}, μ_j)`
+and every other eigenvalue `ν_k` of `C` (including the `ν = 0` of a singular `M`) is
+`≥ 1/μ_{j−1}` or `≤ 1/μ_j`. With `ρⱼ ≥ ‖Cỹ − ν̂ỹ‖/‖ỹ‖` (as in the single-mode
+enclosure) and `δⱼ = min(1/μ_{j−1} − ν̂, ν̂ − 1/μ_j)`:
+
+    sinθⱼ ≤ min(1, ρⱼ / δⱼ).
+
+*Proof.* Write the unit `ỹ = c y + s z`, `y` the eigenvector, `z ⊥ y` unit. Projecting the
+residual onto `y^⊥` (which `C` leaves invariant) gives `s(C − ν̂)z`, and
+`‖(C − ν̂)z‖ ≥ δ` because `z` lies in the span of the other eigenvectors. So
+`|s|δ ≤ ‖Cỹ − ν̂ỹ‖ ≤ ρ`. ∎ The eigenvalue enclosure is the bracket, tightened by the
+Bauer–Fike ball `[ν̂ − ρ, ν̂ + ρ]` when that ball lies inside the bracket's ν-range (then
+the eigenvalue it contains is `λ_j`).
+
+**Spectrum on period intervals.** `Tⱼ = 2π/√λⱼ ∈ [T_lo, T_hi]` (π enclosed by one ulp).
+Since `Sa` is continuous and piecewise linear, its range over `[T_lo, T_hi]` is the hull
+of its values at `T_lo`, `T_hi` (interval-evaluated interpolation) and at the breakpoints
+inside; the spectrum periods must be finite and strictly increasing (else refused).
+
+**Combination.** Per free DOF, `u_ik* ∈ αᵢφ̃_k + [−eᵢ, eᵢ]`; SRSS `√(Σᵢ u_ik²)` and CQC
+`√|Σᵢⱼ u_ik ρᵢⱼ u_jk|` are evaluated in interval arithmetic, with
+`ρᵢⱼ = 8ξ²(1+r)r^{3/2} / ((1−r²)² + 4ξ²r(1+r)²)`, `r = ωⱼ/ωᵢ` over the ω enclosures
+(`ρᵢᵢ = 1` exactly; refused if a denominator enclosure contains 0).
+
+* **Member forces**: per mode the solver's force recovery at `ũᵢ = mid(αᵢ)φ̃`, the error
+  bound `bᵢ = eᵢ + ‖αᵢφ̃ − ũᵢ‖` fed to the member force bounds (`max(|start|, |end|)` is
+  1-Lipschitz), then SRSS/CQC in intervals. As for member force bounds, rounding in the
+  f64 force recovery is not included. (The solver's modal force recovery also includes
+  the fixed-end forces of any element loads in the model; the certificate uses the same
+  recovery, so it certifies that quantity.)
+* **Base shear** (the solver always combines it by SRSS): `meffᵢ* = λᵢ‖Πᵢb‖²` with
+  `‖Πᵢb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθᵢ‖Mr‖/√σ_K`, times `Sa(Tᵢ)`, SRSS in intervals.
+
+**Output.** Per mode: ω², period and `Sa` enclosures, `sinθ`, `eᵢ`; per node and member
+the enclosures of the combined values; the base-shear enclosure; bounds on
+`|exact − reported|` (max over displacement components, over force components, and for
+the base shear) and whether every reported value lies inside its enclosure. A wrong
+participation factor or ω in the input, or a tampered result, shows up as
+`reportedWithin = false` (the enclosures do not use them); a missing mode makes the
+isolation fail (`Uncertified`).
+
+Honesty test (`tests/certify_nonlinear.rs`): an independent dense reference (Cholesky of
+`K`, cyclic Jacobi on `L⁻¹ML⁻ᵀ`) of the exact modal response, combined in f64; the
+reference lies inside every enclosure (to 1e-14 relative, its own accuracy). Not
+formalized in Lean.
+
+## Harmonic (steady-state) response
+
+`engine/src/certify/harmonic.rs` (wasm: `certify_harmonic_2d/3d`).
+
+**Model.** At each reported frequency, `ω` is the solver's f64 `2π·f` (a mismatch with
+the reported `omega` is refused) and the exact steady state solves
+
+    A u = f,    A = K_d + iωC,    K_d = K − ω²M,    C = a₀M + a₁K,
+
+with `K`, `M` the f64 sparse assemblies on the free DOFs, `f` the assembled load, and
+`(a₀, a₁)` the Rayleigh coefficients the solver derived (returned by
+`solve_harmonic_{2d,3d}_with_damping`; reported in the certificate). This is the full
+(untruncated) Rayleigh-damped system; the solver's modal superposition with a filtered
+set of modes is one approximation of it. Constraints and inclined supports are refused.
+
+**Lemma (rotated coercivity).** For `s ≥ 0` let `B(s) = K_d + sωC =
+(1 + sωa₁)K − (ω² − sωa₀)M` (real symmetric). If `λ_min(B(s)) ≥ μ_s > 0` then for every
+complex `x`, `‖Ax‖₂ ≥ μ‖x‖₂` with `μ = μ_s/√(1 + s²)`; so `A` is invertible and for any
+`ũ`, `‖u* − ũ‖₂ ≤ ‖f − Aũ‖₂/μ`.
+
+*Proof.* `K`, `M` are real symmetric, so `a = xᴴK_dx` and `c = xᴴCx` are real and
+`xᴴAx = a + iωc`. Then `Re((1 − is)xᴴAx) = a + sωc = xᴴB(s)x`, and for `x = p + iq`,
+`xᴴB(s)x = pᵀBp + qᵀBq ≥ μ_s‖x‖²`. Hence `√(1+s²)·‖x‖‖Ax‖ ≥ |1 − is|·|xᴴAx| ≥ μ_s‖x‖²`. ∎
+
+`s = 0` is plain coercivity of `K − ω²M` (below the first resonance). Above it, damping
+supplies it: in modal terms `B(s) ≻ 0` iff `s > (ω² − λⱼ)/(2ξⱼωⱼω)` for every mode
+below `ω`, so with `C ≻ 0` (`a₁ > 0`) some `s` always works at any `ω` — including at
+resonance. `B(s)` is enclosed entrywise (`1 + sωa₁` and `ω² − sωa₀` in intervals) and
+certified with the Gram residual + Gershgorin check on the real n×n matrix; no 2n×2n
+system and no normal equations `AᴴA` are formed, so there is no size cap. `s` is tried
+from `{previous point's s, 0, 0.1, 0.3, 1, …, 10⁵}`; soundness does not depend on it.
+An undamped system above its first resonance (`C = 0`, `K_d` indefinite) is refused: its
+invertibility would need a σ_min certificate of an indefinite matrix, not implemented.
+
+**Candidate and residual.** The solver reports only the target DOF, so the certificate
+computes its own full `ũ`: with `H = B(s)` (sparse Cholesky) and `G = ωC − sK_d`,
+`(1 − is)A = H + iG`; CG in the H-inner product on `(I + W²)u = (I − iW)H⁻¹(1 − is)f`,
+`W = H⁻¹G` (`I + W²` is H-self-adjoint, `⪰ I`), plus two steps of refinement. Nothing
+about it is trusted: `r = f − Aũ` (real and imaginary parts) is enclosed in interval
+arithmetic and `absBound = ‖r‖₂/μ` rounded up.
+
+**Output.** Per frequency: `absBound` (whole free vector), `mu`, `shift` (`s`), and
+enclosures `ũ_t ± absBound` of the exact real part, imaginary part and amplitude at the
+target DOF; `reportedError = absBound + |ũ_t − reported_t|` bounds `|u*_t − reported_t|`,
+and therefore includes the solver's modal-truncation error (test: the reported peak
+6.258509e-2 vs. the certified exact 6.258518e-2, `reportedWithin = false`). The exact
+peak amplitude over the sampled frequencies is enclosed by the max of the per-point
+enclosures (the max is 1-Lipschitz). The phase is not bounded.
+
+Honesty tests (`tests/certify_nonlinear.rs`): the same system solved by LU of the real
+2n×2n block matrix with double-double residual refinement, at frequencies below, near,
+at and above the first resonance; the reference lies within every bound. Unit tests use
+decoupled systems with closed-form solutions. Not formalized in Lean.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.
@@ -437,6 +651,8 @@ modelled by abstract `down, up : ℝ → ℝ` with `down x ≤ x ≤ up x`.
 
 ## Out of scope for v1
 
-Mechanism certificates (exact rational null vectors), and proving the f64 implementation matches the Lean algorithm. (Large
+Corotational / large-displacement nonlinear static solvers (their residuals involve
+rotations and are not polynomial in `u`; the quadratic Kantorovich argument of "P-Delta"
+does not apply as is), material nonlinearity, time integration. Mechanism certificates (exact rational null vectors), and proving the f64 implementation matches the Lean algorithm. (Large
 models are covered by the Gram/Gershgorin certificate above; the dense interval
 Cholesky is used only below the solver's sparse threshold.)
