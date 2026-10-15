@@ -11,6 +11,7 @@ pub mod modal;
 pub mod pdelta;
 pub mod real;
 pub mod solver;
+pub mod spectral;
 pub mod sparse;
 
 pub use linear::{

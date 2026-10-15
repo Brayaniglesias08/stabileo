@@ -420,6 +420,88 @@ for the curvature bound).
 Honesty test (`tests/certify_nonlinear.rs`): the exact fixed point of the same model by
 Newton's method with double-double residuals. Not formalized in Lean.
 
+## Response spectrum (SRSS / CQC)
+
+`engine/src/certify/spectral.rs` (wasm: `certify_spectral_2d/3d`).
+
+**What is certified.** The spectral response, combined by the solver's rule (SRSS, or
+CQC with the solver's correlation coefficients), of the **exact lowest `m` modes** of the
+pencil `(K, M)` — `m` the number of modes in the input — with the spectrum evaluated at
+the exact periods. `K` and `M` are the f64 sparse assemblies (as in "Modal enclosures"),
+the influence vector `r` the solver's (unit translation in the direction), `Sa(T)` the
+piecewise-linear interpolation of the spectrum points (constant beyond the ends), times
+`9.81` (when in g, the f64 constant) `× I / R` (exact real quotient). Nothing the input
+says about ω, periods, participation factors or effective masses is trusted; the mode
+shapes and ω are candidates. Mass-participation truncation is not accounted for: the
+certificate is for the response of exactly the lowest `m` modes (that they *are* the
+lowest `m`, with none missing, is part of the certificate). Constraints, inclined
+supports, curved beams and warping DOFs are refused.
+
+**Modal response through the eigenprojector.** With `C = K^{-1/2}MK^{-1/2}` (eigenvalues
+`ν = 1/λ`), `y = K^{1/2}φ` and `b = K^{-1/2}Mr`, for an exact simple eigenpair
+
+    u_i* = φ (φᵀMr)/(φᵀMφ) · Sa(Tᵢ)/ωᵢ² = K^{-1/2} Πᵢ b · Sa(Tᵢ),     Πᵢ = yyᵀ/‖y‖²
+
+(`φᵀMφ = νᵢ‖y‖²`, `λᵢνᵢ = 1`), independent of the normalization and sign of `φ`. For the
+computed `φ̃` (projector `Π̃` of `ỹ = K^{1/2}φ̃`), `K^{-1/2}Π̃b = φ̃ (φ̃ᵀMr)/(φ̃ᵀKφ̃)`, so
+
+    ‖u_i* − αᵢ φ̃‖₂ ≤ eᵢ := sinθᵢ · ‖Mr‖₂ · |Sa(Tᵢ)| / σ_K,    αᵢ = (φ̃ᵀMr)/(φ̃ᵀKφ̃) · Sa(Tᵢ),
+
+using `‖K^{-1/2}‖₂ ≤ σ_K^{-1/2}`, `‖b‖₂ ≤ ‖Mr‖₂ σ_K^{-1/2}`, `‖Πᵢ − Π̃‖₂ = sinθᵢ`
+(rank-one orthogonal projectors). `αᵢ` is an interval (`Sa` over the period enclosure).
+
+**Isolation and eigenvector error (Davis–Kahan, single vector).** The modes are sorted by
+ω̃² (strictly increasing; repeated frequencies are refused — the modal response of a
+multiple eigenvalue depends on the basis, so the SRSS/CQC of "the exact modes" is not
+defined). Cutoffs `0 = μ₀ < μ₁ < … < μ_m` are placed in the gaps (midpoint in ν; the
+last one at `(1 + t)λ̃_m`, the largest `t ∈ {0.5, …, 0.001}` that certifies) and at each
+`μ_j` the two completeness certificates of "Modal enclosures" give `#{λ < μ_j} ≥ j` and
+`#{λ ≤ μ_j} ≤ j`. Hence exactly one eigenvalue `λ_j` (simple) lies in `(μ_{j−1}, μ_j)`
+and every other eigenvalue `ν_k` of `C` (including the `ν = 0` of a singular `M`) is
+`≥ 1/μ_{j−1}` or `≤ 1/μ_j`. With `ρⱼ ≥ ‖Cỹ − ν̂ỹ‖/‖ỹ‖` (as in the single-mode
+enclosure) and `δⱼ = min(1/μ_{j−1} − ν̂, ν̂ − 1/μ_j)`:
+
+    sinθⱼ ≤ min(1, ρⱼ / δⱼ).
+
+*Proof.* Write the unit `ỹ = c y + s z`, `y` the eigenvector, `z ⊥ y` unit. Projecting the
+residual onto `y^⊥` (which `C` leaves invariant) gives `s(C − ν̂)z`, and
+`‖(C − ν̂)z‖ ≥ δ` because `z` lies in the span of the other eigenvectors. So
+`|s|δ ≤ ‖Cỹ − ν̂ỹ‖ ≤ ρ`. ∎ The eigenvalue enclosure is the bracket, tightened by the
+Bauer–Fike ball `[ν̂ − ρ, ν̂ + ρ]` when that ball lies inside the bracket's ν-range (then
+the eigenvalue it contains is `λ_j`).
+
+**Spectrum on period intervals.** `Tⱼ = 2π/√λⱼ ∈ [T_lo, T_hi]` (π enclosed by one ulp).
+Since `Sa` is continuous and piecewise linear, its range over `[T_lo, T_hi]` is the hull
+of its values at `T_lo`, `T_hi` (interval-evaluated interpolation) and at the breakpoints
+inside; the spectrum periods must be finite and strictly increasing (else refused).
+
+**Combination.** Per free DOF, `u_ik* ∈ αᵢφ̃_k + [−eᵢ, eᵢ]`; SRSS `√(Σᵢ u_ik²)` and CQC
+`√|Σᵢⱼ u_ik ρᵢⱼ u_jk|` are evaluated in interval arithmetic, with
+`ρᵢⱼ = 8ξ²(1+r)r^{3/2} / ((1−r²)² + 4ξ²r(1+r)²)`, `r = ωⱼ/ωᵢ` over the ω enclosures
+(`ρᵢᵢ = 1` exactly; refused if a denominator enclosure contains 0).
+
+* **Member forces**: per mode the solver's force recovery at `ũᵢ = mid(αᵢ)φ̃`, the error
+  bound `bᵢ = eᵢ + ‖αᵢφ̃ − ũᵢ‖` fed to the member force bounds (`max(|start|, |end|)` is
+  1-Lipschitz), then SRSS/CQC in intervals. As for member force bounds, rounding in the
+  f64 force recovery is not included. (The solver's modal force recovery also includes
+  the fixed-end forces of any element loads in the model; the certificate uses the same
+  recovery, so it certifies that quantity.)
+* **Base shear** (the solver always combines it by SRSS): `meffᵢ* = λᵢ‖Πᵢb‖²` with
+  `‖Πᵢb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθᵢ‖Mr‖/√σ_K`, times `Sa(Tᵢ)`, SRSS in intervals.
+
+**Output.** Per mode: ω², period and `Sa` enclosures, `sinθ`, `eᵢ`; per node and member
+the enclosures of the combined values; the base-shear enclosure; bounds on
+`|exact − reported|` (max over displacement components, over force components, and for
+the base shear) and whether every reported value lies inside its enclosure. A wrong
+participation factor or ω in the input, or a tampered result, shows up as
+`reportedWithin = false` (the enclosures do not use them); a missing mode makes the
+isolation fail (`Uncertified`).
+
+Honesty test (`tests/certify_nonlinear.rs`): an independent dense reference (Cholesky of
+`K`, cyclic Jacobi on `L⁻¹ML⁻ᵀ`) of the exact modal response, combined in f64; the
+reference lies inside every enclosure (to 1e-14 relative, its own accuracy). Not
+formalized in Lean.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.

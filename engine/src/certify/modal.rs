@@ -262,6 +262,90 @@ pub fn certify_modes_enclosed(
     ModalCertificate::Certified { modes: encl, complete_modes: 0, cutoff_omega2: 0.0, count_failure: failure }
 }
 
+/// A computed mode certified to approximate a *simple* eigenvalue, isolated
+/// from the rest of the spectrum (used for eigenvector bounds, `spectral.rs`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct IsolatedMode {
+    /// Cutoffs `μ_{i−1} < λ_i < μ_i`: exactly `i − 1` eigenvalues are `< μ_{i−1}`
+    /// (none equal to it) and exactly `i` are `< μ_i` (none equal to it). 0 for
+    /// the first mode.
+    pub lower_cut: f64,
+    pub upper_cut: f64,
+    /// `ν̂ = 1/λ̂` (f64) and `ρ ≥ ‖Cy − ν̂y‖/‖y‖`, `C = K^{-1/2}MK^{-1/2}`, `y = K^{1/2}φ`.
+    pub nu_hat: f64,
+    pub nu_radius: f64,
+}
+
+/// Certify that the computed modes (sorted by strictly increasing ω̂²) are the
+/// lowest `modes.len()` eigenpairs, each eigenvalue simple and bracketed:
+/// for every `i`, at most `i` eigenvalues `λ ≤ μ_i` and at least `i` with
+/// `λ < μ_i` (both from `completeness`), so `#{λ < μ_i} = #{λ ≤ μ_i} = i`.
+/// `σ_K ≤ λ_min(K)` must be certified by the caller.
+#[allow(clippy::neg_cmp_op_on_partial_ord)] // `!(a < b)` also rejects NaN
+pub(crate) fn isolate_modes(
+    k: &CscMatrix,
+    kv: &[Interval],
+    m: &CscMatrix,
+    mv: &[Interval],
+    sigma_k: f64,
+    modes: &[(f64, Vec<f64>)],
+) -> Result<Vec<IsolatedMode>, String> {
+    let n = k.n;
+    if modes.is_empty() || m.n != n || modes.iter().any(|(_, p)| p.len() != n) {
+        return Err("no modes or dimension mismatch".into());
+    }
+    if modes.iter().any(|(l, p)| !(*l > 0.0 && l.is_finite()) || !p.iter().all(|x| x.is_finite())) {
+        return Err("non-finite or non-positive computed mode".into());
+    }
+    if modes.windows(2).any(|w| !(w[0].0 < w[1].0)) {
+        return Err("computed frequencies not strictly increasing (repeated modes have no unique shape)".into());
+    }
+    let Some(pattern) = union_pattern(k, m) else {
+        return Err("unsorted CSC column".into());
+    };
+    let km = Pencil { k, kv, m, mv };
+    let parts: Vec<ModeParts> = modes.iter().map(|(l, p)| mode_parts(&km, *l, p)).collect();
+    let nm = modes.len();
+    let mut cuts = Vec::with_capacity(nm);
+    for j in 1..=nm {
+        let idx: Vec<usize> = (0..j).collect();
+        let candidates: Vec<f64> = if j < nm {
+            vec![2.0 / (parts[j - 1].nu_hat + parts[j].nu_hat)]
+        } else {
+            [1.5, 1.2, 1.1, 1.03, 1.01, 1.001].iter().map(|f| modes[j - 1].0 * f).collect()
+        };
+        let mut last = String::new();
+        let mut found = None;
+        for mu in candidates {
+            match completeness(&km, &pattern, sigma_k, modes, &parts, &idx, mu) {
+                Ok(()) => {
+                    found = Some(mu);
+                    break;
+                }
+                Err(e) => last = e,
+            }
+        }
+        match found {
+            Some(mu) => cuts.push(mu),
+            None => return Err(format!("mode {j} not isolated: {last}")),
+        }
+    }
+    let mut out = Vec::with_capacity(nm);
+    for (i, mp) in parts.iter().enumerate() {
+        let denom = down(down(sigma_k * mp.kphi_dot).sqrt());
+        if !(mp.kphi_dot > 0.0) || !(denom > 0.0) || !mp.s2.is_finite() {
+            return Err(format!("mode {}: φᵀKφ not certified positive", i + 1));
+        }
+        out.push(IsolatedMode {
+            lower_cut: if i == 0 { 0.0 } else { cuts[i - 1] },
+            upper_cut: cuts[i],
+            nu_hat: mp.nu_hat,
+            nu_radius: up(up(mp.s2.sqrt()) / denom),
+        });
+    }
+    Ok(out)
+}
+
 /// Per-mode interval quantities: Kφ, ‖Mφ − ν̂Kφ‖² (rounded up), ν̂ = 1/λ̂.
 struct ModeParts {
     kphi: Vec<Interval>,
@@ -686,5 +770,30 @@ mod tests {
         // (above mode 3, and midway between modes 1 and 3), so nothing can be
         // certified complete.
         assert_eq!(complete_modes, 0, "missing mode not detected");
+    }
+
+    #[test]
+    fn isolated_modes_bracket_exactly_one_eigenvalue() {
+        let n = 30;
+        let k = tridiag(n, 2.0, -1.0);
+        let m = tridiag(n, 1.0, 0.0);
+        let lam = |j: usize| 2.0 - 2.0 * (j as f64 * std::f64::consts::PI / (n as f64 + 1.0)).cos();
+        let phi = |j: usize| -> Vec<f64> {
+            (1..=n).map(|i| (i as f64 * j as f64 * std::f64::consts::PI / (n as f64 + 1.0)).sin()).collect()
+        };
+        let pts = |a: &CscMatrix| a.values.iter().map(|&x| Interval::point(x)).collect::<Vec<_>>();
+        let (kv, mv) = (pts(&k), pts(&m));
+        let sigma = certify_lambda_min_lower(&k, &kv).unwrap();
+        let modes: Vec<(f64, Vec<f64>)> = (1..=3).map(|j| (lam(j), phi(j))).collect();
+        let iso = isolate_modes(&k, &kv, &m, &mv, sigma, &modes).unwrap();
+        for (j, im) in iso.iter().enumerate() {
+            assert!(im.lower_cut < lam(j + 1) && lam(j + 1) < im.upper_cut, "{im:?}");
+            assert!(im.upper_cut < lam(j + 2), "{im:?}");
+            assert!(im.nu_radius < 1e-12 * im.nu_hat, "{im:?}");
+        }
+        // A missing mode, a repeated frequency or unsorted modes are refused.
+        assert!(isolate_modes(&k, &kv, &m, &mv, sigma, &[modes[0].clone(), modes[2].clone()]).is_err());
+        assert!(isolate_modes(&k, &kv, &m, &mv, sigma, &[modes[0].clone(), modes[0].clone()]).is_err());
+        assert!(isolate_modes(&k, &kv, &m, &mv, sigma, &[modes[1].clone(), modes[0].clone()]).is_err());
     }
 }

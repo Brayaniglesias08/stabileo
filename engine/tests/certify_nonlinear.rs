@@ -462,3 +462,418 @@ fn certify_pdelta_refusals() {
     c.constraints.push(Constraint::EqualDOF(EqualDOFConstraint { master_node: 2, slave_node: 3, dofs: vec![0] }));
     assert!(!certify_pdelta_results_2d(&c, &out.results.results).is_certified());
 }
+
+// ───────────────────────── response spectrum ─────────────────────────
+
+use dedaliano_engine::certify::spectral::{
+    certify_spectral_2d, certify_spectral_3d, certify_spectral_results_2d, Enclosure, SpectralCertificate,
+};
+use dedaliano_engine::solver::assembly::assemble_stiffness_sparse_3d;
+use dedaliano_engine::solver::mass_matrix::{assemble_mass_matrix_2d_sparse, assemble_mass_matrix_3d_sparse};
+use dedaliano_engine::solver::modal::{solve_modal_2d, solve_modal_3d};
+use dedaliano_engine::solver::spectral::solve_spectral_2d;
+
+fn dense_lower(a: &CscMatrix) -> Vec<f64> {
+    let n = a.n;
+    let mut d = vec![0.0; n * n];
+    for j in 0..n {
+        for p in a.col_ptr[j]..a.col_ptr[j + 1] {
+            let i = a.row_idx[p];
+            d[i * n + j] = a.values[p];
+            d[j * n + i] = a.values[p];
+        }
+    }
+    d
+}
+
+/// Independent reference eigenpairs of K φ = λ M φ: dense Cholesky K = LLᵀ,
+/// cyclic Jacobi on C = L⁻¹ M L⁻ᵀ, φ = L⁻ᵀ y. Returns (λ, φ) ascending in λ
+/// for the finite eigenvalues, φ M-normalized.
+fn reference_modes(k: &CscMatrix, m: &CscMatrix) -> Vec<(f64, Vec<f64>)> {
+    let n = k.n;
+    let mut l = dense_lower(k);
+    for j in 0..n {
+        let mut s = l[j * n + j];
+        for q in 0..j {
+            s -= l[j * n + q] * l[j * n + q];
+        }
+        let d = s.sqrt();
+        l[j * n + j] = d;
+        for i in j + 1..n {
+            let mut s = l[i * n + j];
+            for q in 0..j {
+                s -= l[i * n + q] * l[j * n + q];
+            }
+            l[i * n + j] = s / d;
+        }
+        for q in j + 1..n {
+            l[j * n + q] = 0.0;
+        }
+    }
+    let md = dense_lower(m);
+    // X = L⁻¹ M (forward solves on columns), then C = X L⁻ᵀ = (L⁻¹ Xᵀ)ᵀ.
+    let fwd = |b: &[f64]| -> Vec<f64> {
+        let mut x = b.to_vec();
+        for i in 0..n {
+            for q in 0..i {
+                x[i] -= l[i * n + q] * x[q];
+            }
+            x[i] /= l[i * n + i];
+        }
+        x
+    };
+    let mut x = vec![0.0; n * n];
+    for c in 0..n {
+        let col: Vec<f64> = (0..n).map(|r| md[r * n + c]).collect();
+        let y = fwd(&col);
+        for r in 0..n {
+            x[r * n + c] = y[r];
+        }
+    }
+    let mut c = vec![0.0; n * n];
+    for r in 0..n {
+        let row: Vec<f64> = (0..n).map(|q| x[r * n + q]).collect();
+        let y = fwd(&row);
+        for q in 0..n {
+            c[q * n + r] = y[q];
+        }
+    }
+    for i in 0..n {
+        for j in 0..i {
+            let a = 0.5 * (c[i * n + j] + c[j * n + i]);
+            c[i * n + j] = a;
+            c[j * n + i] = a;
+        }
+    }
+    let mut v = vec![0.0; n * n];
+    for i in 0..n {
+        v[i * n + i] = 1.0;
+    }
+    for _sweep in 0..100 {
+        let off: f64 = (0..n).flat_map(|i| (0..n).filter(move |&j| j != i).map(move |j| (i, j))).map(|(i, j)| c[i * n + j].powi(2)).sum();
+        let diag: f64 = (0..n).map(|i| c[i * n + i].powi(2)).sum();
+        if off <= 1e-34 * diag {
+            break;
+        }
+        for p in 0..n {
+            for q in p + 1..n {
+                let apq = c[p * n + q];
+                if apq == 0.0 {
+                    continue;
+                }
+                let theta = (c[q * n + q] - c[p * n + p]) / (2.0 * apq);
+                let t = theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt());
+                let t = if theta == 0.0 { 1.0 } else { t };
+                let cs = 1.0 / (t * t + 1.0).sqrt();
+                let sn = t * cs;
+                for kk in 0..n {
+                    let (akp, akq) = (c[kk * n + p], c[kk * n + q]);
+                    c[kk * n + p] = cs * akp - sn * akq;
+                    c[kk * n + q] = sn * akp + cs * akq;
+                }
+                for kk in 0..n {
+                    let (apk, aqk) = (c[p * n + kk], c[q * n + kk]);
+                    c[p * n + kk] = cs * apk - sn * aqk;
+                    c[q * n + kk] = sn * apk + cs * aqk;
+                }
+                for kk in 0..n {
+                    let (vkp, vkq) = (v[kk * n + p], v[kk * n + q]);
+                    v[kk * n + p] = cs * vkp - sn * vkq;
+                    v[kk * n + q] = sn * vkp + cs * vkq;
+                }
+            }
+        }
+    }
+    let mut out: Vec<(f64, Vec<f64>)> = (0..n)
+        .filter(|&i| c[i * n + i] > 1e-14 * (0..n).map(|j| c[j * n + j]).fold(0.0, f64::max))
+        .map(|i| {
+            let y: Vec<f64> = (0..n).map(|r| v[r * n + i]).collect();
+            // φ = L⁻ᵀ y
+            let mut phi = y.clone();
+            for r in (0..n).rev() {
+                for q in r + 1..n {
+                    phi[r] -= l[q * n + r] * phi[q];
+                }
+                phi[r] /= l[r * n + r];
+            }
+            let mphi: Vec<f64> = (0..n).map(|r| (0..n).map(|q| md[r * n + q] * phi[q]).sum()).collect();
+            let s = phi.iter().zip(&mphi).map(|(a, b)| a * b).sum::<f64>().sqrt();
+            (1.0 / c[i * n + i], phi.iter().map(|x| x / s).collect())
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.total_cmp(&b.0));
+    out
+}
+
+fn interp(points: &[SpectrumPoint], t: f64) -> f64 {
+    if t <= points[0].period {
+        return points[0].sa;
+    }
+    let last = points.last().unwrap();
+    if t >= last.period {
+        return last.sa;
+    }
+    let i = points.windows(2).position(|w| t >= w[0].period && t <= w[1].period).unwrap();
+    let (a, b) = (&points[i], &points[i + 1]);
+    a.sa + (t - a.period) / (b.period - a.period) * (b.sa - a.sa)
+}
+
+/// Reference combined displacement (free DOFs) and base shear from the exact
+/// lowest `nm` modes.
+fn reference_spectral(
+    k: &CscMatrix,
+    m: &CscMatrix,
+    r: &[f64],
+    nm: usize,
+    spectrum: &DesignSpectrum,
+    scale: f64,
+    cqc_xi: Option<f64>,
+) -> (Vec<f64>, f64) {
+    let modes = reference_modes(k, m);
+    let n = k.n;
+    let md = dense_lower(m);
+    let mr: Vec<f64> = (0..n).map(|i| (0..n).map(|q| md[i * n + q] * r[q]).sum()).collect();
+    let mut per = vec![];
+    let mut shear = 0.0;
+    let mut omegas = vec![];
+    for (lam, phi) in modes.iter().take(nm) {
+        let gamma: f64 = phi.iter().zip(&mr).map(|(a, b)| a * b).sum(); // φᵀMφ = 1
+        let w = lam.sqrt();
+        let sa = interp(&spectrum.points, 2.0 * std::f64::consts::PI / w) * scale;
+        per.push(phi.iter().map(|p| p * gamma * sa / lam).collect::<Vec<f64>>());
+        shear += (gamma * gamma * sa).powi(2);
+        omegas.push(w);
+    }
+    let comb = (0..n)
+        .map(|kk| {
+            let mut s = 0.0;
+            for i in 0..nm {
+                for j in 0..nm {
+                    let rho = match cqc_xi {
+                        None => (i == j) as u8 as f64,
+                        Some(xi) => {
+                            let rr = omegas[j] / omegas[i];
+                            let num = 8.0 * xi * xi * (1.0 + rr) * rr.powf(1.5);
+                            let den = (1.0 - rr * rr).powi(2) + 4.0 * xi * xi * rr * (1.0 + rr).powi(2);
+                            num / den
+                        }
+                    };
+                    s += per[i][kk] * rho * per[j][kk];
+                }
+            }
+            s.abs().sqrt()
+        })
+        .collect();
+    (comb, shear.sqrt())
+}
+
+fn design_spectrum() -> DesignSpectrum {
+    let points = [(0.0, 0.4), (0.15, 1.0), (0.5, 1.0), (1.0, 0.5), (3.0, 0.17)]
+        .iter()
+        .map(|&(period, sa)| SpectrumPoint { period, sa })
+        .collect();
+    DesignSpectrum { name: "test".into(), points, in_g: Some(true) }
+}
+
+fn densities() -> HashMap<String, f64> {
+    let mut d = HashMap::new();
+    d.insert("1".to_string(), 2500.0);
+    d
+}
+
+fn spectral_input_2d(input: &SolverInput, nm: usize, rule: &str) -> SpectralInput {
+    let modal = solve_modal_2d(input, &densities(), nm).unwrap();
+    let modes = modal
+        .modes
+        .iter()
+        .map(|md| SpectralModeInput {
+            frequency: md.frequency,
+            period: md.period,
+            omega: md.omega,
+            displacements: md
+                .displacements
+                .iter()
+                .map(|d| SpectralModeDisp { node_id: d.node_id, ux: d.ux, uz: d.uz, ry: d.ry })
+                .collect(),
+            participation_x: md.participation_x,
+            participation_y: md.participation_y,
+            effective_mass_x: md.effective_mass_x,
+            effective_mass_y: md.effective_mass_y,
+        })
+        .collect();
+    SpectralInput {
+        solver: input.clone(),
+        modes,
+        densities: densities(),
+        spectrum: design_spectrum(),
+        direction: "X".into(),
+        rule: Some(rule.into()),
+        xi: Some(0.05),
+        importance_factor: Some(1.2),
+        reduction_factor: Some(3.0),
+        total_mass: Some(modal.total_mass),
+    }
+}
+
+/// `x` lies in `e`, up to the reference's own accuracy `slack`.
+fn within(e: &Enclosure, x: f64, slack: f64) -> bool {
+    e.lo - slack <= x && x <= e.hi + slack
+}
+
+#[test]
+fn certify_spectral_2d_honest() {
+    let input = grid_frame(2, 4, -20.0);
+    for rule in ["SRSS", "CQC"] {
+        let sp = spectral_input_2d(&input, 4, rule);
+        let out = certify_spectral_2d(&sp).unwrap();
+        let SpectralCertificate::Certified {
+            modes, displacements, base_shear, max_displacement_error, base_shear_error, reported_within, ..
+        } = &out.certificate
+        else {
+            panic!("{rule}: {:?}", out.certificate)
+        };
+        let dof = DofNumbering::build_2d(&input);
+        let k = assemble_stiffness_sparse_2d(&input, &dof).k_ff;
+        let m = assemble_mass_matrix_2d_sparse(&input, &dof, &densities());
+        let mut r = vec![0.0; dof.n_free];
+        for (&(_, local), &g) in &dof.map {
+            if local == 0 && g < dof.n_free {
+                r[g] = 1.0;
+            }
+        }
+        let scale = 9.81 * 1.2 / 3.0;
+        let xi = (rule == "CQC").then_some(0.05);
+        let (ref_u, ref_shear) = reference_spectral(&k, &m, &r, 4, &sp.spectrum, scale, xi);
+        let umax = ref_u.iter().fold(0.0f64, |a, &b| a.max(b));
+        let slack = 1e-14 * umax;
+        let mut width = 0.0f64;
+        for ne in displacements {
+            for (local, e) in ne.values.iter().enumerate() {
+                let x = dof.map.get(&(ne.id, local)).filter(|&&g| g < dof.n_free).map_or(0.0, |&g| ref_u[g]);
+                assert!(within(e, x, slack), "{rule}: node {} dof {local}: ref {x:e} outside {e:?}", ne.id);
+                width = width.max(e.hi - e.lo);
+            }
+        }
+        assert!(within(base_shear, ref_shear, 1e-14 * ref_shear), "{rule}: shear {ref_shear} {base_shear:?}");
+        for mb in modes {
+            assert!(mb.sin_theta < 1e-4, "{rule}: {mb:?}");
+        }
+        eprintln!(
+            "spectral {rule}: max width {width:.2e} (max |u| {umax:.2e}), disp err ≤ {max_displacement_error:.2e}, \
+             shear {:.4} ∈ [{:.6}, {:.6}] err ≤ {base_shear_error:.2e}, reported within: {reported_within}",
+            ref_shear, base_shear.lo, base_shear.hi
+        );
+        assert!(width < 1e-5 * umax, "{rule}: enclosure too wide {width:e}");
+        assert!(*max_displacement_error < 1e-4 * umax);
+    }
+}
+
+#[test]
+fn certify_spectral_refusals() {
+    let input = grid_frame(2, 4, -20.0);
+    let sp = spectral_input_2d(&input, 4, "CQC");
+    // A missing mode: the remaining set is not the lowest modes.
+    let mut missing = sp.clone();
+    missing.modes.remove(1);
+    let res = solve_spectral_2d(&missing).unwrap();
+    assert!(!certify_spectral_results_2d(&missing, &res).is_certified(), "missing mode certified");
+    // A wrong frequency: either refused, or the reported (wrong) answer is
+    // flagged as outside the enclosure of the exact response.
+    let mut wrong = sp.clone();
+    wrong.modes[0].omega *= 1.2;
+    wrong.modes[0].period /= 1.2;
+    let res = solve_spectral_2d(&wrong).unwrap();
+    if let SpectralCertificate::Certified { reported_within, .. } = certify_spectral_results_2d(&wrong, &res) {
+        assert!(!reported_within, "wrong ω reported as within the enclosure");
+    }
+    // A tampered participation factor: the reported values leave the enclosure.
+    let mut tampered = sp.clone();
+    tampered.modes[0].participation_x *= 1.05;
+    let res = solve_spectral_2d(&tampered).unwrap();
+    let SpectralCertificate::Certified { reported_within, max_displacement_error, .. } =
+        certify_spectral_results_2d(&tampered, &res)
+    else {
+        panic!("tampered participation should still be certifiable (it is not used)")
+    };
+    assert!(!reported_within && max_displacement_error > 0.0);
+    // Reported result tampered after the fact.
+    let mut res = solve_spectral_2d(&sp).unwrap();
+    res.base_shear *= 1.01;
+    let SpectralCertificate::Certified { reported_within, .. } = certify_spectral_results_2d(&sp, &res) else {
+        panic!()
+    };
+    assert!(!reported_within);
+    // Unsorted spectrum refused.
+    let mut bad = sp.clone();
+    bad.spectrum.points.swap(1, 2);
+    let res = solve_spectral_2d(&bad).unwrap();
+    assert!(!certify_spectral_results_2d(&bad, &res).is_certified());
+}
+
+#[test]
+fn certify_spectral_3d_building() {
+    let mut input = building_3d(1, 3, -50.0);
+    // Break the plan symmetry so no frequency is repeated.
+    for s in input.sections.values_mut() {
+        if s.id == 1 {
+            s.iz = 3.0e-4;
+        }
+    }
+    let modal = solve_modal_3d(&input, &densities(), 4).unwrap();
+    let modes = modal
+        .modes
+        .iter()
+        .map(|md| SpectralModeInput3D {
+            frequency: md.frequency,
+            period: md.period,
+            omega: md.omega,
+            displacements: md
+                .displacements
+                .iter()
+                .map(|d| SpectralModeDisp3D { node_id: d.node_id, ux: d.ux, uy: d.uy, uz: d.uz, rx: d.rx, ry: d.ry, rz: d.rz })
+                .collect(),
+            participation_x: md.participation_x,
+            participation_y: md.participation_y,
+            participation_z: md.participation_z,
+            effective_mass_x: md.effective_mass_x,
+            effective_mass_y: md.effective_mass_y,
+            effective_mass_z: md.effective_mass_z,
+        })
+        .collect();
+    let sp = SpectralInput3D {
+        solver: input.clone(),
+        modes,
+        densities: densities(),
+        spectrum: design_spectrum(),
+        direction: "X".into(),
+        rule: Some("CQC".into()),
+        xi: Some(0.05),
+        importance_factor: None,
+        reduction_factor: None,
+        total_mass: Some(modal.total_mass),
+    };
+    let out = certify_spectral_3d(&sp).unwrap();
+    let SpectralCertificate::Certified { displacements, base_shear, max_displacement_error, .. } = &out.certificate
+    else {
+        panic!("{:?}", out.certificate)
+    };
+    let dof = DofNumbering::build_3d(&input);
+    let k = assemble_stiffness_sparse_3d(&input, &dof, false).k_ff;
+    let m = assemble_mass_matrix_3d_sparse(&input, &dof, &densities());
+    let mut r = vec![0.0; dof.n_free];
+    for (&(_, local), &g) in &dof.map {
+        if local == 0 && g < dof.n_free {
+            r[g] = 1.0;
+        }
+    }
+    let (ref_u, ref_shear) = reference_spectral(&k, &m, &r, 4, &sp.spectrum, 9.81, Some(0.05));
+    let umax = ref_u.iter().fold(0.0f64, |a, &b| a.max(b));
+    for ne in displacements {
+        for (local, e) in ne.values.iter().enumerate() {
+            let x = dof.map.get(&(ne.id, local)).filter(|&&g| g < dof.n_free).map_or(0.0, |&g| ref_u[g]);
+            assert!(within(e, x, 1e-14 * umax), "node {} dof {local}: ref {x:e} outside {e:?}", ne.id);
+        }
+    }
+    assert!(within(base_shear, ref_shear, 1e-14 * ref_shear));
+    eprintln!("spectral 3D: disp err ≤ {max_displacement_error:.2e} (max |u| {umax:.2e})");
+}

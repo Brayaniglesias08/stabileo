@@ -149,6 +149,20 @@ pub fn certify_modal_2d(json: &str, num_modes: usize) -> Result<String, JsValue>
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 
+/// Solve 2D spectral analysis and certify it: enclosures of the SRSS/CQC
+/// response of the exact lowest modes (per-node displacements, per-member
+/// forces, base shear) and bounds on the reported values' error
+/// (docs/verification/CERTIFY.md). JSON in → `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_spectral_2d(json: &str) -> Result<String, JsValue> {
+    let input: types::SpectralInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::spectral::certify_spectral_2d(&input)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
 /// Solve 2D spectral analysis. JSON in → JSON out.
 #[wasm_bindgen]
 pub fn solve_spectral_2d(json: &str) -> Result<String, JsValue> {
@@ -227,6 +241,20 @@ pub fn certify_modal_3d(json: &str, num_modes: usize) -> Result<String, JsValue>
     let input: types::ModalInput3D = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
     let results = certify::modal::certify_modal_3d(&input.solver, &input.densities, num_modes)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Solve 3D spectral analysis and certify it: enclosures of the SRSS/CQC
+/// response of the exact lowest modes (per-node displacements, per-member
+/// forces, base shear) and bounds on the reported values' error
+/// (docs/verification/CERTIFY.md). JSON in → `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_spectral_3d(json: &str) -> Result<String, JsValue> {
+    let input: types::SpectralInput3D = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::spectral::certify_spectral_3d(&input)
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&results)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
