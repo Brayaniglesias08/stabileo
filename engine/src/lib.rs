@@ -302,6 +302,19 @@ pub fn solve_plastic_2d(json: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 
+/// Solve 2D plastic analysis and certify the collapse load factor λ_c:
+/// `[lambdaLower, lambdaUpper]` from the static and kinematic theorems, both
+/// checked in exact rational arithmetic (docs/verification/CERTIFY.md).
+/// JSON (`PlasticInput`) in → JSON `{ results, certificate }` out.
+#[wasm_bindgen]
+pub fn certify_plastic_2d(json: &str) -> Result<String, JsValue> {
+    let input: types::PlasticInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let out = certify::plastic::certify_plastic_2d(&input).map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&out)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
 /// Solve 3D plastic (pushover) analysis. JSON in → JSON out.
 #[wasm_bindgen]
 pub fn solve_plastic_3d(json: &str) -> Result<String, JsValue> {
@@ -404,6 +417,30 @@ pub fn solve_time_history_3d(json: &str) -> Result<String, JsValue> {
     let results = solver::time_integration::solve_time_history_3d(&input)
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Solve 2D time-history analysis and certify it: scheme stability for this
+/// model and step (exact parameter checks, certified λ_max bound for
+/// conditionally stable schemes), per-step interval residuals of the discrete
+/// equations, interval energy balance, and a labelled time-error estimate
+/// (docs/verification/CERTIFY.md). JSON in → JSON `{ results, certificate }` out.
+#[wasm_bindgen]
+pub fn certify_time_history_2d(json: &str) -> Result<String, JsValue> {
+    let input: types::TimeHistoryInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let out = certify::dynamics::certify_time_history_2d(&input).map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&out)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// 3D version of `certify_time_history_2d`.
+#[wasm_bindgen]
+pub fn certify_time_history_3d(json: &str) -> Result<String, JsValue> {
+    let input: types::TimeHistoryInput3D = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let out = certify::dynamics::certify_time_history_3d(&input).map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&out)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 

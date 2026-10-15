@@ -641,6 +641,132 @@ Honesty tests (`tests/certify_nonlinear.rs`): the same system solved by LU of th
 2n×2n block matrix with double-double residual refinement, at frequencies below, near,
 at and above the first resonance; the reference lies within every bound. Unit tests use
 decoupled systems with closed-form solutions. Not formalized in Lean.
+## Plastic collapse load factor
+
+`engine/src/certify/plastic.rs` (wasm: `certify_plastic_2d`). The solver
+(`solve_plastic_2d`) is an event-to-event incremental hinge analysis with bending-only
+yield. The certificate encloses the collapse load factor `λ_c` of the *same* plastic
+model, independently of how the solver got its number:
+
+* **Model.** 2D frame, rigid–perfectly plastic, small displacements, proportional
+  loading `λ·P`. Each member yields only in bending, `|M(x)| ≤ Mp` at every section
+  (axial and shear capacity unlimited, no N–M interaction — as in the solver). End
+  releases (`hingeStart/End`) carry no moment; a truss member is a member released at
+  both ends. Supports restrain DOFs as the 2D DOF numbering does. Loads: nodal
+  `(fx, fz, my)`, member point loads (`p` along local y = `(−dz, dx)/L`, `px` along
+  the member, couple `my`), linear partial distributed loads. Refused (`certified:
+  false` with a reason): springs, inclined supports, nonzero prescribed displacements,
+  constraints, connectors, thermal loads, cables, point or partial loads on a member
+  whose length is irrational, more than 200 members.
+* **Exact data.** Every f64 input is a dyadic rational and is converted exactly
+  (`num-rational`). Positions along a member are fractions `t ∈ [0, 1]`; a full-length
+  distributed load needs only `L²` (rational), point / partial loads need `L` and are
+  accepted only when `L` is rational (`dx² + dz²` a rational square). `Mp` is enclosed
+  in `[Mp_lo, Mp_hi]`: an override or `fy·1000·b·h²/4` exactly; the solver's
+  approximate `1.15·Iz/(h/2)` with `h = √(12 Iz/A)` by bracketing the square root (1.15
+  taken as the decimal 23/20). `λ_c` is non-decreasing in every `Mp`, so the static
+  check uses `Mp_lo` and the kinematic check `Mp_hi`.
+* **Static theorem (lower bound), `check_static`.** Field: per member the force
+  `F = (Fx, Fz)` and moment `Mi` exerted by node i on the member, and `λ`. The member
+  equilibrium is built in: `F_j = −F − λW`, `M_j = −Mi + d × F − λ Lm(1)`, and the
+  bending moment at section `t` is `M(t) = −Mi + t (d × F) − λ Lm(t)`, with `Lm` the
+  moment of the member loads on `[0, t]` about the section — a piecewise cubic with
+  rational coefficients (breakpoints at load positions; both one-sided values are
+  checked at couples). The checker verifies *exactly* that the sum of member end forces
+  equals `λ P` at every free nodal DOF and that released ends carry zero moment, then
+  bounds `U_e ≥ max_t |M_e(t)|` exactly by Bernstein coefficients with subdivision (the
+  end values are exact, interior bounds tight to `2⁻⁴⁰ Mp`). The field scaled by
+  `s = min_e Mp_lo,e / U_e` is in equilibrium with `sλ P` (the equations are
+  homogeneous in the field and `λ`) and admissible, so **`λ_c ≥ λ_lo = sλ`**.
+* **Kinematic theorem (upper bound), `check_mechanism`.** Mechanism: nodal virtual
+  displacements `(ux, uz, θ)`, and per member interior hinge positions
+  `0 < t₁ < … < t_h < 1` with rigid-segment rotations `ω₀ … ω_h`. The checker verifies
+  exactly: restrained DOFs are zero; walking the segments from node i
+  (`δ += ω (Δt)(−dz, dx)`) lands on node j's displacement; a non-released end where
+  the member cannot form a hinge (no `Mp`) has no relative rotation. Dissipation
+  `D = Σ Mp_hi |θ|` over end hinges (`ω₀ − θᵢ`, `θⱼ − ω_h`, released ends excluded) and
+  interior hinges (`ω_s − ω_{s−1}`); external work `W` of nodal loads, point loads
+  (force·δ, couple·ω; a couple at a rotating hinge is refused) and distributed loads
+  (∫ q(t) (−dz, dx)·δ(t) dt, exact). If `W > 0`, **`λ_c ≤ λ_up = D/W`**.
+* **Output.** `[λ_lo, λ_up]` rounded outward to f64; `certified` when both exist. Also
+  the mechanism's hinges, the solver's collapse factor, `solverWithinBounds` and
+  `solverDeviation` (relative distance outside the enclosure; see the finding below).
+* **How candidates are found (not trusted).** The equilibrium equations `A x = λ b`
+  are solved by exact Gauss–Jordan: particular solution `x_p`, self-stress basis `N`.
+  Any `x = λ x_p + N z` with rational `λ, z` is in exact equilibrium. `λ, z` come from
+  the classical limit-analysis LP (max λ s.t. `|M| ≤ Mp` at sampled sections, solved in
+  f64 through its dual, with cutting planes at the interior extrema of `|M|`) and from
+  the incremental solver's final state (projected onto `λ x_p + N z`). The mechanism is
+  an exact null vector of the compatibility equations with hinges at the LP's active
+  sections (or a least-squares combination of the null basis). Heuristic failures only
+  cost a bound (`Uncertified`), never soundness.
+
+Finding: the incremental solver *overestimates* `λ_c` when a member's maximum moment
+is interior (distributed load on a member without interior nodes) — it records the
+span hinge at an element end. Fixed–fixed beam under UDL as one element: solver 60.28,
+certified `[37.5 − 1ulp, 37.5]` (= 16Mp/qL²); five elements: solver 58.59. With nodal
+loads only it usually lies inside the enclosure (to round-off), but it can also fall
+*below* it: it never checks whether a formed hinge unloads, so a hinge that should
+turn elastic stays free and the "mechanism" it reports does not dissipate consistently
+(e.g. a 3-bay frame of the random test: solver 148.80, certified [151.540540540539,
+151.540540540541]). Such a result is safe but not the collapse load.
+
+Not included: 3D plastic analysis, N–M (or biaxial) interaction, second-order effects,
+shakedown. Not formalized in Lean.
+
+## Time-history integration
+
+`engine/src/certify/dynamics.rs` (wasm: `certify_time_history_2d/3d`). The traced
+solver entry points (`solve_time_history_{2d,3d}_traced`) return the discrete system
+they integrated — the f64 reduced `K`, `M` (after constraint reduction), Rayleigh
+coefficients `a0, a1` (`C := a0·M + a1·K` exactly, in real arithmetic), the f64
+Newmark `β, γ` actually used, `Δt`, the load vectors `f_n` — and the full computed
+state `(u_n, v_n, a_n)`, n = 0..N. These are the data; the certificate is about the
+**discrete scheme**:
+
+    (E_n)  M a_n + C v_n + K u_n = f̂_n
+    (U)    u_{n+1} = u_n + Δt v_n + Δt² ((½ − β) a_n + β a_{n+1})
+    (V)    v_{n+1} = v_n + Δt ((1 − γ) a_n + γ a_{n+1})
+
+with `f̂_0 = f_0`, `f̂_n = f_n` (Newmark), `f̂_n = (1+α) f_n − α f_{n−1}` (the solver's
+"HHT-α"). Finding: the solver's HHT path is Newmark with `β = (1−α)²/4`, `γ = ½ − α`
+and that load blend; it does not apply the HHT averaging to `K u` and `C v`, so it is
+dissipative but first-order accurate. The certificate states the scheme as implemented.
+
+* **Stability (`stabilityCertified`).** Exact rational checks on the f64 `β, γ`:
+  `γ ≥ ½` and `2β ≥ γ` ⇒ unconditionally stable (spectral radius ≤ 1 for every mode,
+  `ξ ≥ 0`); `β ≥ (2γ+1)²/16` is reported separately (`highFrequencyComplex`). For
+  `γ ≥ ½`, `β < γ/2` (conditionally stable, e.g. linear acceleration) the condition is
+  `Δt² λ_max(M⁻¹K) ≤ Ω_crit² = 1/(γ/2 − β)` (the undamped limit; Rayleigh damping with
+  `a0, a1 ≥ 0` gives every mode `ξ ≥ 0`, which only raises `Ω_crit`). An estimate `μ` of
+  `λ_max` is certified as an upper bound by proving `μM − K ≻ 0` (entries enclosed in
+  intervals, Gram residual + Gershgorin): then `xᵀKx < μ xᵀMx` for all `x ≠ 0`, so every
+  eigenvalue is `< μ`. `Δt² μ (γ/2 − β) ≤ 1` is checked exactly and the certified stable
+  step `√(1/(μ(γ/2 − β)))` is reported rounded down. The modal argument's hypotheses
+  are certified too: `M ≻ 0`, `K ≻ 0` (Gram + Gershgorin) and `a0, a1 ≥ 0`.
+  `γ < ½` is never certified.
+* **Residuals.** For every step the residuals of (E), (U), (V) for the computed
+  trajectory are enclosed in outward-rounded interval arithmetic. Reported:
+  `maxAbsEquation` (certified ≥ max_n ‖r_E,n‖_∞), `maxRelEquation` (relative to the
+  largest term of (E) over all steps), and the (U), (V) residuals relative to the peak
+  ‖u‖_∞, ‖v‖_∞. Rounded up.
+* **Energy balance.** Interval enclosures of `E_n = ½ v_nᵀMv_n + ½ u_nᵀKu_n` (first
+  and last), the discrete external work `Σ ½(f̂_n + f̂_{n+1})·(u_{n+1} − u_n)`, the
+  Rayleigh dissipation `Σ Δt v̄ᵀCv̄` (`v̄ = (v_n + v_{n+1})/2`), and the imbalance
+  `E_N − E_0 + D − W`. For average acceleration (β = ¼, γ = ½) the identity
+  `E_{n+1} − E_n + Δt v̄ᵀCv̄ = ½(f̂_n + f̂_{n+1})·(u_{n+1} − u_n)` holds exactly for the exact
+  discrete trajectory (from (U), (V), (E_n), (E_{n+1}) and `K = Kᵀ`), so the imbalance
+  measures the computed trajectory's departure from it; for other parameters it also
+  contains the scheme's algorithmic dissipation and is reported, not judged.
+* **What this certifies.** That the reported trajectory solves the *discrete* scheme up
+  to the reported residuals, and (when `stabilityCertified`) that the scheme is stable
+  for this model and step. It does **not** bound the error of the computed trajectory
+  against the exact discrete trajectory (no forward-error propagation), nor the
+  time-discretization error against the continuous ODE `M ü + C u̇ + K u = f(t)`. The
+  latter is only *estimated*: `timeErrorEstimate` is the Zienkiewicz–Xie local
+  displacement error `max_n ‖(β − 1/6) Δt² (a_{n+1} − a_n)‖_∞` — an estimate, not a bound.
+  The load sequence `f_n` is taken as data as the solver evaluated it (interpolation of
+  force histories and ground-motion products included). Not formalized in Lean.
 
 ## Rounding model
 
