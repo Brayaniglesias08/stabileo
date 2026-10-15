@@ -16,10 +16,10 @@
 //! No 2n×2n matrix and no normal equations are formed.
 //!
 //! The candidate `ũ` is computed here (the solver reports only the target DOF,
-//! by truncated modal superposition): CG on `(I + W²)u = (I − iW)H⁻¹(1 − is)f`,
+//! by modal superposition with a static correction): CG on `(I + W²)u = (I − iW)H⁻¹(1 − is)f`,
 //! `H = B(s)`, `W = H⁻¹(ωC − sK_d)`, in the H-inner product, plus refinement.
 //! The reported target value is then bounded by `‖u* − ũ‖ + |ũ_t − reported|`,
-//! which includes the solver's modal truncation error.
+//! which includes the solver's remaining modal truncation error.
 
 // `!(x > 0.0)` is deliberate throughout: it also rejects NaN.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]

@@ -1006,3 +1006,74 @@ fn certify_harmonic_sweep_2d() {
         assert!(!reported_within, "answer for another damping model reported as within");
     }
 }
+
+/// The solver's modal superposition with static correction against the exact
+/// steady state (2n×2n LU with double-double refinement), on the dense (18
+/// DOF) and sparse (72 DOF) paths, from below the first resonance to well
+/// above it. Plain superposition of the kept modes was off by up to 7e-5 of
+/// the peak on the 18-DOF frame (reported peak 6.258509e-2 vs exact
+/// 6.258518e-2); the static correction of the omitted modes brings it to
+/// ~1e-7.
+#[test]
+fn harmonic_static_correction_matches_exact() {
+    use dedaliano_engine::solver::harmonic::solve_harmonic_2d_with_damping;
+    for (bays, stories, tol) in [(1, 3, 1e-6), (3, 6, 1e-6)] {
+        let input = grid_frame(bays, stories, -20.0);
+        let modal = solve_modal_2d(&input, &densities(), 3).unwrap();
+        let f1 = modal.modes[0].frequency;
+        let top = (stories + 1) * (bays + 1);
+        let hi = HarmonicInput {
+            solver: input.clone(),
+            densities: densities(),
+            frequencies: vec![0.0, 0.5 * f1, 0.95 * f1, f1, 1.2 * f1, 2.0 * f1, 5.0 * f1],
+            damping_ratio: 0.05,
+            response_node_id: top,
+            response_dof: "x".into(),
+        };
+        let (res, (a0, a1)) = solve_harmonic_2d_with_damping(&hi).unwrap();
+        let (k, m, f, dof) = harmonic_model_2d(&input);
+        assert_eq!(res.method, "modal+static", "{bays}x{stories}: {res:?}");
+        assert_eq!(res.n_dof, k.n);
+        assert!(res.modes_used > 0 && res.modes_used <= k.n);
+        let ratio = res.truncation_ratio.expect("truncation ratio");
+        assert!((0.0..1.0).contains(&ratio), "{bays}x{stories}: ratio {ratio}");
+        assert!(res.warnings.is_empty(), "{bays}x{stories}: {:?}", res.warnings);
+        let t = dof.map[&(top, 0)];
+        let mut worst = 0.0f64;
+        for pt in &res.response_points {
+            let (xr, xi) = reference_harmonic(&k, &m, &f, (a0, a1), pt.omega);
+            let err = ((pt.real - xr[t].hi).powi(2) + (pt.imag - xi[t].hi).powi(2)).sqrt();
+            worst = worst.max(err / res.peak_amplitude);
+        }
+        eprintln!(
+            "{bays}x{stories}: {} of {} modes, static truncation ratio {ratio:.2e}, max error / peak {worst:.2e}",
+            res.modes_used, res.n_dof
+        );
+        assert!(worst < tol, "{bays}x{stories}: max error / peak {worst:e} ≥ {tol:e}");
+    }
+}
+
+/// Far above the modes the eigensolve returned (18-DOF frame, half its modes),
+/// the static-correction series does not converge: those frequencies get plain
+/// superposition and the result says so.
+#[test]
+fn harmonic_truncation_is_reported() {
+    use dedaliano_engine::solver::harmonic::solve_harmonic_2d;
+    let input = grid_frame(1, 3, -20.0);
+    let modal = solve_modal_2d(&input, &densities(), 3).unwrap();
+    let f1 = modal.modes[0].frequency;
+    let hi = HarmonicInput {
+        solver: input,
+        densities: densities(),
+        frequencies: vec![0.5 * f1, f1, 200.0 * f1],
+        damping_ratio: 0.05,
+        response_node_id: 8,
+        response_dof: "x".into(),
+    };
+    let res = solve_harmonic_2d(&hi).unwrap();
+    assert_eq!(res.method, "modal+static");
+    assert!(res.modes_used < res.n_dof, "{res:?}");
+    assert_eq!(res.warnings.len(), 1, "{:?}", res.warnings);
+    assert!(res.warnings[0].contains("static correction not applied at 1 frequency"), "{:?}", res.warnings);
+    assert!(res.response_points.iter().all(|p| p.amplitude.is_finite()));
+}
