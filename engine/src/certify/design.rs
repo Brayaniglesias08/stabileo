@@ -470,7 +470,6 @@ pub fn certify_steel_multi_case_3d(input: &SteelMultiCaseInput3D) -> Result<Cert
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::postprocess::ec3_check::{ec3_capacities, Ec3Capacities, Ec3DesignForces, Ec3MemberData};
 use crate::postprocess::steel_check::{check_steel_members, SteelCheckInput};
 
     /// W310x97-like section, SI units (N, m, Pa).
