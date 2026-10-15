@@ -28,6 +28,8 @@ theorems=(
 	Certify.kahan_count_of_sep
 	Certify.kahan_union_count
 	Certify.kahan_lower_count
+	Certify.Bundle.check_sound
+	Certify.Bundle.check_sound_coercive
 )
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

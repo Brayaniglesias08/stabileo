@@ -69,6 +69,75 @@ the enclosure of `S − L Lᵀ` must be computed with outward rounding.
 Lean: `Certify.certified_error_bound_gram` (`verify/Certify/Gram.lean`), built on
 `quad_gram_nonneg`, `gershgorin_quad` and `coercive_of_gram`.
 
+## Independent checking: certificate bundles
+
+The scalable certificate can be exported as a *bundle* and re-checked by a third party
+without trusting the Rust interval code, the rounding model, or the f64 factorization.
+The re-check is an executable Lean function whose soundness is a Lean theorem.
+
+**Export (Rust).** `certify::bundle::export_linear_bundle(k, f, u)` runs the Gram
+residual + Gershgorin certificate and writes the data it used;
+`export_linear_bundle_{2d,3d}(input)` solve a model and export the bundle of its reduced
+free-DOF system from the sparse assembly (any model size). Wasm:
+`export_linear_bundle_{2d,3d}(json) -> bundle JSON`.
+
+**Format** (`stabileo.linear-certificate.v1`, JSON). Every f64 is written exactly as an
+integer pair `[m, e]` meaning `m · 2^e` (`m` odd, or `[0, 0]`), so the checker sees the
+exact dyadic rationals the engine used.
+
+| field | meaning |
+|---|---|
+| `n` | number of unknowns |
+| `k` | `{colPtr, rowIdx, values}`: lower triangle of the symmetric `K` (CSC); each stored `(a, b, v)` means `K[a][b] = K[b][a] = v` |
+| `fLo`, `fHi` | enclosure `fLo ≤ f ≤ fHi` of the right-hand side (`f_F − K_FR u_R`; a point unless displacements are prescribed) |
+| `u` | the computed solution `ũ` |
+| `perm` | fill-reducing permutation, `perm[new] = old` |
+| `l` | `{colPtr, rowIdx, values}`: the f64 Cholesky factor `L` of `P K Pᵀ − tI` in permuted numbering; it denotes `L'` with `L'[perm[a]][c] = L[a][c]` |
+| `mu` | the claimed `μ`, `λ_min(K) ≥ μ > 0` |
+| `bound` | the claimed bound `b`: `‖K⁻¹f − ũ‖₂ ≤ b` |
+| `info` | display copies of μ, b, ρ, relative bound (ignored by the checker) |
+
+**Check (Lean, `lake exe certcheck <bundle.json>...`).** `Certify.Bundle.check`
+(`verify/Certify/BundleCheck.lean`, core Lean + `Std` only, so it compiles natively
+without Mathlib) works in exact rational arithmetic:
+
+1. `R = K − L' L'ᵀ` exactly, as a hash map over its sparsity pattern (`K`'s entries
+   plus the products of all pairs of entries in each column of `L`);
+2. Gershgorin, for every row: `μ ≤ Rᵢᵢ − Σ_{j≠i} |Rᵢⱼ|`;
+3. `K ũ` exactly, the residual interval `[fLo − Kũ, fHi − Kũ]` and
+   `ρ² = Σᵢ max(|loᵢ|, |hiᵢ|)²`;
+4. `0 < μ`, `0 ≤ b` and `ρ² ≤ (b μ)²` — no square roots (`√ρ² / μ ≤ b` follows:
+   `Certify.Bundle.sqrt_div_le_of_sq_le`).
+
+Exit status 0 if every bundle is accepted, 1 if one is rejected, 2 on a parse error.
+The JSON reader (`verify/Certify/BundleParse.lean`) is trusted: it only decodes `[m, e]`
+to `m · 2^e` and CSC to column lists.
+
+**Soundness (`verify/Certify/BundleSound.lean`).**
+
+* `Certify.Bundle.check_sound`: if `check d = true`, then for the real matrix
+  `K = kMat d` and vector `ũ = uVec d` denoted by the bundle and *every* `f` with
+  `fLo ≤ f ≤ fHi`: `K (K⁻¹ f) = f`, every solution of `K u = f` equals `K⁻¹ f`, and
+  `‖K⁻¹ f − ũ‖₂ ≤ bound`. The proof applies `certified_error_bound_gram` with
+  `L = lMat d`, point enclosures of the exact `R` (`resid_eq`: the hash map equals
+  `symPart K − L Lᵀ` entrywise), the residual interval above and `ρ = b μ`. The
+  hash-map folds are related to sums by `foldl_getD`; the off-diagonal sums over the
+  map's entries bound the true row sums by `off_le` (every nonzero `Rᵢⱼ` is a stored
+  entry).
+* `Certify.Bundle.check_sound_coercive`: `check d = true → μ‖x‖² ≤ xᵀKx` for all `x`.
+
+Nothing about `L` or `perm` is checked: `L' L'ᵀ ⪰ 0` for every real `L'`, so a wrong
+factor or a non-permutation can only make the Gershgorin test fail.
+
+**Tests.** `engine/tests/certify_bundle.rs` (`export_bundles`) writes bundles for three
+fixtures (`ex-3d-portal-frame`, `ex-3d-tower`, `ex-3d-nave-industrial`) to
+`target/cert-bundles/`, plus three tampered copies of each whose claims are false or
+unsupportable: `bound / 1024`, `ũ` moved by `4b` in one component with `b` kept (then
+`‖u* − ũ'‖ ≥ 3b`, so acceptance would contradict `check_sound`), and `μ = 2 min Kᵢᵢ`
+(`> λ_min`, contradicting `check_sound_coercive`). `verify/scripts/check-bundles.sh`
+regenerates them, runs `certcheck`, and requires every original to be accepted and
+every tampered copy rejected.
+
 ## Buckling load-factor enclosure
 
 Linear buckling solves `K φ = λ N φ` with `N = −K_G`. The stability matrix

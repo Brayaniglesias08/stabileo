@@ -83,6 +83,15 @@ pub fn certify_sparse_spd_system(k: &CscMatrix, f: &[Interval], u: &[f64]) -> Ce
 /// compute the factor and never trusted. Err with a reason when no positive μ
 /// could be certified.
 pub fn certify_lambda_min_lower(a: &CscMatrix, vals: &[Interval]) -> Result<f64, String> {
+    certify_lambda_min_lower_with_factor(a, vals).map(|(mu, _)| mu)
+}
+
+/// `certify_lambda_min_lower`, also returning the factor `L` whose Gram residual
+/// certified μ (for certificate bundles, `certify::bundle`).
+pub fn certify_lambda_min_lower_with_factor(
+    a: &CscMatrix,
+    vals: &[Interval],
+) -> Result<(f64, NumericCholesky), String> {
     if vals.len() != a.values.len() || !vals.iter().all(|v| v.is_finite()) {
         return Err("non-finite or misaligned matrix enclosure".into());
     }
@@ -109,7 +118,7 @@ pub fn certify_lambda_min_lower(a: &CscMatrix, vals: &[Interval]) -> Result<f64,
             continue;
         };
         match gram_gershgorin(vals, &l)? {
-            mu if mu > 0.0 => return Ok(mu),
+            mu if mu > 0.0 => return Ok((mu, l)),
             mu => last = format!("Gershgorin bound μ = {mu:.3e} not positive at shift {t:.3e}"),
         }
     }
@@ -230,7 +239,7 @@ fn estimate_lambda_min(k: &CscMatrix, factor: &NumericCholesky) -> Result<f64, S
 }
 
 /// Residual, bound and relative bound once λ_min(K) ≥ σ > 0 is certified.
-fn finish(k: &CscMatrix, f: &[Interval], u: &[f64], sigma: f64) -> Certificate {
+pub(crate) fn finish(k: &CscMatrix, f: &[Interval], u: &[f64], sigma: f64) -> Certificate {
     let n = k.n;
     let mut r: Vec<Interval> = f.to_vec();
     for j in 0..n {
