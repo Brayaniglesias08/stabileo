@@ -62,7 +62,7 @@ def rich_2d(seed):
         e = {"id": k, "type": typ, "nodeI": i + 1, "nodeJ": j + 1,
              "materialId": rng.choice([1, 2]), "sectionId": sec,
              "hingeStart": False, "hingeEnd": False}
-        if typ == "frame" and not secs[str(sec)].get("asY"):
+        if typ == "frame":
             e["hingeStart"] = rng.random() < 0.15
             e["hingeEnd"] = rng.random() < 0.15
         elems[str(k)] = e
@@ -149,10 +149,9 @@ def rich_3d(seed):
                 e["localYx"], e["localYy"], e["localYz"] = v
             elif r < 0.5:
                 e["rollAngle"] = rng.uniform(-180, 180)
-            if not secs[str(sec)].get("asY"):
-                for key in ("releaseMyStart", "releaseMyEnd", "releaseMzStart", "releaseMzEnd"):
-                    if rng.random() < 0.1:
-                        e[key] = True
+            for key in ("releaseMyStart", "releaseMyEnd", "releaseMzStart", "releaseMzEnd"):
+                if rng.random() < 0.1:
+                    e[key] = True
         elems[str(k)] = e
     flag = ["rx", "ry", "rz", "rrx", "rry", "rrz"]
     sups = {"1": {"nodeId": 1, **{f: True for f in flag}}}

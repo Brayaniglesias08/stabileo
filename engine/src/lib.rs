@@ -563,6 +563,9 @@ pub fn compute_deformed_shape(json: &str) -> Result<String, JsValue> {
         hinge_end: bool,
         #[serde(default)]
         ei: Option<f64>,
+        /// Shear stiffness G·As of a Timoshenko member (omit for Euler–Bernoulli).
+        #[serde(default)]
+        gas: Option<f64>,
         #[serde(default)]
         load_qi: Option<f64>,
         #[serde(default)]
@@ -578,7 +581,7 @@ pub fn compute_deformed_shape(json: &str) -> Result<String, JsValue> {
         d.node_ix, d.node_iy, d.node_jx, d.node_jy,
         d.u_ix, d.u_iy, d.r_iz, d.u_jx, d.u_jy, d.r_jz,
         d.scale, d.length, d.hinge_start, d.hinge_end,
-        d.ei, d.load_qi, d.load_qj,
+        d.ei, d.gas, d.load_qi, d.load_qj,
         &d.load_points, &d.dist_loads,
     );
     serde_json::to_string(&result)
