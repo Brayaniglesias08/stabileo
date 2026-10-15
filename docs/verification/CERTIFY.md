@@ -99,19 +99,36 @@ exact dyadic rationals the engine used.
 
 **Check (Lean, `lake exe certcheck <bundle.json>...`).** `Certify.Bundle.check`
 (`verify/Certify/BundleCheck.lean`, core Lean + `Std` only, so it compiles natively
-without Mathlib) works in exact rational arithmetic:
+without Mathlib) works in exact arithmetic on dyadic rationals (`Dy`: `m · 2^e` with a
+GMP `Int` mantissa; no gcd per operation, unlike `Rat`):
 
-1. `R = K − L' L'ᵀ` exactly, as a hash map over its sparsity pattern (`K`'s entries
-   plus the products of all pairs of entries in each column of `L`);
-2. Gershgorin, for every row: `μ ≤ Rᵢᵢ − Σ_{j≠i} |Rᵢⱼ|`;
+1. `R = K − L' L'ᵀ` exactly, one dense column of its lower triangle at a time, in fixed
+   point (`L` scaled to integers by `2^-E`, `E` the smallest exponent in `L`; `R` by
+   `2^-E2`, `E2 = min(2E, smallest exponent in K)`), from the columns and the
+   (transposed) rows of `L'`; the cost is that of forming `L Lᵀ`, `Σ_c nnz(L_c)²/2`
+   exact multiply-adds;
+2. Gershgorin, for every row: `μ ≤ Rᵢᵢ − Σ_{j≠i} |Rᵢⱼ|`, accumulated into one array;
 3. `K ũ` exactly, the residual interval `[fLo − Kũ, fHi − Kũ]` and
    `ρ² = Σᵢ max(|loᵢ|, |hiᵢ|)²`;
 4. `0 < μ`, `0 ≤ b` and `ρ² ≤ (b μ)²` — no square roots (`√ρ² / μ ≤ b` follows:
    `Certify.Bundle.sqrt_div_le_of_sq_le`).
 
 Exit status 0 if every bundle is accepted, 1 if one is rejected, 2 on a parse error.
-The JSON reader (`verify/Certify/BundleParse.lean`) is trusted: it only decodes `[m, e]`
-to `m · 2^e` and CSC to column lists.
+The JSON reader (`verify/Certify/BundleParse.lean`) is trusted: it only turns `[m, e]`
+into the dyadic `m · 2^e` and CSC into column lists.
+
+Timings (Apple Silicon, one core, `check` only; the machine was shared):
+
+| model | n | nnz(K) | nnz(L) | `certcheck` |
+|---|---|---|---|---|
+| `ex-3d-portal-frame` | 24 | 88 | 159 | < 1 ms |
+| `ex-3d-tower` | 48 | 236 | 557 | 2 ms |
+| `ex-3d-nave-industrial` | 1308 | 6 041 | 49 359 | 0.5 s |
+| 6×6×8 frame building (generated) | 2352 | 13 048 | 365 762 | 11 s |
+| 8×8×12 frame building (generated) | 5832 | 33 048 | 1 525 164 | 80 s (0.8 GB) |
+
+The cost is dominated by the bignum multiply-adds of step 1 (about 90 ns each); the
+f64 export of the same bundles takes 4 ms to 4 s.
 
 **Soundness (`verify/Certify/BundleSound.lean`).**
 
@@ -119,11 +136,11 @@ to `m · 2^e` and CSC to column lists.
   `K = kMat d` and vector `ũ = uVec d` denoted by the bundle and *every* `f` with
   `fLo ≤ f ≤ fHi`: `K (K⁻¹ f) = f`, every solution of `K u = f` equals `K⁻¹ f`, and
   `‖K⁻¹ f − ũ‖₂ ≤ bound`. The proof applies `certified_error_bound_gram` with
-  `L = lMat d`, point enclosures of the exact `R` (`resid_eq`: the hash map equals
-  `symPart K − L Lᵀ` entrywise), the residual interval above and `ρ = b μ`. The
-  hash-map folds are related to sums by `foldl_getD`; the off-diagonal sums over the
-  map's entries bound the true row sums by `off_le` (every nonzero `Rᵢⱼ` is a stored
-  entry).
+  `L = lMat d`, point enclosures of the exact `R` (`resid_eq`), the residual interval
+  above and `ρ = b μ`. The computation is related to the mathematics by `Dy.val_add`,
+  `Dy.val_mul`, … (dyadic arithmetic is exact), `intAt_val` (the fixed-point encoding is
+  exact), `resCol_val` (each dense column is the exact residual column), `gershSums_val`
+  (the Gershgorin array holds exactly `Rₜₜ − Σ_{j≠t} |Rₜⱼ|`) and `mulVec_eq` (`K ũ`).
 * `Certify.Bundle.check_sound_coercive`: `check d = true → μ‖x‖² ≤ xᵀKx` for all `x`.
 
 Nothing about `L` or `perm` is checked: `L' L'ᵀ ⪰ 0` for every real `L'`, so a wrong
@@ -136,7 +153,8 @@ unsupportable: `bound / 1024`, `ũ` moved by `4b` in one component with `b` kept
 `‖u* − ũ'‖ ≥ 3b`, so acceptance would contradict `check_sound`), and `μ = 2 min Kᵢᵢ`
 (`> λ_min`, contradicting `check_sound_coercive`). `verify/scripts/check-bundles.sh`
 regenerates them, runs `certcheck`, and requires every original to be accepted and
-every tampered copy rejected.
+every tampered copy rejected. The ignored test `export_large_bundles` writes the generated
+frame buildings above to `target/cert-bundles-large/`.
 
 ## Buckling load-factor enclosure
 

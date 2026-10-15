@@ -8,13 +8,7 @@ import Certify.BundleParse
 
 open Certify.Bundle
 
-def ratToFloat (q : Rat) : Float :=
-  -- display only: scale so that numerator and denominator fit a Float
-  let shift := (Nat.log2 q.den : Int) - (Nat.log2 q.num.natAbs : Int)
-  let s := if shift > 0 then shift.toNat else 0
-  let num := Float.ofInt (q.num * 2 ^ s) / Float.ofNat (2 ^ (Nat.log2 q.den))
-  let den := Float.ofNat q.den / Float.ofNat (2 ^ (Nat.log2 q.den))
-  Float.scaleB (num / den) (-(s : Int))
+def dyToFloat (x : Dy) : Float := Float.scaleB (Float.ofInt x.m) x.e
 
 /-- `x` as `d.ddde±k` (display only). -/
 def sci (x : Float) : String := Id.run do
@@ -40,7 +34,7 @@ def checkFile (path : String) : IO UInt32 := do
   let ok ← IO.lazyPure fun _ => check d
   let t2 ← IO.monoMsNow
   let lnnz := d.lCols.foldl (fun acc c => acc + c.length) 0
-  let info := s!"n = {d.n}, nnz(K) = {d.kEnt.length}, nnz(L) = {lnnz}, μ ≈ {sci (ratToFloat d.mu)}, bound ≈ {sci (ratToFloat d.bound)}, parse {t1 - t0} ms, check {t2 - t1} ms"
+  let info := s!"n = {d.n}, nnz(K) = {d.kEnt.length}, nnz(L) = {lnnz}, μ ≈ {sci (dyToFloat d.mu)}, bound ≈ {sci (dyToFloat d.bound)}, parse {t1 - t0} ms, check {t2 - t1} ms"
   if ok then
     IO.println s!"ACCEPT {path}: {info}"
     return 0
