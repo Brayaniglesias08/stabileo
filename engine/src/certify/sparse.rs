@@ -38,7 +38,7 @@ fn down(x: f64) -> f64 {
 
 /// Enclosure of the exact product `a·b` of two f64 values.
 #[inline]
-fn prod(a: f64, b: f64) -> Interval {
+pub(crate) fn prod(a: f64, b: f64) -> Interval {
     let p = a * b;
     if p == 0.0 && (a == 0.0 || b == 0.0) {
         Interval::ZERO

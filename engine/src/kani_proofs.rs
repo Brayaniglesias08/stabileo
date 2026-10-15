@@ -19,6 +19,8 @@
 
 use crate::element::*;
 use crate::linalg::dense;
+use crate::certify::interval::Interval;
+use crate::linalg::sparse::CscMatrix;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -704,3 +706,493 @@ fn dense_extract_scatter_subvec_roundtrip() {
         assert!(full[idx[k]].to_bits() == v[idx[k]].to_bits());
     }
 }
+
+// ─── certify/interval.rs: outward-rounded interval arithmetic ───────────────
+//
+// What is proved, and how (details and the full table: docs/verification/KANI.md):
+//
+// 1. Structure, over every finite input: for + and −, each endpoint is the
+//    outward neighbour (next_down / next_up) of the round-to-nearest result of
+//    the endpoint operation and overflow yields a non-finite interval; NaN,
+//    ±inf and reversed operands poison mul/div/sqrt/square; neg and mag are
+//    exact. (The same structural statement for × over every finite input did
+//    not finish in 5 minutes.)
+// 2. Enclosure, i.e. that the exact real result lies in the computed interval,
+//    checked against exact integer arithmetic (no float in the check, no
+//    assumed theorem): a finite f64 is exactly ±m·2^e (`dyadic`), a product of
+//    two is ±(m₁m₂)·2^(e₁+e₂) in a u128, a sum of two with exponents within 70
+//    binades fits an i128, and `cmp_exact` compares such numbers exactly.
+//
+// Enclosure is proved on scale slices: one operand has a fixed binade
+// (x ∈ ±[1, 2)), the other ranges over the relevant binades. IEEE-754
+// operations are scale invariant away from overflow and underflow
+// (rn(2^k·v) = 2^k·rn(v), and next_up/next_down scale likewise), so a slice
+// covers every operand pair whose result stays in the normal range; the
+// remaining ranges rest on (1) plus IEEE correct rounding. With symbolic
+// exponents on both operands CBMC did not finish in 5–10 minutes (comparing a
+// float multiplier against an integer one is a multiplier-equivalence
+// problem, hard for SAT); with the exponents fixed, full-width × takes ~30 s.
+// ÷ finishes only with a 3-bit divisor (nightly), x² with 30 bits, and √ not
+// at all; the fma-based unit tests in certify/interval.rs cover the rest.
+//
+// From endpoints to every real in the operand intervals: +, − and × (bilinear)
+// attain their extremes over a box at corners, x² is monotone in |x|, ÷ and √
+// are monotone; the interval code takes min/max over the corner results
+// (read from the code; proved by Kani only for + and −, whose endpoints use
+// one corner each).
+//
+// TOOL FINDING: CBMC 6.11 (Kani 0.68) bit-blasts f64 division wrongly when
+// the dividend is subnormal: 0x752 / 0x3bcd800000000000 (9.26e-321 /
+// 1.249e-20) gives 7.4105141e-301 instead of the IEEE 7.4107459e-301 (the
+// significand keeps only the dividend's 11 bits). Constant folding is
+// correct, the symbolic encoding is not. Division harnesses must therefore
+// keep dividends normal; `cbmc_division_subnormal_dividend_bug` tracks it.
+
+type Dyadic = (bool, u128, i32); // (negative, m, e): value ±m·2^e
+
+/// Exact value of a finite f64 (subnormals included; ±0 → m = 0).
+fn dyadic(x: f64) -> Dyadic {
+    let b = x.to_bits();
+    let neg = (b >> 63) == 1;
+    let ex = ((b >> 52) & 0x7ff) as i32;
+    let fr = (b & ((1u64 << 52) - 1)) as u128;
+    if ex == 0 { (neg, fr, -1074) } else { (neg, fr | (1u128 << 52), ex - 1075) }
+}
+
+/// Exact product of two finite f64.
+fn dyadic_mul(x: f64, y: f64) -> Dyadic {
+    let (na, ma, ea) = dyadic(x);
+    let (nb, mb, eb) = dyadic(y);
+    (na != nb, ma * mb, ea + eb)
+}
+
+/// Exact comparison of nonnegative m₁·2^e₁ and m₂·2^e₂: −1, 0 or 1.
+fn cmp_mag(m1: u128, e1: i32, m2: u128, e2: i32) -> i32 {
+    if m1 == 0 || m2 == 0 {
+        return (m1 != 0) as i32 - (m2 != 0) as i32;
+    }
+    let b1 = 128 - m1.leading_zeros() as i32;
+    let b2 = 128 - m2.leading_zeros() as i32;
+    // Position of the leading bit decides unless equal; then align the
+    // mantissas to the same bit length (both stay < 2^128) and compare.
+    if e1 + b1 != e2 + b2 {
+        return if e1 + b1 > e2 + b2 { 1 } else { -1 };
+    }
+    let (a, b) = if b1 < b2 { (m1 << (b2 - b1) as u32, m2) } else { (m1, m2 << (b1 - b2) as u32) };
+    (a > b) as i32 - (a < b) as i32
+}
+
+/// Exact comparison of two dyadic numbers: −1, 0 or 1.
+fn cmp_exact(x: Dyadic, y: Dyadic) -> i32 {
+    let sx = if x.1 == 0 { 0 } else if x.0 { -1 } else { 1 };
+    let sy = if y.1 == 0 { 0 } else if y.0 { -1 } else { 1 };
+    if sx != sy {
+        return if sx > sy { 1 } else { -1 };
+    }
+    if sx == 0 {
+        return 0;
+    }
+    let c = cmp_mag(x.1, x.2, y.1, y.2);
+    if sx > 0 { c } else { -c }
+}
+
+/// f64 `lo` ≤ exact value `v` ≤ f64 `hi`.
+fn dyadic_in(v: Dyadic, lo: f64, hi: f64) -> bool {
+    cmp_exact(dyadic(lo), v) <= 0 && cmp_exact(v, dyadic(hi)) <= 0
+}
+
+/// Sanity of the exact comparator against IEEE comparison (which is exact).
+#[kani::proof]
+fn dyadic_cmp_matches_ieee() {
+    let x: f64 = kani::any();
+    let y: f64 = kani::any();
+    kani::assume(x.is_finite() && y.is_finite());
+    let c = cmp_exact(dyadic(x), dyadic(y));
+    assert!((c < 0) == (x < y) && (c == 0) == (x == y) && (c > 0) == (x > y));
+}
+
+/// Exact comparison of x + y with z, using integers only; None when the
+/// nonzero operands' exponents are more than 70 binades apart.
+fn cmp_sum_exact(x: f64, y: f64, z: f64) -> Option<i32> {
+    let (dx, dy) = (dyadic(x), dyadic(y));
+    let emin = if dx.1 == 0 { dy.2 } else if dy.1 == 0 { dx.2 } else { dx.2.min(dy.2) };
+    if dx.1 != 0 && dy.1 != 0 && (dx.2 - dy.2).abs() > 70 {
+        return None;
+    }
+    let int = |d: Dyadic| -> i128 {
+        if d.1 == 0 { 0 } else {
+            let m = (d.1 << (d.2 - emin) as u32) as i128; // < 2^124
+            if d.0 { -m } else { m }
+        }
+    };
+    let sum = int(dx) + int(dy);
+    Some(cmp_exact((sum < 0, sum.unsigned_abs(), emin), dyadic(z)))
+}
+
+/// f64 from sign, biased exponent and fraction bits.
+fn float_from(neg: bool, exp: u64, frac: u64) -> f64 {
+    f64::from_bits(((neg as u64) << 63) | (exp << 52) | (frac & ((1u64 << 52) - 1)))
+}
+
+/// Symbolic interval with finite ordered endpoints.
+fn any_interval() -> Interval {
+    let lo: f64 = kani::any();
+    let hi: f64 = kani::any();
+    kani::assume(lo.is_finite() && hi.is_finite() && lo <= hi);
+    Interval::new(lo, hi)
+}
+
+/// Symbolic x ∈ ±[1, 2), full 53-bit significand.
+fn any_unit() -> f64 {
+    float_from(kani::any(), 1023, kani::any())
+}
+
+/// Symbolic x ∈ ±[1, 2) with at most `k` significant bits.
+fn any_unit_short(k: u32) -> f64 {
+    let f: u64 = kani::any();
+    float_from(kani::any(), 1023, f & !((1u64 << (52 - k)) - 1))
+}
+
+/// Point + over every finite input: the endpoints are exactly the outward
+/// neighbours of rn(x+y), strictly around it; overflow gives a non-finite
+/// interval. Interval + computes each endpoint this way from the matching
+/// endpoints, so this covers the general operation.
+#[kani::proof]
+fn interval_add_structure() {
+    let x: f64 = kani::any();
+    let y: f64 = kani::any();
+    kani::assume(x.is_finite() && y.is_finite());
+    let r = Interval::point(x) + Interval::point(y);
+    let s = x + y;
+    if s.is_finite() {
+        assert!(r.lo.to_bits() == s.next_down().to_bits() && r.hi.to_bits() == s.next_up().to_bits());
+        assert!(r.lo < s && s < r.hi);
+    } else {
+        assert!(!r.is_finite());
+    }
+}
+
+/// Point − over every finite input (as for +).
+#[kani::proof]
+fn interval_sub_structure() {
+    let x: f64 = kani::any();
+    let y: f64 = kani::any();
+    kani::assume(x.is_finite() && y.is_finite());
+    let r = Interval::point(x) - Interval::point(y);
+    let s = x - y;
+    if s.is_finite() {
+        assert!(r.lo.to_bits() == s.next_down().to_bits() && r.hi.to_bits() == s.next_up().to_bits());
+        assert!(r.lo < s && s < r.hi);
+    } else {
+        assert!(!r.is_finite());
+    }
+}
+
+/// + encloses the exact sum: x ∈ ±[1, 2), y ∈ ±2^−d·[1, 2) for d ≤ 70
+/// (either sign, so cancellation down to exact zero is included).
+#[kani::proof]
+fn interval_add_encloses_slice() {
+    let x = any_unit();
+    let d: u64 = kani::any();
+    kani::assume(d <= 70);
+    let y = float_from(kani::any(), 1023 - d, kani::any());
+    let r = Interval::point(x) + Interval::point(y);
+    assert!(cmp_sum_exact(x, y, r.lo).unwrap() >= 0 && cmp_sum_exact(x, y, r.hi).unwrap() <= 0);
+}
+
+/// + encloses the exact sum when |y| < 2^−70·|x| (y possibly subnormal or 0):
+/// rn(x+y) = x, and both neighbours of x are at least 2^−53 away.
+#[kani::proof]
+fn interval_add_encloses_far() {
+    let x = any_unit();
+    let y: f64 = kani::any();
+    kani::assume(y.is_finite() && y.abs() < 1.0 / (1u128 << 70) as f64);
+    let r = Interval::point(x) + Interval::point(y);
+    assert!(r.lo.to_bits() == x.next_down().to_bits() && r.hi.to_bits() == x.next_up().to_bits());
+    let gap = 1.0 / (1u64 << 53) as f64;
+    assert!(x - r.lo >= gap && r.hi - x >= gap); // exact (Sterbenz), > |y|
+}
+
+/// − encloses the exact difference on the same slice as +.
+// kani: nightly (> 100 s or > 4 GB on a laptop)
+#[kani::proof]
+fn interval_sub_encloses_slice() {
+    let x = any_unit();
+    let d: u64 = kani::any();
+    kani::assume(d <= 70);
+    let y = float_from(kani::any(), 1023 - d, kani::any());
+    let r = Interval::point(x) - Interval::point(y);
+    assert!(cmp_sum_exact(x, -y, r.lo).unwrap() >= 0 && cmp_sum_exact(x, -y, r.hi).unwrap() <= 0);
+}
+
+/// × encloses the exact product: x, y ∈ ±[1, 2), both full width (with the
+/// exponents fixed CBMC handles the 53×53 multiplier comparison in ~30 s).
+#[kani::proof]
+fn interval_mul_encloses_slice() {
+    let (x, y) = (any_unit(), any_unit());
+    let r = Interval::point(x) * Interval::point(y);
+    assert!(dyadic_in(dyadic_mul(x, y), r.lo, r.hi));
+}
+
+/// `certify::sparse::prod` encloses the exact product (same slice as ×).
+#[kani::proof]
+fn certify_sparse_prod_encloses_slice() {
+    let (x, y) = (any_unit(), any_unit());
+    let r = crate::certify::sparse::prod(x, y);
+    assert!(dyadic_in(dyadic_mul(x, y), r.lo, r.hi));
+}
+
+/// `certify::sparse::prod` is the exact zero for a zero factor, and otherwise
+/// the outward neighbours of rn(x·y) (non-finite on overflow).
+#[kani::proof]
+fn certify_sparse_prod_zero_exact() {
+    let x: f64 = kani::any();
+    kani::assume(x.is_finite());
+    let r = crate::certify::sparse::prod(x, 0.0);
+    assert!(r.lo == 0.0 && r.hi == 0.0);
+    let r = crate::certify::sparse::prod(0.0, x);
+    assert!(r.lo == 0.0 && r.hi == 0.0);
+}
+
+/// x² encloses the exact square: x ∈ ±[1, 2) with 30 significant bits (the
+/// square has up to 60 bits, so rounding is exercised; full width did not
+/// finish in 10 minutes).
+#[kani::proof]
+fn interval_square_encloses_slice() {
+    let x = any_unit_short(30);
+    let r = Interval::point(x).square();
+    assert!(r.lo >= 0.0);
+    assert!(dyadic_in(dyadic_mul(x, x), r.lo, r.hi));
+}
+
+/// x² over an interval containing 0 starts at exactly 0 and is ordered.
+#[kani::proof]
+fn interval_square_contains_zero() {
+    let lo: f64 = kani::any();
+    let hi: f64 = kani::any();
+    kani::assume(lo.is_finite() && hi.is_finite() && lo <= 0.0 && 0.0 <= hi);
+    let r = Interval::new(lo, hi).square();
+    assert!(r.lo == 0.0 && (r.hi >= 0.0 || r.hi.is_nan() || r.hi.is_infinite()));
+}
+
+/// Exact q = x / y lies in [lo, hi] (y ≠ 0): lo·y ≤ x ≤ hi·y for y > 0,
+/// reversed for y < 0. Products are exact dyadics.
+fn quotient_in(x: f64, y: f64, lo: f64, hi: f64) -> bool {
+    let (ly, hy, xx) = (dyadic_mul(lo, y), dyadic_mul(hi, y), dyadic(x));
+    if y > 0.0 {
+        cmp_exact(ly, xx) <= 0 && cmp_exact(xx, hy) <= 0
+    } else {
+        cmp_exact(ly, xx) >= 0 && cmp_exact(xx, hy) >= 0
+    }
+}
+
+/// ÷ encloses the exact quotient on a slice with a 3-bit divisor (591 s;
+/// wider divisors time out).
+// kani: nightly (> 100 s or > 4 GB on a laptop)
+#[kani::proof]
+fn interval_div_encloses_slice() {
+    let (x, y) = (any_unit(), any_unit_short(3));
+    let r = Interval::point(x).div(Interval::point(y));
+    assert!(quotient_in(x, y, r.lo, r.hi));
+}
+
+/// TOOL FINDING (see the section comment): CBMC's symbolic f64 division is
+/// wrong for a subnormal dividend. Asserts the IEEE result, so it fails
+/// (and this should_panic harness passes) while the CBMC bug is present.
+#[kani::proof]
+#[kani::should_panic]
+fn cbmc_division_subnormal_dividend_bug() {
+    let xb: u64 = kani::any();
+    let yb: u64 = kani::any();
+    kani::assume(xb == 0x752 && yb == 0x3bcd_8000_0000_0000);
+    let q = f64::from_bits(xb) / f64::from_bits(yb);
+    assert!(q.to_bits() == 0x019f_c341_15b1_e5f7); // IEEE 754 (native) result
+}
+
+/// Negation is exact: −x ∈ −a for every f64 x ∈ a, and finiteness is kept.
+#[kani::proof]
+fn interval_neg_exact() {
+    let lo: f64 = kani::any();
+    let hi: f64 = kani::any();
+    let a = Interval::new(lo, hi);
+    let r = -a;
+    assert!(r.is_finite() == a.is_finite());
+    let x: f64 = kani::any();
+    kani::assume(a.is_finite() && lo <= x && x <= hi);
+    assert!(r.lo <= -x && -x <= r.hi);
+}
+
+/// mag bounds |x| for every x in the interval and is attained at an endpoint.
+#[kani::proof]
+fn interval_mag_bounds() {
+    let a = any_interval();
+    let m = a.mag();
+    assert!(m == a.lo.abs() || m == a.hi.abs());
+    let x: f64 = kani::any();
+    kani::assume(a.lo <= x && x <= a.hi);
+    assert!(x.abs() <= m);
+}
+
+/// Any interval with a NaN/infinite endpoint or lo > hi.
+fn any_bad_interval() -> Interval {
+    let lo: f64 = kani::any();
+    let hi: f64 = kani::any();
+    let a = Interval::new(lo, hi);
+    kani::assume(!a.is_finite());
+    a
+}
+
+/// mul, div, sqrt, square never return a finite interval from an invalid
+/// operand (NaN, ±inf, or lo > hi), whatever the other operand is.
+#[kani::proof]
+fn interval_mul_div_sqrt_square_poison_invalid() {
+    let bad = any_bad_interval();
+    let lo: f64 = kani::any();
+    let hi: f64 = kani::any();
+    let other = Interval::new(lo, hi);
+    assert!(!(bad * other).is_finite() && !(other * bad).is_finite());
+    assert!(!bad.div(other).is_finite() && !other.div(bad).is_finite());
+    assert!(!bad.sqrt().is_finite() && !bad.square().is_finite());
+}
+
+/// add/sub never return a finite interval from an operand with a NaN or
+/// infinite endpoint (not reversed) and a finite ordered other operand.
+/// (With an arbitrary other operand Kani's NaN check flags inf − inf inside
+/// the operation itself, which is the intended poisoning, not a bug.)
+#[kani::proof]
+fn interval_add_sub_poison_nonfinite() {
+    let lo: f64 = kani::any();
+    let hi: f64 = kani::any();
+    // A NaN or infinite endpoint, not reversed (reversed operands: see the
+    // counterexample harness below; with them Kani finds e.g.
+    // [−MAX⁺, −inf] + [0, 0] = [−MAX, −MAX]).
+    kani::assume((!lo.is_finite() || !hi.is_finite()) && !(lo > hi));
+    let bad = Interval::new(lo, hi);
+    let other = any_interval();
+    assert!(!(bad + other).is_finite() && !(other + bad).is_finite());
+    assert!(!(bad - other).is_finite() && !(other - bad).is_finite());
+}
+
+/// FINDING: add/sub do not reject a reversed (lo > hi) finite operand: e.g.
+/// [1, 1⁻] + [0, 0] = [1⁻, 1], a finite ordered interval. mul/div/sqrt/square
+/// do (see above). Harmless as long as no caller builds a reversed interval
+/// (none does: `Interval::new` is only called with down(p) ≤ up(p)).
+#[kani::proof]
+#[kani::should_panic]
+fn interval_add_reversed_operand_counterexample() {
+    let lo: f64 = kani::any();
+    let hi: f64 = kani::any();
+    kani::assume(lo.is_finite() && hi.is_finite() && lo > hi);
+    let r = Interval::new(lo, hi) + Interval::ZERO;
+    assert!(!r.is_finite());
+}
+
+
+// ─── solver/dof.rs and solver/assembly.rs ───────────────────────────────────
+//
+// DofNumbering and the assemblers are built on HashMap. Its RandomState needs
+// OS randomness (CCRandomGenerateBytes), which Kani cannot model; with the key
+// source stubbed, a 3-node numbering harness still hit the 8 GB cap after
+// 500 s, CBMC unrolling SipHash over String and usize keys. These properties
+// (numbering bijection, free-first order, restrained sets, sparse == dense
+// assembly) are checked exhaustively over small models in
+// tests/index_exhaustive.rs instead.
+
+// ─── linalg/amd.rs, rcm.rs, sparse.rs: orderings and CSC ────────────────────
+
+
+// amd_order / rcm_order with a symbolic graph did not finish in 10 minutes
+// even on 3 vertices (heap, queue and sort loops unrolled over a symbolic
+// pattern); tests/index_exhaustive.rs runs both on every graph on up to 6
+// vertices. Kani proves the permutation algebra they rely on.
+
+/// inverse_perm inverts every permutation of size ≤ 4 (each size concrete).
+#[kani::proof]
+#[kani::unwind(6)]
+fn inverse_perm_inverts() {
+    let p: [usize; 4] = kani::any();
+    for n in 0..=4 {
+        let mut ok = true;
+        for i in 0..n {
+            ok &= p[i] < n;
+            for j in 0..i {
+                ok &= p[i] != p[j];
+            }
+        }
+        if ok {
+            let ip = crate::linalg::amd::inverse_perm(&p[..n]);
+            assert!(ip.len() == n);
+            for i in 0..n {
+                assert!(ip[p[i]] == i && p[ip[i]] == i);
+            }
+        }
+    }
+}
+
+const NT: usize = 3; // triplets
+const NC: usize = 3; // matrix order
+
+/// Triplets with symbolic positions (either triangle) and the concrete
+/// values 1, 2, 4: every subset sums to a distinct exact f64, so the summed
+/// value at a position identifies exactly which triplets were merged there.
+/// (Symbolic values made CBMC bit-blast a float adder per merge: > 8 GB.)
+fn any_triplets() -> ([usize; NT], [usize; NT], [f64; NT]) {
+    let rows: [usize; NT] = kani::any();
+    let cols: [usize; NT] = kani::any();
+    kani::assume(rows.iter().all(|&r| r < NC) && cols.iter().all(|&c| c < NC));
+    (rows, cols, [1.0, 2.0, 4.0])
+}
+
+/// CSC invariants: col_ptr starts at 0, is monotone and ends at nnz; rows in
+/// range, in the lower triangle, strictly increasing within each column.
+fn check_csc(m: &CscMatrix) {
+    assert!(m.col_ptr.len() == m.n + 1 && m.col_ptr[0] == 0);
+    for j in 0..m.n {
+        assert!(m.col_ptr[j] <= m.col_ptr[j + 1]);
+    }
+    assert!(m.col_ptr[m.n] == m.row_idx.len() && m.row_idx.len() == m.values.len());
+    for j in 0..m.n {
+        for k in m.col_ptr[j]..m.col_ptr[j + 1] {
+            assert!(m.row_idx[k] < m.n && m.row_idx[k] >= j);
+            if k > m.col_ptr[j] {
+                assert!(m.row_idx[k - 1] < m.row_idx[k]);
+            }
+        }
+    }
+}
+
+/// from_triplets: CSC invariants, and the symmetric dense matrix equals the
+/// sum of the triplets mirrored into the lower triangle (duplicates summed).
+// kani: nightly (> 100 s or > 4 GB on a laptop)
+#[kani::proof]
+#[kani::unwind(10)]
+fn csc_from_triplets_invariants() {
+    let (rows, cols, vals) = any_triplets();
+    let m = CscMatrix::from_triplets(NC, &rows, &cols, &vals);
+    check_csc(&m);
+    let mut dense = [0.0f64; NC * NC];
+    for t in 0..NT {
+        let (r, c) = if rows[t] >= cols[t] { (rows[t], cols[t]) } else { (cols[t], rows[t]) };
+        dense[r * NC + c] += vals[t];
+    }
+    let d = m.to_dense_symmetric();
+    for i in 0..NC {
+        for j in 0..=i {
+            assert!(d[i * NC + j] == dense[i * NC + j] && d[j * NC + i] == dense[i * NC + j]);
+        }
+    }
+    // Stored entries are exactly the touched positions (one per position).
+    let mut touched = 0;
+    for p in 0..NC * NC {
+        let (i, j) = (p / NC, p % NC);
+        if i >= j && (0..NT).any(|t| rows[t].max(cols[t]) == i && rows[t].min(cols[t]) == j) {
+            touched += 1;
+        }
+    }
+    assert!(m.nnz() == touched);
+}
+
+// permute_symmetric: a harness with a concrete 3×3 matrix and a symbolic
+// permutation of 3 did not finish in 10 minutes (7 GB): permute_symmetric
+// rebuilds through from_triplets, whose generic sort over symbolic keys is
+// costly. Covered by tests/index_exhaustive.rs (20 000 random cases).
