@@ -52,7 +52,7 @@ jobs:
 
   kani:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
@@ -69,7 +69,8 @@ jobs:
       - name: Kani harnesses
         env:
           KANI_MEM_GB: 12
-          KANI_TIMEOUT_S: 900
+          # The nightly-tier harnesses take up to ~10 min locally, ~2x that on the runner.
+          KANI_TIMEOUT_S: ${{ github.event_name == 'pull_request' && 900 || 2400 }}
           KANI_TIER: ${{ github.event_name == 'pull_request' && 'fast' || 'all' }}
         run: nix develop .#verify -c ./scripts/kani-safe.sh
       - name: Kani report
