@@ -226,6 +226,19 @@ pub fn solve_plastic_2d(json: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 
+/// Solve 2D plastic analysis and certify the collapse load factor λ_c:
+/// `[lambdaLower, lambdaUpper]` from the static and kinematic theorems, both
+/// checked in exact rational arithmetic (docs/verification/CERTIFY.md).
+/// JSON (`PlasticInput`) in → JSON `{ results, certificate }` out.
+#[wasm_bindgen]
+pub fn certify_plastic_2d(json: &str) -> Result<String, JsValue> {
+    let input: types::PlasticInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let out = certify::plastic::certify_plastic_2d(&input).map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&out)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
 /// Solve 3D plastic (pushover) analysis. JSON in → JSON out.
 #[wasm_bindgen]
 pub fn solve_plastic_3d(json: &str) -> Result<String, JsValue> {
