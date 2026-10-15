@@ -387,13 +387,13 @@ fn released_end_rotations(input: &SolverInput, key: &str, disp: &HashMap<usize, 
                 let a = dl.a.unwrap_or(0.0);
                 let b = dl.b.unwrap_or(l);
                 if a.abs() < 1e-12 && (b - l).abs() < 1e-12 {
-                    crate::element::fef_distributed_2d(dl.q_i, dl.q_j, l)
+                    crate::element::fef_distributed_2d(dl.q_i, dl.q_j, l, phi)
                 } else {
-                    crate::element::fef_partial_distributed_2d(dl.q_i, dl.q_j, a, b, l)
+                    crate::element::fef_partial_distributed_2d(dl.q_i, dl.q_j, a, b, l, phi)
                 }
             }
             SolverLoad::PointOnElement(pl) if pl.element_id == el.id => {
-                crate::element::fef_point_load_2d(pl.p, pl.px.unwrap_or(0.0), pl.my.unwrap_or(0.0), pl.a, l)
+                crate::element::fef_point_load_2d(pl.p, pl.px.unwrap_or(0.0), pl.my.unwrap_or(0.0), pl.a, l, phi)
             }
             SolverLoad::Thermal(tl) if tl.element_id == el.id => {
                 let h = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
