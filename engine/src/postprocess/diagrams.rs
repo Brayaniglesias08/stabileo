@@ -310,7 +310,6 @@ pub fn compute_diagrams_2d(
 /// m(L) = 0. Without shear flexibility the homogeneous part is the cubic
 /// Hermite interpolation; with it, the exact Timoshenko one.
 struct MemberDeflection {
-    l: f64,
     ei: f64,
     flex_s: f64,
     v_i: f64,
@@ -359,7 +358,7 @@ impl MemberDeflection {
         hinge_start: bool, hinge_end: bool,
         points: Vec<(f64, f64)>, dist: Vec<(f64, f64, f64, f64)>,
     ) -> Self {
-        let mut d = MemberDeflection { l, ei, flex_s, v_i, theta_i: 0.0, m0: 0.0, s0: 0.0, points, dist };
+        let mut d = MemberDeflection { ei, flex_s, v_i, theta_i: 0.0, m0: 0.0, s0: 0.0, points, dist };
         let [mql, mq1, mq2] = d.load_terms(l);
         // Unknowns x = [θ_i, m0, s0].
         let r1 = if hinge_start { ([0.0, 1.0, 0.0], 0.0) } else { ([1.0, 0.0, 0.0], r_i) };
