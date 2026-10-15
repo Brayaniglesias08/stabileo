@@ -34,7 +34,7 @@ use super::sparse::certify_lambda_min_lower;
 use crate::linalg::sparse::CscMatrix;
 use crate::solver::assembly::assemble_stiffness_sparse_3d;
 use crate::solver::dof::DofNumbering;
-use crate::solver::linear::{compute_internal_forces_2d, compute_internal_forces_3d};
+use crate::solver::linear::{compute_internal_forces_2d_with_loads, compute_internal_forces_3d_with_loads};
 use crate::solver::mass_matrix::{assemble_mass_matrix_2d_sparse, assemble_mass_matrix_3d_sparse};
 use crate::solver::sparse_assembly::assemble_stiffness_sparse_2d;
 use crate::solver::spectral::{solve_spectral_2d, solve_spectral_3d, SpectralResult, SpectralResult3D};
@@ -227,7 +227,7 @@ fn certify_2d_inner(input: &SpectralInput, results: &SpectralResult) -> Result<S
         v
     };
     let forces = |u: &[f64]| -> Vec<(usize, Vec<f64>)> {
-        compute_internal_forces_2d(solver, &dof, &full(u))
+        compute_internal_forces_2d_with_loads(solver, &[], &dof, &full(u))
             .iter()
             .map(|f| {
                 (
@@ -307,7 +307,7 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
         v
     };
     let forces = |u: &[f64]| -> Vec<(usize, Vec<f64>)> {
-        compute_internal_forces_3d(solver, &dof, &full(u))
+        compute_internal_forces_3d_with_loads(solver, &[], &dof, &full(u))
             .iter()
             .map(|f| {
                 let mx = |a: f64, b: f64| a.abs().max(b.abs());

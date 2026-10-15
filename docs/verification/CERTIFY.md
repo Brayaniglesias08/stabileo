@@ -569,9 +569,13 @@ inside; the spectrum periods must be finite and strictly increasing (else refuse
 * **Member forces**: per mode the solver's force recovery at `ũᵢ = mid(αᵢ)φ̃`, the error
   bound `bᵢ = eᵢ + ‖αᵢφ̃ − ũᵢ‖` fed to the member force bounds (`max(|start|, |end|)` is
   1-Lipschitz), then SRSS/CQC in intervals. As for member force bounds, rounding in the
-  f64 force recovery is not included. (The solver's modal force recovery also includes
-  the fixed-end forces of any element loads in the model; the certificate uses the same
-  recovery, so it certifies that quantity.)
+  f64 force recovery is not included. The recovery is from the modal displacements
+  alone, with no element loads: static member loads in the model (distributed, point,
+  thermal) are not part of any mode's response, so their fixed-end forces enter neither
+  the solver's modal forces nor the certified ones. (Before this was fixed the solver's
+  modal recovery added those fixed-end forces to every mode, and SRSS/CQC combined them
+  as if dynamic; `validation_spectral_element_loads_do_not_leak` and its 3D twin pin the
+  loaded and unloaded models to the same spectral member forces.)
 * **Base shear** (the solver always combines it by SRSS): `meffᵢ* = λᵢ‖Πᵢb‖²` with
   `‖Πᵢb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθᵢ‖Mr‖/√σ_K`, times `Sa(Tᵢ)`, SRSS in intervals.
 
