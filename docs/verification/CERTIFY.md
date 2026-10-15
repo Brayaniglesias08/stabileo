@@ -197,6 +197,22 @@ with `‖T‖₂ ≤ 1 + 4ε` (rotation with rounded entries) and `‖u* − ũ�
 displacement certificate (`engine/src/certify/forces.rs`). Rounding in the f64 force
 evaluation itself is not included.
 
+Warping frames (14 DOFs per member in a 7-DOF-per-node model) use
+`frame_local_stiffness_3d_warping` the same way; rows 6 and 13 give the bimoment bound.
+With constraints or inclined supports the displacement bound fed in is the mapped one
+of those sections (global axes), so the force bounds hold unchanged.
+
+**Shell stress resultants.** For MITC4 quads, DKT plates and MITC9 quads the reported
+centroid resultants `σxx, σyy, τxy, mx, my, mxy` (and MITC4 `qx, qy`) are linear in the
+element's local displacements, `s = L T u_e` (thermal terms are constant and cancel in
+the difference). The columns `L e_k` are obtained by running the solver's own recovery
+(`quad_stresses`, `quad_transverse_shear`, `plate_stress_recovery`, `quad9_stresses`) on
+unit vectors with zero thermal load, and each resultant gets
+`‖row_i(L)‖₂ · ‖T‖₂ · ‖u* − ũ‖₂`. As for member forces, `L` is the map *as the f64
+recovery evaluates it* (its entries carry the recovery's rounding) and rounding in
+evaluating `s(ũ)` is not included. Von Mises and principal stresses are not linear and
+get no bound; neither do solid shells or curved shells.
+
 Lean (`verify/Certify/Forces.lean`): `abs_mulVec_sub_le` (`|(B(u − ũ))ᵢ| ≤
 ‖row_i B‖ ‖u − ũ‖`) and `force_bound`: if `‖row_i k‖ ≤ r`, `‖Tx‖ ≤ τ‖x‖` for all `x`
 (`τ ≥ 0`) and `‖u − ũ‖ ≤ b`, then `|((kT)(u − ũ))ᵢ| ≤ r τ b`. The bound `‖T‖₂ ≤ 1 + 4ε`

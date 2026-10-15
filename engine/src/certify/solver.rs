@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use super::constrained::{certify_constrained_system, rotate_back, to_rotated, ConstraintMap, KRef, Rotation};
-use super::forces::{force_bounds_2d, force_bounds_3d, ForceBound2D, ForceBound3D};
+use super::forces::{force_bounds_2d, force_bounds_3d, shell_bounds_3d, ForceBound2D, ForceBound3D, ShellBound};
 use super::interval::Interval;
 use super::linear::{certify_linear_system_auto_interval_rhs, Certificate, MAX_CERTIFY_N};
 use super::sparse::certify_sparse_spd_system;
@@ -55,6 +55,9 @@ pub struct CertifiedResults3D {
     pub certificate: Certificate,
     /// Per-member bounds on |force(u*) − force(ũ)| (empty when uncertified).
     pub force_bounds: Vec<ForceBound3D>,
+    /// Per-shell-element bounds on the reported stress resultants (empty when uncertified).
+    #[serde(default)]
+    pub shell_bounds: Vec<ShellBound>,
 }
 
 /// `certify_linear_2d` plus per-member force bounds.
@@ -64,14 +67,15 @@ pub fn certify_linear_2d_full(input: &SolverInput) -> Result<CertifiedResults2D,
     Ok(CertifiedResults2D { results, certificate, force_bounds })
 }
 
-/// `certify_linear_3d` plus per-member force bounds.
+/// `certify_linear_3d` plus per-member force bounds and shell resultant bounds.
 pub fn certify_linear_3d_full(input: &SolverInput3D) -> Result<CertifiedResults3D, String> {
     let (results, certificate) = certify_linear_3d(input)?;
-    let force_bounds = certificate
-        .abs_bound()
-        .map(|b| force_bounds_3d(&expand_curved_beams_3d(input), b))
-        .unwrap_or_default();
-    Ok(CertifiedResults3D { results, certificate, force_bounds })
+    let expanded = expand_curved_beams_3d(input);
+    let (force_bounds, shell_bounds) = match certificate.abs_bound() {
+        Some(b) => (force_bounds_3d(&expanded, b), shell_bounds_3d(&expanded, b)),
+        None => Default::default(),
+    };
+    Ok(CertifiedResults3D { results, certificate, force_bounds, shell_bounds })
 }
 
 /// Solve a 2D linear static model with `solve_2d` and certify its displacements.

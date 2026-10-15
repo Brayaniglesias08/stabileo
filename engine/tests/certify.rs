@@ -1159,3 +1159,46 @@ fn constrained_certificate_refuses_wrong_inputs() {
     mech.constraints = vec![Constraint::EqualDOF(EqualDOFConstraint { master_node: 2, slave_node: 4, dofs: vec![0] })];
     assert_never_certified("tied sway mechanism", certify_linear_2d(&mech));
 }
+
+/// Full certified results: member and shell bounds come with a certificate,
+/// and never without one.
+#[test]
+fn full_results_bounds_only_when_certified() {
+    use dedaliano_engine::certify::certify_linear_3d_full;
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ex-3d-grid-slab-input.json");
+    let input: SolverInput3D = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let full = certify_linear_3d_full(&input).unwrap();
+    assert!(full.certificate.is_certified());
+    assert_eq!(full.force_bounds.len(), input.elements.len());
+    assert_eq!(full.shell_bounds.len(), input.quads.len() + input.plates.len() + input.quad9s.len());
+    // A constrained MITC4 strip: certified, with a bound per quad.
+    let (nx, ny) = (4usize, 2usize);
+    let id = |i: usize, j: usize| i * (ny + 1) + j + 1;
+    let mut shell = make_3d_input(
+        (0..=nx).flat_map(|i| (0..=ny).map(move |j| (id(i, j), i as f64, 0.5 * j as f64, 0.2 * j as f64))).collect(),
+        vec![(1, 30_000.0, 0.25)],
+        vec![],
+        vec![],
+        (0..=ny).map(|j| (id(0, j), vec![true; 6])).collect(),
+        vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: id(nx, 1), fx: 1.0, fy: 0.5, fz: -2.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None })],
+    );
+    let mut q = 1;
+    for i in 0..nx {
+        for j in 0..ny {
+            shell.quads.insert(q.to_string(), SolverQuadElement {
+                id: q, nodes: [id(i, j), id(i + 1, j), id(i + 1, j + 1), id(i, j + 1)], material_id: 1, thickness: 0.05,
+            });
+            q += 1;
+        }
+    }
+    shell.constraints = vec![Constraint::EqualDOF(EqualDOFConstraint { master_node: id(nx, 0), slave_node: id(nx, 2), dofs: vec![2] })];
+    let full = certify_linear_3d_full(&shell).unwrap();
+    assert_honest_gen(&full.certificate, &gen_3d("constrained MITC4 strip", &shell, &full.results));
+    assert_eq!(full.shell_bounds.len(), shell.quads.len());
+    assert!(full.shell_bounds.iter().all(|b| b.mx > 0.0 && b.qx.is_some()));
+    // A non-positive-definite model the solver still answers: no bounds at all.
+    let bad = fuzz_models::random_3d_model(100_031);
+    let full = certify_linear_3d_full(&bad).unwrap();
+    assert!(!full.certificate.is_certified());
+    assert!(full.force_bounds.is_empty() && full.shell_bounds.is_empty());
+}
