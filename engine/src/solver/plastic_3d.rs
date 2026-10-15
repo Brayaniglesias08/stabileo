@@ -343,7 +343,7 @@ fn released_end_rotations(input: &SolverInput3D, key: &str, disp: &HashMap<usize
             u[3 * blk + r] = ax[0] * v[0] + ax[1] * v[1] + ax[2] * v[2];
         }
     }
-    let fef = local_fef(input, el, l, e, sec);
+    let fef = local_fef(input, el, l, e, sec, py, pz);
     let r = |i: usize| (0..12).map(|j| k[i * 12 + j] * u[j]).sum::<f64>() - fef[i];
     let idx: Vec<usize> = rel.iter().filter(|r| r.1).map(|r| r.0).collect();
     let n = idx.len();
@@ -369,7 +369,16 @@ fn released_end_rotations(input: &SolverInput3D, key: &str, disp: &HashMap<usize
 }
 
 /// Fixed-end forces of the element's member loads, unreleased (as linear.rs).
-fn local_fef(input: &SolverInput3D, el: &SolverElement3D, l: f64, e: f64, sec: &SolverSection3D) -> [f64; 12] {
+/// `phi_y`, `phi_z`: the member's shear parameters, as in its stiffness.
+fn local_fef(
+    input: &SolverInput3D,
+    el: &SolverElement3D,
+    l: f64,
+    e: f64,
+    sec: &SolverSection3D,
+    phi_y: f64,
+    phi_z: f64,
+) -> [f64; 12] {
     let mut fef = [0.0; 12];
     for ld in &input.loads {
         let f: [f64; 12] = match ld {
@@ -377,9 +386,9 @@ fn local_fef(input: &SolverInput3D, el: &SolverElement3D, l: f64, e: f64, sec: &
                 let a = dl.a.unwrap_or(0.0);
                 let b = dl.b.unwrap_or(l);
                 let mut f = if a.abs() < 1e-12 && (b - l).abs() < 1e-12 {
-                    element::fef_distributed_3d(dl.q_yi, dl.q_yj, dl.q_zi, dl.q_zj, l)
+                    element::fef_distributed_3d(dl.q_yi, dl.q_yj, dl.q_zi, dl.q_zj, l, phi_y, phi_z)
                 } else {
-                    element::fef_partial_distributed_3d(dl.q_yi, dl.q_yj, dl.q_zi, dl.q_zj, a, b, l)
+                    element::fef_partial_distributed_3d(dl.q_yi, dl.q_yj, dl.q_zi, dl.q_zj, a, b, l, phi_y, phi_z)
                 };
                 let ax = element::axial_distributed_fef(dl.q_xi, dl.q_xj, a, b, l);
                 f[0] = ax[0];
@@ -387,18 +396,7 @@ fn local_fef(input: &SolverInput3D, el: &SolverElement3D, l: f64, e: f64, sec: &
                 f
             }
             SolverLoad3D::PointOnElement(pl) if pl.element_id == el.id => {
-                let fy = element::fef_point_load_2d(pl.py, 0.0, 0.0, pl.a, l);
-                let fz = element::fef_point_load_2d(pl.pz, 0.0, 0.0, pl.a, l);
-                let mut f = [0.0; 12];
-                f[1] = fy[1];
-                f[5] = fy[2];
-                f[7] = fy[4];
-                f[11] = fy[5];
-                f[2] = fz[1];
-                f[4] = -fz[2];
-                f[8] = fz[4];
-                f[10] = -fz[5];
-                f
+                element::fef_point_load_3d(pl.py, pl.pz, pl.a, l, phi_y, phi_z)
             }
             SolverLoad3D::Thermal(tl) if tl.element_id == el.id => {
                 let hy = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
