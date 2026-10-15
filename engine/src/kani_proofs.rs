@@ -473,8 +473,8 @@ fn any_q() -> f64 { any_sym(1e6) }
 
 #[kani::proof]
 fn fef_distributed_2d_ok() {
-    let (qi, qj, l) = (any_q(), any_q(), any_len());
-    let f = fef_distributed_2d(qi, qj, l);
+    let (qi, qj, l, phi) = (any_q(), any_q(), any_len(), any_phi());
+    let f = fef_distributed_2d(qi, qj, l, phi);
     assert!(all_finite(&f));
     assert!(f[0] == 0.0 && f[3] == 0.0);
 }
@@ -484,8 +484,8 @@ fn fef_distributed_2d_ok() {
 fn fef_point_load_2d_ok() {
     let l = any_len();
     let a = any_in(0.0, l);
-    let (p, px, m) = (any_q(), any_q(), any_q());
-    let f = fef_point_load_2d(p, px, m, a, l);
+    let (p, px, m, phi) = (any_q(), any_q(), any_q(), any_phi());
+    let f = fef_point_load_2d(p, px, m, a, l, phi);
     assert!(all_finite(&f));
 }
 

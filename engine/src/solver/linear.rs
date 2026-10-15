@@ -4573,9 +4573,9 @@ pub(crate) fn compute_internal_forces_2d_with_loads(
                         let is_full = (a.abs() < 1e-12) && ((b - l).abs() < 1e-12);
 
                         let mut fef = if is_full {
-                            crate::element::fef_distributed_2d(dl.q_i, dl.q_j, l)
+                            crate::element::fef_distributed_2d(dl.q_i, dl.q_j, l, phi)
                         } else {
-                            crate::element::fef_partial_distributed_2d(dl.q_i, dl.q_j, a, b, l)
+                            crate::element::fef_partial_distributed_2d(dl.q_i, dl.q_j, a, b, l, phi)
                         };
 
                         crate::element::adjust_fef_for_hinges(&mut fef, l, elem.hinge_start, elem.hinge_end, phi);
@@ -4598,7 +4598,7 @@ pub(crate) fn compute_internal_forces_2d_with_loads(
                     SolverLoad::PointOnElement(pl) if pl.element_id == elem.id => {
                         let px = pl.px.unwrap_or(0.0);
                         let mz = pl.my.unwrap_or(0.0);
-                        let mut fef = crate::element::fef_point_load_2d(pl.p, px, mz, pl.a, l);
+                        let mut fef = crate::element::fef_point_load_2d(pl.p, px, mz, pl.a, l, phi);
                         crate::element::adjust_fef_for_hinges(&mut fef, l, elem.hinge_start, elem.hinge_end, phi);
                         for i in 0..6 {
                             f_local[i] -= fef[i];
@@ -4864,9 +4864,9 @@ pub(crate) fn compute_internal_forces_3d_with_loads(
                     let b_param = dl.b.unwrap_or(l);
                     let is_full_fef = (a_param.abs() < 1e-12) && ((b_param - l).abs() < 1e-12);
                     let mut fef12 = if is_full_fef {
-                        element::fef_distributed_3d(dl.q_yi, dl.q_yj, dl.q_zi, dl.q_zj, l)
+                        element::fef_distributed_3d(dl.q_yi, dl.q_yj, dl.q_zi, dl.q_zj, l, phi_y, phi_z)
                     } else {
-                        element::fef_partial_distributed_3d(dl.q_yi, dl.q_yj, dl.q_zi, dl.q_zj, a_param, b_param, l)
+                        element::fef_partial_distributed_3d(dl.q_yi, dl.q_yj, dl.q_zi, dl.q_zj, a_param, b_param, l, phi_y, phi_z)
                     };
                     let axial = element::axial_distributed_fef(dl.q_xi, dl.q_xj, a_param, b_param, l);
                     fef12[0] = axial[0];
@@ -4898,13 +4898,7 @@ pub(crate) fn compute_internal_forces_3d_with_loads(
                     }
                 }
                 SolverLoad3D::PointOnElement(pl) if pl.element_id == elem.id => {
-                    let fef_y = element::fef_point_load_2d(pl.py, 0.0, 0.0, pl.a, l);
-                    let fef_z = element::fef_point_load_2d(pl.pz, 0.0, 0.0, pl.a, l);
-                    let mut fef12 = [0.0; 12];
-                    fef12[1] = fef_y[1]; fef12[5] = fef_y[2];
-                    fef12[7] = fef_y[4]; fef12[11] = fef_y[5];
-                    fef12[2] = fef_z[1]; fef12[4] = -fef_z[2];
-                    fef12[8] = fef_z[4]; fef12[10] = -fef_z[5];
+                    let mut fef12 = element::fef_point_load_3d(pl.py, pl.pz, pl.a, l, phi_y, phi_z);
                     element::adjust_fef_for_hinges_3d(&mut fef12, l, element::Hinge3D::from_elem(elem), phi_y, phi_z);
                     if ndof_elem == 14 {
                         let fef14 = element::expand_fef_12_to_14(&fef12);

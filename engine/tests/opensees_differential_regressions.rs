@@ -76,17 +76,15 @@ fn partial_trapezoid_cantilever_is_exact() {
     assert!(close(tip.ry, th, 1e-10), "ry {} vs {}", tip.ry, th);
 }
 
-/// KNOWN BUG (not fixed here): member loads on Timoshenko members (sections
-/// with asY / asZ) use Euler-Bernoulli fixed-end forces. With shear
-/// flexibility the consistent fixed-end forces depend on
-/// phi = 12EI/(G·As·L²), so every non-uniform member load (point loads,
-/// trapezoidal and partial distributed loads) gives wrong nodal
-/// displacements and end forces. Here: a cantilever with a point load at
-/// L/4, tip deflection 13.6 % low. OpenSees (ElasticTimoshenkoBeam) matches
-/// the closed form. Uniform full-length loads are unaffected (the fixed-end
-/// forces coincide).
+/// Member loads on Timoshenko members (sections with asY / asZ) used
+/// Euler-Bernoulli fixed-end forces. With shear flexibility the consistent
+/// fixed-end forces depend on phi = 12EI/(G·As·L²), so every non-uniform
+/// member load (point loads, trapezoidal and partial distributed loads) gave
+/// wrong nodal displacements and end forces. Here: a cantilever with a point
+/// load at L/4, tip deflection was 13.6 % low. OpenSees
+/// (ElasticTimoshenkoBeam) matches the closed form. Fixed in element/fef.rs
+/// (Timoshenko shape functions for every member load).
 #[test]
-#[ignore = "known bug: Timoshenko members use Euler-Bernoulli fixed-end forces"]
 fn timoshenko_2d_point_load_fixed_end_forces() {
     let (l, a, p): (f64, f64, f64) = (2.0, 0.5, -10.0);
     let (e, nu, iz, as_y) = (200000.0 * 1000.0, 0.3, 4e-4, 0.004);
@@ -108,11 +106,10 @@ fn timoshenko_2d_point_load_fixed_end_forces() {
     assert!(close(tip.uz, w, 1e-10), "uz {} vs {} (EB fixed-end forces?)", tip.uz, w);
 }
 
-/// Same bug in 3D: a cantilever along X with asY/asZ and a point load in
+/// Same in 3D: a cantilever along X with asY/asZ and a point load in
 /// local z at L/4 (asY is the shear area of the Iy plane, i.e. shear along
 /// local z — the engine/web pairing).
 #[test]
-#[ignore = "known bug: Timoshenko members use Euler-Bernoulli fixed-end forces"]
 fn timoshenko_3d_point_load_fixed_end_forces() {
     let (l, a, pz): (f64, f64, f64) = (2.0, 0.5, -10.0);
     let (e, nu, iy, as_y) = (200000.0 * 1000.0, 0.3, 4e-4, 0.004);
@@ -134,6 +131,119 @@ fn timoshenko_3d_point_load_fixed_end_forces() {
     let tip = res.displacements.iter().find(|d| d.node_id == 2).unwrap();
     let w = pz * a.powi(3) / (3.0 * e * iy) + pz * a * a * (l - a) / (2.0 * e * iy) + pz * a / (g * as_y);
     assert!(close(tip.uz, w, 1e-10), "uz {} vs {} (EB fixed-end forces?)", tip.uz, w);
+}
+
+/// A Timoshenko member with a released end carrying a point load and a
+/// couple must give the same answer as the member split at the load (where
+/// the load becomes nodal and no fixed-end forces are involved): this checks
+/// the shear-flexible fixed-end forces through the hinge condensation, the
+/// assembly and the end-force recovery, in 2D.
+#[test]
+fn timoshenko_2d_hinged_member_matches_split_member() {
+    let (l, a, p, c, px) = (3.0, 1.1, -25.0, 9.0, 4.0);
+    let sec = json!({"1": {"id": 1, "a": 0.02, "iz": 4e-4, "asY": 0.003}});
+    let mat = json!({"1": {"id": 1, "e": 30000.0, "nu": 0.2}});
+    let sup = json!({"1": {"id": 1, "nodeId": 1, "type": "fixed"},
+                     "2": {"id": 2, "nodeId": 2, "type": "pinned"}});
+    for (hs, he) in [(false, false), (false, true), (true, false)] {
+        let single = solve_2d(&input_2d(json!({
+            "nodes": {"1": {"id": 1, "x": 0.0, "z": 0.0}, "2": {"id": 2, "x": l, "z": 0.0},
+                      "3": {"id": 3, "x": 0.0, "z": 2.0}},
+            "materials": mat, "sections": sec,
+            "elements": {"1": {"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2, "materialId": 1,
+                               "sectionId": 1, "hingeStart": hs, "hingeEnd": he},
+                         "2": {"id": 2, "type": "frame", "nodeI": 3, "nodeJ": 2, "materialId": 1, "sectionId": 1}},
+            "supports": {"1": sup["1"], "2": {"id": 2, "nodeId": 3, "type": "fixed"}},
+            "loads": [{"type": "pointOnElement", "data": {"elementId": 1, "a": a, "p": p, "px": px, "my": c}}]
+        })))
+        .unwrap();
+        let split = solve_2d(&input_2d(json!({
+            "nodes": {"1": {"id": 1, "x": 0.0, "z": 0.0}, "2": {"id": 2, "x": l, "z": 0.0},
+                      "3": {"id": 3, "x": 0.0, "z": 2.0}, "4": {"id": 4, "x": a, "z": 0.0}},
+            "materials": mat, "sections": sec,
+            "elements": {"1": {"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 4, "materialId": 1,
+                               "sectionId": 1, "hingeStart": hs},
+                         "3": {"id": 3, "type": "frame", "nodeI": 4, "nodeJ": 2, "materialId": 1,
+                               "sectionId": 1, "hingeEnd": he},
+                         "2": {"id": 2, "type": "frame", "nodeI": 3, "nodeJ": 2, "materialId": 1, "sectionId": 1}},
+            "supports": {"1": sup["1"], "2": {"id": 2, "nodeId": 3, "type": "fixed"}},
+            "loads": [{"type": "nodal", "data": {"nodeId": 4, "fx": px, "fz": p, "my": c}}]
+        })))
+        .unwrap();
+        let d1 = single.displacements.iter().find(|d| d.node_id == 2).unwrap();
+        let d2 = split.displacements.iter().find(|d| d.node_id == 2).unwrap();
+        for (x, y) in [(d1.ux, d2.ux), (d1.uz, d2.uz), (d1.ry, d2.ry)] {
+            assert!((x - y).abs() <= 1e-9 * y.abs().max(1e-6), "hs={hs} he={he}: {x} vs {y}");
+        }
+        let f1 = single.element_forces.iter().find(|f| f.element_id == 1).unwrap();
+        let fa = split.element_forces.iter().find(|f| f.element_id == 1).unwrap();
+        let fb = split.element_forces.iter().find(|f| f.element_id == 3).unwrap();
+        for (x, y) in [(f1.v_start, fa.v_start), (f1.m_start, fa.m_start), (f1.n_start, fa.n_start),
+                       (f1.v_end, fb.v_end), (f1.m_end, fb.m_end), (f1.n_end, fb.n_end)] {
+            assert!((x - y).abs() <= 1e-8 * y.abs().max(1.0), "hs={hs} he={he}: end force {x} vs {y}");
+        }
+    }
+}
+
+/// The same in 3D: both bending planes with their own shear areas, on a
+/// skew member with a roll angle and a released moment, single member vs
+/// split at the load.
+#[test]
+fn timoshenko_3d_released_member_matches_split_member() {
+    let (pj, frac) = ([3.0, 1.5, 0.8], 0.35);
+    let pk: Vec<f64> = pj.iter().map(|v| v * frac).collect();
+    let l = (pj[0] * pj[0] + pj[1] * pj[1] + pj[2] * pj[2]).sqrt();
+    let (py, pz) = (14.0, -22.0);
+    let sec = json!({"1": {"id": 1, "a": 0.02, "iy": 4e-4, "iz": 1.5e-4, "j": 2e-4, "asY": 0.004, "asZ": 0.0025}});
+    let mat = json!({"1": {"id": 1, "e": 30000.0, "nu": 0.2}});
+    for rel in ["none", "releaseMzEnd", "releaseMyEnd", "releaseMyStart"] {
+        let mut e1 = json!({"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2, "materialId": 1, "sectionId": 1, "rollAngle": 25.0});
+        let mut ea = json!({"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 4, "materialId": 1, "sectionId": 1, "rollAngle": 25.0});
+        let mut eb = json!({"id": 3, "type": "frame", "nodeI": 4, "nodeJ": 2, "materialId": 1, "sectionId": 1, "rollAngle": 25.0});
+        if rel != "none" {
+            e1[rel] = json!(true);
+            if rel.ends_with("Start") { ea[rel] = json!(true) } else { eb[rel] = json!(true) }
+        }
+        let col = json!({"id": 2, "type": "frame", "nodeI": 3, "nodeJ": 2, "materialId": 1, "sectionId": 1});
+        let nodes = json!({"1": {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0},
+                           "2": {"id": 2, "x": pj[0], "y": pj[1], "z": pj[2]},
+                           "3": {"id": 3, "x": pj[0], "y": pj[1], "z": pj[2] - 3.0}});
+        let mut nodes_split = nodes.clone();
+        nodes_split["4"] = json!({"id": 4, "x": pk[0], "y": pk[1], "z": pk[2]});
+        let sups = json!({"1": {"nodeId": 1, "rx": true, "ry": true, "rz": true, "rrx": true, "rry": true, "rrz": true},
+                          "2": {"nodeId": 3, "rx": true, "ry": true, "rz": true, "rrx": true, "rry": true, "rrz": true}});
+        let single = solve_3d(&input_3d(json!({
+            "nodes": nodes, "materials": mat, "sections": sec,
+            "elements": {"1": e1, "2": col}, "supports": sups,
+            "loads": [{"type": "pointOnElement", "data": {"elementId": 1, "a": frac * l, "py": py, "pz": pz}}]
+        })))
+        .unwrap_or_else(|e| panic!("{rel}: {e}"));
+        // Local axes of the split pieces equal the member's (same direction, same roll).
+        let (_, ey, ez) = dedaliano_engine::element::compute_local_axes_3d(
+            0.0, 0.0, 0.0, pj[0], pj[1], pj[2], None, None, None, Some(25.0), false,
+        );
+        let f: Vec<f64> = (0..3).map(|k| py * ey[k] + pz * ez[k]).collect();
+        let split = solve_3d(&input_3d(json!({
+            "nodes": nodes_split, "materials": mat, "sections": sec,
+            "elements": {"1": ea, "3": eb, "2": col}, "supports": sups,
+            "loads": [{"type": "nodal", "data": {"nodeId": 4, "fx": f[0], "fy": f[1], "fz": f[2],
+                                                 "mx": 0.0, "my": 0.0, "mz": 0.0}}]
+        })))
+        .unwrap();
+        let d1 = single.displacements.iter().find(|d| d.node_id == 2).unwrap();
+        let d2 = split.displacements.iter().find(|d| d.node_id == 2).unwrap();
+        for (x, y) in [(d1.ux, d2.ux), (d1.uy, d2.uy), (d1.uz, d2.uz), (d1.rx, d2.rx), (d1.ry, d2.ry), (d1.rz, d2.rz)] {
+            assert!((x - y).abs() <= 1e-9 * y.abs().max(1e-6), "{rel}: {x} vs {y}");
+        }
+        let f1 = single.element_forces.iter().find(|f| f.element_id == 1).unwrap();
+        let fa = split.element_forces.iter().find(|f| f.element_id == 1).unwrap();
+        let fb = split.element_forces.iter().find(|f| f.element_id == 3).unwrap();
+        for (x, y) in [(f1.vy_start, fa.vy_start), (f1.vz_start, fa.vz_start), (f1.my_start, fa.my_start),
+                       (f1.mz_start, fa.mz_start), (f1.vy_end, fb.vy_end), (f1.vz_end, fb.vz_end),
+                       (f1.my_end, fb.my_end), (f1.mz_end, fb.mz_end)] {
+            assert!((x - y).abs() <= 1e-8 * y.abs().max(1.0), "{rel}: end force {x} vs {y}");
+        }
+    }
 }
 
 /// A rollerX support that also declares kx: the free ux carries the spring
