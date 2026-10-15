@@ -725,8 +725,97 @@ guaranteed (unresolved reversal, a peak moving past a fixed hinge, event limit r
 final field over Mp). All certify tests and the 24 random frames now land inside the
 enclosure up to f64 round-off (`solverDeviation < 1e-9`, asserted).
 
-Not included: 3D plastic analysis, N–M (or biaxial) interaction, second-order effects,
-shakedown. Not formalized in Lean.
+Not included: N–M interaction, second-order effects, shakedown. Not formalized in Lean.
+
+### Plastic collapse load factor, 3D
+
+`engine/src/certify/plastic_3d.rs` (wasm: `certify_plastic_3d`). The solver
+(`solve_plastic_3d`) uses, per section, the **biaxial (elliptical) yield condition of
+the local bending moments** `(My/Mp_y)² + (Mz/Mp_z)² ≤ 1` (axial force, shear and torsion
+unlimited; a member yields only when both `Mp_y`, `Mp_z` are finite). The certificate
+encloses `λ_c` of the same rigid–perfectly plastic model with *associated* flow:
+
+* **Model.** 3D frame members (`frame`, `truss` = released at both ends in every
+  rotation), releases per axis (`releaseMy/Mz/T Start/End`), supports by DOF flags.
+  Loads: nodal `(fx, fy, fz, mx, my, mz)`, member distributed loads (`qX`, `qY`, `qZ`,
+  partial) and point loads (`py`, `pz`). Local axes are rebuilt exactly from the
+  solver's rule (`compute_local_axes_3d`: default Z-up / X for vertical members, an
+  explicit `localY`, roll angles in multiples of 90°, left-hand flag) as rational
+  directions `u_y`, `u_z` ⟂ `d`; the yield condition uses `(C·u_y)²/|u_y|²`, so no
+  square root is needed. A member *load* needs exact unit axes (length and both axis
+  norms rational, e.g. axis-aligned or 3-4-5 members); otherwise it is refused.
+  `Mp_y, Mp_z` are enclosed exactly from the solver's formulas (`b h²/4`, `d b²/4`,
+  `h b²/4`, or the 1.15 shape-factor approximation with a bracketed root) or overrides.
+  Refused with a reason: springs, inclined supports, prescribed displacements,
+  constraints, connectors, shells, curved beams, thermal and shell loads, bimoments,
+  cables, other roll angles, transverse loads on trusses, more than 120 members.
+* **Static theorem, `check_static_3d`.** Per member the force `F` and moment `Mᵢ` of
+  node i on it (6 rationals) and `λ`; `F_j = −F − λW`, `M_j = −Mᵢ + d × F − λ Lm(1)`
+  with `Lm(t) = Lm_y(t) e_z − Lm_z(t) e_y` (the 2D piecewise cubic per bending plane).
+  Exact equilibrium at every free DOF and zero moment at every release; then
+  `f(t) = (C·u_y)²/(|u_y|² Mp_y,lo²) + (C·u_z)²/(|u_z|² Mp_z,lo²)` — a degree-6
+  polynomial per piece — is bounded above exactly by Bernstein coefficients with
+  de Casteljau subdivision, and the field scaled by a rational `s` with `s² max f ≤ 1`
+  is admissible: **`λ_c ≥ sλ`**.
+* **Kinematic theorem, `check_mechanism_3d`.** Nodal virtual displacements and
+  rotations (6 per node), per member interior hinge positions and segment rotation
+  vectors `ω_s`. Exact checks: restrained DOFs zero, segments close
+  (`δ += Δt ω × d`), no torsional discontinuity except at a torsion release, no
+  rotation in a component without a release where no hinge can form. Dissipation per
+  hinge `√(Mp_y,hi² ρ_y² + Mp_z,hi² ρ_z²)` (released components dropped), each root
+  bounded *above* by a rational; work of nodal forces and couples and of member loads
+  (exact integrals). `W > 0` ⇒ **`λ_c ≤ D/W`**.
+* **Candidates (not trusted).** Exact equilibrium basis `x = λ x_p + N z` (Gauss–
+  Jordan). An f64 LP maximizes λ with the ellipse replaced at every sampled section by
+  an *inscribed* polygon, refined where the field sits on its boundary (new vertex at
+  the moment's direction, or bisection of the edges next to the vertex it sits on) and
+  at interior maxima of loaded members. Its field, the solver's final state and an LP
+  re-solved with vertices at the mechanism's normality points are checked statically.
+  Mechanisms: exact compatibility null space for hinges at the LP's active (and
+  yielded) sections, then the least-`D/W` combination (IRLS on the sum of norms) and a
+  least-squares fit to the LP's hinge rotations, polished by recomputing with the
+  hinges that turn.
+
+**Solver changes (3D).** The old solver placed hinges only at element ends and treated
+any failed or singular solve as collapse. Before → after, `Mp_y = 100`, `Mp_z = 50`:
+fixed beam under UDL in one element, `16 Mp/(qL²)` = 4.444 (q_z) / 2.222 (q_y): **3.333
+/ 1.667** (stopped, no span hinge) → 4.444 / 2.222; three elements **5.000 / 2.500**
+(above the collapse load) → exact; space portal (h = 3, span 4) in-plane sway
+`4 Mp_y/(H h)` = 133.33: 133.325 → 133.33; out-of-plane sway `2 Mp_z/(H h)` = 33.33
+(the frame turns about the base line): **77.04** (2.3× the collapse load) → 33.33.
+`solve_plastic_3d` now shares the 2D event search (`span_candidates`: interior
+extrema, golden-section refinement, member splitting, `PlasticHinge3D.position`),
+closes a hinge whose plastic rotation does negative work against its moment
+(`M·θ < 0`, end rotations recovered from the unreleased local stiffness;
+`unloadedAt`), reopens a closed hinge on the yield surface loaded outward, tests ties
+and unloading at mechanisms like 2D, and adds `warnings`. A 3D hinge frees both bending
+rotations, so a mechanism can be one the loads do no work on (a plane frame hinged at
+its column bases turns about the base line): such a state is solved with soft springs
+(10⁻¹⁰ of the softest member's bending stiffness) and accepted only if the member
+forces balance the applied loads at every free DOF and close along every member
+(the linear solver's own residual is not used — it includes artificial rotational
+springs, through which a cantilever hinged at its base "carries" its tip load). A
+node where every frame end would turn freely in bending and whose rotation neither
+member torsion nor a support restrains gets no further hinge (the corner of a plane
+frame takes one hinge, not two).
+
+**What is certified, and the limitation.** The certificate encloses the associated-flow
+collapse factor of the ellipse model; for planar action (every hinge uniaxial, e.g. the
+fixed beams, both sway modes, plane frames placed in space along rational plan
+directions) the enclosure is tight to ~1e-12 and the solver lands in it
+(`solverDeviation < 1e-9`; of 20 random plane frames with member loads, 14 land
+inside, asserted, and 6 carry the 2D warning that a span peak passed a fixed hinge —
+those are approximate and may lie up to ~0.6 % above the enclosure). The solver's hinge **holds the moment vector
+it formed with** and turns freely about both axes — not normal to the ellipse — so under
+biaxial bending its final field is admissible but not the collapse field: it is a safe
+lower bound, below the enclosure, and warns (`hinges under biaxial bending…`). Portal
+under equal sway loads in X and Y: solver 32.03, certified `[33.33 − ε, 33.33]`. For
+random space frames with biaxial hinges the polygon LP can converge slowly; relative
+widths ≤ 1e-4 are asserted (7 of 8 small random space frames are within 1e-10, one at
+4.8e-6), and the solver never exceeds the upper bound (all 8 fall 0.4–3.6 % below the
+enclosure, with the biaxial warning). Making the solver exact for biaxial hinges
+would need associated flow with the moment moving along the curved surface, which an
+event-to-event method with linear steps cannot follow exactly.
 
 ## Time-history integration
 

@@ -60,6 +60,10 @@ pub struct PlasticResult3D {
     pub hinges: Vec<PlasticHinge3D>,
     pub is_mechanism: bool,
     pub redundancy: usize,
+    /// Conditions under which `collapse_factor` is not guaranteed to be the
+    /// collapse load of the model (empty when it is). See `solve_plastic_3d`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -74,12 +78,23 @@ pub struct PlasticStep3D {
 #[serde(rename_all = "camelCase")]
 pub struct PlasticHinge3D {
     pub element_id: usize,
-    pub end: String, // "start" or "end"
+    /// "start" or "end": the end of the member the hinge is at, or for a hinge
+    /// inside the span the nearer one (see `position`).
+    pub end: String,
+    /// Moment vector (local My, Mz) the hinge formed with; it holds it while
+    /// it stays plastic.
     pub moment_y: f64,
     pub moment_z: f64,
+    /// `√((My/Mp_y)² + (Mz/Mp_z)²)` at formation (1 on the yield surface).
     pub interaction_ratio: f64,
     pub load_factor: f64,
     pub step: usize,
+    /// Position along the member as a fraction of its length (0 start, 1 end).
+    #[serde(default)]
+    pub position: f64,
+    /// Load factor at which the hinge unloaded elastically and closed again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unloaded_at: Option<f64>,
 }
 
 /// The load increment that takes a moment from `m_acc` to ±Mp along `m_unit`.
@@ -452,8 +467,6 @@ fn golden_min(f: impl Fn(f64) -> f64, mut a: f64, mut b: f64) -> (f64, f64) {
 /// extremum is searched. Returns the `(t, Δλ)` candidates and the smallest
 /// increment of a peak found right beside a hinge (infinite if none).
 fn member_candidates(m: &Member, input: &SolverInput, acc: &Diagram, unit: &Diagram, tol_m: f64, tol_d: f64) -> (Vec<(f64, f64)>, f64) {
-    let mut out = Vec::new();
-    let mut suppressed = f64::INFINITY;
     let dfun = |t: f64| {
         let mu = unit.at(t);
         if mu.abs() <= tol_m {
@@ -462,11 +475,29 @@ fn member_candidates(m: &Member, input: &SolverInput, acc: &Diagram, unit: &Diag
         let d = increment_to_mp(m.mp, acc.at(t), mu);
         if d.is_finite() { d } else { f64::INFINITY }
     };
-    let bounds = m.bounds();
+    span_candidates(&m.bounds(), m.loaded, &m.breakpoints, |t| m.hinged(input, t), dfun, tol_d)
+}
+
+/// Shared by the 2D and 3D event searches. `bounds` are the member's node
+/// positions (0, piece boundaries, 1); `dfun(t)` the load increment that
+/// brings section `t` to yield (infinite if never); `hinged(t)` whether the
+/// node at `t` already turns freely. A loaded member is also sampled at
+/// `STATIONS` stations and its load breakpoints, and every interior local
+/// minimum of `dfun` is refined by golden-section search.
+fn span_candidates(
+    bounds: &[f64],
+    loaded: bool,
+    breakpoints: &[f64],
+    hinged: impl Fn(f64) -> bool,
+    dfun: impl Fn(f64) -> f64,
+    tol_d: f64,
+) -> (Vec<(f64, f64)>, f64) {
+    let mut out = Vec::new();
+    let mut suppressed = f64::INFINITY;
     let mut ts: Vec<(f64, bool)> = bounds.iter().map(|&t| (t, true)).collect();
-    if m.loaded {
+    if loaded {
         ts.extend((1..STATIONS).map(|i| (i as f64 / STATIONS as f64, false)));
-        ts.extend(m.breakpoints.iter().map(|&t| (t, false)));
+        ts.extend(breakpoints.iter().map(|&t| (t, false)));
     }
     ts.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut pts: Vec<(f64, bool)> = Vec::with_capacity(ts.len());
@@ -482,7 +513,7 @@ fn member_candidates(m: &Member, input: &SolverInput, acc: &Diagram, unit: &Diag
     }
     let vals: Vec<f64> = pts
         .iter()
-        .map(|&(t, node)| if node && m.hinged(input, t) { f64::INFINITY } else { dfun(t) })
+        .map(|&(t, node)| if node && hinged(t) { f64::INFINITY } else { dfun(t) })
         .collect();
     for (i, &(t, node)) in pts.iter().enumerate() {
         if node && vals[i] > tol_d && vals[i].is_finite() {
@@ -493,7 +524,7 @@ fn member_candidates(m: &Member, input: &SolverInput, acc: &Diagram, unit: &Diag
         if pts[i].1 || !vals[i].is_finite() || vals[i] > vals[i - 1] || vals[i] > vals[i + 1] {
             continue;
         }
-        let (tg, dg) = golden_min(dfun, pts[i - 1].0, pts[i + 1].0);
+        let (tg, dg) = golden_min(&dfun, pts[i - 1].0, pts[i + 1].0);
         let (tb, db) = if dg < vals[i] { (tg, dg) } else { (pts[i].0, vals[i]) };
         if db <= tol_d {
             continue;
@@ -502,7 +533,7 @@ fn member_candidates(m: &Member, input: &SolverInput, acc: &Diagram, unit: &Diag
         if (near - tb).abs() < SNAP {
             // the node itself is a candidate already, unless it is a hinge:
             // then the peak sits right beside a hinge that cannot move.
-            if m.hinged(input, near) {
+            if hinged(near) {
                 suppressed = suppressed.min(db);
             }
             continue;
@@ -992,286 +1023,6 @@ fn compute_plastic_moment(sec: &PlasticSectionData, fy: f64) -> f64 {
 
 // ==================== 3D Plastic (Pushover) Analysis ====================
 
-/// Solve 3D plastic analysis (event-to-event incremental method).
-///
-/// Uses biaxial moment interaction (elliptical yield surface):
-///   (My/Mp_y)² + (Mz/Mp_z)² = 1
-///
-/// At each step, finds the minimum load increment to form the next hinge,
-/// inserts it, and resolves until a mechanism forms.
-pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, String> {
-    // Same reason as the 2D entry: keep `Err` from the inner solve meaning
-    // "mechanism", and nothing else.
-    super::linear::validate_input_3d(&input.solver)?;
-    // Invalid shell geometry is a model error, not a mechanism formed by
-    // plastic hinges. Refuse it before the loop interprets a failed solve.
-    super::pre_solve_gates::refuse_broken_elements(
-        &super::pre_solve_gates::check_shell_distortion_3d(&input.solver),
-    )?;
-
-    let solver_input = &input.solver;
-    let max_hinges = input.max_hinges.unwrap_or(30);
-
-    // Compute plastic moments Mp_y and Mp_z for each section
-    let mut mp_map: HashMap<usize, (f64, f64)> = HashMap::new();
-    for (sid, sec_data) in &input.sections {
-        let sec_id: usize = sid.parse().unwrap_or(0);
-        if let Some(overrides) = input.mp_overrides.as_ref().and_then(|m| m.get(sid)) {
-            mp_map.insert(sec_id, (overrides[0], overrides[1]));
-        } else {
-            let fy = input.materials.get(&sec_data.material_id.to_string())
-                .and_then(|m| m.fy)
-                .unwrap_or(250.0);
-            let (mpy, mpz) = compute_plastic_moments_3d(sec_data, fy);
-            mp_map.insert(sec_id, (mpy, mpz));
-        }
-    }
-
-    let mut current_input = solver_input.clone();
-    let mut cumulative_factor = 0.0;
-    let mut all_hinges: Vec<PlasticHinge3D> = Vec::new();
-    let mut steps: Vec<PlasticStep3D> = Vec::new();
-    let mut acc_my: HashMap<(usize, String), f64> = HashMap::new();
-    let mut acc_mz: HashMap<(usize, String), f64> = HashMap::new();
-
-    // Build O(1) lookup: element id -> HashMap key (stable across hinge mutations)
-    let elem_id_to_key: HashMap<usize, String> = current_input.elements.iter()
-        .map(|(k, e)| (e.id, k.clone()))
-        .collect();
-
-    for step in 0..max_hinges {
-        // Solve under unit loads on current structure
-        let results = match super::linear::solve_3d(&current_input) {
-            Ok(r) => r,
-            Err(_) => break, // mechanism
-        };
-
-        // Find minimum load increment to next hinge using interaction criterion
-        let mut min_delta = f64::INFINITY;
-        let mut new_hinges: Vec<(usize, String, f64, f64)> = Vec::new();
-
-        for ef in &results.element_forces {
-            let elem_key = &elem_id_to_key[&ef.element_id];
-            let elem = current_input.elements.get(elem_key).unwrap();
-            let (mp_y, mp_z) = mp_map.get(&elem.section_id).copied()
-                .unwrap_or((f64::INFINITY, f64::INFINITY));
-            if mp_y >= f64::INFINITY || mp_z >= f64::INFINITY { continue; }
-
-            // Check start end
-            if !(elem.release_my_start && elem.release_mz_start) {
-                let delta = compute_interaction_delta(
-                    ef.my_start, ef.mz_start, mp_y, mp_z,
-                    acc_my.get(&(ef.element_id, "start".to_string())).copied().unwrap_or(0.0),
-                    acc_mz.get(&(ef.element_id, "start".to_string())).copied().unwrap_or(0.0),
-                );
-                if delta > 1e-10 {
-                    if delta < min_delta - 1e-10 {
-                        min_delta = delta;
-                        new_hinges.clear();
-                        new_hinges.push((ef.element_id, "start".to_string(), ef.my_start, ef.mz_start));
-                    } else if (delta - min_delta).abs() < 1e-10 {
-                        new_hinges.push((ef.element_id, "start".to_string(), ef.my_start, ef.mz_start));
-                    }
-                }
-            }
-
-            // Check end end
-            if !(elem.release_my_end && elem.release_mz_end) {
-                let delta = compute_interaction_delta(
-                    ef.my_end, ef.mz_end, mp_y, mp_z,
-                    acc_my.get(&(ef.element_id, "end".to_string())).copied().unwrap_or(0.0),
-                    acc_mz.get(&(ef.element_id, "end".to_string())).copied().unwrap_or(0.0),
-                );
-                if delta > 1e-10 {
-                    if delta < min_delta - 1e-10 {
-                        min_delta = delta;
-                        new_hinges.clear();
-                        new_hinges.push((ef.element_id, "end".to_string(), ef.my_end, ef.mz_end));
-                    } else if (delta - min_delta).abs() < 1e-10 {
-                        new_hinges.push((ef.element_id, "end".to_string(), ef.my_end, ef.mz_end));
-                    }
-                }
-            }
-        }
-
-        if min_delta >= f64::INFINITY || min_delta <= 0.0 {
-            break;
-        }
-
-        cumulative_factor += min_delta;
-
-        // Update accumulated moments
-        for ef in &results.element_forces {
-            *acc_my.entry((ef.element_id, "start".to_string())).or_insert(0.0) += min_delta * ef.my_start;
-            *acc_mz.entry((ef.element_id, "start".to_string())).or_insert(0.0) += min_delta * ef.mz_start;
-            *acc_my.entry((ef.element_id, "end".to_string())).or_insert(0.0) += min_delta * ef.my_end;
-            *acc_mz.entry((ef.element_id, "end".to_string())).or_insert(0.0) += min_delta * ef.mz_end;
-        }
-
-        let scaled = scale_results_3d(&results, min_delta);
-
-        let mut step_hinges = Vec::new();
-        for (eid, end, _my, _mz) in &new_hinges {
-            let elem_key = &elem_id_to_key[eid];
-            let section_id = current_input.elements.get(elem_key).unwrap().section_id;
-            let (mp_y, mp_z) = mp_map.get(&section_id).copied().unwrap_or((0.0, 0.0));
-            let total_my = acc_my.get(&(*eid, end.clone())).copied().unwrap_or(0.0);
-            let total_mz = acc_mz.get(&(*eid, end.clone())).copied().unwrap_or(0.0);
-            let ratio = (total_my / mp_y).powi(2) + (total_mz / mp_z).powi(2);
-
-            let hinge = PlasticHinge3D {
-                element_id: *eid,
-                end: end.clone(),
-                moment_y: total_my,
-                moment_z: total_mz,
-                interaction_ratio: ratio.sqrt(),
-                load_factor: cumulative_factor,
-                step,
-            };
-            step_hinges.push(hinge.clone());
-            all_hinges.push(hinge);
-        }
-
-        steps.push(PlasticStep3D {
-            load_factor: cumulative_factor,
-            hinges_formed: step_hinges,
-            results: scaled,
-        });
-
-        // Insert hinges
-        for (eid, end, _, _) in &new_hinges {
-            let elem_key = &elem_id_to_key[eid];
-            if let Some(elem) = current_input.elements.get_mut(elem_key) {
-                if end == "start" {
-                    elem.release_my_start = true;
-                    elem.release_mz_start = true;
-                } else {
-                    elem.release_my_end = true;
-                    elem.release_mz_end = true;
-                }
-            }
-        }
-    }
-
-    let is_mechanism = super::linear::solve_3d(&current_input).is_err();
-
-    Ok(PlasticResult3D {
-        collapse_factor: cumulative_factor,
-        steps,
-        hinges: all_hinges.clone(),
-        is_mechanism,
-        redundancy: all_hinges.len(),
-    })
-}
-
-/// Compute plastic moments about Y and Z axes.
-fn compute_plastic_moments_3d(sec: &PlasticSectionData3D, fy: f64) -> (f64, f64) {
-    let fy_kn = fy * 1000.0; // MPa → kN/m²
-
-    let mp_y = if let (Some(b), Some(h)) = (sec.b, sec.h) {
-        // Rectangular: Zp_y = b*h²/4
-        fy_kn * b * h * h / 4.0
-    } else if sec.iy > 1e-20 {
-        let h_approx = (12.0 * sec.iy / sec.a).sqrt();
-        let s_el = sec.iy / (h_approx / 2.0);
-        fy_kn * 1.15 * s_el
-    } else {
-        f64::INFINITY
-    };
-
-    let mp_z = if let (Some(b), Some(d)) = (sec.b, sec.d) {
-        // Rectangular: Zp_z = d*b²/4
-        fy_kn * d * b * b / 4.0
-    } else if let (Some(b), Some(h)) = (sec.b, sec.h) {
-        // Assume d = b for square-ish sections
-        fy_kn * h * b * b / 4.0
-    } else if sec.iz > 1e-20 {
-        let b_approx = (12.0 * sec.iz / sec.a).sqrt();
-        let s_el = sec.iz / (b_approx / 2.0);
-        fy_kn * 1.15 * s_el
-    } else {
-        f64::INFINITY
-    };
-
-    (mp_y, mp_z)
-}
-
-/// Compute load increment delta_lambda for biaxial interaction.
-///
-/// Interaction: ((my_acc + delta * my_unit) / mp_y)^2 + ((mz_acc + delta * mz_unit) / mp_z)^2 = 1
-/// This is a quadratic in delta. We find the smallest positive root.
-fn compute_interaction_delta(
-    my_unit: f64, mz_unit: f64,
-    mp_y: f64, mp_z: f64,
-    my_acc: f64, mz_acc: f64,
-) -> f64 {
-    let a = (my_unit / mp_y).powi(2) + (mz_unit / mp_z).powi(2);
-    let b = 2.0 * (my_acc * my_unit / (mp_y * mp_y) + mz_acc * mz_unit / (mp_z * mp_z));
-    let c = (my_acc / mp_y).powi(2) + (mz_acc / mp_z).powi(2) - 1.0;
-
-    if a < 1e-20 { return f64::INFINITY; }
-
-    let disc = b * b - 4.0 * a * c;
-    if disc < 0.0 { return f64::INFINITY; }
-
-    let sqrt_disc = disc.sqrt();
-    let d1 = (-b + sqrt_disc) / (2.0 * a);
-    let d2 = (-b - sqrt_disc) / (2.0 * a);
-
-    let mut min_pos = f64::INFINITY;
-    if d1 > 1e-10 && d1 < min_pos { min_pos = d1; }
-    if d2 > 1e-10 && d2 < min_pos { min_pos = d2; }
-    min_pos
-}
-
-fn scale_results_3d(results: &AnalysisResults3D, factor: f64) -> AnalysisResults3D {
-    AnalysisResults3D {
-        displacements: results.displacements.iter().map(|d| Displacement3D {
-            node_id: d.node_id,
-            ux: d.ux * factor, uy: d.uy * factor, uz: d.uz * factor,
-            rx: d.rx * factor, ry: d.ry * factor, rz: d.rz * factor,
-            warping: d.warping.map(|w| w * factor),
-        }).collect(),
-        reactions: results.reactions.iter().map(|r| Reaction3D {
-            node_id: r.node_id,
-            fx: r.fx * factor, fy: r.fy * factor, fz: r.fz * factor,
-            mx: r.mx * factor, my: r.my * factor, mz: r.mz * factor,
-            bimoment: r.bimoment.map(|b| b * factor),
-        }).collect(),
-        element_forces: results.element_forces.iter().map(|ef| ElementForces3D {
-            element_id: ef.element_id, length: ef.length,
-            n_start: ef.n_start * factor, n_end: ef.n_end * factor,
-            vy_start: ef.vy_start * factor, vy_end: ef.vy_end * factor,
-            vz_start: ef.vz_start * factor, vz_end: ef.vz_end * factor,
-            mx_start: ef.mx_start * factor, mx_end: ef.mx_end * factor,
-            my_start: ef.my_start * factor, my_end: ef.my_end * factor,
-            mz_start: ef.mz_start * factor, mz_end: ef.mz_end * factor,
-            release_my_start: ef.release_my_start, release_my_end: ef.release_my_end,
-            release_mz_start: ef.release_mz_start, release_mz_end: ef.release_mz_end,
-            release_t_start: ef.release_t_start, release_t_end: ef.release_t_end,
-            q_yi: ef.q_yi * factor, q_yj: ef.q_yj * factor,
-            distributed_loads_y: ef.distributed_loads_y.clone(),
-            point_loads_y: ef.point_loads_y.clone(),
-            q_zi: ef.q_zi * factor, q_zj: ef.q_zj * factor,
-            distributed_loads_x: ef.distributed_loads_x.clone(),
-            distributed_loads_z: ef.distributed_loads_z.clone(),
-            point_loads_z: ef.point_loads_z.clone(),
-            bimoment_start: ef.bimoment_start.map(|b| b * factor),
-            bimoment_end: ef.bimoment_end.map(|b| b * factor),
-        }).collect(),
-        plate_stresses: results.plate_stresses.clone(),
-        quad_stresses: vec![],
-        quad_nodal_stresses: vec![],
-        constraint_forces: results.constraint_forces.iter().map(|cf| ConstraintForce {
-            node_id: cf.node_id,
-            dof: cf.dof.clone(),
-            force: cf.force * factor,
-        }).collect(),
-        diagnostics: vec![],
-        solver_diagnostics: vec![],
-        structured_diagnostics: vec![],
-        equilibrium: None,
-        timings: None,
-        result_summary: None, solver_run_meta: None,
-    }
-}
+#[path = "plastic_3d.rs"]
+mod three_d;
+pub use three_d::solve_plastic_3d;

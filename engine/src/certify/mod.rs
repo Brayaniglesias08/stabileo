@@ -14,6 +14,7 @@ pub mod linear;
 pub mod modal;
 pub mod pdelta;
 pub mod plastic;
+pub mod plastic_3d;
 pub mod real;
 pub mod solver;
 pub mod spectral;

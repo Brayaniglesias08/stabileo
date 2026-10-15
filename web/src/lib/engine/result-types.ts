@@ -38,6 +38,32 @@ export interface PlasticResult {
   warnings?: string[];
 }
 
+export interface PlasticHinge3D {
+  elementId: number;
+  end: 'start' | 'end';
+  /** Local moment vector the hinge formed with (it holds it while plastic). */
+  momentY: number;
+  momentZ: number;
+  /** √((My/Mp_y)² + (Mz/Mp_z)²) at formation. */
+  interactionRatio: number;
+  loadFactor: number;
+  step: number;
+  /** Fraction of the member length: 0 start, 1 end, in between for a span hinge. */
+  position?: number;
+  /** Load factor at which the hinge unloaded elastically and closed. */
+  unloadedAt?: number;
+}
+
+export interface PlasticResult3D {
+  collapseFactor: number;
+  steps: { loadFactor: number; hingesFormed: PlasticHinge3D[]; results: unknown }[];
+  hinges: PlasticHinge3D[];
+  isMechanism: boolean;
+  redundancy: number;
+  /** Why the collapse factor may not be the collapse load (absent when it is). */
+  warnings?: string[];
+}
+
 export interface PlasticConfig {
   maxHinges?: number;
   mpOverrides?: Map<number, number>;

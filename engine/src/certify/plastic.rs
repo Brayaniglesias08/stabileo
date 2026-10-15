@@ -110,32 +110,37 @@ fn mp_interval(sec: &PlasticSectionData, fy: f64, over: Option<f64>) -> Result<O
         }
         Ok(Some((m.clone(), m)))
     } else if sec.iz > 1e-20 {
-        // Mp = fy·1000 · 1.15 · Iz / (h/2), h = √(12 Iz / A): enclose the root.
-        let iz = q(sec.iz).ok_or("non-finite Iz")?;
-        let a = q(sec.a).ok_or("non-finite A")?;
-        if !a.is_positive() {
-            return Err("non-positive section area".into());
-        }
-        let x = qi(12) * &iz / &a;
-        let r = to_f64(&x).sqrt();
-        if !r.is_finite() || r <= 0.0 {
-            return Err("section height out of range".into());
-        }
-        let (mut lo, mut hi) = (r, r);
-        while q(lo).ok_or("range")?.pow(2) > x {
-            lo = lo.next_down();
-        }
-        while q(hi).ok_or("range")?.pow(2) < x {
-            hi = hi.next_up();
-        }
-        if lo <= 0.0 {
-            return Err("section height out of range".into());
-        }
-        let k = fyk * qr(23, 20) * qi(2) * iz;
-        Ok(Some((&k / q(hi).unwrap(), &k / q(lo).unwrap())))
+        Ok(Some(approx_mp(&fyk, sec.iz, sec.a)?))
     } else {
         Ok(None)
     }
+}
+
+/// Enclosure of the solvers' approximate plastic moment `fyk · 1.15 · I/(h/2)`
+/// with `h = √(12 I / A)` (the root bracketed by adjacent f64 values).
+pub(super) fn approx_mp(fyk: &Q, i: f64, a: f64) -> Result<(Q, Q), String> {
+    let iz = q(i).ok_or("non-finite I")?;
+    let a = q(a).ok_or("non-finite A")?;
+    if !a.is_positive() {
+        return Err("non-positive section area".into());
+    }
+    let x = qi(12) * &iz / &a;
+    let r = to_f64(&x).sqrt();
+    if !r.is_finite() || r <= 0.0 {
+        return Err("section height out of range".into());
+    }
+    let (mut lo, mut hi) = (r, r);
+    while q(lo).ok_or("range")?.pow(2) > x {
+        lo = lo.next_down();
+    }
+    while q(hi).ok_or("range")?.pow(2) < x {
+        hi = hi.next_up();
+    }
+    if lo <= 0.0 {
+        return Err("section height out of range".into());
+    }
+    let k = fyk * qr(23, 20) * qi(2) * iz;
+    Ok((&k / q(hi).unwrap(), &k / q(lo).unwrap()))
 }
 
 /// Restrained DOFs of a support, as the 2D DOF numbering defines them.
@@ -155,7 +160,12 @@ fn support_restrains(t: &str) -> Result<[bool; 3], String> {
 
 fn build_pieces(e: &PElem) -> Result<Vec<Piece>, String> {
     let mut bps: Vec<Q> = vec![Q::zero(), Q::one()];
-    for ld in &e.loads {
+    push_breakpoints(&e.loads, &mut bps);
+    lm_pieces(&e.loads, e.l.as_ref(), &e.l2, &bps)
+}
+
+pub(super) fn push_breakpoints(loads: &[ElemLoad], bps: &mut Vec<Q>) {
+    for ld in loads {
         match ld {
             ElemLoad::Dist { ta, tb, .. } => {
                 bps.push(ta.clone());
@@ -166,15 +176,22 @@ fn build_pieces(e: &PElem) -> Result<Vec<Piece>, String> {
     }
     bps.sort();
     bps.dedup();
+}
+
+/// `Lm(t)` of transverse member loads (one bending plane) on the pieces
+/// between consecutive breakpoints `bps` (sorted, from 0 to 1, including
+/// every load position). `l` is the member length (needed for point loads),
+/// `l2` its square.
+pub(super) fn lm_pieces(loads: &[ElemLoad], l: Option<&Q>, l2: &Q, bps: &[Q]) -> Result<Vec<Piece>, String> {
     let mut pieces = Vec::new();
     for w in bps.windows(2) {
         let (a, b) = (&w[0], &w[1]);
         let mut c = [Q::zero(), Q::zero(), Q::zero(), Q::zero()];
-        for ld in &e.loads {
+        for ld in loads {
             match ld {
                 ElemLoad::Point { ta, p, my, .. } => {
                     if ta <= a {
-                        let l = e.l.as_ref().ok_or("point load needs a rational member length")?;
+                        let l = l.ok_or("point load needs a rational member length")?;
                         let pl = p * l;
                         c[0] += ta * &pl + my;
                         c[1] -= pl;
@@ -187,15 +204,15 @@ fn build_pieces(e: &PElem) -> Result<Vec<Piece>, String> {
                         let s0 = (q_i + qj) / qi(2) * (tb - ta);
                         let s1 = &alpha * (tb * tb - ta * ta) / qi(2)
                             + &beta * (tb * tb * tb - ta * ta * ta) / qi(3);
-                        c[0] += &e.l2 * s1;
-                        c[1] -= &e.l2 * s0;
+                        c[0] += l2 * s1;
+                        c[1] -= l2 * s0;
                     } else if ta <= a && b <= tb {
                         let ta2 = ta * ta;
                         let ta3 = &ta2 * ta;
-                        c[0] += &e.l2 * (-(&alpha * &ta2) / qi(2) - &beta * &ta3 / qi(3));
-                        c[1] += &e.l2 * (&alpha * ta + &beta * &ta2 / qi(2));
-                        c[2] += &e.l2 * (-&alpha / qi(2));
-                        c[3] += &e.l2 * (-&beta / qi(6));
+                        c[0] += l2 * (-(&alpha * &ta2) / qi(2) - &beta * &ta3 / qi(3));
+                        c[1] += l2 * (&alpha * ta + &beta * &ta2 / qi(2));
+                        c[2] += l2 * (-&alpha / qi(2));
+                        c[3] += l2 * (-&beta / qi(6));
                     }
                 }
             }
@@ -394,8 +411,13 @@ fn elem_resultant(e: &PElem) -> (Q, Q) {
 
 /// `Lm(1)` including loads at `t = 1`, recomputed directly from the loads.
 fn elem_end_moment_load(e: &PElem) -> Q {
+    lm_end(&e.loads, e.l.as_ref(), &e.l2)
+}
+
+/// `Lm(1)` of transverse member loads, recomputed directly from the loads.
+pub(super) fn lm_end(loads: &[ElemLoad], l: Option<&Q>, l2: &Q) -> Q {
     let mut s = Q::zero();
-    for ld in &e.loads {
+    for ld in loads {
         match ld {
             ElemLoad::Dist { ta, tb, qi: a, qj: b } => {
                 // L² ∫ (s − 1) q(s) ds over [ta, tb]
@@ -403,10 +425,10 @@ fn elem_end_moment_load(e: &PElem) -> Q {
                 let alpha = a - &beta * ta;
                 let s0 = (a + b) / qi(2) * (tb - ta);
                 let s1 = &alpha * (tb * tb - ta * ta) / qi(2) + &beta * (tb * tb * tb - ta * ta * ta) / qi(3);
-                s += &e.l2 * (s1 - s0);
+                s += l2 * (s1 - s0);
             }
             ElemLoad::Point { ta, p, my, .. } => {
-                let l = e.l.as_ref().expect("checked when building the model");
+                let l = l.expect("checked when building the model");
                 s += (ta - Q::one()) * p * l + my;
             }
         }
@@ -877,7 +899,7 @@ fn dense_solve(mut bm: Vec<Vec<f64>>, mut r: Vec<Vec<f64>>) -> Option<Vec<Vec<f6
 /// (f64): the tableau is rebuilt from the original data every few pivots and
 /// the ratio test is Harris's two-pass test, which keeps it well-behaved on the
 /// highly degenerate limit-analysis LPs.
-fn simplex_min_sum(a: &[Vec<f64>], b: &[f64]) -> Option<(Vec<f64>, Vec<f64>)> {
+pub(super) fn simplex_min_sum(a: &[Vec<f64>], b: &[f64]) -> Option<(Vec<f64>, Vec<f64>)> {
     let p = a.len();
     let n = a[0].len();
     let w = n + p + 1;
@@ -1192,7 +1214,7 @@ fn to_static(x: Vec<Q>, lam: Q) -> StaticField {
 }
 
 /// Least-squares coefficients `z` with `N z ≈ target` (normal equations, f64).
-fn least_squares(cols: &[Vec<f64>], target: &[f64]) -> Vec<f64> {
+pub(super) fn least_squares(cols: &[Vec<f64>], target: &[f64]) -> Vec<f64> {
     let r = cols.len();
     let mut a = vec![vec![0.0; r + 1]; r];
     for i in 0..r {
