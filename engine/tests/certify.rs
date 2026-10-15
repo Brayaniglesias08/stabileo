@@ -615,6 +615,17 @@ fn certify_modal_3d_fixtures() {
 
 // ───────────────────────── fuzz with an oracle ─────────────────────────
 
+/// When the certificate's own f64 Cholesky shows K is not positive definite,
+/// the solver's results must carry the matching warning.
+fn assert_not_pd_warned(reason: &str, diags: &[StructuredDiagnostic]) {
+    if reason.contains("not positive definite (f64 Cholesky") || reason.contains("sparse Cholesky failed") {
+        assert!(
+            diags.iter().any(|d| d.code == DiagnosticCode::StiffnessNotPositiveDefinite),
+            "non-positive-definite K returned without a warning ({reason})"
+        );
+    }
+}
+
 /// Random models (the crash-free fuzz generators): whenever the solver returns
 /// results, the certificate is either honest (true error ≤ bound, checked
 /// against a double-double reference) or Uncertified with a reason.
@@ -634,6 +645,7 @@ fn certify_fuzz_oracle() {
                 }
                 Certificate::Uncertified { reason } => {
                     assert!(!reason.is_empty());
+                    assert_not_pd_warned(&reason, &res.structured_diagnostics);
                     *reasons.entry(reason.chars().take(40).collect()).or_default() += 1;
                     unc += 1;
                 }
@@ -649,6 +661,7 @@ fn certify_fuzz_oracle() {
                 }
                 Certificate::Uncertified { reason } => {
                     assert!(!reason.is_empty());
+                    assert_not_pd_warned(&reason, &res.structured_diagnostics);
                     *reasons.entry(reason.chars().take(40).collect()).or_default() += 1;
                     unc += 1;
                 }

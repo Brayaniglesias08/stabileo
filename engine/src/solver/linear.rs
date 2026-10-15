@@ -797,6 +797,7 @@ fn prepare_static_2d_impl(input: &SolverInput, force_dense: bool) -> Result<Prep
 
         match num {
             Some((num, regularized, max_perturbation)) => {
+                pre_solve_diags.extend(super::definiteness::sparse_pivot_check(&num, &stiff.k_ff));
                 // Prescribed-displacement coupling F_f −= K_fr · u_r (K-only)
                 let kfr_ur = if has_prescribed {
                     stiff.k_full.sparse_cross_block_matvec(&u_r, nf)
@@ -825,6 +826,7 @@ fn prepare_static_2d_impl(input: &SolverInput, force_dense: bool) -> Result<Prep
                 });
             }
             None => {
+                pre_solve_diags.push(super::definiteness::not_positive_definite("sparse Cholesky failed; solved by dense LU"));
                 // All shifts failed — dense LU of the dense K_ff (same
                 // behavior as the legacy dense-K_ff LU fallback; K-only decision)
                 let stiff_d = assemble_stiffness_2d(input, &dof_num);
@@ -888,7 +890,10 @@ fn prepare_static_2d_impl(input: &SolverInput, force_dense: bool) -> Result<Prep
         let k_ff_sparse = CscMatrix::from_dense_symmetric(&k_ff, nf);
         let sym = Rc::new(symbolic_cholesky(&k_ff_sparse));
         match numeric_cholesky(&sym, &k_ff_sparse) {
-            Some(num) => (FactorizedKff::SparseCholesky(num), true, false),
+            Some(num) => {
+                pre_solve_diags.extend(super::definiteness::sparse_pivot_check(&num, &k_ff_sparse));
+                (FactorizedKff::SparseCholesky(num), true, false)
+            }
             None => {
                 let mut k_work = k_ff.clone();
                 let piv = lu_factor(&mut k_work, nf)
@@ -899,6 +904,7 @@ fn prepare_static_2d_impl(input: &SolverInput, force_dense: bool) -> Result<Prep
     } else {
         let mut k_work = k_ff.clone();
         if cholesky_decompose(&mut k_work, nf) {
+            pre_solve_diags.extend(super::definiteness::dense_pivot_check(&k_work, &k_ff, nf));
             (FactorizedKff::DenseCholesky(k_work), false, false)
         } else {
             let mut k_work = k_ff.clone();
@@ -907,6 +913,9 @@ fn prepare_static_2d_impl(input: &SolverInput, force_dense: bool) -> Result<Prep
             (FactorizedKff::DenseLu { lu: k_work, piv }, false, true)
         }
     };
+    if cholesky_failed {
+        pre_solve_diags.push(super::definiteness::not_positive_definite("Cholesky failed; solved by dense LU"));
+    }
 
     Ok(PreparedStatic2D {
         input: Cow::Borrowed(input),
@@ -1433,6 +1442,10 @@ impl PreparedStatic2D<'_> {
                         dense_lu: std::cell::OnceCell::new(),
                     }
                 });
+                let definiteness = match &direct.num {
+                    Some(num) => super::definiteness::sparse_pivot_check(num, &p.k_ff),
+                    None => Some(super::definiteness::not_positive_definite("sparse Cholesky failed; solved by dense LU")),
+                };
                 let pcg = if direct.num.is_some() {
                     try_pcg_solve(&p.k_ff, &f_f, &p.opts, &mut solver_diags)
                 } else {
@@ -1543,6 +1556,7 @@ impl PreparedStatic2D<'_> {
                 // Build structured diagnostics — same contract as the other paths
                 let mut structured = Vec::new();
                 structured.extend(self.pre_solve_diags.iter().cloned());
+                structured.extend(definiteness);
 
                 // Solver path
                 if let Some((iters, pname)) = pcg_meta {
@@ -2267,6 +2281,13 @@ pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, Stri
         match num {
             Some((num, regularized, max_perturbation)) => {
                 if regularized {
+                    pre_solve_diags.push(super::definiteness::not_positive_definite(&format!(
+                        "Cholesky needed a diagonal shift of {max_perturbation:.2e}"
+                    )));
+                } else {
+                    pre_solve_diags.extend(super::definiteness::sparse_pivot_check(&num, &stiff.k_ff));
+                }
+                if regularized {
                     solver_diags_base.push(SolverDiagnostic {
                         category: "solver_path".into(),
                         message: format!(
@@ -2314,6 +2335,7 @@ pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, Stri
                 })
             }
             None => {
+                pre_solve_diags.push(super::definiteness::not_positive_definite("sparse Cholesky failed even with a diagonal shift; solved by dense LU"));
                 // All shifts failed — fall back to dense LU (factorized once
                 // here; the factorization depends only on K, not the loads).
                 solver_diags_base.push(SolverDiagnostic {
@@ -2392,11 +2414,13 @@ pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, Stri
         let (factor, cholesky_failed) = {
             let mut k_work = k_ff.clone();
             if cholesky_decompose(&mut k_work, nf) {
+                pre_solve_diags.extend(super::definiteness::dense_pivot_check(&k_work, &k_ff, nf));
                 (FactorizedKff::DenseCholesky(k_work), false)
             } else {
                 let mut k_work = k_ff.clone();
                 let piv = lu_factor(&mut k_work, nf)
                     .ok_or_else(|| "Singular stiffness matrix — structure is a mechanism".to_string())?;
+                pre_solve_diags.push(super::definiteness::not_positive_definite("Cholesky failed; solved by dense LU"));
                 (FactorizedKff::DenseLu { lu: k_work, piv }, true)
             }
         };
@@ -3057,6 +3081,11 @@ impl PreparedStatic3D {
         // timer. Its symbolic/numeric timings are accounted for below, just
         // as on the direct prepared path (without counting them twice).
         let direct = p.direct.get_or_init(|| Self::pcg_direct_fallback_3d(p));
+        let definiteness = match &direct.num {
+            Some((num, false, _)) => super::definiteness::sparse_pivot_check(num, &p.k_ff),
+            Some((_, true, shift)) => Some(super::definiteness::not_positive_definite(&format!("Cholesky needed a diagonal shift of {shift:.2e}"))),
+            None => Some(super::definiteness::not_positive_definite("sparse Cholesky failed even with a diagonal shift; solved by dense LU")),
+        };
         let t_total = now_micros();
         let input = &self.input;
         let dof_num = &self.dof_num;
@@ -3297,6 +3326,7 @@ impl PreparedStatic3D {
         // Build structured diagnostics (enum-based, machine-matchable)
         let mut structured = Vec::new();
         structured.extend(self.pre_solve_diags.iter().cloned());
+        structured.extend(definiteness);
 
         // Solver path — report the actual solver that produced the returned result
         if let Some((iters, _, pname)) = pcg_meta {
