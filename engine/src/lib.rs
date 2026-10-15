@@ -76,6 +76,20 @@ pub fn certify_linear_3d(input: JsValue) -> Result<JsValue, JsValue> {
     to_js_value(&out)
 }
 
+/// Solve 2D P-Delta and certify the displacements: a Newton–Kantorovich bound on
+/// the distance to the exact fixed point of the P-Delta model, its uniqueness
+/// radius and certified stability (docs/verification/CERTIFY.md).
+/// JSON in → `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_pdelta_2d(json: &str, max_iter: usize, tolerance: f64) -> Result<String, JsValue> {
+    let input: types::SolverInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::pdelta::certify_pdelta_2d(&input, max_iter, tolerance)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
 /// Solve 2D P-Delta analysis. JSON in → JSON out.
 #[wasm_bindgen]
 pub fn solve_pdelta_2d(json: &str, max_iter: usize, tolerance: f64) -> Result<String, JsValue> {
@@ -141,6 +155,20 @@ pub fn solve_spectral_2d(json: &str) -> Result<String, JsValue> {
     let input: types::SpectralInput = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
     let results = solver::spectral::solve_spectral_2d(&input)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Solve 3D P-Delta and certify the displacements: a Newton–Kantorovich bound on
+/// the distance to the exact fixed point of the P-Delta model, its uniqueness
+/// radius and certified stability (docs/verification/CERTIFY.md).
+/// JSON in → `{ results, certificate }`.
+#[wasm_bindgen]
+pub fn certify_pdelta_3d(json: &str, max_iter: usize, tolerance: f64) -> Result<String, JsValue> {
+    let input: types::SolverInput3D = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::pdelta::certify_pdelta_3d(&input, max_iter, tolerance)
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&results)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))

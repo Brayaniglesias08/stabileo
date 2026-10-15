@@ -342,6 +342,84 @@ Inherited limitations: rounding in the f64 evaluation of member forces and diagr
 polynomials (see member force bounds) is not included; capacities are certified as the
 real-number value of the code formula for the given section data.
 
+## P-Delta (second-order) displacements
+
+`engine/src/certify/pdelta.rs` (wasm: `certify_pdelta_2d/3d`).
+
+**Model.** The P-Delta solver iterates `(K + K_G(u)) u = f`, the geometric stiffness
+built from axial forces read back from the displacements. Element by element
+(`KgAffineTerm`, `geometric_stiffness_terms_{2d,3d}`):
+
+    K_G(u) = Σ_e N_e(u) G_e,    N_e(u) = e·a·(t_eᵀu / l − α·ΔT),
+
+with `G_e` the element's global geometric stiffness at unit axial force computed by the
+same element routine the solver uses (frames: Przemieniecki, 3D condensed for end
+releases; trusses/cables: string stiffness), `t_e` the elongation coefficients (entries of
+the element's transformation), and `e`, `a`, `l`, `α`, `ΔT` the f64 element data. The
+certified model takes these f64 values, the sparse triplet-assembled `K` (full, free DOFs
+first) and the assembled `f` as exact; the solver's own f64 `K_G(ũ)` equals `Σ N_e G_e`
+only up to rounding, which does not matter because `ũ` is only a candidate. (The small
+dense path, `n_total < 64`, iterates on the dense assembly, which differs from the
+triplet one by rounding.) Restrained DOFs keep their returned (prescribed) values `u_R`.
+Constraints and inclined supports are refused.
+
+The free equations `F(x) = [(K + K_G(u))u − f]_F`, `u = [x; u_R]`, are *exactly quadratic*:
+with `c_e = e·a/l` and `x = ũ + δ`,
+
+    F(ũ + δ) = F(ũ) + J δ + q(δ, δ),
+    J = (K + K_G(ũ))_FF + Σ_e c_e (G_e ũ)_F t_eᵀ,     q(x, y) = Σ_e c_e (t_eᵀx)(G_e y)_F,
+
+because `K_G` is affine in `u` (`K_G(ũ + δ) = K_G(ũ) + Σ c_e (t_eᵀδ) G_e`). `J` is not
+symmetric.
+
+**Bounds.**
+
+* `‖q(x, y)‖₂ ≤ β‖x‖₂‖y‖₂` with `β = max_d Σ_{e ∋ d} w_e`, `w_e = |c_e|·‖t_e‖₂·‖G_e‖_F`
+  (restricted to free DOFs). Proof: `‖q(x,y)‖ ≤ Σ_e w_e ‖x_e‖‖y_e‖ ≤ (Σ w_e‖x_e‖²)^{½}
+  (Σ w_e‖y_e‖²)^{½}` (Cauchy–Schwarz) and `Σ_e w_e‖x_e‖² = Σ_d x_d² Σ_{e∋d} w_e ≤ β‖x‖²`.
+* `xᵀJx ≥ μ‖x‖²`: `sym(J)` (same sparsity as `K`: each `c_e g_e t_eᵀ` lives on the
+  element's DOFs) is enclosed entrywise in intervals and certified by the Gram residual +
+  Gershgorin check. Then `‖Jx‖ ≥ μ‖x‖`, `J` is invertible and `‖J⁻¹‖₂ ≤ 1/μ`.
+* `‖J⁻¹F(ũ)‖₂ ≤ η := ‖d‖₂ + ‖F(ũ) − J d‖₂ / μ` for *any* vector `d` (an f64 Newton
+  step: Cholesky of `sym(J)` plus refinement with `J`; never trusted), since
+  `J⁻¹F = d + J⁻¹(F − Jd)`. `F(ũ)` and `J d` are evaluated in interval arithmetic.
+
+**Lemma (Newton–Kantorovich for a quadratic map).** Let `F(ũ + δ) = F(ũ) + Jδ + q(δ,δ)`
+with `q` bilinear, `J` invertible, `‖J⁻¹F(ũ)‖ ≤ η`, `‖J⁻¹q(x,y)‖ ≤ γ‖x‖‖y‖`. If
+`4γη < 1`, then `F` has exactly one zero `u*` in the open ball `‖u − ũ‖ < 1/(2γ)`, and
+`‖u* − ũ‖ ≤ r := 2η / (1 + √(1 − 4γη))` (the smaller root of `γr² − r + η = 0`).
+
+*Proof.* Zeros of `F(ũ + ·)` are the fixed points of `T(δ) = −J⁻¹F(ũ) − J⁻¹q(δ,δ)`. On
+`B_s = {‖δ‖ ≤ s}`: `‖T(δ)‖ ≤ η + γs² ≤ s` for `s ∈ [r, r₊]`, and since
+`q(δ,δ) − q(δ',δ') = q(δ − δ', δ) + q(δ', δ − δ')`, `‖T(δ) − T(δ')‖ ≤ 2γs‖δ − δ'‖`, a
+contraction for `s < 1/(2γ)`. With `4γη < 1`, `r < 1/(2γ)`, so Banach's theorem on
+`B_r` gives existence of a zero with `‖δ‖ ≤ r`; for any `s ∈ [r, 1/(2γ))` it is the only
+one in `B_s`, hence the only one with `‖δ‖ < 1/(2γ)`. ∎
+
+Applied with `γ = β/μ` (`‖J⁻¹q(x,y)‖ ≤ ‖q(x,y)‖/μ`). The Rust validates the root
+instead of trusting the formula: `r` is computed rounded up and accepted only if
+`η + γr² ≤ r` and `2γr < 1` hold with directed rounding; `uniqueness_radius = 1/(2γ)`
+rounded down. With `β = 0` (no axial-force-dependent terms) it reduces to the linear
+bound `η`.
+
+**Stability of the exact state.** If `λ_min(sym(K + K_G(ũ))_FF) ≥ μ_A` (Gram +
+Gershgorin), then `λ_min(sym(K + K_G(u*))) ≥ μ_A − βr`, because
+`|xᵀ(K_G(u*) − K_G(ũ))x| = |Σ_e c_e(t_eᵀδ) x_eᵀG_e x_e| ≤ ‖δ‖ Σ_e w_e ‖x_e‖² ≤ βr‖x‖²`.
+When positive it is reported as `stabilityMargin`: the exact second-order state is
+stable (`K + K_G(u*) ≻ 0`), independently of the solver's Cholesky/LU path.
+
+**Output.** `absBound = r` on `‖u*_F − ũ_F‖₂`, `relBound`, `uniquenessRadius`, `mu`,
+`beta`, `residualNorm` (`≥ ‖F(ũ)‖₂`), `newtonStep` (`η`), `stabilityMargin`. The
+solver's iteration count does not matter: an iteration-limited answer is certified with
+a bound on its distance to the true fixed point (tests: 2 iterations at 0.8·P_cr, true
+error 2.24e-8, bound 2.26e-8). Past the critical load the reversed-sway LU answer is
+never certified stable. Uncertified when `sym(J)` is not certified positive definite
+(e.g. a candidate near an unstable equilibrium) or `4γη < 1` fails (candidate too far
+for the curvature bound).
+
+Honesty test (`tests/certify_nonlinear.rs`): the exact fixed point of the same model by
+Newton's method with double-double residuals. Not formalized in Lean.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.

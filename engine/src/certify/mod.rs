@@ -8,6 +8,7 @@ pub mod forces;
 pub mod interval;
 pub mod linear;
 pub mod modal;
+pub mod pdelta;
 pub mod real;
 pub mod solver;
 pub mod sparse;
