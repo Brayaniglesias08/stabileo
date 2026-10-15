@@ -68,6 +68,7 @@ kill_tree() {
 cd "$root" || exit 1
 printf 'harness\tstatus\tseconds\tpeak_gb\n' > "$report"
 failed=0
+shown=
 for h in $harnesses; do
 	log=$logdir/$h.log
 	start=$(date +%s)
@@ -91,7 +92,11 @@ for h in $harnesses; do
 	secs=$(( $(date +%s) - start ))
 	gb=$(awk -v k="$peak" 'BEGIN { printf "%.1f", k / 1048576 }')
 	printf '%s\t%s\t%s\t%s\n' "$h" "$status" "$secs" "$gb" | tee -a "$report"
-	[ "$status" = OK ] || failed=1
+	if [ "$status" != OK ]; then
+		failed=1
+		# Show why, once per run: a setup error fails every harness the same way.
+		[ -n "$shown" ] || { tail -n 30 "$log" | sed 's/^/    /'; shown=1; }
+	fi
 done
 echo "report: $report  logs: $logdir"
 exit $failed

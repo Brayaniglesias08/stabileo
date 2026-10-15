@@ -73,6 +73,10 @@
             pkgs.jq
           ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.apple-sdk_15
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            # engine/.cargo/config.toml links x86_64 Linux builds with clang + mold.
+            pkgs.clang
+            pkgs.mold
           ];
 
           shellHook = ''
