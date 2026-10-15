@@ -25,17 +25,21 @@
 //!      frequencies, where single-mode enclosures overlap.
 //!    Cutoffs are tried in gaps of the computed spectrum, highest first.
 //!
-//! Certified with respect to the f64 sparse-assembled `K` and `M`. Constraints
-//! are not supported.
+//! Certified with respect to the f64 sparse-assembled `K` and `M`. With
+//! constraints, with respect to the reduced pencil `(CᵀKC, CᵀMC)` the solver
+//! solves, both matrices enclosed entrywise in intervals (`constrained.rs`),
+//! with the modes read at the independent DOFs.
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use super::constrained::{reduce_symmetric_enclosed, ConstraintMap};
 use super::interval::Interval;
 use super::solver::{gather_u_2d, gather_u_3d};
 use super::sparse::certify_lambda_min_lower;
 use crate::linalg::sparse::CscMatrix;
+use crate::solver::constraints::build_constraint_transform;
 use crate::solver::dof::DofNumbering;
 use crate::solver::mass_matrix::{assemble_mass_matrix_2d_sparse, assemble_mass_matrix_3d_sparse};
 use crate::solver::modal::{solve_modal_2d, solve_modal_3d, ModalResult, ModalResult3D};
@@ -112,23 +116,31 @@ pub fn certify_modal_2d(
     num_modes: usize,
 ) -> Result<CertifiedModal2D, String> {
     let results = solve_modal_2d(input, densities, num_modes)?;
-    let certificate = if !input.constraints.is_empty() {
-        ModalCertificate::uncertified("unsupported: constraints")
-    } else {
-        let dof_num = DofNumbering::build_2d(input);
-        let k = assemble_stiffness_sparse_2d(input, &dof_num).k_ff;
-        let m = assemble_mass_matrix_2d_sparse(input, &dof_num, densities);
-        let mut modes = Vec::new();
-        let mut err = None;
-        for mode in &results.modes {
-            match gather_u_2d(&dof_num, &mode.displacements) {
-                Ok(u) => modes.push((mode.omega * mode.omega, u[..dof_num.n_free].to_vec())),
-                Err(c) => err = Some(format!("mode shape: {c:?}")),
-            }
+    let dof_num = DofNumbering::build_2d(input);
+    let nf = dof_num.n_free;
+    let k = assemble_stiffness_sparse_2d(input, &dof_num).k_ff;
+    let m = assemble_mass_matrix_2d_sparse(input, &dof_num, densities);
+    let mut modes = Vec::new();
+    let mut err = None;
+    for mode in &results.modes {
+        match gather_u_2d(&dof_num, &mode.displacements) {
+            Ok(u) => modes.push((mode.omega * mode.omega, u[..nf].to_vec())),
+            Err(c) => err = Some(format!("mode shape: {c:?}")),
         }
-        match err {
-            Some(e) => ModalCertificate::uncertified(e),
-            None => certify_modes(&k, &m, &modes),
+    }
+    let certificate = match err {
+        Some(e) => ModalCertificate::uncertified(e),
+        None if input.constraints.is_empty() => certify_modes(&k, &m, &modes),
+        None => {
+            // The reduced pencil (CᵀKC, CᵀMC) the solver solves, enclosed
+            // entrywise; modes read at the independent DOFs.
+            let ct = build_constraint_transform(&input.constraints, &dof_num, Some(&input.nodes), None);
+            let cm = ConstraintMap::from_transform(&ct, nf);
+            let (kr, kv) = reduce_symmetric_enclosed(&k, &cm);
+            let (mr, mv) = reduce_symmetric_enclosed(&m, &cm);
+            let modes_q: Vec<(f64, Vec<f64>)> =
+                modes.iter().map(|(l, p)| (*l, cm.indep_dof.iter().map(|&d| p[d]).collect())).collect();
+            certify_modes_enclosed(&kr, &kv, &mr, &mv, &modes_q)
         }
     };
     Ok(CertifiedModal2D { results, certificate })
@@ -141,23 +153,31 @@ pub fn certify_modal_3d(
     num_modes: usize,
 ) -> Result<CertifiedModal3D, String> {
     let results = solve_modal_3d(input, densities, num_modes)?;
-    let certificate = if !input.constraints.is_empty() {
-        ModalCertificate::uncertified("unsupported: constraints")
-    } else {
-        let dof_num = DofNumbering::build_3d(input);
-        let k = assemble_stiffness_sparse_3d(input, &dof_num, false).k_ff;
-        let m = assemble_mass_matrix_3d_sparse(input, &dof_num, densities);
-        let mut modes = Vec::new();
-        let mut err = None;
-        for mode in &results.modes {
-            match gather_u_3d(&dof_num, &mode.displacements) {
-                Ok(u) => modes.push((mode.omega * mode.omega, u[..dof_num.n_free].to_vec())),
-                Err(c) => err = Some(format!("mode shape: {c:?}")),
-            }
+    let dof_num = DofNumbering::build_3d(input);
+    let nf = dof_num.n_free;
+    let k = assemble_stiffness_sparse_3d(input, &dof_num, false).k_ff;
+    let m = assemble_mass_matrix_3d_sparse(input, &dof_num, densities);
+    let mut modes = Vec::new();
+    let mut err = None;
+    for mode in &results.modes {
+        match gather_u_3d(&dof_num, &mode.displacements) {
+            Ok(u) => modes.push((mode.omega * mode.omega, u[..nf].to_vec())),
+            Err(c) => err = Some(format!("mode shape: {c:?}")),
         }
-        match err {
-            Some(e) => ModalCertificate::uncertified(e),
-            None => certify_modes(&k, &m, &modes),
+    }
+    let certificate = match err {
+        Some(e) => ModalCertificate::uncertified(e),
+        None if input.constraints.is_empty() => certify_modes(&k, &m, &modes),
+        None => {
+            // The reduced pencil (CᵀKC, CᵀMC) the solver solves, enclosed
+            // entrywise; modes read at the independent DOFs.
+            let ct = build_constraint_transform(&input.constraints, &dof_num, None, Some(&input.nodes));
+            let cm = ConstraintMap::from_transform(&ct, nf);
+            let (kr, kv) = reduce_symmetric_enclosed(&k, &cm);
+            let (mr, mv) = reduce_symmetric_enclosed(&m, &cm);
+            let modes_q: Vec<(f64, Vec<f64>)> =
+                modes.iter().map(|(l, p)| (*l, cm.indep_dof.iter().map(|&d| p[d]).collect())).collect();
+            certify_modes_enclosed(&kr, &kv, &mr, &mv, &modes_q)
         }
     };
     Ok(CertifiedModal3D { results, certificate })
@@ -165,23 +185,41 @@ pub fn certify_modal_3d(
 
 /// Certify computed modes `(ω̂², φ)` of `K φ = λ M φ` (lower-triangle CSC).
 pub fn certify_modes(k: &CscMatrix, m: &CscMatrix, modes: &[(f64, Vec<f64>)]) -> ModalCertificate {
+    let points = |a: &CscMatrix| a.values.iter().map(|&x| Interval::point(x)).collect::<Vec<_>>();
+    certify_modes_enclosed(k, &points(k), m, &points(m), modes)
+}
+
+/// As `certify_modes` for exact real `K`, `M` known only through entry
+/// enclosures `kv`, `mv` (aligned with the lower-triangle patterns of `k`,
+/// `m`, whose values are approximations used only for factoring).
+pub fn certify_modes_enclosed(
+    k: &CscMatrix,
+    kv: &[Interval],
+    m: &CscMatrix,
+    mv: &[Interval],
+    modes: &[(f64, Vec<f64>)],
+) -> ModalCertificate {
     let n = k.n;
-    if m.n != n || modes.iter().any(|(_, p)| p.len() != n) {
+    if m.n != n || modes.iter().any(|(_, p)| p.len() != n) || kv.len() != k.values.len() || mv.len() != m.values.len()
+    {
         return ModalCertificate::uncertified("dimension mismatch");
     }
+    if !kv.iter().chain(mv).all(|x| x.is_finite()) {
+        return ModalCertificate::uncertified("non-finite matrix entry");
+    }
+    let km = Pencil { k, kv, m, mv };
     if modes.is_empty() {
         return ModalCertificate::uncertified("no modes");
     }
     if modes.iter().any(|(l, p)| !(*l > 0.0 && l.is_finite()) || !p.iter().all(|x| x.is_finite())) {
         return ModalCertificate::uncertified("non-finite or non-positive computed mode");
     }
-    let kv: Vec<Interval> = k.values.iter().map(|&x| Interval::point(x)).collect();
-    let sigma_k = match certify_lambda_min_lower(k, &kv) {
+    let sigma_k = match certify_lambda_min_lower(k, kv) {
         Ok(s) => s,
         Err(reason) => return ModalCertificate::uncertified(format!("K not certified positive definite: {reason}")),
     };
 
-    let parts: Vec<ModeParts> = modes.iter().map(|(l, p)| mode_parts(k, m, *l, p)).collect();
+    let parts: Vec<ModeParts> = modes.iter().map(|(l, p)| mode_parts(&km, *l, p)).collect();
     let encl: Vec<ModeEnclosure> =
         modes.iter().zip(&parts).map(|((l, _), mp)| enclose(sigma_k, *l, mp)).collect();
 
@@ -205,7 +243,7 @@ pub fn certify_modes(k: &CscMatrix, m: &CscMatrix, modes: &[(f64, Vec<f64>)]) ->
     let mut failure = None;
     for (j, mu) in candidates {
         let idx: Vec<usize> = order[..j].to_vec();
-        match completeness(k, m, &pattern, sigma_k, modes, &parts, &idx, mu) {
+        match completeness(&km, &pattern, sigma_k, modes, &parts, &idx, mu) {
             Ok(()) => {
                 return ModalCertificate::Certified {
                     modes: encl,
@@ -233,9 +271,18 @@ struct ModeParts {
     nu_hat: f64,
 }
 
-fn mode_parts(k: &CscMatrix, m: &CscMatrix, lam: f64, phi: &[f64]) -> ModeParts {
-    let kphi = sym_mat_vec(k, phi);
-    let mphi = sym_mat_vec(m, phi);
+/// `K`, `M` (lower-triangle patterns with approximate values) and enclosures
+/// of their exact entries.
+struct Pencil<'a> {
+    k: &'a CscMatrix,
+    kv: &'a [Interval],
+    m: &'a CscMatrix,
+    mv: &'a [Interval],
+}
+
+fn mode_parts(km: &Pencil, lam: f64, phi: &[f64]) -> ModeParts {
+    let kphi = sym_mat_vec(km.k, km.kv, phi);
+    let mphi = sym_mat_vec(km.m, km.mv, phi);
     let nu_hat = 1.0 / lam;
     let mut s2 = 0.0f64;
     for (a, b) in mphi.iter().zip(&kphi) {
@@ -250,8 +297,7 @@ fn mode_parts(k: &CscMatrix, m: &CscMatrix, lam: f64, phi: &[f64]) -> ModeParts 
 /// Certify that the modes `idx` are exactly the eigenvalues below μ.
 #[allow(clippy::too_many_arguments)]
 fn completeness(
-    k: &CscMatrix,
-    m: &CscMatrix,
+    km: &Pencil,
     pattern: &Pattern,
     sigma_k: f64,
     modes: &[(f64, Vec<f64>)],
@@ -290,21 +336,21 @@ fn completeness(
     // At most |idx| eigenvalues ≤ μ. Cheap first: a deleted principal
     // submatrix of K − μM positive definite (sparse).
     let phis: Vec<&Vec<f64>> = idx.iter().map(|&i| &modes[i].1).collect();
-    let del = pivot_indices(&phis, k.n);
+    let n = km.k.n;
+    let del = pivot_indices(&phis, n);
     if del.len() == j {
-        let (a, vals) = shifted_deleting(k, m, pattern, mu, &del);
+        let (a, vals) = shifted_deleting(km, pattern, mu, &del);
         if certify_lambda_min_lower(&a, &vals).is_ok() {
             return Ok(());
         }
     }
     // Then Finsler: K − μM + c·UUᵀ ≻ 0 with U = MΦ (dense, moderate n only).
-    if k.n > MAX_DENSE_FINSLER {
+    if n > MAX_DENSE_FINSLER {
         return Err(format!(
-            "deleted-DOF test failed and n = {} exceeds the dense Finsler cap {MAX_DENSE_FINSLER}",
-            k.n
+            "deleted-DOF test failed and n = {n} exceeds the dense Finsler cap {MAX_DENSE_FINSLER}"
         ));
     }
-    finsler_dense(k, m, mu, &phis)
+    finsler_dense(km, mu, &phis)
 }
 
 /// Largest model for the dense Finsler completeness check (O(n³)).
@@ -313,7 +359,8 @@ pub const MAX_DENSE_FINSLER: usize = 2000;
 /// Certify `K − μM + c·UUᵀ ≻ 0`, `U = MΦ` (any real U of j columns): then
 /// `xᵀ(K − μM)x > 0` on `{x : Uᵀx = 0}`, of codimension ≤ j, so at most j
 /// eigenvalues λ ≤ μ.
-fn finsler_dense(k: &CscMatrix, m: &CscMatrix, mu: f64, phis: &[&Vec<f64>]) -> Result<(), String> {
+fn finsler_dense(km: &Pencil, mu: f64, phis: &[&Vec<f64>]) -> Result<(), String> {
+    let (k, m) = (km.k, km.m);
     let n = k.n;
     let u: Vec<Vec<f64>> = phis.iter().map(|p| m.sym_mat_vec(p)).collect();
     // c > (μ − λ̂)/φᵀMφ makes each mode direction positive; take 4× the max.
@@ -328,11 +375,11 @@ fn finsler_dense(k: &CscMatrix, m: &CscMatrix, mu: f64, phis: &[&Vec<f64>]) -> R
     }
     let mut mid = vec![0.0; n * n];
     let mut iv = vec![Interval::ZERO; n * n];
-    let add = |a: &CscMatrix, scale: f64, mid: &mut [f64], iv: &mut [Interval]| {
+    let add = |a: &CscMatrix, av: &[Interval], scale: f64, mid: &mut [f64], iv: &mut [Interval]| {
         for jj in 0..n {
             for p in a.col_ptr[jj]..a.col_ptr[jj + 1] {
                 let ii = a.row_idx[p];
-                let v = Interval::point(scale) * Interval::point(a.values[p]);
+                let v = Interval::point(scale) * av[p];
                 for (r, cidx) in [(ii, jj), (jj, ii)] {
                     if r == cidx && ii != jj {
                         continue;
@@ -346,8 +393,8 @@ fn finsler_dense(k: &CscMatrix, m: &CscMatrix, mu: f64, phis: &[&Vec<f64>]) -> R
             }
         }
     };
-    add(k, 1.0, &mut mid, &mut iv);
-    add(m, -mu, &mut mid, &mut iv);
+    add(k, km.kv, 1.0, &mut mid, &mut iv);
+    add(m, km.mv, -mu, &mut mid, &mut iv);
     let ci = Interval::point(c);
     for col in &u {
         for r in 0..n {
@@ -445,13 +492,8 @@ fn pivot_indices(phis: &[&Vec<f64>], n: usize) -> Vec<usize> {
 
 /// `K − μM` on the union pattern with the rows/columns in `del` removed
 /// (renumbered): f64 approximation and entry enclosures.
-fn shifted_deleting(
-    k: &CscMatrix,
-    m: &CscMatrix,
-    pattern: &Pattern,
-    mu: f64,
-    del: &[usize],
-) -> (CscMatrix, Vec<Interval>) {
+fn shifted_deleting(km: &Pencil, pattern: &Pattern, mu: f64, del: &[usize]) -> (CscMatrix, Vec<Interval>) {
+    let (k, m) = (km.k, km.m);
     let n = k.n;
     let mut new_index = vec![usize::MAX; n];
     let mut next = 0;
@@ -472,22 +514,25 @@ fn shifted_deleting(
             }
             let kv = pk.map_or(0.0, |p| k.values[p]);
             let mv = pm.map_or(0.0, |q| m.values[q]);
+            let ki = pk.map_or(Interval::ZERO, |p| km.kv[p]);
+            let mi = pm.map_or(Interval::ZERO, |q| km.mv[q]);
             row_idx.push(new_index[r]);
             values.push(kv - mu * mv);
-            vals.push(Interval::point(kv) - Interval::point(mu) * Interval::point(mv));
+            vals.push(ki - Interval::point(mu) * mi);
         }
         col_ptr.push(row_idx.len());
     }
     (CscMatrix { n: next, col_ptr, row_idx, values }, vals)
 }
 
-/// Interval y = A x for symmetric A stored as its lower triangle.
-fn sym_mat_vec(a: &CscMatrix, x: &[f64]) -> Vec<Interval> {
+/// Interval y = A x for symmetric A stored as its lower triangle, with entry
+/// enclosures `av`.
+fn sym_mat_vec(a: &CscMatrix, av: &[Interval], x: &[f64]) -> Vec<Interval> {
     let mut y = vec![Interval::ZERO; a.n];
     for j in 0..a.n {
         for p in a.col_ptr[j]..a.col_ptr[j + 1] {
             let i = a.row_idx[p];
-            let v = Interval::point(a.values[p]);
+            let v = av[p];
             y[i] = y[i] + v * Interval::point(x[j]);
             if i != j {
                 y[j] = y[j] + v * Interval::point(x[i]);
@@ -572,6 +617,49 @@ mod tests {
             }
         }
         CscMatrix::from_triplets(n, &r, &c, &v)
+    }
+
+    /// Mirror constraint u_{29−i} = u_i on the 30-DOF chain: the reduced pencil
+    /// (CᵀKC, CᵀMC) has exactly the chain's symmetric modes, j = 1, 3, 5, …
+    #[test]
+    fn constrained_modes_enclosed_and_gap_detected() {
+        let n = 30;
+        let k = tridiag(n, 2.0, -1.0);
+        let m = tridiag(n, 1.0, 0.0);
+        let cm = ConstraintMap {
+            c: (0..n).map(|i| vec![(if i < n / 2 { i } else { n - 1 - i }, 1.0)]).collect(),
+            c_r: vec![vec![]; n],
+            p: n / 2,
+            indep_dof: (0..n / 2).collect(),
+        };
+        let (kr, kv) = reduce_symmetric_enclosed(&k, &cm);
+        let (mr, mv) = reduce_symmetric_enclosed(&m, &cm);
+        let lam = |j: usize| 2.0 - 2.0 * (j as f64 * std::f64::consts::PI / (n as f64 + 1.0)).cos();
+        let q = |j: usize| -> Vec<f64> {
+            (1..=n / 2).map(|i| (i as f64 * j as f64 * std::f64::consts::PI / (n as f64 + 1.0)).sin()).collect()
+        };
+        let all: Vec<(f64, Vec<f64>)> = [1, 3, 5].iter().map(|&j| (lam(j), q(j))).collect();
+        let c = certify_modes_enclosed(&kr, &kv, &mr, &mv, &all);
+        let ModalCertificate::Certified { modes, complete_modes, .. } = &c else { panic!("{c:?}") };
+        assert_eq!(*complete_modes, 3, "{c:?}");
+        for (e, j) in modes.iter().zip([1, 3, 5]) {
+            assert!(e.omega2_lower <= lam(j) && lam(j) <= e.omega2_upper, "{e:?}");
+            assert!((e.omega2_upper - e.omega2_lower) / lam(j) < 1e-8, "{e:?}");
+        }
+        // Without mode 3 the remaining two cannot be certified complete.
+        let missing = vec![all[0].clone(), all[2].clone()];
+        let ModalCertificate::Certified { complete_modes, .. } = certify_modes_enclosed(&kr, &kv, &mr, &mv, &missing)
+        else {
+            panic!()
+        };
+        assert!(complete_modes < 2, "missing mode not detected: {complete_modes}");
+        // Antisymmetric mode 2 is not an eigenpair of the constrained pencil: its
+        // reduced vector must not be enclosed near the unconstrained λ_2.
+        let c = certify_modes_enclosed(&kr, &kv, &mr, &mv, &[(lam(2), q(2))]);
+        if let ModalCertificate::Certified { modes, .. } = &c {
+            let e = &modes[0];
+            assert!(e.omega2_upper - e.omega2_lower > 1e-3 * lam(2), "wrong mode certified tightly: {e:?}");
+        }
     }
 
     #[test]

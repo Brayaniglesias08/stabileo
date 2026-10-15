@@ -448,8 +448,10 @@ fn fb3_arr(b: &ForceBound3D) -> [f64; 6] {
     [b.n, b.vy, b.vz, b.t, b.my, b.mz]
 }
 
+/// Combinations bound the six classical components; the warping bimoment is
+/// not combined, so it is reported unbounded (∞, serialized as null).
 fn arr_fb3(eid: usize, b: [f64; 6]) -> ForceBound3D {
-    ForceBound3D { element_id: eid, n: b[0], vy: b[1], vz: b[2], t: b[3], my: b[4], mz: b[5] }
+    ForceBound3D { element_id: eid, n: b[0], vy: b[1], vz: b[2], t: b[3], my: b[4], mz: b[5], bimoment: f64::INFINITY }
 }
 
 fn index3(r: &AnalysisResults3D) -> Indexed<6, 6> {

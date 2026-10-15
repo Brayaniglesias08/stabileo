@@ -69,6 +69,62 @@ the enclosure of `S − L Lᵀ` must be computed with outward rounding.
 Lean: `Certify.certified_error_bound_gram` (`verify/Certify/Gram.lean`), built on
 `quad_gram_nonneg`, `gershgorin_quad` and `coercive_of_gram`.
 
+## Constraints (multi-point constraints)
+
+The constrained solver (`solve_constrained_{2d,3d}`) writes the free displacements as
+`u_F = C q + u_p`, with `C` the free rows / free-independent columns of its constraint
+transform, `C_R` the free rows / restrained-independent columns, `u_R` the prescribed
+values and `u_p = C_R u_R`. The f64 entries of `C` (as `build_constraint_transform`
+computes them, offsets included) and of the assembled `K`, `f` define the problem. The
+certified statement is about the exact real solution of
+
+    find q:  Cᵀ (f_F − K_F· [C q + u_p ; u_R]) = 0,        u*_F = C q* + u_p,
+
+where `K_F·` is the free rows of the solver's `K` (the dense assembly on the dense path,
+the sparse `k_ff`/`k_full` pair on the sparse path, chosen from the results' diagnostics
+in 2D; always the sparse assembly in 3D).
+
+* `A = Cᵀ K_FF C` is formed entrywise in interval arithmetic from the f64 `K` and `C`
+  (no rounded reduced matrix is trusted); its symmetric part `Cᵀ S C` is enclosed on the
+  lower triangle and certified `λ_min ≥ μ > 0` by the Gram residual + Gershgorin check
+  above. Then `A` is invertible, `q*` is unique and `‖q* − q̃‖₂ ≤ ‖r‖₂ / μ`, with
+  `r = Cᵀ(f_F − K_F·[C q̃ + u_p ; u_R])` evaluated in intervals.
+* `q̃` is read from the returned displacements at the independent DOFs. Any `q̃` is a
+  valid candidate; the mismatch is accounted for in the next step.
+* Mapping back: `u*_F − ũ_F = C (q* − q̃) + (C q̃ + u_p − ũ_F)`, so
+
+      ‖u*_F − ũ_F‖₂ ≤ ‖C‖₂ · ‖r‖₂/μ + ‖C q̃ + u_p − ũ_F‖₂,
+
+  with `‖C‖₂ ≤ min(√(‖C‖₁‖C‖_∞), √(maxₐ Σ_b |(CᵀC)_ab|))` rounded up and the last
+  term enclosed in intervals (it covers the solver's f64 expansion `C q̃ + u_p`, and any
+  constraint violation in the returned displacements).
+
+The certificate's `sigma` is `μ` and `residual_norm` is `‖r‖₂` (reduced quantities);
+`abs_bound` is on the free-DOF error. Code: `engine/src/certify/constrained.rs`.
+Not yet formalized in Lean (the coercivity and Gram/Gershgorin steps are the ones
+proved above; the `‖C‖₂` mapping is elementary but unproved there).
+
+## Inclined supports
+
+The solver rotates the translational DOFs of an inclined node by the f64 matrix `R`
+(rows = local axes), `u_rot = T u_glob` with `T` block-diagonal, assembles `K`, `f` in
+those axes, solves, and reports `ũ_glob = fl(Tᵀ ũ_rot)`. The certified exact global
+solution is `u*_glob := Tᵀ u*_rot` (the exact real product with the f64 `R`).
+
+The candidate `ũ_rot = fl(T ũ_glob)` (with the solver's prescribed normal value put back
+on the restrained rotated DOF) is certified in the rotated system exactly as above (plain
+or constrained), giving `‖u*_rot − ũ_rot‖₂ ≤ b` (restrained rotated DOFs are exact).
+Then over all DOFs
+
+    ‖u*_glob − ũ_glob‖₂ ≤ ‖T‖₂ b + ‖Tᵀ ũ_rot − ũ_glob‖₂,
+
+with the last term enclosed in intervals and, for any real `R` (no orthogonality is
+assumed), `‖R‖₂² = λ_max(RᵀR) ≤ 1 + ‖RᵀR − I‖_F` with `RᵀR − I` enclosed in intervals;
+`‖T‖₂ ≤ max(1, max_R √(1 + ‖RᵀR − I‖_F))`, which is `1 + O(ε)` for the solver's
+rotations. With inclined supports `abs_bound` is on the error over all DOFs in global
+axes (and `rel_bound` relative to `‖ũ_glob‖₂` over all DOFs). A node carrying several
+supports one of which is inclined is refused (`Uncertified`). Not yet formalized in Lean.
+
 ## Buckling load-factor enclosure
 
 Linear buckling solves `K φ = λ N φ` with `N = −K_G`. The stability matrix
@@ -88,7 +144,13 @@ definiteness is first lost:
 
 The enclosure `λ̲ ≤ λ_cr ≤ λ̄` is about the f64 `K` and `K_G` as assembled (with `K_G`
 built from the computed linear axial forces), not about rounding-free versions of them.
-Constraints are not supported.
+
+With constraints the solver solves the reduced pencil `(Cᵀ K C) φ_q = λ (Cᵀ N C) φ_q`.
+The certificate is about that pencil with the f64 `K`, `N`, `C` entries taken as exact:
+both reduced matrices are enclosed entrywise in interval arithmetic (as in "Constraints"
+above), `A(λ) = CᵀKC − λ CᵀNC` is enclosed from those enclosures, and the lower and
+upper bounds are certified exactly as above (the Rayleigh vector is the returned mode
+read at the independent DOFs).
 
 Lean: `Certify.buckling_enclosure` (`verify/Certify/Buckling.lean`), built on
 `stable_segment`, `not_stable_of_interval_rayleigh` and `stable_of_gram`; the
@@ -123,6 +185,13 @@ singular). `engine/src/certify/modal.rs` certifies three things.
   fewer than `j` eigenvalues qualify, some `z ≠ 0` has `Yz` orthogonal to their
   eigenvectors, and Cauchy–Schwarz gives `g‖z‖² ≤ ‖Yz‖² < (r²/ρ²)‖z‖² = g‖z‖²`.
 
+With constraints the same three certificates are applied to the reduced pencil
+`(Cᵀ K C, Cᵀ M C)` the solver solves (f64 sparse `K`, `M`, `C` taken as exact; both
+reduced matrices enclosed entrywise in intervals, every use of their entries — `Kφ`,
+`Mφ`, the Gram/Gershgorin and deleted-principal-submatrix checks, the dense Finsler
+matrix — goes through those enclosures), with the computed modes read at the
+independent DOFs.
+
 Lean (`verify/Certify/Modal.lean`), with `NonposSubspace A S := ∀ x ∈ S, xᵀAx ≤ 0`:
 
 * `count_le_of_pos_on` / `count_le_of_pos_on'`: `A` positive on `V \ 0` ⇒ every
@@ -156,6 +225,23 @@ by `k_local T (u* − ũ)`. By Cauchy–Schwarz, component `i` satisfies
 with `‖T‖₂ ≤ 1 + 4ε` (rotation with rounded entries) and `‖u* − ũ‖₂` from the
 displacement certificate (`engine/src/certify/forces.rs`). Rounding in the f64 force
 evaluation itself is not included.
+
+Warping frames (14 DOFs per member in a 7-DOF-per-node model) use
+`frame_local_stiffness_3d_warping` the same way; rows 6 and 13 give the bimoment bound.
+With constraints or inclined supports the displacement bound fed in is the mapped one
+of those sections (global axes), so the force bounds hold unchanged.
+
+**Shell stress resultants.** For MITC4 quads, DKT plates and MITC9 quads the reported
+centroid resultants `σxx, σyy, τxy, mx, my, mxy` (and MITC4 `qx, qy`) are linear in the
+element's local displacements, `s = L T u_e` (thermal terms are constant and cancel in
+the difference). The columns `L e_k` are obtained by running the solver's own recovery
+(`quad_stresses`, `quad_transverse_shear`, `plate_stress_recovery`, `quad9_stresses`) on
+unit vectors with zero thermal load, and each resultant gets
+`‖row_i(L)‖₂ · ‖T‖₂ · ‖u* − ũ‖₂`. As for member forces, `L` is the map *as the f64
+recovery evaluates it* (its entries carry the recovery's rounding) and rounding in
+evaluating `s(ũ)` is not included. Von Mises and principal stresses are not linear and
+get no bound; neither do solid shells or curved shells. Warping and shell bounds are
+not yet formalized in Lean (they are instances of `force_bound` with a different `k`).
 
 Lean (`verify/Certify/Forces.lean`): `abs_mulVec_sub_le` (`|(B(u − ũ))ᵢ| ≤
 ‖row_i B‖ ‖u − ũ‖`) and `force_bound`: if `‖row_i k‖ ≤ r`, `‖Tx‖ ≤ τ‖x‖` for all `x`

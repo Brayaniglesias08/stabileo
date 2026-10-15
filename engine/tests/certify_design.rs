@@ -239,7 +239,7 @@ fn tampered_combination_widens() {
 }
 
 #[test]
-fn mismatched_or_constrained_inputs_refuse() {
+fn mismatched_inputs_refuse_and_constraints_certify() {
     let input = building_2d();
     // Results that do not belong to this input.
     let mut results = solve_multi_case_2d(&input).unwrap();
@@ -249,7 +249,8 @@ fn mismatched_or_constrained_inputs_refuse() {
     assert!(out.combinations.iter().all(|c| !c.certified && c.disp_abs_bound.is_none() && c.force_bounds.is_empty()));
     assert!(!out.envelope.certified);
 
-    // Constraints: unsupported, never certified.
+    // Constraints: certified per case through the constrained path
+    // (certify/constrained.rs), so combinations and the envelope certify too.
     let mut input = building_2d();
     let ids: Vec<usize> = {
         let mut v: Vec<usize> = input.solver.nodes.values().map(|n| n.id).collect();
@@ -260,10 +261,10 @@ fn mismatched_or_constrained_inputs_refuse() {
         "type": "equalDOF", "masterNode": ids[ids.len() - 1], "slaveNode": ids[ids.len() - 2], "dofs": [0]
     }))
     .unwrap()];
-    if let Ok(out) = certify_multi_case_2d(&input) {
-        assert!(out.combinations.iter().all(|c| !c.certified));
-        assert!(!out.envelope.certified);
-    }
+    let out = certify_multi_case_2d(&input).unwrap();
+    assert!(out.cases.iter().all(|c| c.certificate.is_certified()), "{:?}", out.cases.iter().map(|c| &c.certificate).collect::<Vec<_>>());
+    assert!(out.combinations.iter().all(|c| c.certified && c.disp_abs_bound.is_some_and(|b| b.is_finite())));
+    assert!(out.envelope.certified);
 }
 
 // ───────────────────────── certified design checks ─────────────────────────
