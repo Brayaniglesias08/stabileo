@@ -37,4 +37,14 @@ describe('continuous distributed loads', () => {
     const u = run([{ elementId: 9, qI: -5, qJ: -5 }, { elementId: 10, qI: -5, qJ: -5 }]);
     expect(u.hideMid).toEqual(new Set([1]));
   });
+
+  it('two loads on one member add up, so each keeps its value', () => {
+    // Two equal UDLs on member 9: 20 acts, and hiding one would leave the reader with 10.
+    const u = run([{ elementId: 9, qI: -10, qJ: -10, caseName: 'D' }, { elementId: 9, qI: -10, qJ: -10, caseName: 'D' }]);
+    expect(u.hideMid.size).toBe(0);
+    expect(u.hideEnd.size).toBe(0);
+    // Two equal trapezoids on it keep all four end values.
+    const t = run([{ elementId: 9, qI: -5, qJ: -8, caseName: 'D' }, { elementId: 9, qI: -5, qJ: -8, caseName: 'D' }]);
+    expect(t.hideEnd.size).toBe(0);
+  });
 });

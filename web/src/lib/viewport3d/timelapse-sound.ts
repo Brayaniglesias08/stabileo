@@ -167,6 +167,19 @@ function createTimelapseSound() {
 
     /** Forget the pacing, after a seek or a restart. */
     reset(): void { lastAt = -1; owed = 0; },
+
+    /**
+     * The timelapse is closed: the audio context is closed with it. Left running it kept the
+     * page's audio thread busy (and the tab marked as playing) for the rest of the session; the
+     * next play or record opens a new one from its click (`unlock`).
+     */
+    release(): void {
+      const c = ctx;
+      ctx = null; master = null; dest = null;
+      banks.clear();
+      lastAt = -1; owed = 0;
+      if (c && c.state !== 'closed') { try { void c.close().catch(() => {}); } catch { /* already gone */ } }
+    },
   };
 }
 

@@ -27,9 +27,9 @@
    * project's own data (name, author) is not: it belongs to the model.
    */
   const KEY = 'stabileo-calc-report';
-  interface Prefs { content: CalcReportContent; figures: Pick<FigureOptions, 'style' | 'values'> }
+  interface Prefs { content: CalcReportContent; figures: Pick<FigureOptions, 'style' | 'values' | 'lengths'> }
   function loadPrefs(): Prefs {
-    const base: Prefs = { content: structuredClone(DEFAULT_REPORT_CONTENT), figures: { style: 'color', values: true } };
+    const base: Prefs = { content: structuredClone(DEFAULT_REPORT_CONTENT), figures: { style: 'color', values: true, lengths: false } };
     try {
       const raw = localStorage.getItem(KEY);
       if (!raw) return base;
@@ -45,9 +45,10 @@
   let content = $state<CalcReportContent>(prefs.content);
   let figStyle = $state<InkStyle>(prefs.figures.style);
   let figValues = $state(prefs.figures.values);
+  let figLengths = $state(prefs.figures.lengths);
   let busy = $state(false);
   function savePrefs() {
-    try { localStorage.setItem(KEY, JSON.stringify({ content: $state.snapshot(content), figures: { style: figStyle, values: figValues } })); } catch { /* this session only */ }
+    try { localStorage.setItem(KEY, JSON.stringify({ content: $state.snapshot(content), figures: { style: figStyle, values: figValues, lengths: figLengths } })); } catch { /* this session only */ }
   }
 
   const ROW_LABEL: Record<ResultRow, string> = {
@@ -70,6 +71,7 @@
   const figureSummary = $derived([
     t(figStyle === 'bw' ? 'viewExport.styleBw' : figStyle === 'screen' ? 'viewExport.styleScreen' : 'viewExport.styleColor'),
     figValues ? t('viewExport.optValues') : null,
+    figLengths ? t('viewExport.optLengths') : null,
   ].filter(Boolean).join(' · '));
 
   // The dialog component stays mounted for the app's lifetime, so the $state
@@ -108,15 +110,16 @@
     try {
       // Solved first when there are no results; a failure still gives the report, saying why.
       const solved = await ensureResults();
-      const figureOptions: FigureOptions = { ...DEFAULT_FIGURE_OPTIONS, style: figStyle, values: figValues, loads: false };
+      const figureOptions: FigureOptions = { ...DEFAULT_FIGURE_OPTIONS, style: figStyle, values: figValues, lengths: figLengths, loads: false };
       const figures = await reportFigures(content, solved.ok, figureOptions);
       const data = reportData();
       data.content = $state.snapshot(content);
       data.figures = figures;
       data.kinematics = content.kinematics ? kinematicReportOfModel() : undefined;
       if (!solved.ok) data.solveError = solved.error;
-      openCalcReport(data, win);
-      open = false;
+      // No tab to be had: the report came as a file, which is said, and the dialog stays.
+      if (openCalcReport(data, win) === 'tab') open = false;
+      else uiStore.toast(t('calcReport.popupBlocked'), 'info');
     } catch (e) {
       win?.close();
       uiStore.toast(String((e as Error)?.message ?? e), 'error');
@@ -198,6 +201,9 @@
       combinations,
       results2D: !is3D ? (resultsStore.results ?? undefined) : undefined,
       results3D: is3D ? (resultsStore.results3D ?? undefined) : undefined,
+      // The envelope on screen: the force tables read its diagrams along each member.
+      envelope2D: !is3D && resultsStore.activeView === 'envelope' ? (resultsStore.fullEnvelope ?? undefined) : undefined,
+      envelope3D: is3D && resultsStore.activeView === 'envelope' ? (resultsStore.fullEnvelope3D ?? undefined) : undefined,
     };
     return data;
   }
@@ -236,7 +242,7 @@
     <p class="xs-note">{t('calcReport.autoSolveNote')}</p>
   </ExportSection>
 
-  <ExportSection title={t('calcReport.sectionFigures')} summary={figureSummary}>
+  <ExportSection title={t('calcReport.sectionFigures')} summary={figureSummary} testid="calc-report-figures">
       <div class="xs-field">
         <span>{t('viewExport.style')}</span>
         <div class="xs-seg">
@@ -245,6 +251,7 @@
         </div>
       </div>
     <label class="xs-check"><input type="checkbox" bind:checked={figValues} onchange={savePrefs} />{t('viewExport.optValuesLong')}</label>
+    <label class="xs-check"><input type="checkbox" bind:checked={figLengths} onchange={savePrefs} data-testid="calc-report-lengths" />{t('viewExport.optLengthsLong')}</label>
   </ExportSection>
 
   {#snippet actions()}

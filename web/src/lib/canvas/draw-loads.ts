@@ -146,8 +146,8 @@ function loadCaseRank(caseName?: string): number {
 }
 
 /**
- * Where a distributed load runs on into the next member: the same case, collinear members meeting
- * at a node, and the same force there. A load split at a node (or typed member by member, as a
+ * Where a distributed load runs on into the next member: the same case, two collinear members
+ * meeting at a node, and the same force there. A load split at a node (or typed member by member, as a
  * pressure down a wall) is one load to the reader, so its value is written once at such a joint,
  * and not at all when the load also keeps its slope there.
  *
@@ -184,6 +184,9 @@ export function continuousLoadJoints(
     for (let m = k + 1; m < loads.length; m++) {
       const B = geo[m]; if (!B) continue;
       if ((loads[k]!.caseName ?? '') !== (loads[m]!.caseName ?? '')) continue;
+      // Two loads on one member do not run on into each other: they add up, and each keeps its
+      // value (two equal UDLs of 10 are 20 acting, not one of 10).
+      if (loads[k]!.elementId === loads[m]!.elementId) continue;
       if (Math.abs(A.u.x * B.u.y - A.u.y * B.u.x) > 1e-3) continue;
       const endsA = [['i', A.ni, A.Fi], ['j', A.nj, A.Fj]] as const;
       const endsB = [['i', B.ni, B.Fi], ['j', B.nj, B.Fj]] as const;

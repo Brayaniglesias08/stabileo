@@ -10,6 +10,7 @@
   import { t, tp } from '../lib/i18n';
   import type { BuildOrder } from '../lib/viewport3d/build-timelapse';
   import { timelapseSound, type TimelapseSound } from '../lib/viewport3d/timelapse-sound';
+  import { startRecording } from '../lib/viewport3d/timelapse-recording';
 
   let { picture, stage }: { picture: HTMLCanvasElement | null; stage: HTMLElement | null } = $props();
 
@@ -99,35 +100,32 @@
     }
     chunks = [];
     keep = true;
-    const pixels = picture.width * picture.height;
-    const stream = picture.captureStream(60);
-    if (buildTimelapse.sound !== 'off') {
-      timelapseSound.unlock();
-      const track = timelapseSound.track();
-      if (track) stream.addTrack(track);
-    }
-    const rec = new MediaRecorder(stream, {
-      mimeType: type.mime,
-      // About 6 bits a pixel a second at 60 fps: crisp edges on thin members without huge files.
-      videoBitsPerSecond: Math.round(Math.min(20e6, Math.max(6e6, pixels * 6))),
-      audioBitsPerSecond: 128_000,
+    if (buildTimelapse.sound !== 'off') timelapseSound.unlock();
+    // The picture's track is stopped with the recording, and a recorder the browser refuses is
+    // told rather than left with "recording" on (`timelapse-recording.ts`).
+    const rec = startRecording({
+      picture, mime: type.mime,
+      audio: buildTimelapse.sound !== 'off' ? timelapseSound.track() : null,
+      onData: (chunk) => chunks.push(chunk),
+      onStart: () => { buildTimelapse.recording = true; buildTimelapse.restart(); },
+      onStop: () => {
+        recorder = null;
+        buildTimelapse.recording = false;
+        if (!keep || chunks.length === 0) return;
+        const file = fileName(type.ext);
+        const url = URL.createObjectURL(new Blob(chunks, { type: type.mime }));
+        const a = document.createElement('a');
+        a.href = url; a.download = file; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        uiStore.toast(tp('timelapse.saved', { file }), 'success');
+      },
     });
-    rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-    rec.onstop = () => {
-      recorder = null;
+    if (!rec) {
       buildTimelapse.recording = false;
-      if (!keep || chunks.length === 0) return;
-      const file = fileName(type.ext);
-      const url = URL.createObjectURL(new Blob(chunks, { type: type.mime }));
-      const a = document.createElement('a');
-      a.href = url; a.download = file; a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      uiStore.toast(tp('timelapse.saved', { file }), 'success');
-    };
+      uiStore.toast(t('timelapse.noRecorder'), 'error');
+      return;
+    }
     recorder = rec;
-    buildTimelapse.recording = true;
-    buildTimelapse.restart();
-    rec.start(250);
   }
 
   function stopRecording(save: boolean) {

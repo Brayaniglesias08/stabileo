@@ -3943,6 +3943,14 @@ function createModelStore() {
 
     /** Mirror selected nodes about an axis through their centroid */
 
+    /**
+     * The analysis settings a solve is given: PRO's own, or Basic's self-weight rule (the case it
+     * goes in). What reads a solve's loads afterwards (the despiece) reads its self-weight here.
+     */
+    solveAnalysis(isPro: boolean, includeSelfWeight: boolean): StructureModel['analysis'] {
+      return analysisFor(isPro, includeSelfWeight);
+    },
+
     solve(includeSelfWeight = false, drawPlane: DrawPlane = 'xy'): AnalysisResults | string | null {
       const mapped = remapModelForPlane(drawPlane, includeSelfWeight);
       if (typeof mapped === 'string') return mapped;

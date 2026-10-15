@@ -79,16 +79,28 @@ export function resolveNodePlacement2D(a: {
   if (best && px(best.d) <= ON_NODE_PX) return { kind: 'onNode', nodeId: best.id, x: best.x, y: best.y };
 
   // On a member: the nearest one within reach, at the foot of the perpendicular.
-  let onM: { id: number; t: number; L: number; i: P2; j: P2; d: number } | null = null;
-  for (const m of a.members) {
-    const i = a.nodeAt(m.nodeI), j = a.nodeAt(m.nodeJ);
-    if (!i || !j) continue;
-    const dx = j.x - i.x, dy = j.y - i.y, L2 = dx * dx + dy * dy;
-    if (L2 < 1e-12) continue;
-    const t = ((a.cursor.x - i.x) * dx + (a.cursor.y - i.y) * dy) / L2;
-    if (t < 0 || t > 1) continue;
-    const d = Math.hypot(i.x + t * dx - a.cursor.x, i.y + t * dy - a.cursor.y);
-    if (px(d) <= ON_MEMBER_PX && (!onM || d < onM.d)) onM = { id: m.id, t, L: Math.sqrt(L2), i, j, d };
+  function memberAt(p: P2, tolerance: number) {
+    let nearest: { id: number; t: number; L: number; i: P2; j: P2; d: number } | null = null;
+    for (const m of a.members) {
+      const i = a.nodeAt(m.nodeI), j = a.nodeAt(m.nodeJ);
+      if (!i || !j) continue;
+      const dx = j.x - i.x, dy = j.y - i.y, L2 = dx * dx + dy * dy;
+      if (L2 < 1e-12) continue;
+      const t = ((p.x - i.x) * dx + (p.y - i.y) * dy) / L2;
+      if (t < 0 || t > 1) continue;
+      const d = Math.hypot(i.x + t * dx - p.x, i.y + t * dy - p.y);
+      if (d <= tolerance && (!nearest || d < nearest.d)) nearest = { id: m.id, t, L: Math.sqrt(L2), i, j, d };
+    }
+    return nearest;
+  }
+  let onM = memberAt(a.cursor, ON_MEMBER_PX / a.pxPerM);
+  if (!onM && a.split) {
+    // Grid snap can land on a member even when the cursor was outside its pick radius.
+    // Reuse a node already at that point before trying to split the member.
+    for (const n of a.nodes) {
+      if (Math.hypot(n.x - a.snapped.x, n.y - a.snapped.y) <= NODE_PLACEMENT_TOL) return { kind: 'onNode', nodeId: n.id, x: n.x, y: n.y };
+    }
+    onM = memberAt(a.snapped, Math.min(NODE_PLACEMENT_TOL, 1 / a.pxPerM));
   }
   if (onM && a.split) {
     const { i, j, L } = onM;
@@ -120,6 +132,99 @@ function findIdAt(nodes: Iterable<{ id: number; x: number; y: number }>, p: P2):
 }
 
 interface P3 { x: number; y: number; z: number }
+
+export type NodePlacement3D =
+  | { kind: 'onNode'; nodeId: number; sx: number; sy: number }
+  | { kind: 'onMember'; elementId: number; t: number; midpoint: boolean; sx: number; sy: number; a: P2; b: P2 }
+  | { kind: 'free'; p: P3; sx: number; sy: number };
+
+/**
+ * What a space node-tool click does, as in the plane (`resolveNodePlacement2D`), read on the
+ * screen: right on a drawn node, nothing; on a drawn member, a node splitting it where the pointer
+ * ray passes closest (on the grid along it, for a member in the working plane); elsewhere a new
+ * node on the working plane, unless one is already exactly there.
+ *
+ * Two cases the screen alone gets wrong:
+ * - A node drawn under the cursor on another level (a column top seen in plan) is not the click.
+ *   What is under it on the working plane is: a member there is still split. Placed free, the new
+ *   node sat on the member without cutting it: it looked joined and was analysed as a cut.
+ * - A cut that lands within a few pixels of a member's end (the grid snaps onto the end node) is
+ *   that end node, as in the plane: the store does not cut a member at its very end, and the hint
+ *   promised a split that never came.
+ */
+export function resolveNodePlacement3D(a: {
+  cursor: P2;
+  /** The drawn nodes, on the screen. */
+  nodes: Array<{ id: number; x: number; y: number }>;
+  members: Array<{ id: number; nodeI: number; nodeJ: number }>;
+  /** A node's position on the screen. */
+  nodeAt: (id: number) => P2 | undefined;
+  split: boolean;
+  /** The model's nodes, in space. */
+  model: Map<number, NodeLike>;
+  plane: WorkingPlane;
+  /** The working plane's level: the coordinate across it. */
+  planeLevel: number;
+  /** The pointer on the working plane; null when it misses it. */
+  ground: P3 | null;
+  /** A point on the working plane put on the grid and the structure's snaps. */
+  snap: (p: P3) => P3;
+  /** Where on member AB the pointer ray passes closest (`memberParamOnRay`). */
+  rayParam: (A: P3, B: P3) => number | null;
+  project: (p: P3) => P2;
+}): NodePlacement3D | null {
+  const resolve = (nodes: Array<{ id: number; x: number; y: number }>) => resolveNodePlacement2D({
+    cursor: a.cursor, snapped: a.cursor, pxPerM: 1, nodes, members: a.members, nodeAt: a.nodeAt, split: a.split,
+  });
+  let place = resolve(a.nodes);
+  if (place.kind === 'onNode') {
+    if (!a.ground || nodeAtPlacement3D(place.nodeId, a.ground, a.plane, a.model) === place.nodeId) {
+      return { kind: 'onNode', nodeId: place.nodeId, sx: place.x, sy: place.y };
+    }
+    // Drawn over the cursor from another level: the click is read without the nodes off the
+    // working plane there, so a member under them is still found.
+    const level = across(a.plane, a.ground);
+    const offPlaneHere = (n: { id: number; x: number; y: number }) => {
+      const m = a.model.get(n.id);
+      return !!m && Math.hypot(n.x - a.cursor.x, n.y - a.cursor.y) <= ON_NODE_PX && Math.abs(across(a.plane, m) - level) > NODE_PLACEMENT_TOL;
+    };
+    place = resolve(a.nodes.filter((n) => !offPlaneHere(n)));
+  }
+  if (place.kind === 'onMember') {
+    const id = place.elementId;
+    const el = a.members.find((m) => m.id === id);
+    const A = el && a.model.get(el.nodeI), B = el && a.model.get(el.nodeJ);
+    const sa = el && a.nodeAt(el.nodeI), sb = el && a.nodeAt(el.nodeJ);
+    if (!el || !A || !B || !sa || !sb) return null;
+    const a3 = { x: A.x, y: A.y, z: A.z ?? 0 }, b3 = { x: B.x, y: B.y, z: B.z ?? 0 };
+    let t = 0.5;
+    if (!place.midpoint) {
+      const inPlane = Math.abs(across(a.plane, a3) - a.planeLevel) < 1e-6 && Math.abs(across(a.plane, b3) - a.planeLevel) < 1e-6;
+      const L2 = (b3.x - a3.x) ** 2 + (b3.y - a3.y) ** 2 + (b3.z - a3.z) ** 2;
+      if (inPlane && a.ground && L2 > 1e-12) {
+        const g = a.snap(a.ground);
+        t = ((g.x - a3.x) * (b3.x - a3.x) + (g.y - a3.y) * (b3.y - a3.y) + (g.z - a3.z) * (b3.z - a3.z)) / L2;
+      } else {
+        t = a.rayParam(a3, b3) ?? place.t;
+      }
+      // Kept off the ends by a few pixels, like the plane: nearer, the click is the end node.
+      const minT = Math.max(0.01, MIN_SPLIT_PX / Math.max(Math.hypot(sb.x - sa.x, sb.y - sa.y), 1e-9));
+      if (t <= minT || t >= 1 - minT) {
+        const end = t < 0.5 ? el.nodeI : el.nodeJ, s = t < 0.5 ? sa : sb;
+        return { kind: 'onNode', nodeId: end, sx: s.x, sy: s.y };
+      }
+    }
+    const p = a.project({ x: a3.x + t * (b3.x - a3.x), y: a3.y + t * (b3.y - a3.y), z: a3.z + t * (b3.z - a3.z) });
+    return { kind: 'onMember', elementId: el.id, t, midpoint: place.midpoint, sx: p.x, sy: p.y, a: sa, b: sb };
+  }
+  if (place.kind === 'onNode') return { kind: 'onNode', nodeId: place.nodeId, sx: place.x, sy: place.y };
+  if (!a.ground) return null;
+  const snapped = a.snap(a.ground);
+  const there = nodeAtPlacement3D(null, snapped, a.plane, a.model);
+  const s = a.project(snapped);
+  if (there !== null) return { kind: 'onNode', nodeId: there, sx: s.x, sy: s.y };
+  return { kind: 'free', p: snapped, sx: s.x, sy: s.y };
+}
 
 /**
  * Where on member AB (0 at A, 1 at B) a pointer ray passes closest: the point a space node-tool

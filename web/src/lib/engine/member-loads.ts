@@ -74,6 +74,22 @@ export function trapezoidPieces(gI: Vec3, gJ: Vec3, a: number, b: number): Array
   ];
 }
 
+/**
+ * Point resultants of one trapezoidal/partial distributed component (qI at a … qJ at b),
+ * statically exact. When qI and qJ share a sign that is one force at the trapezoid's centroid; a
+ * sign-reversing trapezoid has no single equivalent force on the span, so it is its two triangles.
+ */
+export function pointResultants(qI: number, qJ: number, a: number, b: number): Array<{ mag: number; at: number }> {
+  const L = b - a;
+  if (!(L > 1e-12)) return [];
+  if (qI * qJ >= 0) {
+    const sum = qI + qJ;
+    if (Math.abs(sum) < 1e-12) return [];
+    return [{ mag: (sum / 2) * L, at: a + (L / 3) * (qI + 2 * qJ) / sum }];
+  }
+  return [{ mag: (qI * L) / 2, at: a + L / 3 }, { mag: (qJ * L) / 2, at: a + (2 * L) / 3 }];
+}
+
 /** A point force at `s` from end I, as the two end reactions of a simply supported span. */
 function toEnds(force: Vec3, s: number, L: number): { fI: Vec3; fJ: Vec3 } {
   const t = Math.min(1, Math.max(0, s / L));

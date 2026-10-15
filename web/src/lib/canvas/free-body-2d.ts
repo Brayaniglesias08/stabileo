@@ -3,7 +3,7 @@
  * cut and support (tested for equilibrium there), grouped by the piece it acts on.
  */
 import { computeDespieceVectors, type DespieceBasis, type DespieceElement, type DespieceElementForces, type DespieceNode, type DespieceReaction } from './draw-despiece';
-import type { FBAction, FBEnd, FBSupport } from './free-body';
+import { freeBodyKeeps, type FBAction, type FBEnd, type FBSupport } from './free-body';
 
 export function freeBodyActions2D(args: {
   elements: DespieceElement[];
@@ -13,21 +13,39 @@ export function freeBodyActions2D(args: {
   basis: DespieceBasis;
   resultant: boolean;
   showReactions: boolean;
-  /** Components below this share of the largest force (or moment) are left out; 0 keeps all. */
+  /** Components below this share of their piece's own actions are left out (`freeBodyKeeps`); 0 keeps all. */
   negligible?: number;
 }): { ends: FBEnd[]; supports: FBSupport[] } {
   const vectors = computeDespieceVectors({
     ...args, sep: 1, vectorMode: 'all', fmt: () => '',
   });
-  let maxF = 0, maxM = 0;
-  for (const v of vectors) {
-    if (v.glyph === 'moment') maxM = Math.max(maxM, Math.abs(v.value)); else maxF = Math.max(maxF, Math.abs(v.value));
-  }
+  // What is negligible is read against the piece's own actions (`freeBodyKeeps`): a member's
+  // against its two ends, a reaction against the same component at every support.
   const share = args.negligible ?? 0;
+  const top = () => ({ force: 0, moment: 0 });
+  const model = { member: top(), reaction: top() };
+  const own = new Map<string, { force: number; moment: number }>();
+  const ownKey = (v: (typeof vectors)[number]) => (v.side === 'reaction' ? `R|${v.component}` : `M|${v.elementId}`);
+  for (const v of vectors) {
+    const m = model[v.side === 'reaction' ? 'reaction' : 'member'];
+    m[v.glyph] = Math.max(m[v.glyph], Math.abs(v.value));
+    const o = own.get(ownKey(v)) ?? own.set(ownKey(v), top()).get(ownKey(v))!;
+    o[v.glyph] = Math.max(o[v.glyph], Math.abs(v.value));
+  }
+  const elementOf = new Map(args.elements.map((e) => [e.id, e]));
+  /** A force's arm across its member: the member's length times the share of it across the axis. */
+  const lever = (v: (typeof vectors)[number]): number => {
+    const e = v.elementId !== undefined ? elementOf.get(v.elementId) : undefined;
+    const ni = e && args.getNode(e.nodeI), nj = e && args.getNode(e.nodeJ);
+    if (!ni || !nj) return 0;
+    const dx = nj.x - ni.x, dy = nj.y - ni.y, L = Math.hypot(dx, dy);
+    return L > 0 ? Math.abs((v.dirx ?? 0) * dy - (v.diry ?? 0) * dx) : 0;
+  };
   const ends = new Map<string, FBEnd>();
   const supports = new Map<number, FBSupport>();
   for (const v of vectors) {
-    if (Math.abs(v.value) < share * (v.glyph === 'moment' ? maxM : maxF)) continue;
+    const base = { own: own.get(ownKey(v))!, model: model[v.side === 'reaction' ? 'reaction' : 'member'] };
+    if (!freeBodyKeeps(v.value, v.glyph, share, base, v.side === 'reaction' ? 0 : lever(v))) continue;
     const a: FBAction = {
       name: v.component ?? '', kind: v.glyph, magnitude: Math.abs(v.value), color: v.color,
       dir: { x: v.dirx ?? 0, y: v.diry ?? 0 }, ccw: v.ccw,
