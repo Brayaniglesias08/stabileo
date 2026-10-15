@@ -48,6 +48,28 @@ pub struct HarmonicResult {
     pub response_points: Vec<HarmonicResponsePoint>,
     pub peak_frequency: f64,
     pub peak_amplitude: f64,
+    /// How the steady state was computed: `"modal"` (superposition of the
+    /// kept modes), `"modal+static"` (plus the static correction of the
+    /// omitted modes, see `harmonic_modal_from_eigen`) or `"direct"`
+    /// (the full complex system solved at every frequency; no truncation).
+    #[serde(default)]
+    pub method: String,
+    /// Modes superposed (0 for `"direct"`).
+    #[serde(default)]
+    pub modes_used: usize,
+    /// Free (independent) DOFs, i.e. the number of modes of the full system.
+    #[serde(default)]
+    pub n_dof: usize,
+    /// Share of the static response at the target DOF carried by the omitted
+    /// modes, `|(K⁻¹f)ₜ − Σ_kept φₜφᵀf/(mⱼλⱼ)| / |(K⁻¹f)ₜ|`: what plain modal
+    /// superposition would miss at ω → 0 (the static correction restores it).
+    /// `None` when not computed (direct solve, singular K, zero static response).
+    #[serde(default)]
+    pub truncation_ratio: Option<f64>,
+    /// Structured notes on approximations (e.g. frequencies where the
+    /// static correction could not be applied).
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,10 +151,10 @@ pub fn solve_harmonic_2d_with_damping(input: &HarmonicInput) -> Result<(Harmonic
         } else {
             target_dof
         };
-        if let Some((response_points, peak_frequency, peak_amplitude, damping)) =
+        if let Some((sweep, damping)) =
             solve_harmonic_modal_sparse(k_sp, m_sp, &f_sp, &input.frequencies, input.damping_ratio, target_s)
         {
-            return Ok((HarmonicResult { response_points, peak_frequency, peak_amplitude }, damping));
+            return Ok((sweep, damping));
         }
         // Sparse modal found no usable modes (or Lanczos failed). The dense
         // paths below are O(n²) memory — past the dense ceiling, fail loudly
@@ -168,10 +190,10 @@ pub fn solve_harmonic_2d_with_damping(input: &HarmonicInput) -> Result<(Harmonic
         target_dof
     };
 
-    if let Some((response_points, peak_frequency, peak_amplitude, damping)) =
+    if let Some((sweep, damping)) =
         solve_harmonic_modal(&k_s, &m_s, &f_s, ns, &input.frequencies, input.damping_ratio, target_s)
     {
-        return Ok((HarmonicResult { response_points, peak_frequency, peak_amplitude }, damping));
+        return Ok((sweep, damping));
     }
 
     // Fallback: direct 2n×2n block LU per frequency
@@ -216,6 +238,11 @@ pub fn solve_harmonic_2d_with_damping(input: &HarmonicInput) -> Result<(Harmonic
         response_points,
         peak_frequency: peak_freq,
         peak_amplitude: peak_amp,
+        method: "direct".into(),
+        modes_used: 0,
+        n_dof: ns,
+        truncation_ratio: None,
+        warnings: Vec::new(),
     }, (a0, a1)))
 }
 
@@ -279,10 +306,10 @@ pub fn solve_harmonic_3d_with_damping(input: &HarmonicInput3D) -> Result<(Harmon
     } else {
         target_dof
     };
-    if let Some((response_points, peak_frequency, peak_amplitude, damping)) =
+    if let Some((sweep, damping)) =
         solve_harmonic_modal_sparse(k_sp, m_sp, &f_sp, &input.frequencies, input.damping_ratio, target_s)
     {
-        return Ok((HarmonicResult { response_points, peak_frequency, peak_amplitude }, damping));
+        return Ok((sweep, damping));
     }
 
     // Dense path: only below the dense ceiling — a sparse-modal failure on a
@@ -313,10 +340,10 @@ pub fn solve_harmonic_3d_with_damping(input: &HarmonicInput3D) -> Result<(Harmon
     };
 
     // Try dense modal superposition
-    if let Some((response_points, peak_frequency, peak_amplitude, damping)) =
+    if let Some((sweep, damping)) =
         solve_harmonic_modal(&k_s, &m_s, &f_s, ns, &input.frequencies, input.damping_ratio, target_s)
     {
-        return Ok((HarmonicResult { response_points, peak_frequency, peak_amplitude }, damping));
+        return Ok((sweep, damping));
     }
 
     // Fallback: direct 2n×2n block LU per frequency
@@ -361,23 +388,46 @@ pub fn solve_harmonic_3d_with_damping(input: &HarmonicInput3D) -> Result<(Harmon
         response_points,
         peak_frequency: peak_freq,
         peak_amplitude: peak_amp,
+        method: "direct".into(),
+        modes_used: 0,
+        n_dof: ns,
+        truncation_ratio: None,
+        warnings: Vec::new(),
     }, (a0, a1)))
 }
 
 // ==================== Modal Frequency Response ====================
 
-/// Response points, peak frequency, peak amplitude and the Rayleigh
-/// coefficients `(a₀, a₁)` the sweep used.
-type ModalSweep = (Vec<HarmonicResponsePoint>, f64, f64, (f64, f64));
+/// The sweep's result (with method and truncation diagnostics) and the
+/// Rayleigh coefficients `(a₀, a₁)` it used.
+type ModalSweep = (HarmonicResult, (f64, f64));
 
 /// Shared post-eigensolve logic: given eigen-decomposition, compute modal
-/// frequency response via superposition.
+/// frequency response via superposition, plus the static correction of the
+/// omitted modes.
+///
+/// With Rayleigh damping `C = a₀M + a₁K` the exact steady state at the target
+/// DOF `t` is `uₜ = Σⱼ pⱼ / (λⱼ d − z)` over all modes, `pⱼ = φⱼₜ φⱼᵀf / mⱼ`,
+/// `d = 1 + i a₁ω`, `z = ω² − i a₀ω`. The kept modes are summed exactly. For
+/// an omitted mode `|z| < λⱼ|d|`, and `1/(λⱼd − z) = 1/(λⱼd) + z/(λⱼd)² + …`,
+/// so the omitted modes add
+///
+/// `r₁/d + z r₂/d² + O(q²)` (relative to the first term), with `r₁ = (K⁻¹f)ₜ − Σ_kept pⱼ/λⱼ` (the classical static correction /
+/// mode-acceleration term, damped by `1/d`) and `r₂ = (K⁻¹MK⁻¹f)ₜ − Σ_kept pⱼ/λⱼ²`
+/// (its first dynamic correction), `q = |z|/(λ_omit|d|)`. Both come from two
+/// solves with K. The correction is applied at a frequency only when `q < ½`
+/// for a lower bound `λ_omit` on the omitted eigenvalues (the series converges
+/// geometrically); otherwise that frequency gets plain superposition and a
+/// warning. `k_solve` returns `None` for a singular K (rigid-body modes): then
+/// no correction is applied.
 ///
 /// `m_times` computes M·x (dense or sparse representation — the caller picks).
 /// Returns None if no usable modes are found.
+#[allow(clippy::too_many_arguments)]
 fn harmonic_modal_from_eigen(
     eigen: &EigenResult,
     m_times: &dyn Fn(&[f64]) -> Vec<f64>,
+    k_solve: &dyn Fn(&[f64]) -> Option<Vec<f64>>,
     f: &[f64],
     n: usize,
     frequencies: &[f64],
@@ -391,11 +441,20 @@ fn harmonic_modal_from_eigen(
     // Filter to positive eigenvalues (physical modes)
     let nk = eigen.values.len();
     let mut mode_indices: Vec<usize> = Vec::new();
-    for j in 0..nk {
-        let lam = eigen.values[j];
+    // Lower bound on the omitted eigenvalues: the smallest filtered-out
+    // positive one, and — when the eigensolve returned fewer than all n
+    // modes (the lowest ones) — the largest it returned.
+    let mut lambda_omit = f64::INFINITY;
+    for (j, &lam) in eigen.values.iter().enumerate() {
         if lam > 1e-10 && lam < omega_cutoff_sq * 4.0 {
             mode_indices.push(j);
+        } else if lam > 1e-10 {
+            lambda_omit = lambda_omit.min(lam);
         }
+    }
+    if nk < n {
+        let top = eigen.values.iter().cloned().fold(0.0f64, f64::max);
+        lambda_omit = lambda_omit.min(top);
     }
 
     if mode_indices.is_empty() {
@@ -443,10 +502,24 @@ fn harmonic_modal_from_eigen(
         xi_j.push(a0 / (2.0 * omega_j[i]) + a1 * omega_j[i] / 2.0);
     }
 
+    // Static correction of the omitted modes: r₁, r₂ (see above).
+    let residuals = k_solve(f).and_then(|s1| {
+        let s2 = k_solve(&m_times(&s1))?;
+        let (mut r1, mut r2) = (s1[target_dof], s2[target_dof]);
+        for i in 0..p {
+            let lam = omega_j[i] * omega_j[i];
+            r1 -= participation[i] / lam;
+            r2 -= participation[i] / (lam * lam);
+        }
+        let ratio = (s1[target_dof] != 0.0).then(|| r1.abs() / s1[target_dof].abs());
+        (r1.is_finite() && r2.is_finite()).then_some((r1, r2, ratio))
+    });
+
     // Frequency sweep
     let mut response_points = Vec::with_capacity(frequencies.len());
     let mut peak_freq = 0.0f64;
     let mut peak_amp = 0.0f64;
+    let mut uncorrected: Vec<f64> = Vec::new();
 
     for &freq in frequencies {
         let omega = 2.0 * std::f64::consts::PI * freq;
@@ -465,6 +538,26 @@ fn harmonic_modal_from_eigen(
             im_sum -= pj * imag_denom / denom_sq;
         }
 
+        if let Some((r1, r2, _)) = residuals {
+            // d = 1 + i a₁ω, z = ω² − i a₀ω; add r₁/d + z r₂/d².
+            let (dr, di) = (1.0, a1 * omega);
+            let (zr, zi) = (omega2, -a0 * omega);
+            let d_abs2 = dr * dr + di * di;
+            let q = (zr * zr + zi * zi).sqrt() / (lambda_omit * d_abs2.sqrt());
+            if q < 0.5 {
+                // 1/d
+                let (inv_r, inv_i) = (dr / d_abs2, -di / d_abs2);
+                // 1/d²
+                let (inv2_r, inv2_i) = (inv_r * inv_r - inv_i * inv_i, 2.0 * inv_r * inv_i);
+                // z/d²
+                let (zd_r, zd_i) = (zr * inv2_r - zi * inv2_i, zr * inv2_i + zi * inv2_r);
+                re_sum += r1 * inv_r + r2 * zd_r;
+                im_sum += r1 * inv_i + r2 * zd_i;
+            } else {
+                uncorrected.push(freq);
+            }
+        }
+
         let amplitude = (re_sum * re_sum + im_sum * im_sum).sqrt();
         let phase = im_sum.atan2(re_sum);
 
@@ -479,7 +572,32 @@ fn harmonic_modal_from_eigen(
         });
     }
 
-    Some((response_points, peak_freq, peak_amp, (a0, a1)))
+    let mut warnings = Vec::new();
+    match residuals {
+        None => warnings.push(format!(
+            "modal superposition of {p} of {n} modes without static correction (K singular or not positive definite): the omitted modes are not represented"
+        )),
+        Some(_) if !uncorrected.is_empty() => warnings.push(format!(
+            "static correction not applied at {} frequenc{} (up to {:.4} Hz) near or above the omitted modes (lowest omitted ω² ≥ {:.4e}): modal truncation error there is not bounded",
+            uncorrected.len(),
+            if uncorrected.len() == 1 { "y" } else { "ies" },
+            uncorrected.iter().cloned().fold(0.0f64, f64::max),
+            lambda_omit
+        )),
+        Some(_) => {}
+    }
+
+    let result = HarmonicResult {
+        response_points,
+        peak_frequency: peak_freq,
+        peak_amplitude: peak_amp,
+        method: if residuals.is_some() { "modal+static" } else { "modal" }.into(),
+        modes_used: p,
+        n_dof: n,
+        truncation_ratio: residuals.and_then(|(_, _, ratio)| ratio),
+        warnings,
+    };
+    Some((result, (a0, a1)))
 }
 
 /// Modal superposition harmonic solver (dense eigensolve).
@@ -503,7 +621,12 @@ fn solve_harmonic_modal(
         }
         y
     };
-    harmonic_modal_from_eigen(&eigen, &m_times, f, n, frequencies, damping_ratio, target_dof)
+    let mut l = k.to_vec();
+    let k_spd = cholesky_decompose(&mut l, n);
+    let k_solve = |b: &[f64]| -> Option<Vec<f64>> {
+        k_spd.then(|| back_solve(&l, &forward_solve(&l, b, n), n))
+    };
+    harmonic_modal_from_eigen(&eigen, &m_times, &k_solve, f, n, frequencies, damping_ratio, target_dof)
 }
 
 /// Modal superposition harmonic solver (sparse eigensolve on CSC K_ff and CSC M_ff).
@@ -518,7 +641,12 @@ fn solve_harmonic_modal_sparse(
     let n_modes = 100.min(n / 2).max(2);
     let eigen = lanczos_generalized_eigen_sparse(k_csc, m, n_modes, 0.0)?;
     let m_times = |x: &[f64]| m.sym_mat_vec(x);
-    harmonic_modal_from_eigen(&eigen, &m_times, f, n, frequencies, damping_ratio, target_dof)
+    let sym = std::rc::Rc::new(symbolic_cholesky(k_csc));
+    let factor = numeric_cholesky(&sym, k_csc);
+    let k_solve = |b: &[f64]| -> Option<Vec<f64>> {
+        factor.as_ref().map(|fac| sparse_cholesky_solve(fac, b))
+    };
+    harmonic_modal_from_eigen(&eigen, &m_times, &k_solve, f, n, frequencies, damping_ratio, target_dof)
 }
 
 // ==================== Helpers ====================

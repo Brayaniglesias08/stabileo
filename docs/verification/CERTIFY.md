@@ -569,9 +569,13 @@ inside; the spectrum periods must be finite and strictly increasing (else refuse
 * **Member forces**: per mode the solver's force recovery at `ũᵢ = mid(αᵢ)φ̃`, the error
   bound `bᵢ = eᵢ + ‖αᵢφ̃ − ũᵢ‖` fed to the member force bounds (`max(|start|, |end|)` is
   1-Lipschitz), then SRSS/CQC in intervals. As for member force bounds, rounding in the
-  f64 force recovery is not included. (The solver's modal force recovery also includes
-  the fixed-end forces of any element loads in the model; the certificate uses the same
-  recovery, so it certifies that quantity.)
+  f64 force recovery is not included. The recovery is from the modal displacements
+  alone, with no element loads: static member loads in the model (distributed, point,
+  thermal) are not part of any mode's response, so their fixed-end forces enter neither
+  the solver's modal forces nor the certified ones. (Before this was fixed the solver's
+  modal recovery added those fixed-end forces to every mode, and SRSS/CQC combined them
+  as if dynamic; `validation_spectral_element_loads_do_not_leak` and its 3D twin pin the
+  loaded and unloaded models to the same spectral member forces.)
 * **Base shear** (the solver always combines it by SRSS): `meffᵢ* = λᵢ‖Πᵢb‖²` with
   `‖Πᵢb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθᵢ‖Mr‖/√σ_K`, times `Sa(Tᵢ)`, SRSS in intervals.
 
@@ -601,7 +605,8 @@ with `K`, `M` the f64 sparse assemblies on the free DOFs, `f` the assembled load
 `(a₀, a₁)` the Rayleigh coefficients the solver derived (returned by
 `solve_harmonic_{2d,3d}_with_damping`; reported in the certificate). This is the full
 (untruncated) Rayleigh-damped system; the solver's modal superposition with a filtered
-set of modes is one approximation of it. Constraints and inclined supports are refused.
+set of modes plus a static correction of the omitted ones (below) is one approximation of
+it. Constraints and inclined supports are refused.
 
 **Lemma (rotated coercivity).** For `s ≥ 0` let `B(s) = K_d + sωC =
 (1 + sωa₁)K − (ω² − sωa₀)M` (real symmetric). If `λ_min(B(s)) ≥ μ_s > 0` then for every
@@ -632,8 +637,7 @@ arithmetic and `absBound = ‖r‖₂/μ` rounded up.
 **Output.** Per frequency: `absBound` (whole free vector), `mu`, `shift` (`s`), and
 enclosures `ũ_t ± absBound` of the exact real part, imaginary part and amplitude at the
 target DOF; `reportedError = absBound + |ũ_t − reported_t|` bounds `|u*_t − reported_t|`,
-and therefore includes the solver's modal-truncation error (test: the reported peak
-6.258509e-2 vs. the certified exact 6.258518e-2, `reportedWithin = false`). The exact
+and therefore includes the solver's modal-truncation error. The exact
 peak amplitude over the sampled frequencies is enclosed by the max of the per-point
 enclosures (the max is 1-Lipschitz). The phase is not bounded.
 
@@ -767,6 +771,25 @@ dissipative but first-order accurate. The certificate states the scheme as imple
   displacement error `max_n ‖(β − 1/6) Δt² (a_{n+1} − a_n)‖_∞` — an estimate, not a bound.
   The load sequence `f_n` is taken as data as the solver evaluated it (interpolation of
   force histories and ground-motion products included). Not formalized in Lean.
+
+**What the certificate found: modal truncation.** The solver superposes the lowest modes
+(at most `min(100, n/2)` from the eigensolve, and only those with `ω_j < 4·ω_max`); plain
+superposition left the reported values off by up to 7e-5 of the peak on the 18-DOF test
+frame (reported peak 6.258509e-2 vs. the certified exact 6.258518e-2, max reported error
+4.35e-6). The solver now adds the omitted modes' contribution as a series in
+`z/(λd)` (`d = 1 + ia₁ω`, `z = ω² − ia₀ω`, both exact for Rayleigh damping): the static
+(mode-acceleration) term `r₁/d` with `r₁ = (K⁻¹f)ₜ − Σ_kept pⱼ/λⱼ` and its first dynamic
+term `z r₂/d²` with `r₂ = (K⁻¹MK⁻¹f)ₜ − Σ_kept pⱼ/λⱼ²` (two solves with the factored K),
+applied at a frequency when `|z| < ½ λ_omit|d|` for a lower bound `λ_omit` on the omitted
+eigenvalues. On the same frame the reported peak is 6.258518e-2 and the max reported
+error 5.06e-9 (still `reportedWithin = false`: the enclosures are ~1e-12 wide and the
+remaining error is the series' `O(q²)` tail and the eigensolver's accuracy). Max error
+over the sweep, relative to the peak: 6.95e-5 → 8.1e-8 (18 DOF, dense path), 5.0e-5 →
+9.5e-10 (72 DOF, sparse path) (`harmonic_static_correction_matches_exact`). The result
+reports `method` (`modal`, `modal+static`, `direct`), `modesUsed`, `nDof`,
+`truncationRatio` (share of the static target response carried by the omitted modes) and
+`warnings` (frequencies where the correction could not be applied,
+`harmonic_truncation_is_reported`).
 
 ## Rounding model
 
