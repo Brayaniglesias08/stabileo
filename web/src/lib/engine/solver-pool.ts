@@ -229,7 +229,7 @@ async function ensurePool(): Promise<void> {
  * because the caller's fallback swallows the throw, so this string may be the only trace
  * the failure ever leaves.
  */
-function runJob(type: 'solve' | 'solve3d' | 'pdelta3d' | 'certify2d' | 'certify3d', input: any, target?: PoolWorker, extra: Record<string, unknown> = {}): Promise<any> {
+function runJob(type: 'solve' | 'solve3d' | 'pdelta3d' | 'certify2d' | 'certify3d' | 'certify', input: any, target?: PoolWorker, extra: Record<string, unknown> = {}): Promise<any> {
   const pw = target ?? pool.reduce((a, b) => (a.pending.size <= b.pending.size ? a : b));
   const msgId = nextId++;
   return new Promise((resolve, reject) => {
@@ -291,6 +291,17 @@ export async function certifyInWorker(dim: '2d' | '3d', input: any): Promise<any
   const target = pool.find((pw) => pw.warmed && pw.pending.size === 0);
   const job = ({ '2d': 'certify2d', '3d': 'certify3d' } as const)[dim];
   return runJob(job, input, target);
+}
+
+/**
+ * Call a certify export (`certify_*`, `export_linear_bundle_*`) in a worker, as `callCertify`
+ * does on the main thread; an idle warmed worker first, as `certifyInWorker`.
+ * @throws PoolUnavailableError when Workers are unavailable — caller should fall back
+ */
+export async function certifyCallInWorker(name: string, args: unknown[]): Promise<any> {
+  await ensurePool();
+  const target = pool.find((pw) => pw.warmed && pw.pending.size === 0);
+  return runJob('certify', args, target, { name });
 }
 
 /**
