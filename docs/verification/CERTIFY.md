@@ -69,6 +69,60 @@ the enclosure of `S − L Lᵀ` must be computed with outward rounding.
 Lean: `Certify.certified_error_bound_gram` (`verify/Certify/Gram.lean`), built on
 `quad_gram_nonneg`, `gershgorin_quad` and `coercive_of_gram`.
 
+## Constraints (multi-point constraints)
+
+The constrained solver (`solve_constrained_{2d,3d}`) writes the free displacements as
+`u_F = C q + u_p`, with `C` the free rows / free-independent columns of its constraint
+transform, `C_R` the free rows / restrained-independent columns, `u_R` the prescribed
+values and `u_p = C_R u_R`. The f64 entries of `C` (as `build_constraint_transform`
+computes them, offsets included) and of the assembled `K`, `f` define the problem. The
+certified statement is about the exact real solution of
+
+    find q:  Cᵀ (f_F − K_F· [C q + u_p ; u_R]) = 0,        u*_F = C q* + u_p,
+
+where `K_F·` is the free rows of the solver's `K` (the dense assembly on the dense path,
+the sparse `k_ff`/`k_full` pair on the sparse path, chosen from the results' diagnostics
+in 2D; always the sparse assembly in 3D).
+
+* `A = Cᵀ K_FF C` is formed entrywise in interval arithmetic from the f64 `K` and `C`
+  (no rounded reduced matrix is trusted); its symmetric part `Cᵀ S C` is enclosed on the
+  lower triangle and certified `λ_min ≥ μ > 0` by the Gram residual + Gershgorin check
+  above. Then `A` is invertible, `q*` is unique and `‖q* − q̃‖₂ ≤ ‖r‖₂ / μ`, with
+  `r = Cᵀ(f_F − K_F·[C q̃ + u_p ; u_R])` evaluated in intervals.
+* `q̃` is read from the returned displacements at the independent DOFs. Any `q̃` is a
+  valid candidate; the mismatch is accounted for in the next step.
+* Mapping back: `u*_F − ũ_F = C (q* − q̃) + (C q̃ + u_p − ũ_F)`, so
+
+      ‖u*_F − ũ_F‖₂ ≤ ‖C‖₂ · ‖r‖₂/μ + ‖C q̃ + u_p − ũ_F‖₂,
+
+  with `‖C‖₂ ≤ min(√(‖C‖₁‖C‖_∞), √(maxₐ Σ_b |(CᵀC)_ab|))` rounded up and the last
+  term enclosed in intervals (it covers the solver's f64 expansion `C q̃ + u_p`, and any
+  constraint violation in the returned displacements).
+
+The certificate's `sigma` is `μ` and `residual_norm` is `‖r‖₂` (reduced quantities);
+`abs_bound` is on the free-DOF error. Code: `engine/src/certify/constrained.rs`.
+
+## Inclined supports
+
+The solver rotates the translational DOFs of an inclined node by the f64 matrix `R`
+(rows = local axes), `u_rot = T u_glob` with `T` block-diagonal, assembles `K`, `f` in
+those axes, solves, and reports `ũ_glob = fl(Tᵀ ũ_rot)`. The certified exact global
+solution is `u*_glob := Tᵀ u*_rot` (the exact real product with the f64 `R`).
+
+The candidate `ũ_rot = fl(T ũ_glob)` (with the solver's prescribed normal value put back
+on the restrained rotated DOF) is certified in the rotated system exactly as above (plain
+or constrained), giving `‖u*_rot − ũ_rot‖₂ ≤ b` (restrained rotated DOFs are exact).
+Then over all DOFs
+
+    ‖u*_glob − ũ_glob‖₂ ≤ ‖T‖₂ b + ‖Tᵀ ũ_rot − ũ_glob‖₂,
+
+with the last term enclosed in intervals and, for any real `R` (no orthogonality is
+assumed), `‖R‖₂² = λ_max(RᵀR) ≤ 1 + ‖RᵀR − I‖_F` with `RᵀR − I` enclosed in intervals;
+`‖T‖₂ ≤ max(1, max_R √(1 + ‖RᵀR − I‖_F))`, which is `1 + O(ε)` for the solver's
+rotations. With inclined supports `abs_bound` is on the error over all DOFs in global
+axes (and `rel_bound` relative to `‖ũ_glob‖₂` over all DOFs). A node carrying several
+supports one of which is inclined is refused (`Uncertified`).
+
 ## Buckling load-factor enclosure
 
 Linear buckling solves `K φ = λ N φ` with `N = −K_G`. The stability matrix

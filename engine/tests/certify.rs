@@ -446,18 +446,6 @@ fn mechanisms_never_certified() {
 }
 
 #[test]
-fn constraints_and_inclined_are_unsupported() {
-    let mut input = portal();
-    let sup = input.supports.values_mut().next().unwrap();
-    sup.support_type = "inclinedRoller".into();
-    sup.angle = Some(0.3);
-    match certify_linear_2d(&input).expect("inclined portal solves").1 {
-        Certificate::Uncertified { reason } => assert!(reason.contains("inclined"), "{reason}"),
-        c => panic!("{c:?}"),
-    }
-}
-
-#[test]
 fn certify_3d_beam() {
     let mut input = make_3d_beam(
         10, 6.0, 200_000.0, 0.3, 0.01, 1e-4, 2e-4, 1e-5,
@@ -669,4 +657,492 @@ fn certify_fuzz_oracle() {
     }
     eprintln!("fuzz: {solved} solved, {cert} certified, {unc} uncertified: {reasons:?}");
     assert!(cert > 0);
+}
+
+// ───────────────────────── constraints and inclined supports ─────────────────────────
+//
+// Reference for the transformed systems: the exact solution of
+//   find q:  Cᵀ (f_F − K_F· [C q + C_R u_R ; u_R]) = 0,   u_F = C q + C_R u_R,
+// in the solver's (rotated) axes, then u_glob = Tᵀ u_rot. Residuals are
+// evaluated in double-double straight from K, C, f — the reduced matrix CᵀKC is
+// never rounded — and refined with an f64 LU of CᵀKC as preconditioner.
+
+use dedaliano_engine::solver::assembly::{assemble_2d, assemble_sparse_3d, InclinedTransformData, InclinedTransformData2D};
+use dedaliano_engine::solver::constraints::build_constraint_transform;
+
+struct GenSystem {
+    label: String,
+    k: Vec<f64>,
+    n: usize,
+    nf: usize,
+    f: Vec<f64>,
+    c: Vec<Vec<(usize, f64)>>,
+    c_r: Vec<Vec<(usize, f64)>>,
+    p: usize,
+    u_r: Vec<f64>,
+    rots: Vec<(Vec<usize>, Vec<f64>)>,
+    u_glob: Vec<f64>,
+}
+
+fn identity_map(nf: usize) -> (Vec<Vec<(usize, f64)>>, Vec<Vec<(usize, f64)>>, usize) {
+    ((0..nf).map(|i| vec![(i, 1.0)]).collect(), vec![vec![]; nf], nf)
+}
+
+fn constraint_map(
+    ct: &dedaliano_engine::solver::constraints::ConstraintTransform,
+    nf: usize,
+) -> (Vec<Vec<(usize, f64)>>, Vec<Vec<(usize, f64)>>, usize) {
+    let mut col = vec![usize::MAX; ct.n_independent];
+    let mut p = 0;
+    for (j, &d) in ct.independent_dofs.iter().enumerate() {
+        if d < nf {
+            col[j] = p;
+            p += 1;
+        }
+    }
+    let (mut c, mut c_r) = (vec![vec![]; nf], vec![vec![]; nf]);
+    for i in 0..nf {
+        for q in ct.c.row_ptr[i]..ct.c.row_ptr[i + 1] {
+            let (j, v) = (ct.c.col_idx[q], ct.c.vals[q]);
+            if col[j] != usize::MAX {
+                c[i].push((col[j], v));
+            } else {
+                c_r[i].push((ct.independent_dofs[j] - nf, v));
+            }
+        }
+    }
+    (c, c_r, p)
+}
+
+/// Dense K from the sparse pair the solver uses: K_FF from k_ff, the rest from k_full.
+fn dense_from_pair(k_ff: &CscMatrix, k_full: &CscMatrix) -> Vec<f64> {
+    let n = k_full.n;
+    let mut d = dense_from_lower(k_full);
+    let ff = dense_from_lower(k_ff);
+    let nf = k_ff.n;
+    for i in 0..nf {
+        d[i * n..i * n + nf].copy_from_slice(&ff[i * nf..(i + 1) * nf]);
+    }
+    d
+}
+
+fn rots_2d(its: &[InclinedTransformData2D]) -> Vec<(Vec<usize>, Vec<f64>)> {
+    its.iter().map(|it| (it.dofs.to_vec(), vec![it.r[0][0], it.r[0][1], it.r[1][0], it.r[1][1]])).collect()
+}
+
+fn rots_3d(its: &[InclinedTransformData]) -> Vec<(Vec<usize>, Vec<f64>)> {
+    its.iter().map(|it| (it.dofs.to_vec(), it.r.iter().flatten().copied().collect())).collect()
+}
+
+/// u_R in the solver's axes: returned values, except the normal DOF of an
+/// inclined support, which gets the prescribed normal displacement.
+fn restrained_values(nf: usize, u_glob: &[f64], normals: &[(usize, f64)]) -> Vec<f64> {
+    let mut u_r = u_glob[nf..].to_vec();
+    for &(d, v) in normals {
+        if d >= nf {
+            u_r[d - nf] = v;
+        }
+    }
+    u_r
+}
+
+fn gen_2d(label: &str, input: &SolverInput, res: &AnalysisResults) -> GenSystem {
+    let dof = DofNumbering::build_2d(input);
+    let (n, nf) = (dof.n_total, dof.n_free);
+    let sparse = if input.constraints.is_empty() {
+        nf >= SPARSE_THRESHOLD
+    } else {
+        nf >= SPARSE_THRESHOLD && res.structured_diagnostics.iter().any(|d| d.code == DiagnosticCode::SparseCholesky)
+    };
+    let (k, f, its) = if sparse {
+        let st = assemble_stiffness_sparse_2d(input, &dof);
+        let f = assemble_load_vector_2d(input, &input.loads, &dof, &st.inclined_transforms_2d);
+        (dense_from_pair(&st.k_ff, &st.k_full), f, st.inclined_transforms_2d)
+    } else if input.constraints.is_empty() {
+        let st = assemble_stiffness_2d(input, &dof);
+        let f = assemble_load_vector_2d(input, &input.loads, &dof, &st.inclined_transforms_2d);
+        (st.k, f, st.inclined_transforms_2d)
+    } else {
+        let a = assemble_2d(input, &dof);
+        (a.k, a.f, a.inclined_transforms_2d)
+    };
+    let d: HashMap<usize, &Displacement> = res.displacements.iter().map(|d| (d.node_id, d)).collect();
+    let mut u_glob = vec![0.0; n];
+    for (&(node, l), &g) in &dof.map {
+        let x = d[&node];
+        u_glob[g] = [x.ux, x.uz, x.ry][l];
+    }
+    let normals: Vec<(usize, f64)> = its
+        .iter()
+        .map(|it| {
+            let s = input.supports.values().find(|s| s.node_id == it.node_id).unwrap();
+            let th = s.angle.unwrap();
+            let un = s.dx.unwrap_or(0.0) * th.sin() + s.dz.unwrap_or(0.0) * th.cos();
+            (it.dofs[1], if un.abs() > 1e-15 { un } else { 0.0 })
+        })
+        .collect();
+    let (c, c_r, p) = if input.constraints.is_empty() {
+        identity_map(nf)
+    } else {
+        constraint_map(&build_constraint_transform(&input.constraints, &dof, Some(&input.nodes), None), nf)
+    };
+    GenSystem {
+        label: label.into(), k, n, nf, f, c, c_r, p,
+        u_r: restrained_values(nf, &u_glob, &normals),
+        rots: rots_2d(&its),
+        u_glob,
+    }
+}
+
+fn gen_3d(label: &str, input: &SolverInput3D, res: &AnalysisResults3D) -> GenSystem {
+    let input = &expand_curved_beams_3d(input);
+    let dof = DofNumbering::build_3d(input);
+    let (n, nf) = (dof.n_total, dof.n_free);
+    let (k, f, its) = if !input.constraints.is_empty() {
+        let a = assemble_sparse_3d(input, &dof, true);
+        (dense_from_pair(&a.k_ff, a.k_full.as_ref().unwrap()), a.f, a.inclined_transforms)
+    } else if nf >= SPARSE_THRESHOLD {
+        let st = assemble_stiffness_sparse_3d(input, &dof, true);
+        let f = assemble_load_vector_sparse_3d(input, &input.loads, &dof, &st.inclined_transforms);
+        (dense_from_pair(&st.k_ff, st.k_full.as_ref().unwrap()), f, st.inclined_transforms)
+    } else {
+        let st = assemble_stiffness_3d(input, &dof);
+        let f = assemble_load_vector_3d_dense(input, &input.loads, &dof, &st.inclined_transforms);
+        (st.k, f, st.inclined_transforms)
+    };
+    let d: HashMap<usize, &Displacement3D> = res.displacements.iter().map(|d| (d.node_id, d)).collect();
+    let mut u_glob = vec![0.0; n];
+    for (&(node, l), &g) in &dof.map {
+        let x = d[&node];
+        u_glob[g] = [x.ux, x.uy, x.uz, x.rx, x.ry, x.rz, x.warping.unwrap_or(0.0)][l];
+    }
+    let normals: Vec<(usize, f64)> = its
+        .iter()
+        .map(|it| {
+            let s = input.supports.values().find(|s| s.node_id == it.node_id).unwrap();
+            let (nx, ny, nz) = (s.normal_x.unwrap(), s.normal_y.unwrap(), s.normal_z.unwrap());
+            let len = (nx * nx + ny * ny + nz * nz).sqrt();
+            let un = (nx * s.dx.unwrap_or(0.0) + ny * s.dy.unwrap_or(0.0) + nz * s.dz.unwrap_or(0.0)) / len;
+            (it.dofs[0], if un.abs() > 1e-15 { un } else { 0.0 })
+        })
+        .collect();
+    let (c, c_r, p) = if input.constraints.is_empty() {
+        identity_map(nf)
+    } else {
+        constraint_map(&build_constraint_transform(&input.constraints, &dof, None, Some(&input.nodes)), nf)
+    };
+    GenSystem {
+        label: label.into(), k, n, nf, f, c, c_r, p,
+        u_r: restrained_values(nf, &u_glob, &normals),
+        rots: rots_3d(&its),
+        u_glob,
+    }
+}
+
+/// ‖u*_glob − ũ_glob‖₂ over all DOFs, from the double-double reference.
+fn gen_true_error(s: &GenSystem) -> f64 {
+    let (n, nf, p) = (s.n, s.nf, s.p);
+    // f64 CᵀK_FF C, only as a preconditioner.
+    let mut a = vec![0.0; p * p];
+    for i in 0..nf {
+        for j in 0..nf {
+            let kij = s.k[i * n + j];
+            if kij == 0.0 {
+                continue;
+            }
+            for &(x, cx) in &s.c[i] {
+                for &(y, cy) in &s.c[j] {
+                    a[x * p + y] += cx * kij * cy;
+                }
+            }
+        }
+    }
+    let piv = lu_factor(&mut a, p).expect("reference: CᵀKC singular");
+    let (mut qh, mut ql) = (vec![0.0; p], vec![0.0; p]);
+    let expand = |qh: &[f64], ql: &[f64]| -> (Vec<f64>, Vec<f64>) {
+        let (mut wh, mut wl) = (vec![0.0; n], vec![0.0; n]);
+        for i in 0..nf {
+            let mut acc = Acc::default();
+            for &(x, cx) in &s.c[i] {
+                acc.add_prod(cx, qh[x]);
+                acc.add_prod(cx, ql[x]);
+            }
+            for &(r, cr) in &s.c_r[i] {
+                acc.add_prod(cr, s.u_r[r]);
+            }
+            (wh[i], wl[i]) = acc.hi_lo();
+        }
+        wh[nf..].copy_from_slice(&s.u_r);
+        (wh, wl)
+    };
+    for _ in 0..30 {
+        let (wh, wl) = expand(&qh, &ql);
+        let mut t = vec![(0.0, 0.0); nf];
+        for (i, ti) in t.iter_mut().enumerate() {
+            let mut acc = Acc::default();
+            acc.add(s.f[i]);
+            for j in 0..n {
+                let kij = s.k[i * n + j];
+                if kij != 0.0 {
+                    acc.add_prod(-kij, wh[j]);
+                    acc.add_prod(-kij, wl[j]);
+                }
+            }
+            *ti = acc.hi_lo();
+        }
+        let mut r = vec![Acc::default(); p];
+        for i in 0..nf {
+            for &(x, cx) in &s.c[i] {
+                r[x].add_prod(cx, t[i].0);
+                r[x].add_prod(cx, t[i].1);
+            }
+        }
+        let r: Vec<f64> = r.into_iter().map(|a| a.hi_lo().0).collect();
+        let dq = lu_apply(&a, &piv, &r, p).expect("reference solve");
+        for x in 0..p {
+            let (h, e) = two_sum(qh[x], dq[x]);
+            (qh[x], ql[x]) = two_sum(h, ql[x] + e);
+        }
+    }
+    let (mut uh, mut ul) = expand(&qh, &ql);
+    // Back to global axes: u_glob[dofs] = Rᵀ u_rot[dofs].
+    for (dofs, r) in &s.rots {
+        let m = dofs.len();
+        let (rh, rl): (Vec<f64>, Vec<f64>) = dofs.iter().map(|&d| (uh[d], ul[d])).unzip();
+        for a in 0..m {
+            let mut acc = Acc::default();
+            for b in 0..m {
+                acc.add_prod(r[b * m + a], rh[b]);
+                acc.add_prod(r[b * m + a], rl[b]);
+            }
+            (uh[dofs[a]], ul[dofs[a]]) = acc.hi_lo();
+        }
+    }
+    let mut e2 = 0.0f64;
+    for i in 0..n {
+        let (d, e) = two_sum(s.u_glob[i], -uh[i]);
+        let di = d + (e - ul[i]);
+        e2 += di * di;
+    }
+    e2.sqrt()
+}
+
+fn assert_honest_gen(cert: &Certificate, s: &GenSystem) -> (f64, f64) {
+    let Certificate::Certified { abs_bound, .. } = cert else {
+        panic!("{}: expected certified, got {cert:?}", s.label);
+    };
+    let err = gen_true_error(s);
+    assert!(err <= *abs_bound, "{}: true error {err:e} exceeds bound {abs_bound:e}", s.label);
+    eprintln!("{}: n={} p={} abs={abs_bound:.2e} err={err:.2e}", s.label, s.n, s.p);
+    (*abs_bound, err)
+}
+
+fn tied_columns_2d() -> SolverInput {
+    let mut input = make_input(
+        vec![(1, 0.0, 0.0), (2, 0.0, 3.0), (3, 4.0, 0.0), (4, 4.0, 3.0), (5, 2.0, 3.5)],
+        vec![(1, 30_000.0, 0.2)],
+        vec![(1, 0.09, 6.75e-4)],
+        vec![
+            (1, "frame", 1, 2, 1, 1, false, false),
+            (2, "frame", 3, 4, 1, 1, false, false),
+            (3, "frame", 2, 5, 1, 1, false, false),
+        ],
+        vec![(1, 1, "fixed"), (2, 3, "fixed")],
+        vec![
+            SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: 10.0, fz: -3.0, my: 0.0 }),
+            SolverLoad::Nodal(SolverNodalLoad { node_id: 5, fx: 0.0, fz: -7.0, my: 1.0 }),
+        ],
+    );
+    input.constraints = vec![
+        Constraint::EqualDOF(EqualDOFConstraint { master_node: 2, slave_node: 4, dofs: vec![0] }),
+        Constraint::RigidLink(RigidLinkConstraint { master_node: 5, slave_node: 4, dofs: vec![1] }),
+    ];
+    input
+}
+
+#[test]
+fn certify_constraints_2d() {
+    // Small (dense constrained path): ties, a rigid link, and a settling master.
+    let mut cases = vec![("tied columns", tied_columns_2d())];
+    let mut settle = tied_columns_2d();
+    settle.supports.get_mut("1").unwrap().dx = Some(0.005);
+    settle.constraints.push(Constraint::EqualDOF(EqualDOFConstraint { master_node: 1, slave_node: 5, dofs: vec![0] }));
+    cases.push(("tied to settling support", settle));
+    // Large (sparse constrained path): a grid frame with every floor's ux tied.
+    let mut grid = grid_frame(6, 15);
+    let id = |c: usize, s: usize| s * 7 + c + 1;
+    for s in 1..=15 {
+        for c in 1..=6 {
+            grid.constraints.push(Constraint::EqualDOF(EqualDOFConstraint {
+                master_node: id(0, s), slave_node: id(c, s), dofs: vec![0],
+            }));
+        }
+    }
+    cases.push(("tied grid 6x15", grid));
+    for (name, input) in cases {
+        let (res, cert) = certify_linear_2d(&input).unwrap();
+        if name.contains("grid") {
+            let sparse = res.structured_diagnostics.iter().any(|d| d.code == DiagnosticCode::SparseCholesky);
+            assert!(sparse, "{name}: expected the sparse constrained path");
+        }
+        let s = gen_2d(name, &input, &res);
+        let (abs, _) = assert_honest_gen(&cert, &s);
+        assert!(abs < 1e-8 * norm(&s.u_glob), "{name}: bound unexpectedly loose: {abs:e}");
+    }
+}
+
+/// Diaphragms on every floor of a 3D building fixture, plus small tied models.
+#[test]
+fn certify_constraints_3d() {
+    let mut cases = vec![];
+    let mut tied = make_3d_input(
+        vec![(1, 0.0, 0.0, 0.0), (2, 0.0, 0.0, 3.0), (3, 4.0, 0.0, 0.0), (4, 4.0, 0.0, 3.0)],
+        vec![(1, 30_000.0, 0.2)],
+        vec![(1, 0.09, 6.75e-4, 6.75e-4, 1.14e-3)],
+        vec![(1, "frame", 1, 2, 1, 1), (2, "frame", 3, 4, 1, 1)],
+        vec![(1, vec![true; 6]), (3, vec![true; 6])],
+        vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: 10.0, fy: 2.0, fz: 0.0, mx: 0.0, my: 0.0, mz: 0.3, bw: None })],
+    );
+    tied.constraints = vec![Constraint::RigidLink(RigidLinkConstraint { master_node: 2, slave_node: 4, dofs: vec![] })];
+    cases.push(("3d rigid link".to_string(), tied.clone()));
+    for sup in tied.supports.values_mut() {
+        if sup.node_id == 1 {
+            sup.dx = Some(0.004);
+        }
+    }
+    tied.constraints = vec![Constraint::EqualDOF(EqualDOFConstraint { master_node: 1, slave_node: 4, dofs: vec![0] })];
+    cases.push(("3d tied to settling support".to_string(), tied));
+    for case in ["ex-3d-building-case1", "ex-3d-building-case3"] {
+        let path = format!("{}/tests/fixtures/{case}-input.json", env!("CARGO_MANIFEST_DIR"));
+        let mut input: SolverInput3D = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut floors: HashMap<u64, Vec<usize>> = HashMap::new();
+        let supported: Vec<usize> = input.supports.values().map(|s| s.node_id).collect();
+        for n in input.nodes.values() {
+            if !supported.contains(&n.id) {
+                floors.entry(n.y.to_bits()).or_default().push(n.id);
+            }
+        }
+        for mut ids in floors.into_values() {
+            ids.sort();
+            input.constraints.push(Constraint::Diaphragm(DiaphragmConstraint {
+                master_node: ids[0], slave_nodes: ids[1..].to_vec(), plane: "XZ".into(),
+            }));
+        }
+        cases.push((format!("{case} + diaphragms"), input));
+    }
+    for (name, input) in cases {
+        let (res, cert) = certify_linear_3d(&input).unwrap();
+        let s = gen_3d(&name, &input, &res);
+        let (abs, _) = assert_honest_gen(&cert, &s);
+        assert!(abs < 1e-6 * norm(&s.u_glob), "{name}: bound unexpectedly loose: {abs:e}");
+    }
+}
+
+fn inclined_portal(angle: f64, settle: Option<f64>) -> SolverInput {
+    let mut input = portal();
+    let sup = input.supports.values_mut().find(|s| s.node_id == 4).unwrap();
+    sup.support_type = "inclinedRoller".into();
+    sup.angle = Some(angle);
+    sup.dx = settle;
+    input
+}
+
+#[test]
+fn certify_inclined_supports_2d() {
+    let mut cases = vec![
+        ("inclined 0.3".to_string(), inclined_portal(0.3, None)),
+        ("inclined 45deg".to_string(), inclined_portal(std::f64::consts::FRAC_PI_4, None)),
+        ("inclined settling".to_string(), inclined_portal(1.1, Some(0.002))),
+    ];
+    // Large (sparse path): a grid frame whose base supports are inclined rollers.
+    let mut grid = grid_frame(6, 15);
+    for (k, sup) in grid.supports.values_mut().enumerate() {
+        if k % 2 == 1 {
+            sup.support_type = "inclinedRoller".into();
+            sup.angle = Some(0.2 + 0.1 * k as f64);
+        }
+    }
+    cases.push(("inclined grid".into(), grid));
+    // Constraints and an inclined support together.
+    let mut both = tied_columns_2d();
+    let sup = both.supports.values_mut().find(|s| s.node_id == 3).unwrap();
+    sup.support_type = "inclinedRoller".into();
+    sup.angle = Some(0.4);
+    cases.push(("inclined + constraints".into(), both));
+    for (name, input) in cases {
+        let (res, cert) = certify_linear_2d(&input).unwrap();
+        let s = gen_2d(&name, &input, &res);
+        let (abs, _) = assert_honest_gen(&cert, &s);
+        assert!(abs < 1e-8 * norm(&s.u_glob), "{name}: bound unexpectedly loose: {abs:e}");
+    }
+}
+
+#[test]
+fn certify_inclined_supports_3d() {
+    let s2 = std::f64::consts::FRAC_1_SQRT_2;
+    let mut input = make_3d_beam(
+        8, 6.0, 200_000.0, 0.3, 0.01, 1e-4, 2e-4, 1e-5,
+        vec![true; 6], Some(vec![false; 6]),
+        vec![SolverLoad3D::Nodal(SolverNodalLoad3D {
+            node_id: 5, fx: 1.0, fy: -3.0, fz: 2.0, mx: 0.1, my: 0.0, mz: 0.0, bw: None,
+        })],
+    );
+    pin_legacy_local_axes(&mut input);
+    let end = input.supports.values_mut().find(|s| s.node_id == 9).unwrap();
+    end.normal_x = Some(s2);
+    end.normal_y = Some(s2);
+    end.normal_z = Some(0.0);
+    end.is_inclined = Some(true);
+    end.rrx = true;
+    let mut cases = vec![("3d inclined end".to_string(), input.clone())];
+    let end = input.supports.values_mut().find(|s| s.node_id == 9).unwrap();
+    end.dx = Some(1e-3);
+    end.normal_z = Some(0.4);
+    cases.push(("3d inclined settling".to_string(), input.clone()));
+    input.constraints = vec![Constraint::EqualDOF(EqualDOFConstraint { master_node: 3, slave_node: 7, dofs: vec![2] })];
+    cases.push(("3d inclined + constraint".to_string(), input));
+    for (name, input) in cases {
+        let (res, cert) = certify_linear_3d(&input).unwrap();
+        let s = gen_3d(&name, &input, &res);
+        let (abs, _) = assert_honest_gen(&cert, &s);
+        assert!(abs < 1e-8 * norm(&s.u_glob), "{name}: bound unexpectedly loose: {abs:e}");
+    }
+}
+
+/// Wrong inputs are refused or covered: perturbed displacements (the bound
+/// must cover the perturbation, including a constraint violation), and a
+/// constraint set that leaves a mechanism is never certified.
+#[test]
+fn constrained_certificate_refuses_wrong_inputs() {
+    use dedaliano_engine::certify::certify_results_2d;
+    let input = tied_columns_2d();
+    let res = solve_2d(&input).unwrap();
+    // Break the tie on the slave only: ũ violates u4x = u2x by 1e-4.
+    let mut bad = res.clone();
+    let d4 = bad.displacements.iter_mut().find(|d| d.node_id == 4).unwrap();
+    d4.ux += 1e-4;
+    let cert = certify_results_2d(&input, &bad);
+    let s = gen_2d("perturbed slave", &input, &bad);
+    let (abs, err) = assert_honest_gen(&cert, &s);
+    assert!(err >= 1e-4 * 0.99 && abs >= err);
+    // Perturb a master: covered as well.
+    let mut bad = res.clone();
+    for d in bad.displacements.iter_mut() {
+        d.uz += 1e-5 * d.node_id as f64;
+    }
+    let cert = certify_results_2d(&input, &bad);
+    assert_honest_gen(&cert, &gen_2d("perturbed all", &input, &bad));
+
+    // Pinned-base columns tied at the top by ux only, with the beam to node 5
+    // removed and hinges at both column tops: the tied pair still sways.
+    let mut mech = make_input(
+        vec![(1, 0.0, 0.0), (2, 0.0, 3.0), (3, 4.0, 0.0), (4, 4.0, 3.0)],
+        vec![(1, 30_000.0, 0.2)],
+        vec![(1, 0.09, 6.75e-4)],
+        vec![(1, "frame", 1, 2, 1, 1, false, false), (2, "frame", 3, 4, 1, 1, false, false)],
+        vec![(1, 1, "pinned"), (2, 3, "pinned")],
+        vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: 10.0, fz: 0.0, my: 0.0 })],
+    );
+    mech.constraints = vec![Constraint::EqualDOF(EqualDOFConstraint { master_node: 2, slave_node: 4, dofs: vec![0] })];
+    assert_never_certified("tied sway mechanism", certify_linear_2d(&mech));
 }

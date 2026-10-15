@@ -8,9 +8,11 @@
 //! unaccounted rounding. Springs, hinges' artificial stiffness and connectors
 //! are part of `K` and need nothing special.
 //!
-//! Unsupported (returns `Uncertified`): constraints (the constrained solver
-//! transforms the system), inclined supports (returned displacements are
-//! rotated back to global axes).
+//! Constraints and inclined supports are certified in the transformed system
+//! the solver factors (`constrained.rs`): the reduced `Cᵀ K C` system with the
+//! bound mapped back through `‖C‖₂`, and the rotated system with the bound
+//! mapped back through `‖T‖₂`. With inclined supports the bound is on the
+//! global-axis error over all DOFs.
 //!
 //! Small models (n_free < `SPARSE_THRESHOLD`) use the dense assembly and the
 //! dense interval-Cholesky certificate (`linear.rs`). Larger ones use the
@@ -21,15 +23,17 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use super::constrained::{certify_constrained_system, rotate_back, to_rotated, ConstraintMap, KRef, Rotation};
 use super::forces::{force_bounds_2d, force_bounds_3d, ForceBound2D, ForceBound3D};
 use super::interval::Interval;
 use super::linear::{certify_linear_system_auto_interval_rhs, Certificate, MAX_CERTIFY_N};
 use super::sparse::certify_sparse_spd_system;
 use crate::linalg::sparse::CscMatrix;
 use crate::solver::assembly::{
-    assemble_load_vector_2d, assemble_load_vector_3d_dense, assemble_stiffness_2d, assemble_stiffness_3d,
-    assemble_stiffness_sparse_3d,
+    assemble_2d, assemble_load_vector_2d, assemble_load_vector_3d_dense, assemble_sparse_3d, assemble_stiffness_2d,
+    assemble_stiffness_3d, assemble_stiffness_sparse_3d, InclinedTransformData, InclinedTransformData2D,
 };
+use crate::solver::constraints::build_constraint_transform;
 use crate::solver::sparse_assembly::{assemble_load_vector_sparse_3d, assemble_stiffness_sparse_2d};
 use crate::solver::dof::DofNumbering;
 use crate::solver::linear::{expand_curved_beams_3d, solve_2d, solve_3d, SPARSE_THRESHOLD};
@@ -96,37 +100,129 @@ fn size_check(dof_num: &DofNumbering) -> Result<(), Certificate> {
 
 /// Certify given results of `solve_2d(input)` (the input the results came from).
 pub fn certify_results_2d(input: &SolverInput, results: &AnalysisResults) -> Certificate {
-    if !input.constraints.is_empty() {
-        return Certificate::uncertified("unsupported: constraints (constrained solver path)");
-    }
-    if input.supports.values().any(|s| s.support_type == "inclinedRoller") {
-        return Certificate::uncertified("unsupported: inclined supports");
-    }
     let dof_num = DofNumbering::build_2d(input);
-    if dof_num.n_free >= SPARSE_THRESHOLD {
+    let u_glob = match gather_u_2d(&dof_num, &results.displacements) {
+        Ok(u) => u,
+        Err(c) => return c,
+    };
+    if !u_glob.iter().all(|x| x.is_finite()) {
+        return Certificate::uncertified("non-finite displacement in solver output");
+    }
+    let nf = dof_num.n_free;
+    if !input.constraints.is_empty() {
+        return certify_constrained_2d(input, results, &dof_num, &u_glob);
+    }
+    if nf >= SPARSE_THRESHOLD {
         // The solver's sparse path: certify the triplet-assembled K it factors.
         let stiff = assemble_stiffness_sparse_2d(input, &dof_num);
-        if !stiff.inclined_transforms_2d.is_empty() {
-            return Certificate::uncertified("unsupported: inclined supports");
-        }
-        let f = assemble_load_vector_2d(input, &input.loads, &dof_num, &stiff.inclined_transforms_2d);
-        return match gather_u_2d(&dof_num, &results.displacements) {
-            Ok(u) => certify_reduced_sparse(&stiff.k_ff, &stiff.k_full, dof_num.n_free, &f, &u),
-            Err(c) => c,
+        let (rots, u) = match rotated_candidate_2d(input, &dof_num, &stiff.inclined_transforms_2d, &u_glob) {
+            Ok(x) => x,
+            Err(c) => return c,
         };
+        let f = assemble_load_vector_2d(input, &input.loads, &dof_num, &stiff.inclined_transforms_2d);
+        let cert = certify_reduced_sparse(&stiff.k_ff, &stiff.k_full, nf, &f, &u);
+        return rotate_back(cert, &rots, &u, &u_glob);
     }
     if let Err(c) = size_check(&dof_num) {
         return c;
     }
     let stiff = assemble_stiffness_2d(input, &dof_num);
-    if !stiff.inclined_transforms_2d.is_empty() {
-        return Certificate::uncertified("unsupported: inclined supports");
-    }
+    let (rots, u) = match rotated_candidate_2d(input, &dof_num, &stiff.inclined_transforms_2d, &u_glob) {
+        Ok(x) => x,
+        Err(c) => return c,
+    };
     let f = assemble_load_vector_2d(input, &input.loads, &dof_num, &stiff.inclined_transforms_2d);
-    match gather_u_2d(&dof_num, &results.displacements) {
-        Ok(u) => certify_reduced(&stiff.k, dof_num.n_total, dof_num.n_free, &f, &u),
-        Err(c) => c,
+    let cert = certify_reduced(&stiff.k, dof_num.n_total, nf, &f, &u);
+    rotate_back(cert, &rots, &u, &u_glob)
+}
+
+/// The constrained 2D solve (`solve_constrained_2d`): the sparse path when the
+/// results report it (nf ≥ SPARSE_THRESHOLD and sparse Cholesky succeeded),
+/// otherwise the dense path.
+fn certify_constrained_2d(
+    input: &SolverInput,
+    results: &AnalysisResults,
+    dof_num: &DofNumbering,
+    u_glob: &[f64],
+) -> Certificate {
+    let nf = dof_num.n_free;
+    if nf == 0 {
+        return Certificate::uncertified("constrained model without free DOFs");
     }
+    let cm = ConstraintMap::from_transform(
+        &build_constraint_transform(&input.constraints, dof_num, Some(&input.nodes), None),
+        nf,
+    );
+    let sparse_path = nf >= SPARSE_THRESHOLD
+        && results.structured_diagnostics.iter().any(|d| d.code == DiagnosticCode::SparseCholesky);
+    if sparse_path {
+        let stiff = assemble_stiffness_sparse_2d(input, dof_num);
+        let (rots, u) = match rotated_candidate_2d(input, dof_num, &stiff.inclined_transforms_2d, u_glob) {
+            Ok(x) => x,
+            Err(c) => return c,
+        };
+        let f = assemble_load_vector_2d(input, &input.loads, dof_num, &stiff.inclined_transforms_2d);
+        let k = KRef::Sparse { k_ff: &stiff.k_ff, k_full: &stiff.k_full };
+        let cert = certify_constrained_system(&k, nf, &f, &u, &cm);
+        return rotate_back(cert, &rots, &u, u_glob);
+    }
+    if let Err(c) = size_check(dof_num) {
+        return c;
+    }
+    let asm = assemble_2d(input, dof_num);
+    let (rots, u) = match rotated_candidate_2d(input, dof_num, &asm.inclined_transforms_2d, u_glob) {
+        Ok(x) => x,
+        Err(c) => return c,
+    };
+    let k = KRef::Dense { k: &asm.k, n: dof_num.n_total };
+    let cert = certify_constrained_system(&k, nf, &asm.f, &u, &cm);
+    rotate_back(cert, &rots, &u, u_glob)
+}
+
+/// Rotations of the 2D inclined supports and the candidate in rotated axes,
+/// with the solver's prescribed normal displacement on the restrained DOF.
+fn rotated_candidate_2d(
+    input: &SolverInput,
+    dof_num: &DofNumbering,
+    its: &[InclinedTransformData2D],
+    u_glob: &[f64],
+) -> Result<(Vec<Rotation>, Vec<f64>), Certificate> {
+    let nf = dof_num.n_free;
+    let mut rots = Vec::with_capacity(its.len());
+    let mut prescribed = Vec::new();
+    for it in its {
+        let sups: Vec<&SolverSupport> = input.supports.values().filter(|s| s.node_id == it.node_id).collect();
+        let [sup] = sups.as_slice() else {
+            return Err(Certificate::uncertified(format!(
+                "unsupported: several supports on inclined node {}",
+                it.node_id
+            )));
+        };
+        let Some(theta) = sup.angle else {
+            return Err(Certificate::uncertified("inclined transform without an angle"));
+        };
+        for (a, &d) in it.dofs.iter().enumerate() {
+            if d < nf {
+                continue;
+            }
+            // Mirrors prepare_static_2d / solve_constrained_2d: only the normal
+            // (local 1) gets a prescribed value.
+            let v = if a == 1 {
+                let (c, s) = (theta.cos(), theta.sin());
+                let u_normal = sup.dx.unwrap_or(0.0) * s + sup.dz.unwrap_or(0.0) * c;
+                if u_normal.abs() > 1e-15 { u_normal } else { 0.0 }
+            } else {
+                0.0
+            };
+            prescribed.push((d, v));
+        }
+        rots.push(Rotation {
+            dofs: it.dofs.to_vec(),
+            r: vec![it.r[0][0], it.r[0][1], it.r[1][0], it.r[1][1]],
+        });
+    }
+    let u = to_rotated(u_glob, &rots, &prescribed);
+    Ok((rots, u))
 }
 
 pub(super) fn gather_u_2d(dof_num: &DofNumbering, displacements: &[Displacement]) -> Result<Vec<f64>, Certificate> {
@@ -149,40 +245,105 @@ pub(super) fn gather_u_2d(dof_num: &DofNumbering, displacements: &[Displacement]
 /// Certify given results of `solve_3d(input)` (the input the results came from).
 pub fn certify_results_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Certificate {
     let input = &expand_curved_beams_3d(input);
-    if !input.constraints.is_empty() {
-        return Certificate::uncertified("unsupported: constraints (constrained solver path)");
-    }
-    if input.supports.values().any(|s| s.is_inclined.unwrap_or(false)) {
-        return Certificate::uncertified("unsupported: inclined supports");
-    }
     let dof_num = DofNumbering::build_3d(input);
-    if dof_num.n_free >= SPARSE_THRESHOLD {
+    let u_glob = match gather_u_3d(&dof_num, &results.displacements) {
+        Ok(u) => u,
+        Err(c) => return c,
+    };
+    if !u_glob.iter().all(|x| x.is_finite()) {
+        return Certificate::uncertified("non-finite displacement in solver output");
+    }
+    let nf = dof_num.n_free;
+    if !input.constraints.is_empty() {
+        // solve_constrained_3d: always the sparse assembly.
+        if nf == 0 {
+            return Certificate::uncertified("constrained model without free DOFs");
+        }
+        let sasm = assemble_sparse_3d(input, &dof_num, true);
+        let Some(k_full) = sasm.k_full.as_ref() else {
+            return Certificate::uncertified("sparse assembly did not build the full K");
+        };
+        let (rots, u) = match rotated_candidate_3d(input, &dof_num, &sasm.inclined_transforms, &u_glob) {
+            Ok(x) => x,
+            Err(c) => return c,
+        };
+        let cm = ConstraintMap::from_transform(
+            &build_constraint_transform(&input.constraints, &dof_num, None, Some(&input.nodes)),
+            nf,
+        );
+        let k = KRef::Sparse { k_ff: &sasm.k_ff, k_full };
+        let cert = certify_constrained_system(&k, nf, &sasm.f, &u, &cm);
+        return rotate_back(cert, &rots, &u, &u_glob);
+    }
+    if nf >= SPARSE_THRESHOLD {
         // The solver's sparse path: certify the triplet-assembled K it factors.
         let stiff = assemble_stiffness_sparse_3d(input, &dof_num, true);
-        if !stiff.inclined_transforms.is_empty() {
-            return Certificate::uncertified("unsupported: inclined supports");
-        }
         let Some(k_full) = stiff.k_full.as_ref() else {
             return Certificate::uncertified("sparse assembly did not build the full K");
         };
-        let f = assemble_load_vector_sparse_3d(input, &input.loads, &dof_num, &stiff.inclined_transforms);
-        return match gather_u_3d(&dof_num, &results.displacements) {
-            Ok(u) => certify_reduced_sparse(&stiff.k_ff, k_full, dof_num.n_free, &f, &u),
-            Err(c) => c,
+        let (rots, u) = match rotated_candidate_3d(input, &dof_num, &stiff.inclined_transforms, &u_glob) {
+            Ok(x) => x,
+            Err(c) => return c,
         };
+        let f = assemble_load_vector_sparse_3d(input, &input.loads, &dof_num, &stiff.inclined_transforms);
+        let cert = certify_reduced_sparse(&stiff.k_ff, k_full, nf, &f, &u);
+        return rotate_back(cert, &rots, &u, &u_glob);
     }
     if let Err(c) = size_check(&dof_num) {
         return c;
     }
     let stiff = assemble_stiffness_3d(input, &dof_num);
-    if !stiff.inclined_transforms.is_empty() {
-        return Certificate::uncertified("unsupported: inclined supports");
-    }
+    let (rots, u) = match rotated_candidate_3d(input, &dof_num, &stiff.inclined_transforms, &u_glob) {
+        Ok(x) => x,
+        Err(c) => return c,
+    };
     let f = assemble_load_vector_3d_dense(input, &input.loads, &dof_num, &stiff.inclined_transforms);
-    match gather_u_3d(&dof_num, &results.displacements) {
-        Ok(u) => certify_reduced(&stiff.k, dof_num.n_total, dof_num.n_free, &f, &u),
-        Err(c) => c,
+    let cert = certify_reduced(&stiff.k, dof_num.n_total, nf, &f, &u);
+    rotate_back(cert, &rots, &u, &u_glob)
+}
+
+/// Rotations of the 3D inclined supports and the candidate in rotated axes,
+/// with the solver's prescribed normal displacement on the restrained DOF.
+fn rotated_candidate_3d(
+    input: &SolverInput3D,
+    dof_num: &DofNumbering,
+    its: &[InclinedTransformData],
+    u_glob: &[f64],
+) -> Result<(Vec<Rotation>, Vec<f64>), Certificate> {
+    let nf = dof_num.n_free;
+    let mut rots = Vec::with_capacity(its.len());
+    let mut prescribed = Vec::new();
+    for it in its {
+        let sups: Vec<&SolverSupport3D> = input.supports.values().filter(|s| s.node_id == it.node_id).collect();
+        let [sup] = sups.as_slice() else {
+            return Err(Certificate::uncertified(format!(
+                "unsupported: several supports on inclined node {}",
+                it.node_id
+            )));
+        };
+        let (Some(nx), Some(ny), Some(nz)) = (sup.normal_x, sup.normal_y, sup.normal_z) else {
+            return Err(Certificate::uncertified("inclined transform without a normal"));
+        };
+        for (a, &d) in it.dofs.iter().enumerate() {
+            if d < nf {
+                continue;
+            }
+            // Mirrors prepare_static_3d / solve_constrained_3d: only the normal
+            // (local 0) gets a prescribed value.
+            let v = if a == 0 {
+                let n_len = (nx * nx + ny * ny + nz * nz).sqrt();
+                let u_normal =
+                    (nx * sup.dx.unwrap_or(0.0) + ny * sup.dy.unwrap_or(0.0) + nz * sup.dz.unwrap_or(0.0)) / n_len;
+                if u_normal.abs() > 1e-15 { u_normal } else { 0.0 }
+            } else {
+                0.0
+            };
+            prescribed.push((d, v));
+        }
+        rots.push(Rotation { dofs: it.dofs.to_vec(), r: it.r.iter().flatten().copied().collect() });
     }
+    let u = to_rotated(u_glob, &rots, &prescribed);
+    Ok((rots, u))
 }
 
 pub(super) fn gather_u_3d(dof_num: &DofNumbering, displacements: &[Displacement3D]) -> Result<Vec<f64>, Certificate> {
