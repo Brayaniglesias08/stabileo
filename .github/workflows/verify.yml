@@ -93,3 +93,40 @@ jobs:
       - name: Large certificate tests
         working-directory: engine
         run: cargo test --release --test certify -- --ignored --nocapture
+
+  # Differential test against OpenSees (an independent FE code): catches
+  # element-matrix, fixed-end-force, axis-convention and reaction bugs that the
+  # certificates cannot (they certify the assembled system, right or wrong).
+  # Fixed fixture set plus random models from a seed that moves daily; the
+  # seed is printed so a failure reproduces with tools/opensees/run.sh.
+  opensees-diff:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install OpenSees
+        run: pip install openseespy numpy
+      - name: Build solver CLI
+        run: cargo build --release --example solve_json
+      - name: Compare with OpenSees
+        run: |
+          seed=$(( $(date -u +%s) / 86400 % 1000 * 1000 ))
+          echo "seed-start $seed"
+          python tools/opensees/compare.py --fixtures \
+            --random2d 300 --random3d 300 --rich2d 500 --rich3d 500 \
+            --seed-start "$seed" -j 4 --report opensees-report.json \
+            --dump-dir opensees-mismatches
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: opensees-report
+          path: |
+            opensees-report.json
+            opensees-mismatches/
+          if-no-files-found: ignore
