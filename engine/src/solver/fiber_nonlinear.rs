@@ -80,9 +80,10 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
     // module rather than the call.
     super::linear::validate_input_2d(&input.solver)?;
     // Fiber members are Euler–Bernoulli and continuous at both ends, and the
-    // tangent has no connectors, prescribed displacements or inclined supports.
+    // tangent has no connectors or prescribed displacements. Inclined supports
+    // are solved in their frames (fix/inclined-supports).
     super::feature_gates::refuse_2d(&input.solver, "Fiber-nonlinear analysis", &[
-        super::feature_gates::Feature::Connectors, super::feature_gates::Feature::PrescribedDisplacements, super::feature_gates::Feature::InclinedSupports,
+        super::feature_gates::Feature::Connectors, super::feature_gates::Feature::PrescribedDisplacements,
         super::feature_gates::Feature::ShearDeformation, super::feature_gates::Feature::MomentReleases,
     ])?;
 
@@ -637,7 +638,7 @@ pub fn solve_fiber_nonlinear_3d(input: &FiberNonlinearInput3D) -> Result<FiberNo
     // As in 2D, plus warping and shells, which the fiber tangent has no
     // element for.
     super::feature_gates::refuse_3d(&input.solver, "Fiber-nonlinear analysis", &[
-        super::feature_gates::Feature::Connectors, super::feature_gates::Feature::PrescribedDisplacements, super::feature_gates::Feature::InclinedSupports,
+        super::feature_gates::Feature::Connectors, super::feature_gates::Feature::PrescribedDisplacements,
         super::feature_gates::Feature::ShearDeformation, super::feature_gates::Feature::MomentReleases, super::feature_gates::Feature::Warping, super::feature_gates::Feature::Shells,
     ])?;
     // Curved beams are expanded into straight members, as every static path

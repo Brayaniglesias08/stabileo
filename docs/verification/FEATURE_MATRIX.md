@@ -37,19 +37,19 @@ analytical value, or the linear solver in the linear limit).
 | corotational (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
 | material nonlinear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
 | material nonlinear (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
-| fiber nonlinear | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
-| arc length | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
+| fiber nonlinear | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
+| arc length | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
 | displacement control | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
 | staged (one stage) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
 | Winkler (no foundation) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | contact (no gaps) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| SSI (no soil springs) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| SSI (no soil springs) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | creep & shrinkage (t = t0) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | cable solver | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | modal | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · | · | ✓ | ✓ | ✓ |
 | certified modal | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · | · | ✓ | ✓ | ✓ |
-| buckling | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | K | ✓ | · | ✓ | · | · | · | · | ✓ | ✓ | ✓ |
-| time history | ~ | ✓ | ~ | ✓ | ✓ | ✓ | K | K | · | · | · | · | · | · | ✓ | ✓ | ✓ |
+| buckling | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | · | · | · | ✓ | ✓ | ✓ |
+| time history | ~ | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · | ✓ | ✓ | ✓ |
 | spectral | ~ | ✓ | ~ | · | · | · | ~ | ~ | · | · | · | · | · | · | ✓ | ✓ | · |
 | harmonic | ~ | ✓ | ~ | ✓ | ✓ | ✓ | ✓ | ✓ | R | · | · | · | · | · | ✓ | ✓ | ✓ |
 | Guyan reduction | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · | · | ✓ | ✓ | ✓ |
@@ -79,7 +79,7 @@ Features:
 - **F16** constraint (rigid link)
 - **F17** connector
 
-Totals: · 93, ✓ 414, R 26, ~ 8, IGN 2, BAD 1
+Totals: · 93, ✓ 420, R 23, ~ 8
 
 Notes on every cell that is not ✓ or ·:
 
@@ -91,16 +91,10 @@ Notes on every cell that is not ✓ or ·:
 - spectral × Timoshenko shear area: deep cantilever: ~ changes the answer by 7.7e-1; no independent reference
 - harmonic × Timoshenko shear area: deep cantilever: ~ changes the answer by 2.9e-1; no independent reference
 - fiber nonlinear × hinge (moment release): released into support: R Fiber-nonlinear analysis does not support member end releases (hinges) (member 12); it would solve the model w…
-- buckling × angled spring support — known, PR #279 (fix/sparse2d): spring at 30°: BAD differs from the equivalent model by 5.30e-1
-- time history × angled spring support — known, PR #279 (fix/sparse2d): spring at 30°: IGN equals the model without the feature; the equivalent model differs by 1.8e0
 - spectral × angled spring support: spring at 30°: ~ changes the answer by 1.8e6; no independent reference
-- fiber nonlinear × inclined support: roller at 30°: R Fiber-nonlinear analysis does not support inclined supports (support 2 (node 7)); it would solve the model wit…
-- arc length × inclined support: roller at 30°: R Arc-length analysis does not support inclined supports (support 2 (node 7)); it would solve the model without …
 - displacement control × inclined support: roller at 30°: R Displacement-control analysis does not support inclined supports (support 2 (node 7)); it would solve the mode…
 - staged (one stage) × inclined support: roller at 30°: R Inclined supports are not yet supported in staged construction analysis (reactions would be reported in the ro…
-- SSI (no soil springs) × inclined support: roller at 30°: R Soil-structure interaction analysis does not support inclined supports (support 2 (node 7)); it would solve th…
-- time history × inclined support — known, PR #279 (fix/sparse2d): roller at 30°: IGN equals the model without the feature; the equivalent model differs by 8.0e-2
-- spectral × inclined support: roller at 30°: ~ changes the answer by 5.5e5; no independent reference
+- spectral × inclined support: roller at 30°: ~ changes the answer by 1.4e6; no independent reference
 - corotational × prescribed displacement: support settlement: R Corotational analysis does not support prescribed support displacements (support 2 (node 7)); it would solve t…
 - corotational (sparse path) × prescribed displacement: support settlement: R Corotational analysis does not support prescribed support displacements (support 2 (node 7)); it would solve t…
 - fiber nonlinear × prescribed displacement: support settlement: R Fiber-nonlinear analysis does not support prescribed support displacements (support 2 (node 7)); it would solv…
@@ -136,17 +130,17 @@ Notes on every cell that is not ✓ or ·:
 | corotational (sparse path) | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | R | R | R | R | R | R | R | R | R |
 | material nonlinear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | R | R | R | R | R | R | R | R | R |
 | material nonlinear (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | R | R | R | R | R | R | R | R | R |
-| fiber nonlinear | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | R | R | R | R | R | R | R | R | R |
+| fiber nonlinear | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | R | R | R | R | R | R | R | R | R |
 | staged (one stage) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | ✓ |
 | Winkler (no foundation) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| contact (no gaps) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| SSI (no soil springs) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| contact (no gaps) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| SSI (no soil springs) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | creep & shrinkage (t = t0) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | cable solver | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | modal | ✓ | ✓ | · | · | ✓ | · | ✓ | ✓ | · | · | · | · | · | · | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · |
 | certified modal | ✓ | ✓ | · | · | ✓ | · | ✓ | ✓ | · | · | · | · | · | · | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · |
-| buckling | ✓ | ✓ | · | · | ✓ | · | ✓ | ✓ | K | · | · | · | · | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ | · |
-| time history | ~ | ✓ | ~ | · | ✓ | ✓ | ✓ | ✓ | K | · | · | · | · | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · |
+| buckling | ✓ | ✓ | · | · | ✓ | · | ✓ | ✓ | ✓ | · | · | · | · | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ | · |
+| time history | ~ | ✓ | ~ | · | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · |
 | spectral | ~ | ✓ | ~ | · | ✓ | ✓ | ✓ | ✓ | ~ | · | · | · | · | · | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | K | · | · | · | · |
 | harmonic | ~ | ✓ | ~ | · | ✓ | ✓ | ✓ | ✓ | ✓ | R | · | · | · | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · |
 | Guyan reduction | ~ | ✓ | ~ | · | ✓ | · | ✓ | ✓ | · | · | · | · | · | · | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · | · | · | · |
@@ -187,7 +181,7 @@ Features:
 - **F27** shell edge load
 - **F28** shell thermal load
 
-Totals: · 174, ✓ 571, R 78, ~ 12, E 2, BAD 3
+Totals: · 174, ✓ 576, R 75, ~ 12, E 2, BAD 1
 
 Notes on every cell that is not ✓ or ·:
 
@@ -209,13 +203,8 @@ Notes on every cell that is not ✓ or ·:
 - fiber nonlinear × member end release: released into support: R Fiber-nonlinear analysis does not support member end releases (hinges) (member 12); it would solve the model w…
 - plastic collapse × spring support (translational): propped cantilever: R Plastic (pushover) analysis does not support support springs (support at node 7); it would solve the model wit…
 - plastic collapse × spring support (rotational): spring-restrained beam: R Plastic (pushover) analysis does not support support springs (support at node 1); it would solve the model wit…
-- fiber nonlinear × inclined support: roller normal at 30°: R Fiber-nonlinear analysis does not support inclined supports (support at node 7); it would solve the model with…
 - staged (one stage) × inclined support: roller normal at 30°: R Inclined supports are not yet supported in staged construction analysis (reactions would be reported in the ro…
-- contact (no gaps) × inclined support: roller normal at 30°: R Contact analysis does not support inclined supports (support at node 7); it would solve the model without them…
-- SSI (no soil springs) × inclined support: roller normal at 30°: R Soil-structure interaction analysis does not support inclined supports (support at node 7); it would solve the…
-- buckling × inclined support — known, PR #287 (fix/inclined-supports): roller normal at 30°: BAD differs from the equivalent model by 8.97e-1
-- time history × inclined support — known, PR #287 (fix/inclined-supports): roller normal at 30°: BAD differs from the equivalent model by 2.17e-1
-- spectral × inclined support: roller normal at 30°: ~ changes the answer by 7.7e7; no independent reference
+- spectral × inclined support: roller normal at 30°: ~ changes the answer by 7.2e5; no independent reference
 - corotational × prescribed displacement: support settlement: R Corotational analysis does not support prescribed support displacements (support at node 7); it would solve th…
 - corotational (sparse path) × prescribed displacement: support settlement: R Corotational analysis does not support prescribed support displacements (support at node 7); it would solve th…
 - fiber nonlinear × prescribed displacement: support settlement: R Fiber-nonlinear analysis does not support prescribed support displacements (support at node 7); it would solve…
@@ -257,15 +246,15 @@ Notes on every cell that is not ✓ or ·:
 - material nonlinear (sparse path) × curved shell: strip cantilever, ν = 0: R Material-nonlinear analysis does not support shell elements (curved shell 1, curved shell 2, curved shell 3, ……
 - fiber nonlinear × curved shell: strip cantilever, ν = 0: R Fiber-nonlinear analysis does not support shell elements (curved shell 1, curved shell 2, curved shell 3, … (1…
 - staged (one stage) × curved shell: strip cantilever, ν = 0: R Staged construction analysis does not support curved shell elements; it would solve the model without them. Re…
-- linear (sparse path) × solid shell — known, PR #289 (fix/solidshell): strip cantilever, ν = 0: E error: Singular stiffness matrix — structure is a mechanism
-- P-Delta (sparse path) × solid shell — known, PR #289 (fix/solidshell): strip cantilever, ν = 0: E error: Singular stiffness matrix — structure is a mechanism
+- linear (sparse path) × solid shell — known, open — not fixed by PR #289 (fix/solidshell): strip cantilever, ν = 0: E error: Singular stiffness matrix — structure is a mechanism
+- P-Delta (sparse path) × solid shell — known, open — not fixed by PR #289 (fix/solidshell): strip cantilever, ν = 0: E error: Singular stiffness matrix — structure is a mechanism
 - corotational × solid shell: strip cantilever, ν = 0: R Corotational 3D solver does not support shell elements. Use the linear solver for models with plates, quads, o…
 - corotational (sparse path) × solid shell: strip cantilever, ν = 0: R Corotational 3D solver does not support shell elements. Use the linear solver for models with plates, quads, o…
 - material nonlinear × solid shell: strip cantilever, ν = 0: R Material-nonlinear analysis does not support shell elements (solid shell 1, solid shell 2, solid shell 3, … (1…
 - material nonlinear (sparse path) × solid shell: strip cantilever, ν = 0: R Material-nonlinear analysis does not support shell elements (solid shell 1, solid shell 2, solid shell 3, … (1…
 - fiber nonlinear × solid shell: strip cantilever, ν = 0: R Fiber-nonlinear analysis does not support shell elements (solid shell 1, solid shell 2, solid shell 3, … (16 i…
 - staged (one stage) × solid shell: strip cantilever, ν = 0: R Staged construction analysis does not support solid shell elements; it would solve the model without them. Rem…
-- spectral × solid shell — known, PR #289 (fix/solidshell): strip cantilever, ν = 0: BAD differs from the equivalent model by 7.79e7
+- spectral × solid shell — known, open — not fixed by PR #289 (fix/solidshell): strip cantilever, ν = 0: BAD differs from the equivalent model by 7.79e7
 - corotational × shell pressure load: MITC4 strip: R Corotational 3D solver does not support shell elements. Use the linear solver for models with plates, quads, o…
 - corotational (sparse path) × shell pressure load: MITC4 strip: R Corotational 3D solver does not support shell elements. Use the linear solver for models with plates, quads, o…
 - material nonlinear × shell pressure load: MITC4 strip: R Material-nonlinear analysis does not support shell elements (quad 1, quad 2, quad 3, … (16 in all)); it would …

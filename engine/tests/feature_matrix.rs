@@ -1600,7 +1600,8 @@ const KNOWN: &[(&str, &str, &str, &str)] = &[
     ("3D", "inclined support", "buckling", "PR #287 (fix/inclined-supports)"),
     ("3D", "inclined support", "time history", "PR #287 (fix/inclined-supports)"),
     // Solid shell: singular on the sparse path, spurious modes in the spectral sum.
-    ("3D", "solid shell", "", "PR #289 (fix/solidshell)"),
+    // Still open with PR #289 (fix/solidshell) merged (integration/safety-wave).
+    ("3D", "solid shell", "", "open — not fixed by PR #289 (fix/solidshell)"),
 ];
 
 fn known_for(dim: &str, feature: &str, analysis: &str) -> Option<&'static str> {

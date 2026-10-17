@@ -119,12 +119,13 @@ pub fn solve_arc_length(input: &ArcLengthInput) -> Result<ArcLengthResult, Strin
     // node that does not exist panicked there, which in WASM ends the
     // module rather than the call.
     super::linear::validate_input_2d(&input.solver)?;
-    // The co-rotational tangent here carries no connectors, no prescribed
-    // displacements and no inclined-support rotation, and it treats
-    // temperature as fixed global forces (see `solve_corotational_2d`).
+    // The co-rotational tangent here carries no connectors and no prescribed
+    // displacements, and it treats temperature as fixed global forces (see
+    // `solve_corotational_2d`). Inclined rollers are solved in their frames
+    // (fix/inclined-supports, checked against the rotated model).
     super::feature_gates::refuse_2d(&input.solver, "Arc-length analysis", &[
         super::feature_gates::Feature::Connectors, super::feature_gates::Feature::PrescribedDisplacements,
-        super::feature_gates::Feature::InclinedSupports, super::feature_gates::Feature::ThermalLoads,
+        super::feature_gates::Feature::ThermalLoads,
     ])?;
 
     let dof_num = DofNumbering::build_2d(&input.solver);
