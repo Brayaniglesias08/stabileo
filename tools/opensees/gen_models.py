@@ -481,7 +481,10 @@ def job(kind, dim, seed):
                             for n in range(nsteps + 1)]
         j["groundDir"] = rng.choice([1, 1, 2] if dim == 2 else [1, 2, 3])
     else:
-        t1 = rng.uniform(0.1, 0.5) * nsteps * dt
+        # Breakpoints on steps: HHT evaluates the load at t_n + (1+alpha) dt in
+        # OpenSees, a sample-and-blend of f_n, f_n+1 in the engine; the two
+        # agree only while the load is linear over the step.
+        t1 = round(rng.uniform(0.1, 0.5) * nsteps) * dt
         j["forceTimes"] = [0.0, t1, 2 * t1, 3 * t1]
         j["forceFactors"] = [0.0, 1.0, rng.uniform(-1, 1), 0.0]
         nodal = [ld["data"] for ld in loads if ld["type"] == "nodal"]

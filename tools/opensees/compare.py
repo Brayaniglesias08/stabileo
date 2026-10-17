@@ -345,6 +345,9 @@ def opensees_2d(d, mode="static", spec=None):
     max_id = max(list(nodes) + [e["id"] for e in elems] + [0])
     tag = 10 ** (len(str(max_id)) + 1)
     spring_elems = []
+    # The engine's Rayleigh C = a0*M + a1*K includes the support springs;
+    # zeroLength skips Rayleigh damping unless asked.
+    ray = ["-doRayleigh", 1] if dens else []
     for sp in springs:
         nid = sp[0]
         tag += 1
@@ -358,11 +361,11 @@ def opensees_2d(d, mode="static", spec=None):
             tag += 1
             c, s_ = math.cos(ang), math.sin(ang)
             ops.element("zeroLength", g, g, nid, "-mat", g, g + 1, "-dir", 1, 2,
-                        "-orient", c, s_, 0.0, -s_, c, 0.0)
+                        "-orient", c, s_, 0.0, -s_, c, 0.0, *ray)
         else:
             _, dof, k = sp
             ops.uniaxialMaterial("Elastic", g, k)
-            ops.element("zeroLength", g, g, nid, "-mat", g, "-dir", dof + 1)
+            ops.element("zeroLength", g, g, nid, "-mat", g, "-dir", dof + 1, *ray)
         spring_elems.append((nid, g))
 
     # Member loads (local axes). Full-length uniform loads use -beamUniform;
@@ -430,7 +433,8 @@ def opensees_2d(d, mode="static", spec=None):
         if e["type"] == "truss":
             tag += 1
             ops.uniaxialMaterial("Elastic", tag, E)
-            mass = ["-rho", _rho_a(dens, m, sec), "-cMass", 1] if dens else []
+            # -doRayleigh: Truss skips Rayleigh damping unless asked.
+            mass = ["-rho", _rho_a(dens, m, sec), "-cMass", 1, "-doRayleigh", 1] if dens else []
             ops.element("Truss", e["id"], e["nodeI"], e["nodeJ"], sec["a"], tag, *mass)
             continue
         ops.geomTransf("Linear", e["id"])
@@ -673,12 +677,15 @@ def opensees_3d(d, mode="static", spec=None):
     max_id = max(list(nodes) + [e["id"] for e in elems] + [0])
     tag = 10 ** (len(str(max_id)) + 1)
     spring_elems = []
+    # The engine's Rayleigh C = a0*M + a1*K includes the support springs;
+    # zeroLength skips Rayleigh damping unless asked.
+    ray = ["-doRayleigh", 1] if dens else []
     for nid, k, kv in springs:
         tag += 1
         ops.node(tag, *nodes[nid])
         ops.fix(tag, *([1] * ndf))
         ops.uniaxialMaterial("Elastic", tag, kv)
-        ops.element("zeroLength", tag, tag, nid, "-mat", tag, "-dir", k + 1)
+        ops.element("zeroLength", tag, tag, nid, "-mat", tag, "-dir", k + 1, *ray)
         spring_elems.append((nid, tag))
 
     # Member loads, local axes. Concentrated loads (point loads, and the
@@ -748,7 +755,8 @@ def opensees_3d(d, mode="static", spec=None):
         if e["type"] == "truss":
             tag += 1
             ops.uniaxialMaterial("Elastic", tag, E)
-            mass = ["-rho", _rho_a(dens, m, sec), "-cMass", 1] if dens else []
+            # -doRayleigh: Truss skips Rayleigh damping unless asked.
+            mass = ["-rho", _rho_a(dens, m, sec), "-cMass", 1, "-doRayleigh", 1] if dens else []
             ops.element("Truss", e["id"], e["nodeI"], e["nodeJ"], sec["a"], tag, *mass)
             continue
         ops.geomTransf("Linear", e["id"], *ez)
@@ -1130,7 +1138,10 @@ def analysis_th(ctx):
         ops.rayleigh(2 * xi * w1 * w2 / (w1 + w2), 2 * xi / (w1 + w2), 0.0, 0.0)
     dt, nsteps = float(sp["dt"]), int(sp["nSteps"])
     if sp.get("groundAccel") is not None:
-        ops.timeSeries("Path", 101, "-dt", dt, "-values", *sp["groundAccel"])
+        # One more sample: the last step's time, accumulated in floating
+        # point, lands just past the record, where a Path series is 0.
+        vals = list(sp["groundAccel"])
+        ops.timeSeries("Path", 101, "-dt", dt, "-values", *(vals + vals[-1:]))
         ops.pattern("UniformExcitation", 101, int(sp["groundDir"]), "-accel", 101)
     else:
         ops.timeSeries("Path", 101, "-time", *sp["forceTimes"], "-values", *sp["forceFactors"], "-useLast")
@@ -1156,6 +1167,58 @@ def analysis_th(ctx):
             u = list(ops.nodeDisp(nid))[:ctx["ndf"]]
             hist[nid].append(u + [0.0] * (width - len(u)))
     return dict(dim=ctx["dim"], kappa=_kappa(k), art_rot=sorted(ctx["art_rot"]), hist=hist)
+
+
+def _planar_th_in_3d(d, spec):
+    """A 2D ground-motion history run on the plane frame embedded in 3D (the
+    y = 0 plane, out-of-plane DOFs fixed). OpenSees 3.8's ElasticBeam2d and
+    ElasticTimoshenkoBeam2d subtract their UniformExcitation inertia load
+    twice (getResistingForce and getResistingForceIncInertia both do), which
+    doubles the earthquake on every 2D beam with mass; ElasticBeam3d does it
+    once. In-plane bending of the 3D member is about its local y (local z
+    lies in the plane for the engine's default axes), so Iy = Iz(2D), a hinge
+    is a My release and ry(2D) = -ry(3D)."""
+    if any(s.get("angle") for s in d["supports"].values()):
+        raise Unsupported("rotated spring in a planar ground-motion history")
+    flags = {"fixed": (1, 1, 1), "pinned": (1, 1, 0), "rollerX": (0, 1, 0), "rollerY": (1, 0, 0),
+             "rollerZ": (1, 0, 0), "guidedX": (0, 1, 1), "guidedY": (1, 0, 1), "guidedZ": (1, 0, 1),
+             "spring": (0, 0, 0)}
+    win = {}
+    for s_ in sorted(d["supports"].values(), key=lambda s_: s_["id"]):
+        win[s_["nodeId"]] = s_  # the highest id wins (DofNumbering::build_2d)
+    sups = {}
+    for nid, s_ in win.items():
+        fx, fz, fr = flags[s_["type"]]
+        t = {"nodeId": nid, "rx": bool(fx), "ry": True, "rz": bool(fz), "rrx": True, "rry": bool(fr), "rrz": True}
+        for k2, k3 in (("kx", "kx"), ("ky", "kz"), ("kz", "kry")):
+            if (s_.get(k2) or 0.0) > 0:
+                t[k3] = s_[k2]
+        sups[str(nid)] = t
+    for n in d["nodes"].values():
+        if n["id"] not in win:
+            sups[f"p{n['id']}"] = {"nodeId": n["id"], "rx": False, "ry": True, "rz": False,
+                                   "rrx": True, "rry": False, "rrz": True}
+    secs = {}
+    for k, s_ in d["sections"].items():
+        t = {"id": s_["id"], "a": s_["a"], "iy": s_["iz"], "iz": s_["iz"], "j": s_["iz"]}
+        if s_.get("asY"):
+            t["asY"] = s_["asY"]
+        secs[k] = t
+    elems = {}
+    for k, e in d["elements"].items():
+        t = {x: e[x] for x in ("id", "type", "nodeI", "nodeJ", "materialId", "sectionId")}
+        if e.get("hingeStart"):
+            t["releaseMyStart"] = True
+        if e.get("hingeEnd"):
+            t["releaseMyEnd"] = True
+        elems[k] = t
+    d3 = {"nodes": {k: {"id": n["id"], "x": n["x"], "y": 0.0, "z": _get(n, "z", "y")} for k, n in d["nodes"].items()},
+          "materials": d["materials"], "sections": secs, "elements": elems, "supports": sups, "loads": []}
+    sp3 = dict(spec, groundDir={1: 1, 2: 3}[int(spec["groundDir"])])
+    r = opensees_3d(d3, "th", sp3)
+    r["dim"] = 2
+    r["hist"] = {nid: [[u[0], u[2], -u[4]] for u in h] for nid, h in r["hist"].items()}
+    return r
 
 
 ANALYSES = {"buckling": analysis_buckling, "modal": analysis_modal,
@@ -1439,7 +1502,10 @@ def opensees_worker(model):
                 spec["numModes"] += 1  # one more: the gap above the last compared mode
             if spec["analysis"] == "th":
                 d = dict(d, loads=[])
-            r = (opensees_3d if _is_3d(d) else opensees_2d)(d, spec["analysis"], spec)
+            if spec["analysis"] == "th" and spec.get("groundAccel") is not None and not _is_3d(d):
+                r = _planar_th_in_3d(d, spec)
+            else:
+                r = (opensees_3d if _is_3d(d) else opensees_2d)(d, spec["analysis"], spec)
         else:
             r = opensees_3d(model) if _is_3d(model) else opensees_2d(model)
     except Unsupported as ex:

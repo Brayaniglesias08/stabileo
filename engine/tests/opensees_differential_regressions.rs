@@ -3,8 +3,10 @@
 //! answer, which OpenSees also reproduces.
 
 use dedaliano_engine::solver::linear::{solve_2d, solve_3d};
-use dedaliano_engine::solver::{solve_buckling_2d, solve_buckling_3d, solve_modal_2d, solve_pdelta_2d, solve_pdelta_3d};
-use dedaliano_engine::types::{SolverInput, SolverInput3D};
+use dedaliano_engine::solver::{
+    solve_buckling_2d, solve_buckling_3d, solve_modal_2d, solve_pdelta_2d, solve_pdelta_3d, solve_time_history_2d,
+};
+use dedaliano_engine::types::{SolverInput, SolverInput3D, TimeHistoryInput};
 use serde_json::json;
 
 fn input_2d(v: serde_json::Value) -> SolverInput {
@@ -428,4 +430,52 @@ fn pdelta_3d_end_forces_balance_joints_and_reactions() {
     let base = re.mx.hypot(re.my);
     assert!(f.my_end.abs() < 1e-9 * base && f.mz_end.abs() < 1e-9 * base, "tip moments {} {}", f.my_end, f.mz_end);
     assert!(close(f.my_start.hypot(f.mz_start), base, 1e-9), "base end moment vs reaction");
+}
+
+/// Ground motion loads the free DOFs with −(M·r)_f·a_g, r the rigid-body
+/// translation of every DOF, the supports' included: with a consistent mass a
+/// free DOF is coupled to the supports' translations, and that coupling
+/// M_fr·r_r is part of the inertia of the rigid-body motion. The engine took
+/// M_ff·r_f only, so a frame on consistent mass felt too little of the
+/// earthquake (up to ~50 % on OpenSees' random frames). Here a truss bar
+/// along the motion, pinned at one end and on a roller at the other: one free
+/// DOF with mass 2m and coupling m to the support (m = ρAL/6), so
+/// 2m·ü + k·u = −3m·a_g, integrated here with the same Newmark recurrence.
+#[test]
+fn ground_motion_includes_mass_coupled_to_supports() {
+    let (l, a, rho, dt, n) = (2.0, 0.01, 7850.0, 0.002, 100usize);
+    let k = 200000.0 * 1000.0 * a / l;
+    let m = rho * a / 1000.0 * l / 6.0;
+    let ag: Vec<f64> = (0..=n).map(|i| (2.0 * std::f64::consts::PI * 5.0 * i as f64 * dt).sin()).collect();
+    let solver = json!({
+        "nodes": {"1": {"id": 1, "x": 0.0, "z": 0.0}, "2": {"id": 2, "x": l, "z": 0.0}},
+        "materials": {"1": {"id": 1, "e": 200000.0, "nu": 0.3}},
+        "sections": {"1": {"id": 1, "a": a, "iz": 1e-4}},
+        "elements": {"1": {"id": 1, "type": "truss", "nodeI": 1, "nodeJ": 2,
+                           "materialId": 1, "sectionId": 1}},
+        "supports": {"1": {"id": 1, "nodeId": 1, "type": "pinned"},
+                     "2": {"id": 2, "nodeId": 2, "type": "rollerX"}},
+        "loads": []
+    });
+    let input: TimeHistoryInput = serde_json::from_value(json!({
+        "solver": solver, "densities": {"1": rho}, "timeStep": dt, "nSteps": n,
+        "groundAccel": ag, "groundDirection": "X"
+    })).unwrap();
+    let res = solve_time_history_2d(&input).unwrap();
+    let ux = &res.node_histories.iter().find(|h| h.node_id == 2).unwrap().ux;
+    // Newmark average acceleration on 2m·ü + k·u = f, f = −3m·a_g.
+    let (mass, f) = (2.0 * m, |i: usize| -3.0 * m * ag[i]);
+    let (mut u, mut v, mut acc) = (0.0, 0.0, f(0) / mass);
+    let keff = k + 4.0 * mass / (dt * dt);
+    let mut worst = 0.0f64;
+    for i in 1..=n {
+        let un = (f(i) + mass * (4.0 * u / (dt * dt) + 4.0 * v / dt + acc)) / keff;
+        let an = 4.0 * (un - u) / (dt * dt) - 4.0 * v / dt - acc;
+        v += dt / 2.0 * (acc + an);
+        u = un;
+        acc = an;
+        worst = worst.max((ux[i] - u).abs());
+    }
+    let peak = ux.iter().fold(0.0f64, |p, x| p.max(x.abs()));
+    assert!(worst <= 1e-9 * peak, "max |u − u_ref| = {worst:.3e}, peak {peak:.3e}");
 }

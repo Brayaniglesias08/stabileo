@@ -14,8 +14,8 @@ It should capture what changed, not what should be built next.
 #### Solver fixes found by extending the OpenSees comparison to buckling, modal, P-Delta and time history (2026-10-17)
 
 **BREAKING (results): buckling load factors of models with axial point loads or partial /
-trapezoidal axial loads on members change, P-Delta member end forces change, and small
-modal models with massless DOFs now solve.** Found by `tools/opensees/compare.py --buckling2d/3d --modal2d/3d`; each has a
+trapezoidal axial loads on members change, P-Delta member end forces change, ground-motion
+time histories change, and small modal models with massless DOFs now solve.** Found by `tools/opensees/compare.py --buckling2d/3d --modal2d/3d`; each has a
 regression test in `engine/tests/opensees_differential_regressions.rs`.
 
 - **Buckling took each member's axial force as (N_start + N_end)/2.** The geometric
@@ -29,6 +29,13 @@ regression test in `engine/tests/opensees_differential_regressions.rs`.
   so they balanced neither the joints nor the reactions: a free cantilever tip reported a
   moment and the base moment was not H·L + P·Δ. End forces are now (K + Kg(N))·u − FEF
   for frame members; OpenSees agrees to ~1e-10 on 596 random frames.
+- **Ground motion left out the mass coupled to the supports.** The relative-motion load
+  is −(M·r)_f·a_g with r the rigid-body translation of every DOF, supports included; with
+  a consistent mass the free DOFs are coupled to the supports' translations (M_fr·r_r),
+  and the time history took M_ff·r_f only: a bar on two supports felt half the
+  earthquake, random frames up to ~50 % less in OpenSees' comparison. The influence vector
+  now spans every DOF (the full mass is assembled only when a restrained DOF moves with
+  the ground), in 2D and 3D. Modal participation factors still use M_ff·r_f.
 - **Modal analysis failed on small models with a massless DOF.** Hinged members (and
   3D members with any release) get a lumped mass with no rotational inertia, and a node
   of trusses only has none either; the dense eigensolver used below 80 DOFs
