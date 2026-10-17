@@ -72,7 +72,7 @@ pub fn solve_modal_2d(
 
     // Constraint transform, if any: K and M reduce as sparse triple products
     // on the large-model branch, never densifying.
-    let cs = FreeConstraintSystem::build_2d(&input.constraints, &dof_num, &input.nodes);
+    let cs = FreeConstraintSystem::build_2d(&input, &dof_num)?;
     let free_idx: Vec<usize> = (0..nf).collect();
 
     // K is assembled in the inclined-roller frames (the same rotations by
@@ -344,7 +344,7 @@ pub fn solve_modal_3d(
     let sasm = assemble_sparse_3d(input, &dof_num, false);
 
     // Apply constraint transform if present
-    let cs = FreeConstraintSystem::build_3d(&input.constraints, &dof_num, &input.nodes);
+    let cs = FreeConstraintSystem::build_3d(&input, &dof_num)?;
     let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
 
     // Mass matrix: sparse CSC (free block). With the sparse constraint

@@ -400,7 +400,7 @@ fn check_2d(input: &SolverInput, densities: &HashMap<String, f64>, seed: u64) ->
     // Constrained reductions, dense vs sparse.
     let mut ci = input.clone();
     add_random_constraints_2d(&mut ci, seed);
-    if let Some(cs) = FreeConstraintSystem::build_2d(&ci.constraints, &dn, &ci.nodes) {
+    if let Ok(Some(cs)) = FreeConstraintSystem::build_2d(&ci, &dn) {
         let p = cs.n_free_indep;
         c.mat("2d.constrained.k", &dense(&cs.reduce_matrix_sparse(&sp.k_ff)), &cs.reduce_matrix(&block(k, n, &free)), p);
         let msp = assemble_mass_matrix_2d_sparse(input, &dn, densities);
@@ -699,7 +699,7 @@ fn check_3d(input: &SolverInput3D, densities: &HashMap<String, f64>, seed: u64) 
 
     let mut ci = input.clone();
     add_random_constraints_3d(&mut ci, seed);
-    if let Some(cs) = FreeConstraintSystem::build_3d(&ci.constraints, &dn, &ci.nodes) {
+    if let Ok(Some(cs)) = FreeConstraintSystem::build_3d(&ci, &dn) {
         let p = cs.n_free_indep;
         let sp = assemble_stiffness_sparse_3d(input, &dn, false);
         c.mat("3d.constrained.k", &dense(&cs.reduce_matrix_sparse(&sp.k_ff)), &cs.reduce_matrix(&block(k, n, &free)), p);

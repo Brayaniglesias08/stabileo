@@ -125,7 +125,7 @@ pub fn solve_harmonic_2d_with_damping(input: &HarmonicInput) -> Result<(Harmonic
     // products, so the constrained case stays sparse end to end too. K and F
     // are in the inclined-roller frames (the same by either assembler), M
     // is rotated with them, and the response is read in global axes.
-    let cs = FreeConstraintSystem::build_2d(&input.solver.constraints, &dof_num, &input.solver.nodes);
+    let cs = FreeConstraintSystem::build_2d(&input.solver, &dof_num)?;
     let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
 
     if nf >= super::linear::SPARSE_THRESHOLD {
@@ -298,7 +298,7 @@ pub fn solve_harmonic_3d_with_damping(input: &HarmonicInput3D) -> Result<(Harmon
     let f_ff: Vec<f64> = sasm.f[..nf].to_vec();
 
     // Apply constraint reduction if constraints present
-    let cs = FreeConstraintSystem::build_3d(&input.solver.constraints, &dof_num, &input.solver.nodes);
+    let cs = FreeConstraintSystem::build_3d(&input.solver, &dof_num)?;
     let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
 
     // Sparse modal path with sparse mass (avoids the dense n² mass matrix).

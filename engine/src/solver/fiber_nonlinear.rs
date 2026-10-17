@@ -98,7 +98,7 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
     let n_ip = input.n_integration_points.max(2).min(7);
 
     // Build constraint system (if constraints present)
-    let cs = FreeConstraintSystem::build_2d(&input.solver.constraints, &dof_num, &input.solver.nodes);
+    let cs = FreeConstraintSystem::build_2d(&input.solver, &dof_num)?;
     let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
 
     // Reference load vector
@@ -393,7 +393,7 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
         let free_idx: Vec<usize> = (0..nf).collect();
         let k_ff = extract_submatrix(&k_t_final, n, &free_idx, &free_idx);
         let raw = fcs.compute_constraint_forces(&k_ff, &u_full[..nf], &f_total[..nf]);
-        super::constraints::map_dof_forces_to_constraint_forces(&raw, &dof_num)
+        fcs.constraint_forces(&raw, &dof_num)
     } else {
         vec![]
     };
@@ -676,7 +676,7 @@ pub fn solve_fiber_nonlinear_3d(input: &FiberNonlinearInput3D) -> Result<FiberNo
     let n_ip = input.n_integration_points.max(2).min(7);
 
     // Build constraint system (if constraints present)
-    let cs = FreeConstraintSystem::build_3d(&input.solver.constraints, &dof_num, &input.solver.nodes);
+    let cs = FreeConstraintSystem::build_3d(&input.solver, &dof_num)?;
     let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
 
     // Global-axes iteration, steps solved in the inclined-support frames (see 2D).
@@ -952,7 +952,7 @@ pub fn solve_fiber_nonlinear_3d(input: &FiberNonlinearInput3D) -> Result<FiberNo
         let free_idx: Vec<usize> = (0..nf).collect();
         let k_ff = extract_submatrix(&k_t_final, n, &free_idx, &free_idx);
         let raw = fcs.compute_constraint_forces(&k_ff, &u_full[..nf], &f_total[..nf]);
-        super::constraints::map_dof_forces_to_constraint_forces(&raw, &dof_num)
+        fcs.constraint_forces(&raw, &dof_num)
     } else {
         vec![]
     };

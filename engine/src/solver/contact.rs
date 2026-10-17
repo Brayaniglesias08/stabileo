@@ -751,7 +751,7 @@ pub fn solve_contact_2d(input: &ContactInput) -> Result<ContactResult, String> {
     let n = dof_num.n_total;
     let nf = dof_num.n_free;
 
-    let cs = FreeConstraintSystem::build_2d(&input.solver.constraints, &dof_num, &input.solver.nodes);
+    let cs = FreeConstraintSystem::build_2d(&input.solver, &dof_num)?;
     let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
     let use_sparse = ns >= linear::SPARSE_THRESHOLD;
 
@@ -1001,7 +1001,7 @@ pub fn solve_contact_2d(input: &ContactInput) -> Result<ContactResult, String> {
     );
     reactions.sort_by_key(|r| r.node_id);
     let constraint_forces = match &cs {
-        Some(cs) => super::constraints::map_dof_forces_to_constraint_forces(
+        Some(cs) => cs.constraint_forces(
             &cs.constraint_forces_from_residual(&residual[..nf]),
             &dof_num,
         ),
@@ -1221,7 +1221,7 @@ pub fn solve_contact_3d(input: &ContactInput3D) -> Result<ContactResult3D, Strin
     let n = dof_num.n_total;
     let nf = dof_num.n_free;
 
-    let cs = FreeConstraintSystem::build_3d(&input_solver.constraints, &dof_num, &input_solver.nodes);
+    let cs = FreeConstraintSystem::build_3d(&input_solver, &dof_num)?;
     let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
     let use_sparse = ns >= linear::SPARSE_THRESHOLD;
 
@@ -1459,7 +1459,7 @@ pub fn solve_contact_3d(input: &ContactInput3D) -> Result<ContactResult3D, Strin
     );
     reactions.sort_by_key(|r| r.node_id);
     let constraint_forces = match &cs {
-        Some(cs) => super::constraints::map_dof_forces_to_constraint_forces(
+        Some(cs) => cs.constraint_forces(
             &cs.constraint_forces_from_residual(&residual[..nf]),
             &dof_num,
         ),
