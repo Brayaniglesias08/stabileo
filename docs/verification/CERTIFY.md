@@ -430,8 +430,9 @@ inconclusive at this precision.
   possibly non-zero `Nu` is refused (the f64 check flags it incomplete).
 
 Wasm: `certify_steel_members`, `certify_ec3_members`, `certify_ec2_members`,
-`certify_cirsoc201_members`, `certify_rc_members` (bounded
-demands in; `ec3_demands` / `ec2_demands` / `cirsoc201_demands` / `rc_demands` convert the station demand sets and
+`certify_cirsoc201_members`, `certify_rc_members`, `certify_timber_members` (bounded
+demands in; `ec3_demands` / `ec2_demands` / `cirsoc201_demands` / `rc_demands` /
+`timber_demands` convert the station demand sets and
 `scale_demands` changes units, e.g. kN → N for EC2's Pa-based formulas, widening each
 bound by the scaling's rounding), `certify_steel_multi_case_2d/3d`
 (multi-case model + members in, `{ analysis, steel }` out).
@@ -443,7 +444,13 @@ bound by the scaling's rounding), `certify_steel_multi_case_2d/3d`
 | EC2 (`ec2_check`): RC flexure 6.1 (rectangular block, singly / doubly reinforced, compression-steel yield branch), shear 6.2 (VRd,c with the NEd axial term over the whole NEd interval, VRd,s, VRd,max) | **certified** |
 | CIRSOC 201 (`cirsoc201_check`): RC flexure 10.2 (strain compatibility, singly / doubly reinforced, compression- and tension-steel yield branches, φ 9.3.2 with εty = 0.002 for fy ≤ 420 MPa else fy/Es), shear Cap. 11 (Vc with √f'c ≤ 25/3, Vs, Vs,max) | **certified** |
 | ACI 318-19 (`rc_check`): RC flexure 22.2 (strain compatibility, rectangular singly / doubly, T-beam flange / web), P-M interaction 22.4 at the axial load, axial capacity 22.4.2.1 / 22.4.3.1, φ Table 21.2.2, shear 22.5.5.1 (Av,min switch, λs, √f'c ≤ 8.3, Vs,max) | **certified** |
-| timber, masonry, CFS, connections, foundations, serviceability | not certified (f64 only) |
+| NDS timber (`timber_check`): bending 3.3 (CL with the Table 3.3.3 effective span), compression 3.6 (CP), tension 3.8, shear 3.4, interaction 3.9.1 / 3.9.2 (FcE1 amplification, saturated at 99) | **certified** |
+| masonry, CFS, connections, foundations, serviceability | not certified (f64 only) |
+
+Timber note: past buckling (`fc ≥ FcE1`) the f64 check saturates the 3.9.2 ratio at 99;
+the amplified term is written `fb/max(1 − fc/FcE1, fb/99)` (equal after the final
+`min(·, 99)`, and finite), so a box reaching `FcE1` has an enclosure reaching 99. A box
+that also contains a zero moment is refused (the term jumps 0 → 99 there).
 
 EC3 note: an unbraced length `lb = 0` gives `Mcr = x/0`; the f64 check reads it as no
 LTB reduction, the interval check refuses (division by an interval containing 0).

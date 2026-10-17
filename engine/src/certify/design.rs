@@ -36,6 +36,9 @@ use crate::postprocess::rc_check::{
     RC_SHEAR,
 };
 use crate::postprocess::rc_flexure::RcFlexureSection;
+use crate::postprocess::timber_check::{
+    timber_capacities, timber_interaction, TimberCapacities, TimberDesignForces, TimberMemberData, TIMBER_CHECK_NAMES,
+};
 use crate::postprocess::ec3_check::{ec3_capacities, Ec3Capacities, Ec3DesignForces, Ec3MemberData};
 use crate::postprocess::steel_check::{
     compression_capacity, flexural_capacity_y, flexural_capacity_z, interaction_h1, shear_capacity,
@@ -710,6 +713,81 @@ pub fn rc_demands(demands: &[BoundedSteelDemand]) -> Vec<BoundedRcDemand> {
         .iter()
         .map(|d| BoundedRcDemand {
             forces: RCDesignForces { element_id: d.forces.element_id, mu: d.forces.my, vu: d.forces.vy, nu: Some(d.forces.n) },
+            bound: d.bound,
+        })
+        .collect()
+}
+
+// ───────────────────────────── NDS timber ─────────────────────────────
+
+/// NDS timber design forces with their certified error bounds (`my`→M,
+/// `n`→N tension-positive, `vy`→V; `mz` unused).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoundedTimberDemand {
+    pub forces: TimberDesignForces,
+    pub bound: DemandBound,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CertifiedTimberCheckInput {
+    pub members: Vec<TimberMemberData>,
+    pub demands: Vec<BoundedTimberDemand>,
+}
+
+/// Interval enclosures of the five NDS ratios for one demand box. Mirrors
+/// `timber_check::check_single_timber_member` (the adjusted design values and
+/// the 3.9 interaction are the same generic functions). Requires b, d > 0.
+pub fn timber_ratio_enclosures(
+    m: &TimberMemberData,
+    f: &TimberDesignForces,
+    b: &DemandBound,
+) -> Result<[Interval; 5], String> {
+    let names = TIMBER_CHECK_NAMES;
+    let mm = around(f.m, b.my, "M")?.abs();
+    let n = around(f.n.unwrap_or(0.0), b.n, "N")?;
+    let v = around(f.v.unwrap_or(0.0), b.vy, "V")?.abs();
+    if !(m.b > 0.0 && m.d > 0.0 && m.b.is_finite() && m.d.is_finite()) {
+        return Err(format!("section b = {}, d = {} not positive", m.b, m.d));
+    }
+    let zero = Interval::ZERO;
+    let caps: TimberCapacities<Interval> = timber_capacities(m);
+    let fb = mm.div(caps.s);
+    let fv = (Interval::point(1.5) * v).div(caps.area);
+    // `CheckLedger::ratio`: Fb' must be certified positive even without a moment.
+    let bending = required_ratio(names[0], fb, caps.fb_prime)?;
+    let compression = loaded_ratio(names[1], (-n).max(zero).div(caps.area), caps.fc_prime)?;
+    let tension = loaded_ratio(names[2], n.max(zero).div(caps.area), caps.ft_prime)?;
+    let shear = loaded_ratio(names[3], fv, caps.fv_prime)?;
+    let interaction = timber_interaction(m, &caps, n, bending, tension);
+    let out = [bending, compression, tension, shear, interaction];
+    for (r, name) in out.iter().zip(names) {
+        if !r.is_finite() {
+            return Err(format!("{name}: enclosure not finite"));
+        }
+    }
+    Ok(out)
+}
+
+/// Certified NDS timber member checks.
+pub fn certify_timber_members(input: &CertifiedTimberCheckInput) -> Vec<CertifiedMemberResult> {
+    certify_members(
+        &input.members,
+        |m| m.element_id,
+        &input.demands,
+        |d| d.forces.element_id,
+        &TIMBER_CHECK_NAMES,
+        |m, d| timber_ratio_enclosures(m, &d.forces, &d.bound).map(|r| r.to_vec()),
+    )
+}
+
+/// The same demand sets in NDS timber form (major-axis moment, axial, shear).
+pub fn timber_demands(demands: &[BoundedSteelDemand]) -> Vec<BoundedTimberDemand> {
+    demands
+        .iter()
+        .map(|d| BoundedTimberDemand {
+            forces: TimberDesignForces { element_id: d.forces.element_id, m: d.forces.my, n: Some(d.forces.n), v: d.forces.vy },
             bound: d.bound,
         })
         .collect()
@@ -1616,6 +1694,148 @@ mod tests {
             let tol = 1e-12 * p[k].abs();
             assert!(r[k].lo - tol <= p[k] && p[k] <= r[k].hi + tol, "{k}: {} ∉ {:?}", p[k], r[k]);
         }
+    }
+
+    // ───────────── NDS timber ─────────────
+
+    use crate::postprocess::timber_check::{check_timber_members, TimberCheckInput};
+
+    fn timber_member(g: &mut Lcg, id: usize) -> TimberMemberData {
+        let b = g.range(0.038, 0.2);
+        let d = g.range(0.089, 0.4);
+        let opt = |g: &mut Lcg, lo: f64, hi: f64| if g.unit() < 0.5 { None } else { Some(g.range(lo, hi)) };
+        TimberMemberData {
+            element_id: id,
+            fb: g.range(5e6, 15e6),
+            ft: g.range(3e6, 9e6),
+            fc: g.range(6e6, 12e6),
+            fv: g.range(0.9e6, 1.4e6),
+            e: g.range(8e9, 13e9),
+            e_min: if g.unit() < 0.5 { None } else { Some(g.range(3e9, 5e9)) },
+            b,
+            d,
+            le: g.range(0.5, 6.0),
+            lu: opt(g, 0.3, 6.0),
+            cd: opt(g, 0.9, 1.6),
+            cm: opt(g, 0.8, 1.0),
+            ct: opt(g, 0.7, 1.0),
+            cf_bending: opt(g, 1.0, 1.5),
+            cf_tension: opt(g, 1.0, 1.5),
+            cf_compression: opt(g, 1.0, 1.15),
+            cfu: opt(g, 1.0, 1.2),
+            ci: opt(g, 0.8, 1.0),
+            cr: opt(g, 1.0, 1.15),
+        }
+    }
+
+    fn timber_forces(g: &mut Lcg, m: &TimberMemberData) -> TimberDesignForces {
+        let a = m.b * m.d;
+        TimberDesignForces {
+            element_id: m.element_id,
+            m: g.range(-1.0, 1.0) * 10e6 * m.b * m.d * m.d / 6.0,
+            n: if g.unit() < 0.2 { None } else { Some(g.range(-1.2, 0.8) * 8e6 * a) },
+            v: if g.unit() < 0.2 { None } else { Some(g.range(-1.0, 1.0) * 1e6 * a) },
+        }
+    }
+
+    fn timber_f64(m: &TimberMemberData, f: &TimberDesignForces) -> [f64; 5] {
+        let r = &check_timber_members(&TimberCheckInput { members: vec![m.clone()], forces: vec![f.clone()] })[0];
+        assert!(r.unevaluated.is_empty(), "{:?}", r.unevaluated);
+        [r.bending_ratio, r.compression_ratio, r.tension_ratio, r.shear_ratio, r.interaction_ratio]
+    }
+
+    #[test]
+    fn timber_f64_and_interval_paths_agree_on_points() {
+        let mut g = Lcg(1997);
+        for i in 0..4000 {
+            let m = timber_member(&mut g, i);
+            let f = timber_forces(&mut g, &m);
+            let r = timber_ratio_enclosures(&m, &f, &ZERO_BOUND).unwrap();
+            let p = timber_f64(&m, &f);
+            for k in 0..5 {
+                let tol = 1e-12 * p[k].abs();
+                assert!(r[k].lo - tol <= p[k] && p[k] <= r[k].hi + tol, "{i}/{k}: {} ∉ {:?}", p[k], r[k]);
+                assert!(r[k].hi - r[k].lo <= 1e-11 * p[k].abs().max(1e-12), "{i}/{k}: wide {:?}", r[k]);
+            }
+        }
+    }
+
+    #[test]
+    fn timber_enclosure_contains_sampled_demands() {
+        let mut g = Lcg(1998);
+        let mut checked = 0;
+        for i in 0..400 {
+            let m = timber_member(&mut g, i);
+            let f = timber_forces(&mut g, &m);
+            let b = DemandBound {
+                n: f.n.unwrap_or(0.0).abs() * g.range(0.0, 0.3) + 1.0,
+                my: f.m.abs() * g.range(0.0, 0.3),
+                mz: 0.0,
+                vy: f.v.unwrap_or(0.0).abs() * g.range(0.0, 0.3),
+            };
+            // Refused only where the box reaches a buckled member with a moment
+            // box containing 0 (the saturated term jumps 0 → 99 there).
+            let Ok(r) = timber_ratio_enclosures(&m, &f, &b) else { continue };
+            checked += 1;
+            for j in 0..40 {
+                let t = |g: &mut Lcg| if j < 2 { [-1.0, 1.0][j] } else { g.range(-1.0, 1.0) };
+                let s = TimberDesignForces {
+                    element_id: i,
+                    m: f.m + b.my * t(&mut g),
+                    n: Some(f.n.unwrap_or(0.0) + b.n * t(&mut g)),
+                    v: Some(f.v.unwrap_or(0.0) + b.vy * t(&mut g)),
+                };
+                let p = timber_f64(&m, &s);
+                for k in 0..5 {
+                    let tol = 1e-12 * p[k].abs();
+                    assert!(r[k].lo - tol <= p[k] && p[k] <= r[k].hi + tol, "{i}/{k}: {} ∉ {:?}", p[k], r[k]);
+                }
+            }
+        }
+        assert!(checked > 380, "{checked}");
+    }
+
+    /// N straddling 0 (three interaction forms) and N straddling FcE1 (the
+    /// amplification passes through 0 and the term saturates at 99).
+    #[test]
+    fn timber_straddled_branches_take_hull() {
+        let mut g = Lcg(7);
+        let m = TimberMemberData { le: 5.0, lu: Some(5.0), ..timber_member(&mut g, 1) };
+        let f = TimberDesignForces { element_id: 1, m: 2e3, n: Some(0.0), v: Some(1e3) };
+        let r = timber_ratio_enclosures(&m, &f, &DemandBound { n: 1e4, ..ZERO_BOUND }).unwrap();
+        for nn in [-1e4, -1.0, 0.0, 1.0, 1e4] {
+            let p = timber_f64(&m, &TimberDesignForces { n: Some(nn), ..f.clone() });
+            for k in 0..5 {
+                assert!(r[k].lo <= p[k] * (1.0 + 1e-12) && p[k] <= r[k].hi * (1.0 + 1e-12), "{nn}/{k}: {} ∉ {:?}", p[k], r[k]);
+            }
+        }
+        // fc = FcE1: compression N = −FcE1·A.
+        let emin = m.e_min.unwrap_or(m.e * (1.0 - 1.645 * 0.25) * 1.03 / 1.66)
+            * m.cm.unwrap_or(1.0) * m.ct.unwrap_or(1.0) * m.ci.unwrap_or(1.0);
+        let fce = 0.822 * emin / (m.le / m.d).powi(2);
+        let n0 = -fce * m.b * m.d;
+        let f = TimberDesignForces { n: Some(n0), ..f };
+        let bn = 1e-3 * n0.abs();
+        let r = timber_ratio_enclosures(&m, &f, &DemandBound { n: bn, ..ZERO_BOUND }).unwrap();
+        assert!(r[4].hi >= 99.0 - 1e-9, "{:?}", r[4]);
+        for t in [-1.0, -0.5, -1e-6, 0.0, 1e-6, 0.5, 1.0] {
+            let p = timber_f64(&m, &TimberDesignForces { n: Some(n0 + bn * t), ..f.clone() })[4];
+            assert!(r[4].lo <= p * (1.0 + 1e-12) && p <= r[4].hi * (1.0 + 1e-12), "{t}: {p} ∉ {:?}", r[4]);
+        }
+    }
+
+    #[test]
+    fn timber_refuses() {
+        let mut g = Lcg(9);
+        let m = timber_member(&mut g, 1);
+        let f = timber_forces(&mut g, &m);
+        assert!(timber_ratio_enclosures(&m, &f, &DemandBound { vy: f64::NAN, ..ZERO_BOUND }).is_err());
+        assert!(timber_ratio_enclosures(&TimberMemberData { b: 0.0, ..m.clone() }, &f, &ZERO_BOUND).is_err());
+        let res = certify_timber_members(&CertifiedTimberCheckInput {
+            members: vec![TimberMemberData { fb: 0.0, ..m }],
+            demands: vec![BoundedTimberDemand { forces: f, bound: ZERO_BOUND }],
+        });
+        assert!(!res[0].certified && !res[0].certified_ok);
     }
 
     #[test]
