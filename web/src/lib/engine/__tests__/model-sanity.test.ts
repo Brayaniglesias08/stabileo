@@ -61,10 +61,6 @@ const JUSTIFIED_WARNINGS: Record<string, string[]> = {
   // Nodes on a member's span that are not connected to it, found by the check added with this
   // pin; each model is examined below and either fixed or the warning justified.
   'suspension-bridge': ['node_on_span'],
-  // "Sin peso propio": a weightless material on purpose (the blog's deep-beam comparison), solved
-  // with self-weight on, so the warning is literally true and the example intends it.
-  'deep-beam-bar': ['density_zero'],
-  'deep-beam-shell': ['density_zero'],
   // The diagrid's 42 floors carry no floor loads, only the frame's own weight: 0.22 kN/m². True of
   // the example, which models the structure, not a loaded building.
   'xl-diagrid-tower': ['weight_per_area_low'],
