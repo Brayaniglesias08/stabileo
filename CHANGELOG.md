@@ -25,6 +25,12 @@ test there.
   no element stiffens and the diagonal shift that regularizes a failed sparse Cholesky, so the
   two paths disagreed whenever a restrained DOF held the largest diagonal (the usual case: a
   stiff member into a support). Serial and parallel sparse assembly now track all DOFs.
+- **The 2D geometric stiffness ignored hinges.** All three 2D builders (P-Delta from
+  displacements, buckling from element forces, the P-Delta certificate's affine terms) used the
+  fixed-fixed K_G whatever the hinges, while 3D condenses it for releases: 1.2·P/L instead of
+  P/L in sway and −4·P·L/30 on a hinged rotation nothing else holds. A cantilever bracing a
+  leaning column (hinged at both ends) now buckles at k·h = 3EI/h², as in 3D. The 2D and 3D
+  members share one condensation (`condense_kg_plane`).
 
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 

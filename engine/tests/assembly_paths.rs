@@ -896,7 +896,6 @@ const REPORTED: &[(&str, &str)] = &[
     ("2d.legacy_parallel.k_ff", "NEW, reported: legacy assemble_elements_parallel_2d (benches only) drops connectors"),
     ("2d.mass.inclined_frame", "NEW, reported: M is never rotated at inclined supports (modal, harmonic, time history, reduction use it with the rotated K)"),
     ("3d.mass.inclined_frame", "NEW, reported: M is never rotated at inclined supports (modal, harmonic, time history, reduction use it with the rotated K)"),
-    ("2d3d.kg", "NEW: 2D geometric stiffness ignores hinges (3D condenses releases)"),
     ("3d.buckling.kg", "NEW: 3D buckling K_G is not rotated at inclined supports"),
 ];
 
@@ -1398,7 +1397,6 @@ fn reported_buckling_2d_kg_not_rotated() {
 /// a cantilever braces a column hinged at both ends, which only takes away
 /// its string stiffness P/h, so P_cr = k·h = 3EI/h².
 #[test]
-#[ignore = "NEW: 2D geometric stiffness ignores hinges"]
 fn hinged_members_geometric_stiffness_2d() {
     let h = 4.0;
     let mut m = model_2d_from(
