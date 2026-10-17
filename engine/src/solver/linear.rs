@@ -4454,7 +4454,7 @@ pub(crate) fn compute_internal_forces_2d(
 
 /// `compute_internal_forces_2d` with the load set given explicitly, so
 /// multi-case solves can reuse one structure with per-case loads.
-pub(crate) fn compute_internal_forces_2d_with_loads(
+pub fn compute_internal_forces_2d_with_loads(
     input: &SolverInput,
     loads: &[SolverLoad],
     dof_num: &DofNumbering,
@@ -4675,7 +4675,7 @@ pub(crate) fn compute_internal_forces_3d(
 
 /// `compute_internal_forces_3d` with the load set given explicitly, so
 /// multi-case solves can reuse one structure with per-case loads.
-pub(crate) fn compute_internal_forces_3d_with_loads(
+pub fn compute_internal_forces_3d_with_loads(
     input: &SolverInput3D,
     loads: &[SolverLoad3D],
     dof_num: &DofNumbering,
