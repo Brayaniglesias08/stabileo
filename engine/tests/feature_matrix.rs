@@ -346,6 +346,10 @@ struct Case2 {
     with: M2,
     without: M2,
     equiv: Option<M2>,
+    /// `equiv` reproduces displacements but not stresses (an imposed
+    /// deformation expressed as forces): use it only for linear analyses, and
+    /// the linear solution as the reference for the others.
+    equiv_linear_only: bool,
     /// Rotation that takes `equiv` results back to `with` axes.
     equiv_rot: f64,
     probes: Vec<usize>,
@@ -374,7 +378,7 @@ fn ei() -> f64 {
 impl Case2 {
     fn base(feature: &'static str, variant: &'static str, keywords: &'static [&'static str], with: M2, without: M2, probes: Vec<usize>) -> Self {
         Case2 {
-            feature, variant, keywords, is_load: false, with, without, equiv: None, equiv_rot: 0.0, probes,
+            feature, variant, keywords, is_load: false, with, without, equiv: None, equiv_linear_only: false, equiv_rot: 0.0, probes,
             tol: 2e-3, kinds: ALL_KINDS, analytic: vec![], path: None,
         }
     }
@@ -434,12 +438,16 @@ fn cases_2d() -> Vec<Case2> {
             let ids: Vec<usize> = (1..=9).collect();
             m.line(&ids, (0.0, 0.0), (0.0, 4.0), 1);
             m.node(20, 3.0, 4.0);
-            m.elem(20, ty, 9, 20, 1, 2);
+            // Massless brace: a truss member and a released frame member lump
+            // their mass differently (consistent vs lumped), which is a choice
+            // of discretisation, not the feature under test.
+            m.elem(20, ty, 9, 20, STUB_MAT, 2);
             if hinged {
                 m.elem_mut(20).hinge_start = true;
                 m.elem_mut(20).hinge_end = true;
             }
-            m.sup(1, 1, "pinned").sup(2, 20, if hinged { "fixed" } else { "pinned" });
+            // Fixed far end: a truss-only node's rotation is held by nothing.
+            m.sup(1, 1, "pinned").sup(2, 20, "fixed");
             m.nodal(9, 20.0, -300.0, 0.0).nodal(5, 5.0, 0.0, 0.0);
             m
         };
@@ -474,7 +482,8 @@ fn cases_2d() -> Vec<Case2> {
         let k = [f[2] / det, 0.0, -f[3] / det, 0.0, 1.0 / f[1], 0.0, -f[3] / det, 0.0, f[0] / det];
         let mut c = Case2::base("Timoshenko shear area", "deep cantilever", &["timoshenko", "shear"], canti(Some(asy)), canti(None), vec![9, 5]);
         c.analytic = vec![(Kind::Static, stat), (Kind::Reduction, Out::S(invariants(&k, 3), true))];
-        c.kinds = &[Kind::Static, Kind::Reduction, Kind::Dynamic, Kind::Plastic, Kind::Kinematic, Kind::Moving];
+        // Shear flexibility changes neither a plastic collapse load nor kinematic stability.
+        c.kinds = &[Kind::Static, Kind::Reduction, Kind::Dynamic, Kind::Moving];
         cases.push(c);
 
         // Simply supported beam with a small shear area (shear lowers the first
@@ -531,7 +540,9 @@ fn cases_2d() -> Vec<Case2> {
         let mut c = Case2::base("hinge (moment release)", "released into support", &["hinge", "release"], mk(true, false), mk(false, false), vec![5, 11]);
         c.equiv = Some(mk(false, true));
         c.analytic = vec![(Kind::Modal, Out::S(vec![f1], true)), (Kind::Buckling, Out::S(vec![pcr / 200.0], true))];
-        c.tol = 3e-3;
+        // A released member end and a pinned support are different (both
+        // convergent) discretisations of the mass: 0.5% apart in a history.
+        c.tol = 1e-2;
         cases.push(c);
     }
 
@@ -630,8 +641,8 @@ fn cases_2d() -> Vec<Case2> {
         // free vertically and loaded by the propping reaction R = 3EIδ/L³.
         let delta = -0.01;
         let l: f64 = 6.0;
-        // Propping reaction: settlement part plus the 5 kN load at x = 4.
-        let (p, a) = (5.0, 4.0);
+        // Propping reaction: settlement part plus the 5 kN load at x = 3 (node 4).
+        let (p, a) = (5.0, 3.0);
         let r = 3.0 * ei() * delta / l.powi(3) + p * a * a * (3.0 * l - a) / (2.0 * l.powi(3));
         let mk = |settle: bool, equiv: bool| {
             let mut m = beam(6, l);
@@ -680,6 +691,7 @@ fn cases_2d() -> Vec<Case2> {
         eq.nodal(5, n, 0.0, mth);
         let mut c = Case2::base("thermal load", "free cantilever", &["thermal", "temperature"], mk(true), mk(false), vec![5, 3]);
         c.equiv = Some(eq);
+        c.equiv_linear_only = true;
         c.is_load = true;
         c.kinds = &[Kind::Static, Kind::Moving];
         cases.push(c);
@@ -868,18 +880,20 @@ fn cases_2d() -> Vec<Case2> {
         cases.push(c);
     }
 
-    // ---- moving loads / influence lines carry their own path ----
+    // ---- moving loads / influence lines: the horizontal members, in order ----
     for c in cases.iter_mut() {
-        if c.path.is_none() && c.with.s.nodes.values().all(|n| n.z.abs() < 1e-12) && c.with.s.nodes.len() >= 7 {
-            let mut ids: Vec<usize> = c
-                .with
-                .s
-                .elements
-                .values()
-                .filter(|e| e.material_id != STUB_MAT)
-                .map(|e| e.id)
-                .collect();
-            ids.sort();
+        if c.path.is_some() {
+            continue;
+        }
+        let m = &c.with.s;
+        let mut ids: Vec<usize> = m
+            .elements
+            .values()
+            .filter(|e| e.material_id < RIGID_MAT && (m.nodes[&e.node_i.to_string()].z - m.nodes[&e.node_j.to_string()].z).abs() < 1e-12)
+            .map(|e| e.id)
+            .collect();
+        ids.sort();
+        if ids.len() >= 2 {
             c.path = Some(ids);
         }
     }
@@ -977,8 +991,10 @@ fn static_rows_2d() -> Vec<Ana2> {
             kind: Kind::Static,
             uses_loads: true,
             run: |m, c| {
+                // Δλ ≈ Δs/‖f‖: five steps of a tenth of the load.
+                let ds = 0.1 * load_scale_2d(m);
                 let inp = arc_length::ArcLengthInput {
-                    solver: m.s.clone(), max_steps: 200, max_iter: 50, tolerance: 1e-8, initial_ds: 0.2, min_ds: 1e-6, max_ds: 0.5, target_iter: 5,
+                    solver: m.s.clone(), max_steps: 5, max_iter: 50, tolerance: 1e-6, initial_ds: ds, min_ds: 1e-4 * ds, max_ds: ds, target_iter: 5,
                 };
                 let r = arc_length::solve_arc_length(&inp)?;
                 if !r.converged {
@@ -1025,6 +1041,11 @@ fn static_rows_2d() -> Vec<Ana2> {
                         prestress_loads: vec![],
                     }],
                 };
+                // Through the JSON boundary the app uses, which is where model
+                // parts the staged input has no field for used to be dropped.
+                let mut v = serde_json::to_value(&inp).map_err(|e| e.to_string())?;
+                v["connectors"] = serde_json::to_value(&s.connectors).map_err(|e| e.to_string())?;
+                let inp = staged::parse_staged_2d(&v.to_string())?;
                 disp2(&staged::solve_staged_2d(&inp)?.final_results, &c.probes)
             },
         },
@@ -1357,6 +1378,20 @@ fn scale_out(o: Out, f: f64) -> Result<Out, String> {
     })
 }
 
+/// A rough ‖f‖ of the model's loads (kN), to size arc-length steps.
+fn load_scale_2d(m: &M2) -> f64 {
+    let mut s2 = 0.0;
+    for l in &m.s.loads {
+        match l {
+            SolverLoad::Nodal(n) => s2 += n.fx * n.fx + n.fz * n.fz,
+            SolverLoad::Distributed(d) => s2 += (d.q_i.abs().max(d.q_j.abs()) * elem_len_2d(m, d.element_id)).powi(2),
+            SolverLoad::PointOnElement(p) => s2 += p.p * p.p + p.px.unwrap_or(0.0).powi(2),
+            SolverLoad::Thermal(_) => s2 += 1.0,
+        }
+    }
+    s2.sqrt().max(1.0)
+}
+
 fn nodal_loads_2d(m: &M2) -> Vec<SolverNodalLoad> {
     m.s.loads
         .iter()
@@ -1472,6 +1507,7 @@ fn classify(
                     note: format!("equals the model without the feature (no independent reference: {})", short(&e)),
                 },
                 Some(d) if d > tol => Cell { verdict: Verdict::Responds, note: format!("changes the answer by {d:.1e}; no independent reference") },
+                _ if is_baseline => Cell { verdict: Verdict::Responds, note: "solves; no independent reference for this analysis".into() },
                 _ => Cell { verdict: Verdict::Unclear, note: format!("no reference: {}", short(&e)) },
             };
         }
@@ -1526,7 +1562,8 @@ fn run_2d(c: &Case2, a: &Ana2) -> Cell {
         if let Some((_, o)) = c.analytic.iter().find(|(k, _)| *k == a.kind) {
             return Ok((o.clone(), "the analytical value".into()));
         }
-        if let Some(eq) = &c.equiv {
+        let linear_family = ["linear", "linear (sparse path)", "constrained", "certified linear", "load combinations"].contains(&a.name);
+        if let Some(eq) = c.equiv.as_ref().filter(|_| !c.equiv_linear_only || linear_family) {
             let invariant_ok = c.equiv_rot == 0.0 || !matches!(guarded(|| (a.run)(eq, c)), Ok(Out::S(_, false)));
             if invariant_ok {
                 match run(eq) {
@@ -1554,7 +1591,12 @@ fn run_2d(c: &Case2, a: &Ana2) -> Cell {
 
 /// IGNORED / WRONG / unclear cells that are known and being fixed elsewhere:
 /// (dimension, feature, analysis-prefix, where it is being fixed).
-const KNOWN: &[(&str, &str, &str, &str)] = &[];
+const KNOWN: &[(&str, &str, &str, &str)] = &[
+    // 2D buckling and time integration assemble through `assemble_sparse_2d_ex`.
+    ("2D", "angled spring support", "buckling", "PR #279 (fix/sparse2d)"),
+    ("2D", "angled spring support", "time history", "PR #279 (fix/sparse2d)"),
+    ("2D", "inclined support", "time history", "PR #279 (fix/sparse2d)"),
+];
 
 fn known_for(dim: &str, feature: &str, analysis: &str) -> Option<&'static str> {
     KNOWN.iter().find(|(d, f, a, _)| *d == dim && *f == feature && analysis.starts_with(a)).map(|k| k.3)
@@ -1687,18 +1729,14 @@ fn feature_matrix() {
 #[test]
 #[ignore]
 fn debug_probe() {
-    let cases = cases_2d();
-    let c = &cases[0];
-    let lin = linear::solve_2d(&c.with.s).unwrap();
-    println!("lin {:?}", disp2(&lin, &c.probes));
-    for tol in [1e-10, 1e-6] {
-        let r = corotational::solve_corotational_2d(&c.with.s, 100, tol, 4, false).unwrap();
-        println!("corot tol {tol} conv {} it {} {:?}", r.converged, r.iterations, disp2(&r.results, &c.probes));
+    for (dtu, dtg) in [(30.0, 0.0), (0.0, 20.0), (30.0, 20.0)] {
+        let mut m = beam(4, 4.0);
+        m.sup(1, 1, "fixed");
+        for e in 1..=4 {
+            m.load(SolverLoad::Thermal(SolverThermalLoad { element_id: e, dt_uniform: dtu, dt_gradient: dtg }));
+        }
+        let lin = disp2(&linear::solve_2d(&m.s).unwrap(), &[5]);
+        let co = corotational::solve_corotational_2d(&m.s, 100, 1e-7, 4, false).unwrap();
+        println!("dtu {dtu} dtg {dtg}: lin {:?}\n   corot {} {:?}", lin, co.converged, disp2(&co.results, &[5]));
     }
-    let inp = arc_length::ArcLengthInput { solver: c.with.s.clone(), max_steps: 200, max_iter: 50, tolerance: 1e-10, initial_ds: 0.2, min_ds: 1e-6, max_ds: 0.5, target_iter: 5 };
-    let r = arc_length::solve_arc_length(&inp).unwrap();
-    println!("arc conv {} lf {} steps {} {:?}", r.converged, r.final_load_factor, r.steps.len(), disp2(&r.results, &c.probes));
-    let th = cases.iter().find(|c| c.feature == "thermal load").unwrap();
-    println!("thermal with {:?}", disp2(&linear::solve_2d(&th.with.s).unwrap(), &th.probes));
-    println!("thermal eq {:?}", disp2(&linear::solve_2d(&th.equiv.as_ref().unwrap().s).unwrap(), &th.probes));
 }

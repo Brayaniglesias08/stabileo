@@ -79,6 +79,12 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
     // node that does not exist panicked there, which in WASM ends the
     // module rather than the call.
     super::linear::validate_input_2d(&input.solver)?;
+    // Fiber members are Euler–Bernoulli and continuous at both ends, and the
+    // tangent has no connectors, prescribed displacements or inclined supports.
+    super::feature_gates::refuse_2d(&input.solver, "Fiber-nonlinear analysis", &[
+        super::feature_gates::Feature::Connectors, super::feature_gates::Feature::PrescribedDisplacements, super::feature_gates::Feature::InclinedSupports,
+        super::feature_gates::Feature::ShearDeformation, super::feature_gates::Feature::MomentReleases,
+    ])?;
 
     let dof_num = DofNumbering::build_2d(&input.solver);
     if dof_num.n_free == 0 {
@@ -573,19 +579,10 @@ fn add_springs(
     f_int: &mut [f64],
     scatter: &mut impl FnMut(usize, usize, f64),
 ) {
-    for sup in solver.supports.values() {
-        if sup.support_type != "spring" { continue; }
-        let springs = [(0, sup.kx), (1, sup.ky), (2, sup.kz)];
-        for &(local_dof, k_opt) in &springs {
-            if let Some(k) = k_opt {
-                if k > 0.0 {
-                    if let Some(&d) = dof_num.map.get(&(sup.node_id, local_dof)) {
-                        scatter(d, d, k);
-                        f_int[d] += k * u_full[d];
-                    }
-                }
-            }
-        }
+    // Shared with the linear assembler (angle, rotational springs on any support).
+    for (i, j, k) in super::assembly::support_spring_entries_2d(solver, dof_num) {
+        scatter(i, j, k);
+        f_int[i] += k * u_full[j];
     }
 }
 

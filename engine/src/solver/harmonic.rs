@@ -97,6 +97,8 @@ pub fn solve_harmonic_2d(input: &HarmonicInput) -> Result<HarmonicResult, String
 /// (`C = a₀M + a₁K`): the damping model the certificate refers to.
 pub fn solve_harmonic_2d_with_damping(input: &HarmonicInput) -> Result<(HarmonicResult, (f64, f64)), String> {
     super::linear::validate_input_2d(&input.solver)?;
+    // The forcing is the load vector; a support displacement is not in it.
+    super::feature_gates::refuse_2d(&input.solver, "Harmonic analysis", &[super::feature_gates::Feature::PrescribedDisplacements])?;
     let referenced_material_ids = super::dynamic_validation::referenced_material_ids_2d(&input.solver);
     super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
     if !input.damping_ratio.is_finite() {
