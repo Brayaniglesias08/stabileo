@@ -1688,7 +1688,10 @@ fn render(ms: &[Matrix]) -> String {
             if *v == Verdict::Supported || *v == Verdict::NotApplicable {
                 continue;
             }
-            let k = known_for(m.dim, m.features[*fi], m.analyses[*ai]).map(|k| format!(" — known, {k}")).unwrap_or_default();
+            let k = known_for(m.dim, m.features[*fi], m.analyses[*ai])
+                .filter(|_| *v >= Verdict::Unclear)
+                .map(|k| format!(" — known, {k}"))
+                .unwrap_or_default();
             o.push_str(&format!("- {} × {}{}: {}\n", m.analyses[*ai], m.features[*fi], k, notes.join("; ")));
         }
         o.push('\n');
