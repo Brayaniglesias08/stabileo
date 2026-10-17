@@ -44,6 +44,21 @@ were all unsafe, and each has a regression test.
   h/L 0,26). Past the 0,0\*, the first row was interpolated toward positive values, where
   note 2 prescribes 0,0 (0,3 instead of 0,0 at 52,5°, h/L 0,5). Pitched-roof wind loads change
   for h/L other than 0,25, 0,5 or 1,0 and for slopes between 35° and 60°.
+- **By width, every member took the live load reduction of the largest area in the model.**
+  The plan read AT as the largest area any member could carry and applied it to all of them. A
+  6 m edge beam under a 3 m width has KLL·AT = 36 m² < 37 m², which §4.7.2 does not reduce, but
+  it came out 21 % light. Each member now takes its own width × length in plan. Panel mode
+  already did this.
+- **One-way slabs were given the live load reduction.** CIRSOC 101-2025 §4.7.6 reads "Para
+  losas en una sola dirección, las sobrecargas no se podrán reducir excepto en el caso de
+  sobrecargas pesadas". The module followed ASCE 7 and the commentary, which allow the
+  reduction up to 1,5 × the span. It now refuses it up to 5 kN/m².
+- **A partition allowance below 0,75 kN/m² counted** (§4.3.2). It is now reported as missing.
+  Tabla 4.1's 9 and 14 kN concentrated loads for light and heavy manufacturing were added.
+- **CIRSOC 104 Tablas 1.8 and 1.13: Uspallata (0,80 kN/m²) and Villa Reynolds (0,45 kN/m²)
+  added.** The tables print them above their headers, and they were missing, so they could only
+  be read as their departments' 0,3 kN/m². The slippery-roof option now states the §4.1
+  thermal-resistance condition for warm roofs.
 - The companion-snow note now says what the S case is: the balanced roof snow load. Exception
   2 names the flat-roof load and its commentary admits the sloped one (ps).
 
