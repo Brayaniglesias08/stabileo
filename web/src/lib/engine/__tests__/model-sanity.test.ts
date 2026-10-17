@@ -61,7 +61,6 @@ const JUSTIFIED_WARNINGS: Record<string, string[]> = {
   // Nodes on a member's span that are not connected to it, found by the check added with this
   // pin; each model is examined below and either fixed or the warning justified.
   'pro-steel-building-slabs': ['node_on_span'],
-  '3d-nave-industrial': ['node_on_span'],
   'cable-stayed-bridge-small': ['node_on_span'],
   'cable-stayed-bridge': ['node_on_span'],
   'pro-edificio-7p': ['node_on_span'],
