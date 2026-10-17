@@ -33,6 +33,29 @@ disagreements left open by the published-example verification
   high NEd/Nb,Rd) the old sum was unconservative. SBE Multi-Storey Part 8 Example 2 and the
   SBE Single-Storey Part 4 Appendix D column are regression tests. The web EC3 check no longer
   marks the interaction as not evaluated.
+- **CIRSOC 301 compression had no slender-element reduction (§E.7).** Every section was taken
+  as non-slender. Q = Qs·Qa now follows E.7.1/E.7.2 with the Table B.4.1a limits (rolled and
+  welded flanges, angles, tee stems, I/channel webs, welded-box and RHS walls, circular tubes).
+  INTI Ejemplo 10(c), a welded box with b/t = 72, prints Pd = 204.7 kN; the checker gave 237.4
+  (+16 %). `SteelDesignParams` takes `shape` ('I', 'U', 'T', 'box', 'RHS', 'CHS', 'rect') and
+  optionally `hw` and explicit `compressionElements`.
+- **CIRSOC 301 flexure implemented only §F.2 (compact sections).** §F.3 (noncompact/slender
+  flanges), §F.4 (noncompact webs: Rpc, rt, F.4.7/F.4.8) and §F.5 (slender webs: Rpg, F.5.3/F.5.4)
+  are now applied by classification (Table B.4.1b cases 11, 12, 16), and §F.6.2 (minor-axis flange
+  local buckling, case 14). INTI Ejemplo 14 girder V2 prints Md = 286.1 kNm (stabileo: 326.0,
+  +14 %); girder V3 (slender web) prints Md = 771.4 kNm. Both are regression tests.
+- **CIRSOC 301 lateral-torsional buckling used AISC 360-10's form** (rts, Mr = 0.7·Fy·Sx) and
+  had no load height. It now follows F.2.4–F.2.7 (X1, X2, FL = Fy − Fr with Fr = 69 MPa rolled,
+  114 MPa welded) with both load positions; `loadPosition: 'web' | 'topFlange'` selects
+  F.2.4a/F.2.5a/F.2.6a or F.2.4b/F.2.5b/F.2.6b, and **absent it is 'topFlange'**, the lower of the
+  two, because the checker does not know where the load acts. INTI Ejemplo 14 V1 case I-B
+  (top-flange deck, Lb = 5 m) prints Md = 18.39 kNm, and braced at midspan 37.91 kNm.
+- **The CIRSOC 301 checker refuses what it cannot classify.** A shape outside the list above
+  (e.g. cold-formed 'C', which is CIRSOC 303), strong-axis flexure of non-I shapes (§F.7–F.11 not
+  implemented), a circular tube with D/t > 0.45·E/Fy, a girder with aw > 10, LTB beyond Lp
+  without J, or a channel with a slender web come back **not evaluated** (`notEvaluated`, ratio
+  ∞, status fail, diagnostic `VERIF_STEEL_NOT_EVALUATED_*`), never as a pass; H.1 interaction is
+  refused when it would need a refused capacity.
 
 #### Design checks against published worked examples (2026-10-17)
 

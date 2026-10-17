@@ -58,7 +58,7 @@ Tests:
 | `timber_check` | NDS | Rust | 3.3 bending with CL, 3.4 shear, 3.6/3.7 compression with CP, 3.8 tension, 3.9 combined |
 | `masonry_check` | TMS 402 | Rust | 9.3.4 axial with slenderness, 9.3.5 flexure, 9.3.6 shear, interaction |
 | `foundation_check` | Bearing capacity + ACI 318 | Rust | Terzaghi/Meyerhof bearing, overturning, sliding, one-way and punching shear (22.6.5.2) |
-| `cirsoc301.ts` | CIRSOC 301-2018 | TS | D tension (Ae = Ag), E.3 flexural buckling (φc = 0.85), F.2 (Mp ≤ 1.5My, LTB), F.6.1 minor axis, G.2.1 shear (fixed here), H.1 interaction |
+| `cirsoc301.ts` | CIRSOC 301-2018 | TS | D tension (Ae = Ag), E.3/E.7 flexural buckling with Q (φc = 0.85), F.2 (Mp ≤ 1.5My, LTB in X1/X2 form, load height), F.3/F.4/F.5 noncompact and slender flanges/webs, F.6 minor axis with F.6.2, G.2.1 shear, H.1 interaction; refuses shapes it cannot classify |
 | `cirsoc201.ts` | CIRSOC 201-2005 | TS | Flexure design (singly/doubly), 11 shear design, columns, torsion, biaxial, slenderness |
 | `cirsoc-flex*.ts` | CIRSOC 201 | TS | Section/interaction engine (already tested against the INTI CIRSOC_FLEX workbook, `cirsoc-flex-worked-examples.test.ts`) |
 | `fillet-weld.ts` | CIRSOC 301-2018 J.2 | TS | J.2.2 throat, J.2.4 strength (φ = 0.60), Tabla J.2.4 min leg, max leg, 4w, J.2.1 β |
@@ -141,12 +141,14 @@ Status: **pass** — stabileo reproduces the printed values at the stated roundi
 |---|---|---|---|
 | E.3-3 elastic | INTI301 Ej. 10(a) | kL/r = 194, Fcr = 46.0 MPa, Rd = 210.3 kN | pass |
 | E.3-2 inelastic | INTI301 Ej. 10(b) | kL/r = 111.9, Fcr = 126.04 MPa, Pd = 221.2 kN | pass |
-| E.7 slender elements (Q) | INTI301 Ej. 10(c) | Q = 0.794, Pd = 204.7 kN | **open** (D6) |
+| E.7 slender elements (Q) | INTI301 Ej. 10(c) | Q = 0.794, Fcr = 135.70 MPa, Pd = 204.7 kN | **fixed** (D6); Q, Fcr at 1 % (2005 vs 2018 E.7.17), D17 |
 | F.2.1 Mp | INTI301 Ej. 14, V1 | Mp = 43.95 kNm | pass |
 | G.2.1 Cv = 1 | INTI301 Ej. 14, V1 | Vn = 175.1, Vd = 157.6 kN | pass |
 | G.2.1 elastic web buckling, built-up Aw | INTI301 Ej. 14, V2 | Cv = 0.336, Vn = 144.7, Vd = 130.3 kN | **fixed** (D7) |
-| F.4 noncompact flange/web | INTI301 Ej. 14, V2 | Mn = 317.9, Md = 286.1 kNm | **open** (D8) |
-| F.2.2 LTB, top-flange load (F.2-4b/5b/6b) | INTI301 Ej. 14, V1 case I-B | Lp = 79.1, Lr = 335 cm, Mcr = 20.43, Md = 18.39 kNm | **open** (D8) |
+| F.4 noncompact flange/web | INTI301 Ej. 14, V2 | Mp = 362.2, Lp = 162.4, Lr = 711.2 cm, Mn = 317.9, Md = 286.1 kNm | **fixed** (D8) |
+| F.5 slender web | INTI301 Ej. 14, V3 | Lp = 307.4, Lr = 1223.6 cm, Mn = 857.2, Md = 771.4 kNm | pass (new) |
+| F.2.2 LTB, top-flange load (F.2-4b/5b/6b) | INTI301 Ej. 14, V1 case I-B | Lp = 79.1, Lr = 335 cm, Mcr = 20.43, Md = 18.39 kNm | **fixed** (D8) |
+| F.2-2 inelastic LTB, FL = Fy − 69 | INTI301 Ej. 14, V1 braced at midspan | Cb = 1.298, Mn = 42.12, Md = 37.91 kNm | pass (new) |
 | H.1 interaction | INTI301 Ej. 16 | box section with slender walls; the checker models I-sections only | uncovered |
 
 ### CIRSOC 201-2005 (`cirsoc201.ts`, TS)
@@ -183,9 +185,9 @@ tests in `engine/tests/integration/` and `web/src/lib/codes/cirsoc201/__tests__/
 | D3 | `cirsoc201_check` shear | Vc 87.4 vs 85.8 kN (+1.9 %, unsafe) | stabileo: ACI 318M's 0.17 instead of CIRSOC 201-2005's 1/6 (and 0.66 for 2/3); φ transition at fixed 0.002 | **fixed** |
 | D4 | `ec3_check` | Lb = 0 → Mcr = c/0, χLT NaN, strong-axis check unevaluated | stabileo | **fixed**: χLT = 1 for Lb = 0 |
 | D5 | `connection_check` welds | AISC J.1: φRn 225 vs 206 kips (+9.5 %, unsafe) for l/w = 144 | stabileo: no J2.2b(d) end-loaded β | **fixed**: β (and Le = 180w beyond 300w) per segment; `endLoaded` defaults to true (conservative), `false` opts out |
-| D6 | `cirsoc301.ts` compression | slender box: φPn 237.4 vs 204.7 kN (+16 %, unsafe) | stabileo: no §E.7 Q | **open**: needs element geometry beyond the I-section parameters |
+| D6 | `cirsoc301.ts` compression | slender box: φPn 237.4 vs 204.7 kN (+16 %, unsafe) | stabileo: no §E.7 Q | **fixed**: Q from E.7.1/E.7.2 with Table B.4.1a, `shape` selects the elements; unclassifiable shapes refused |
 | D7 | `cirsoc301.ts` shear | V2 (h/tw = 138): Cv 0.536 vs 0.336, φVn 207.8 vs 130.3 kN (+60 %, unsafe) | stabileo: AISC 360-10 rule (2.24√(E/Fy), kv = 5.34), no G.2.5, Aw = total depth for built-up | **fixed**: G.2.3–G.2.5 with kv = 5, `builtUp` |
-| D8 | `cirsoc301.ts` flexure | noncompact V2: φMn 326 vs 286.1 kNm (+14 %, unsafe); top-flange LTB not modelled | stabileo: only §F.2; no load height; inelastic LTB uses AISC 360-10's 0.7Fy and Lr, not CIRSOC's FL = Fy − Fr (F.2-6a/F.2-7a) | **open**: a new limit-state family (F.3/F.4) and a load-position input |
+| D8 | `cirsoc301.ts` flexure | noncompact V2: φMn 326 vs 286.1 kNm (+14 %, unsafe); top-flange LTB not modelled | stabileo: only §F.2; no load height; inelastic LTB uses AISC 360-10's 0.7Fy and Lr, not CIRSOC's FL = Fy − Fr (F.2-6a/F.2-7a) | **fixed**: F.3/F.4/F.5 by classification, F.2.4–F.2.7 in CIRSOC form, `loadPosition` (default top flange, the lower) |
 | D9 | `steel_check` shear | φvVn = 275 vs 306 kips (−10 %, safe) | stabileo deliberate: G2.1(a)'s φv = 1.00 needs "rolled" and h/tw, not in the input | documented |
 | D10 | `ec3_check` LTB | not comparable to the published examples | stabileo implements 6.3.2.2 (general, conservative) with zg = 0; examples use 6.3.2.3 with f and/or top-flange loading | documented; uncovered |
 | D11 | `ec3_check` interaction | linear sum with k = 1 | stabileo simplification; unconservative where Annex B gives kyy > 1 | **fixed**: (6.61)/(6.62) with Annex B factors; Cm defaults to 1.0 (Table B.3 maximum) |
@@ -194,3 +196,4 @@ tests in `engine/tests/integration/` and `web/src/lib/codes/cirsoc201/__tests__/
 | D14 | INTI201 Ej. 3.I | min stirrups 157 vs 159 mm²/m | example rounding: "bw/1.26" for fyt/(0.33·1000) = 1.273; the clause and the example's own §3.4.4 give 157 | example rounding |
 | D15 | INTI301 Ej. 2 | adopted 4 mm leg below its own Tabla J.2.4 minimum of 5 mm | example: the 2018 table has no "thinner part" exception; stabileo flags the minimum | example wrong |
 | D16 | INTI301 Ej. 1 | bearing unavailable in stabileo | example uses the AISC 17.5 mm hole for a 5/8" bolt; the 2018 Tabla J.3.3 is metric only. Also: stabileo gives every bolt the end bolt's Lc (conservative) | example inconsistent with the 2018 text |
+| D17 | INTI301 Ej. 10(c) | stabileo's Pd 1.1 % above the printed 204.7 kN when it derives the wall widths | the example takes b = 18 cm (plate width) for b/t and 18/17.75 cm in Aef; B.4.1(b)(c) defines b as the distance between welds, 17.5 cm. With the example's widths stabileo reproduces it | example inconsistent with B.4.1 |
