@@ -11,6 +11,26 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Solver fixes found by extending the OpenSees comparison to buckling, modal, P-Delta and time history (2026-10-17)
+
+**BREAKING (results): buckling load factors of models with axial point loads or partial /
+trapezoidal axial loads on members change, and small modal models with massless DOFs now
+solve.** Found by `tools/opensees/compare.py --buckling2d/3d --modal2d/3d`; each has a
+regression test in `engine/tests/opensees_differential_regressions.rs`.
+
+- **Buckling took each member's axial force as (N_start + N_end)/2.** The geometric
+  stiffness integrates N along the member, so it needs the mean axial force, which the end
+  average is only while N is linear. An axial point load or a partial axial load on a
+  member gave a wrong load factor (3× on a truss braced by a spring). Kg is now built at
+  the linear solution with each member's force read from its elongation, EA·(δ/L − αΔT)
+  — the exact mean, and the same force the P-Delta iteration uses.
+- **Modal analysis failed on small models with a massless DOF.** Hinged members (and
+  3D members with any release) get a lumped mass with no rotational inertia, and a node
+  of trusses only has none either; the dense eigensolver used below 80 DOFs
+  Cholesky-factored M and returned "Eigenvalue decomposition failed". A semi-definite M
+  is now solved as the inverse problem M·x = μ·K·x (K definite), massless directions
+  dropped as λ = ∞.
+
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 
 **BREAKING (results): models with Timoshenko members under member loads, plastic analyses,

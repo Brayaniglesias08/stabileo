@@ -3,6 +3,7 @@
 //! answer, which OpenSees also reproduces.
 
 use dedaliano_engine::solver::linear::{solve_2d, solve_3d};
+use dedaliano_engine::solver::{solve_buckling_2d, solve_buckling_3d, solve_modal_2d};
 use dedaliano_engine::types::{SolverInput, SolverInput3D};
 use serde_json::json;
 
@@ -267,4 +268,102 @@ fn roller_with_spring_reaction_balances_load() {
     assert!(close(r2.rx, -1000.0 * ux, 1e-12), "rx {} vs {}", r2.rx, -1000.0 * ux);
     let sum: f64 = res.reactions.iter().map(|r| r.rx).sum();
     assert!((sum + 10.0).abs() < 1e-9, "ΣRx = {sum}, load 10");
+}
+
+/// The geometric stiffness of a bar is (1/L)·∫N dx times the string matrix:
+/// its mean axial force, which is EA·δ/L. Buckling took (N_start + N_end)/2,
+/// which is the mean only while N is linear along the member, so an axial
+/// point load (or a partial / trapezoidal axial load) on a member gave the
+/// wrong load factor. Here a vertical truss, pinned at the top, held
+/// laterally by a spring k at the bottom node (which also carries a vertical
+/// spring kv), with an axial load px at L/4: the bar compresses by
+/// w = f_I/(kv + EA/L), f_I = px(1 − a/L), and λ = k·L/|EA·w/L|. The old
+/// load factor was 3× too high (the end average is −12.5 kN here, the mean
+/// −37.5 kN).
+#[test]
+fn buckling_uses_mean_axial_force_of_truss_with_axial_point_load() {
+    let (l, a, px, k, kv) = (4.0, 1.0, 100.0, 1000.0, 5e5);
+    let ea = 200000.0 * 1000.0 * 0.01;
+    let input = input_2d(json!({
+        "nodes": {"1": {"id": 1, "x": 0.0, "z": 0.0}, "2": {"id": 2, "x": 0.0, "z": l}},
+        "materials": {"1": {"id": 1, "e": 200000.0, "nu": 0.3}},
+        "sections": {"1": {"id": 1, "a": 0.01, "iz": 1e-4}},
+        "elements": {"1": {"id": 1, "type": "truss", "nodeI": 1, "nodeJ": 2,
+                           "materialId": 1, "sectionId": 1}},
+        "supports": {"1": {"id": 1, "nodeId": 1, "type": "spring", "kx": k, "ky": kv},
+                     "2": {"id": 2, "nodeId": 2, "type": "pinned"}},
+        "loads": [{"type": "pointOnElement",
+                   "data": {"elementId": 1, "a": a, "p": 0.0, "px": px}}]
+    }));
+    let w = px * (1.0 - a / l) / (kv + ea / l);
+    let lambda = k * l / (ea * w / l);
+    let res = solve_buckling_2d(&input, 1).unwrap();
+    let got = res.modes[0].load_factor;
+    assert!(close(got, lambda, 1e-9), "λ {got} vs {lambda}");
+}
+
+/// The same on a 3D frame member: a cantilever column (one element, so the
+/// consistent Kg is the whole discretisation) with a tip load P and a uniform
+/// axial load w on its lowest s metres. The discrete eigenproblem
+/// det(K − μ·G) = 0 in the tip's (v, θ) gives μ = λ·|N̄| in closed form, with
+/// N̄ = −(P + w·s²/(2L)) the mean axial force; the end average −(P + w·s/2)
+/// was used before.
+#[test]
+fn buckling_3d_uses_mean_axial_force_of_frame_with_partial_axial_load() {
+    let (l, s, p, w): (f64, f64, f64, f64) = (3.0, 1.2, 200.0, 300.0);
+    let (e, iz) = (200000.0 * 1000.0, 8e-5);
+    let input = input_3d(json!({
+        "nodes": {"1": {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0},
+                  "2": {"id": 2, "x": 0.0, "y": 0.0, "z": l}},
+        "materials": {"1": {"id": 1, "e": 200000.0, "nu": 0.3}},
+        "sections": {"1": {"id": 1, "a": 0.01, "iy": 2.0 * iz, "iz": iz, "j": 1e-4}},
+        "elements": {"1": {"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2,
+                           "materialId": 1, "sectionId": 1}},
+        "supports": {"1": {"nodeId": 1, "rx": true, "ry": true, "rz": true,
+                           "rrx": true, "rry": true, "rrz": true}},
+        "loads": [
+            {"type": "nodal", "data": {"nodeId": 2, "fx": 0.0, "fy": 0.0, "fz": -p,
+                                       "mx": 0.0, "my": 0.0, "mz": 0.0}},
+            {"type": "distributed", "data": {"elementId": 1, "qXI": -w, "qXJ": -w, "a": 0.0, "b": s,
+                                             "qYI": 0.0, "qYJ": 0.0, "qZI": 0.0, "qZJ": 0.0}}
+        ]
+    }));
+    // det([12c − 36d, −6Lc + 3Ld], [−6Lc + 3Ld, 4L²c − 4L²d]) = 0, c = EI/L³,
+    // d = μ/(30L), with I the weaker one: a quadratic in d, smallest root.
+    let c = e * iz / l.powi(3);
+    let (qa, qb, qc) = (144.0 * l * l - 9.0 * l * l, -(192.0 * l * l * c) + 36.0 * l * l * c, 48.0 * l * l * c * c - 36.0 * l * l * c * c);
+    let d = (-qb - (qb * qb - 4.0 * qa * qc).sqrt()) / (2.0 * qa);
+    let mu = d * 30.0 * l;
+    let lambda = mu / (p + w * s * s / (2.0 * l));
+    let res = solve_buckling_3d(&input, 1).unwrap();
+    let got = res.modes[0].load_factor;
+    assert!(close(got, lambda, 1e-9), "λ {got} vs {lambda}");
+}
+
+/// A mass matrix with a massless DOF (the rotations of lumped-mass members —
+/// the engine lumps every hinged member — or of a node with trusses only)
+/// is only semi-definite. The dense eigensolver used for small models
+/// Cholesky-factored M and gave up ("Eigenvalue decomposition failed") on
+/// any such model. Here a cantilever column with its top end hinged: the
+/// lumped top mass ρAL/2 on a lateral stiffness 3EI/L³.
+#[test]
+fn modal_with_massless_rotation_small_model() {
+    let (l, a, iz, rho) = (3.0, 0.01, 1e-4, 7850.0);
+    let e = 200000.0 * 1000.0;
+    let input = input_2d(json!({
+        "nodes": {"1": {"id": 1, "x": 0.0, "z": 0.0}, "2": {"id": 2, "x": 0.0, "z": l}},
+        "materials": {"1": {"id": 1, "e": 200000.0, "nu": 0.3}},
+        "sections": {"1": {"id": 1, "a": a, "iz": iz}},
+        "elements": {"1": {"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2,
+                           "materialId": 1, "sectionId": 1, "hingeStart": false, "hingeEnd": true}},
+        "supports": {"1": {"id": 1, "nodeId": 1, "type": "fixed"}},
+        "loads": []
+    }));
+    let densities = [("1".to_string(), rho)].into_iter().collect();
+    let res = solve_modal_2d(&input, &densities, 2).unwrap();
+    let m = rho * a * l / 2.0 / 1000.0;
+    let omega = (3.0 * e * iz / l.powi(3) / m).sqrt();
+    assert!(close(res.modes[0].omega, omega, 1e-9), "ω {} vs {omega}", res.modes[0].omega);
+    let omega_axial = (e * a / l / m).sqrt();
+    assert!(close(res.modes[1].omega, omega_axial, 1e-9), "ω2 {} vs {omega_axial}", res.modes[1].omega);
 }
