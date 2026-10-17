@@ -374,3 +374,34 @@ fn validation_warping_torsion_release_kills_twist_transmission() {
         r1.mx
     );
 }
+
+/// Torsional vibration of a fork-supported I-beam (twist held, warping free at both ends; every
+/// node held in translation and bending, so only torsion is left). With the cubic twist the
+/// kinetic energy ½∫ρ(Ip·θ̇² + Cw·θ̇'²) gives the consistent mass; the first mode is the half sine,
+///   ω² = (π/L)²·(GJ + ECw·(π/L)²) / (ρIp + ρCw·(π/L)²).
+/// The warping DOF used to carry a lumped ρ·Ip·L/2 — a polar mass moment on a rate-of-twist DOF,
+/// dimensionally a rotation's inertia — beside the linear-twist torsion mass of the 12×12.
+/// Found while checking the mass matrices against tools/symbolic.
+#[test]
+fn validation_warping_fork_beam_torsional_frequency() {
+    use dedaliano_engine::solver::modal;
+    let (l, n) = (6.0, 8);
+    let mut input = make_warping_beam(n, l, vec![true; 6], None, vec![], true);
+    input.supports = (1..=n + 1).map(|id| {
+        let end = id == 1 || id == n + 1;
+        (id.to_string(), SolverSupport3D {
+            node_id: id, rx: true, ry: true, rz: true, rrx: end, rry: true, rrz: true,
+            kx: None, ky: None, kz: None, krx: None, kry: None, krz: None,
+            dx: None, dy: None, dz: None, drx: None, dry: None, drz: None,
+            normal_x: None, normal_y: None, normal_z: None, is_inclined: None, rw: None, kw: None,
+        })
+    }).collect();
+    let density = 7850.0;
+    let res = modal::solve_modal_3d(&input, &HashMap::from([("1".to_string(), density)]), 1).unwrap();
+    let rho = density / 1000.0;
+    let k = std::f64::consts::PI / l;
+    let omega2 = k * k * (G_EFF * J_SEC + E_EFF * CW * k * k) / (rho * (IY + IZ) + rho * CW * k * k);
+    let exact = omega2.sqrt() / (2.0 * std::f64::consts::PI);
+    let f = res.modes[0].frequency;
+    assert!((f - exact).abs() < 1e-4 * exact, "f1 = {f:.6} Hz, closed form {exact:.6} Hz");
+}
