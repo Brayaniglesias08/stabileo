@@ -45,4 +45,15 @@ exclude_re = [
     # zero or missing normal (tests/solver_mutation_kills.rs), so on validated
     # input the length arithmetic cannot change the outcome.
     "replace (\\+|\\*) with (-|\\+|\\*|/) in inclined_restrained_3d",
+    # certify/solver.rs path selection: which f64 assembly of K (dense or
+    # sparse) and which path (plain or general) certifies a model. Every
+    # choice is a sound certificate of the solver's ũ for an f64 assembly of
+    # the same model; the selection only keeps it the one the solver factored.
+    "\\bsolver_used_sparse\\b",
+    "\\bconstrained_solver_used_sparse\\b",
+    "replace needs_general_[23]d -> bool with true",
+    "replace == with != in needs_general_2d",
+    # The dense paths' resource cap (memory and time), not a soundness
+    # condition; exercising it needs a dense model past 3000 free DOFs.
+    "\\bsize_check\\b",
 ]

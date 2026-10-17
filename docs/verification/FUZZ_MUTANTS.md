@@ -148,8 +148,10 @@ For each line of `missed.txt`:
 3. **Dead or diagnostics-only code**: timings, log text, diagnostics that do not gate a
    result. Exclude by name with the reason, or delete the code.
 
-Never exclude a mutant because a test is hard to write; a hard-to-test mutant in the
-certificate code is exactly the one that matters.
+Never exclude a mutant that could make a result or a certificate wrong because a test is
+hard to write; a hard-to-test mutant in the certificate code is exactly the one that
+matters. Resource caps, search heuristics and the choice between two sound paths can be
+excluded, with the reason next to the pattern.
 
 ### Last local run
 

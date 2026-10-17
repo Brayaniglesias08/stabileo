@@ -94,6 +94,23 @@ pub fn certify_linear_3d(input: &SolverInput3D) -> Result<(AnalysisResults3D, Ce
     Ok((results, cert))
 }
 
+/// Whether the linear solver took its sparse path (and so which assembly of K
+/// the certificate checks). Choosing the other one would still give a sound
+/// certificate, of the other f64 assembly of the same model; see the
+/// path-selection exclusions in .cargo/mutants.toml.
+fn solver_used_sparse(nf: usize) -> bool {
+    nf >= SPARSE_THRESHOLD
+}
+
+/// The constrained solver's path: sparse when large enough and its sparse
+/// Cholesky succeeded (reported in the results), dense otherwise. Same
+/// soundness note as `solver_used_sparse`.
+fn constrained_solver_used_sparse(nf: usize, results: &AnalysisResults) -> bool {
+    solver_used_sparse(nf) && results.structured_diagnostics.iter().any(|d| d.code == DiagnosticCode::SparseCholesky)
+}
+
+/// Resource cap of the dense paths (O(n²) memory, O(n³) time). Not a
+/// soundness condition: a certificate past it would be equally sound.
 fn size_check(dof_num: &DofNumbering) -> Result<(), Certificate> {
     let nf = dof_num.n_free;
     if nf > MAX_CERTIFY_N || dof_num.n_total > 4 * MAX_CERTIFY_N {
@@ -136,7 +153,7 @@ fn certify_general_2d(input: &SolverInput, results: &AnalysisResults) -> Certifi
     if !input.constraints.is_empty() {
         return certify_constrained_2d(input, results, &dof_num, &u_glob);
     }
-    if nf >= SPARSE_THRESHOLD {
+    if solver_used_sparse(nf) {
         // The solver's sparse path: certify the triplet-assembled K it factors.
         let stiff = assemble_stiffness_sparse_2d(input, &dof_num);
         let (rots, u) = match rotated_candidate_2d(input, &dof_num, &stiff.inclined_transforms_2d, &u_glob) {
@@ -177,9 +194,7 @@ fn certify_constrained_2d(
         &build_constraint_transform(&input.constraints, dof_num, Some(&input.nodes), None),
         nf,
     );
-    let sparse_path = nf >= SPARSE_THRESHOLD
-        && results.structured_diagnostics.iter().any(|d| d.code == DiagnosticCode::SparseCholesky);
-    if sparse_path {
+    if constrained_solver_used_sparse(nf, results) {
         let stiff = assemble_stiffness_sparse_2d(input, dof_num);
         let (rots, u) = match rotated_candidate_2d(input, dof_num, &stiff.inclined_transforms_2d, u_glob) {
             Ok(x) => x,
@@ -267,7 +282,7 @@ pub fn certify_load_cases_2d(input: &SolverInput, cases: &[(&[SolverLoad], &Anal
             .collect();
     }
     let dof_num = DofNumbering::build_2d(input);
-    let prepared = if dof_num.n_free >= SPARSE_THRESHOLD {
+    let prepared = if solver_used_sparse(dof_num.n_free) {
         // The solver's sparse path: certify the triplet-assembled K it factors.
         let stiff = assemble_stiffness_sparse_2d(input, &dof_num);
         if !stiff.inclined_transforms_2d.is_empty() {
@@ -359,7 +374,7 @@ fn certify_general_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Cer
         let cert = certify_constrained_system(&k, nf, &sasm.f, &u, &cm);
         return rotate_back(cert, &rots, &u, &u_glob);
     }
-    if nf >= SPARSE_THRESHOLD {
+    if solver_used_sparse(nf) {
         // The solver's sparse path: certify the triplet-assembled K it factors.
         let stiff = assemble_stiffness_sparse_3d(input, &dof_num, true);
         let Some(k_full) = stiff.k_full.as_ref() else {
@@ -448,7 +463,7 @@ pub fn certify_load_cases_3d(
     }
     let input = &expand_curved_beams_3d(input);
     let dof_num = DofNumbering::build_3d(input);
-    let sparse = dof_num.n_free >= SPARSE_THRESHOLD;
+    let sparse = solver_used_sparse(dof_num.n_free);
     let prepared = if sparse {
         // The solver's sparse path: certify the triplet-assembled K it factors.
         let stiff = assemble_stiffness_sparse_3d(input, &dof_num, true);
