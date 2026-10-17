@@ -771,6 +771,10 @@ export function checkSteelMember(
     // The load height of F.2.2 is not known here, so the checker's conservative default (top
     // flange) applies.
     ...(section.shape !== undefined ? { shape: section.shape } : {}),
+    // Rolled only when picked from a rolled catalogue family. A parametric or declared section
+    // is taken as welded (builtUp): Fr = 114 MPa instead of 69 (F.2.7, F.3, F.4.6a), Table
+    // B.4.1 case 2/12 flanges, and Aw on the web height (G.2.2) — each the conservative side.
+    builtUp: !(section as { profileFamily?: string }).profileFamily,
     // Effective-length factors: stated on the member, or 1,0 (sway-prevented / direct analysis).
     ...(lengths.Kx !== undefined ? { Kx: lengths.Kx } : {}),
     ...(lengths.Ky !== undefined ? { Ky: lengths.Ky } : {}),

@@ -56,6 +56,10 @@ disagreements left open by the published-example verification
   without J, or a channel with a slender web come back **not evaluated** (`notEvaluated`, ratio
   ∞, status fail, diagnostic `VERIF_STEEL_NOT_EVALUATED_*`), never as a pass; H.1 interaction is
   refused when it would need a refused capacity.
+- **The app's CIRSOC 301 verification takes a section as welded unless it was picked from a rolled
+  catalogue family** (`profileFamily`): Fr = 114 MPa, Table B.4.1 case 2/12 flanges and Aw on the
+  web height, each the conservative side for a parametric or imported section. It now also passes
+  the section's `shape`.
 
 #### Design checks against published worked examples (2026-10-17)
 
