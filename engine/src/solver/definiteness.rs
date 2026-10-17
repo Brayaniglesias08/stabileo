@@ -14,22 +14,33 @@
 //!
 //! Those rounding errors are not a few ε of `K_jj`: the entries eliminated
 //! into `d_j` carry the errors of every earlier step, scaled by the stiffer
-//! terms they were coupled to. On 993 random space frames (differential
-//! testing against PyNite and OpenSees, tools/differential/) the pivots of
-//! the singular models (Jacobi-scaled condition number > 1e14) reached
-//! 5e-12 of their diagonal, while no regular model (condition number < 1e10)
-//! had a pivot below 2.4e-5 of its diagonal. The threshold sits between the
-//! two, with two orders of margin above the largest round-off pivot seen; a
-//! regular model only trips it with stiffness contrasts that cost it ten
-//! digits, which deserve the warning anyway.
+//! terms they were coupled to. Mechanisms solved with round-off pivots of
+//! 1e-14 of their diagonal (a member hinged at the tip of another and free at
+//! its other end, found by differential testing against PyNite and OpenSees;
+//! a ring held on its loaded diameter, which turns about it) passed the old
+//! 64 ε threshold silently. The threshold is now 1e-10, and it cannot flag a
+//! regular model that keeps more than ten digits: with `A = D^{-1/2} K
+//! D^{-1/2}` (unit diagonal, so `λ_max(A) ≥ 1`), the pivot ratio
+//! `d_j / K_jj` is `1 / [B⁻¹]_jj` for `B` the leading block of `A` in
+//! elimination order, so `d_j / K_jj ≥ λ_min(B) ≥ λ_min(A) ≥ 1 / κ(A)`
+//! (Cauchy interlacing): a ratio below 1e-10 needs a Jacobi-scaled condition
+//! number above 1e10 in exact arithmetic.
+//!
+//! No pivot threshold separates all mechanisms from all regular models: on
+//! the engine's own test models, rigid-body motions left free by the
+//! supports (a plate turning in its plane) had pivots from 1.3e-10 to 3.4e-8,
+//! while regular models with very stiff springs or stiff members on soft
+//! supports reached 9e-9 and 3e-8. Free rigid-body motions are caught exactly,
+//! before assembly, by `pre_solve_gates::check_rigid_body_restraint_3d`; this
+//! check catches internal mechanisms whose pivot is round-off.
 
 use crate::linalg::sparse::CscMatrix;
 use crate::linalg::sparse_chol::NumericCholesky;
 use crate::types::{DiagnosticCode, Severity, StructuredDiagnostic};
 
 /// Pivot-to-diagonal ratio below which a Cholesky pivot is round-off (see
-/// the module notes: singular models reach 5e-12, regular ones stay above
-/// 2.4e-5).
+/// the module notes: only a Jacobi-scaled condition number above 1e10 can
+/// produce it in a regular model).
 pub const SINGULAR_PIVOT_RATIO: f64 = 1e-10;
 
 /// The warning, with `detail` saying how non-definiteness was detected.

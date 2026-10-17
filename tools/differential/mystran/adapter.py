@@ -264,7 +264,10 @@ def write_bdf(model, analysis="static", densities=None, n_modes=6):
     for n in sorted(flags):
         for k in range(6):
             if flags[n][k]:
-                out.append(card("SPC", [1, n, k + 1, float(disp.get(n, {}).get(k, 0.0))]))
+                # Settlements do not enter a modal solution (and MYSTRAN
+                # rejects enforced displacements outside statics).
+                v = float(disp.get(n, {}).get(k, 0.0)) if analysis == "static" else 0.0
+                out.append(card("SPC", [1, n, k + 1, v]))
                 nspc += 1
     ce = 10 ** (len(str(max(mem))) + 1)
     springs = [(n, k, v) for n in sorted(spr) for k, v in sorted(spr[n].items()) if not flags.get(n, [False] * 6)[k]]
@@ -378,8 +381,17 @@ def run(model, analysis="static", densities=None, n_modes=6):
         raise Unsupported(", ".join(why))
     if not is_3d(model):
         return lower_static_3d(run(lift_2d(model, allow_hinges=True), analysis), model)
-    text, maps = write_bdf(model, analysis, densities, n_modes)
-    raw = parse_f06(run_mystran(text))
+    while True:
+        text, maps = write_bdf(model, analysis, densities, n_modes)
+        try:
+            raw = parse_f06(run_mystran(text))
+            break
+        except RuntimeError as ex:
+            # Lanczos limits the modes to the problem size (error 9776):
+            # ask for fewer, the driver compares the modes both returned.
+            if analysis != "modal" or "9776" not in str(ex) or n_modes <= 1:
+                raise
+            n_modes -= 1
     orig = {n["id"] for n in model["nodes"].values()}
     if analysis == "modal":
         if not raw["freqs"] or len(raw["shapes"]) < len(raw["freqs"]):

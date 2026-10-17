@@ -274,6 +274,16 @@ def conditioning(fm):
     if not free or len(free) > 3000:
         return None, None
     Kf = K[np.ix_(free, free)]
+    # Jacobi scaling hides a DOF whose whole stiffness is round-off (e.g. a
+    # node turning about a column whose torsion is released at the other
+    # end: diagonal 1e-11 against 1e5): call such a stiffness singular.
+    kind = np.array([k % 6 >= 3 for k in free])
+    d = np.abs(np.diag(Kf))
+    for sel in (kind, ~kind):
+        if sel.any():
+            ref = np.median(d[sel])
+            if ref > 0 and (d[sel] <= 1e-10 * ref).any():
+                return float("inf"), 0.0
     dg = np.sqrt(np.abs(np.diag(Kf)))
     dg[dg == 0] = 1.0
     kappa = float(np.linalg.cond(Kf / np.outer(dg, dg)))

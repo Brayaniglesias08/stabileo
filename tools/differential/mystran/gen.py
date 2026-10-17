@@ -1,46 +1,45 @@
 """MYSTRAN-specific generators.
 
-modal3d_lumped: the shared modal3d models with the torsion of every member
-released at one end, where another, non-parallel member provides the
-node's stiffness about that axis (so that no mechanism is created; members
-with no such end are left as they are and the model is then unsupported). MYSTRAN's BAR mass is lumped (rho A L / 2 per end,
-no rotary inertia); stabileo's frame mass is lumped the same way only for
-members with a released end (engine/src/solver/mass_matrix.rs), so these
-models have the same mass matrix in both programs. Models that become
-mechanisms are skipped by the driver's static probe.
+modal3d_lumped: the shared modal3d models with the bending moment about
+local y released at one end of every member. MYSTRAN's BAR mass is lumped
+(rho A L / 2 per end, no rotary inertia); stabileo's frame mass is lumped the
+same way only for members with a released rotation
+(engine/src/solver/mass_matrix.rs), so these models have the same mass
+matrix in both programs. A release is placed at an end whose node keeps its
+stiffness about that axis from another member (one not parallel to the
+axis) or from a full rotational restraint; members without such an end are
+left as they are and the model is then unsupported. Models that still
+become mechanisms are skipped by the driver's static probe.
 """
 
+import math
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
 import gen  # noqa: E402  (common/gen.py)
+from model import members  # noqa: E402
 
 
 def modal3d_lumped(seed):
-    import math
     m = gen.modal3d(seed)
-    xyz = {n["id"]: (n["x"], n["y"], n["z"]) for n in m["nodes"].values()}
-    els = list(m["elements"].values())
-    for e in els:
+    for e in m["elements"].values():
         e["type"] = "frame"
+    mem = members(m)
+    held = {s["nodeId"] for s in m["supports"].values() if s.get("rrx") and s.get("rry") and s.get("rrz")}
 
-    def axis(e):
-        a, b = xyz[e["nodeI"]], xyz[e["nodeJ"]]
-        d = [b[k] - a[k] for k in range(3)]
-        n = math.sqrt(sum(x * x for x in d))
-        return [x / n for x in d]
+    def braced(eid, node, axis):
+        if node in held:
+            return True
+        return any(abs(sum(p * q for p, q in zip(axis, o["ex"]))) < 0.99
+                   for oid, o in mem.items() if oid != eid and node in (o["ni"], o["nj"]))
 
-    def braced(e, node):
-        u = axis(e)
-        return any(abs(sum(p * q for p, q in zip(u, axis(o)))) < 0.99
-                   for o in els if o is not e and node in (o["nodeI"], o["nodeJ"]))
-
-    for e in els:
-        if braced(e, e["nodeJ"]):
-            e["releaseTEnd"] = True
-        elif braced(e, e["nodeI"]):
-            e["releaseTStart"] = True
+    for eid, mm in mem.items():
+        e = mm["e"]
+        if braced(eid, mm["nj"], mm["ey"]):
+            e["releaseMyEnd"] = True
+        elif braced(eid, mm["ni"], mm["ey"]):
+            e["releaseMyStart"] = True
     return m
 
 

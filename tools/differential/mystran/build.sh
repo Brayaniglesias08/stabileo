@@ -48,13 +48,16 @@ perl -pi -e 's/WRITE\(F06,221\) EID_OUT_ARRAY\(I,1\),GID_OUT_ARRAY\(I,J\),\(OGEL
   s/WRITE\(F06,222\) GID_OUT_ARRAY\(I,J\),\(OGEL_CHAR\(K\),K=1,6\)/WRITE(F06,222) GID_OUT_ARRAY(I,J),(OGEL(L,K),K=1,6)/;
   s/^(\s*221 FORMAT\(6X,2\(1X,I8\),)6A\)/${1}6(1X,ES24.16E3))/; s/^(\s*222 FORMAT\(16X,I8,)6A\)/${1}6(1X,ES24.16E3))/' \
   "$L91/WRITE_ELEM_NODE_FORCE.f90"
-# eigenvalue summary
+# eigenvalue summary (LINK4)
 perl -pi -e 's/^(95302 FORMAT\(1X,2I8,)1ES20\.6,A,1ES19\.6,3\(1ES20\.6\)\)/${1}1ES24.16E3,A,1ES24.16E3,3(1ES24.16E3))/' \
   "$src/Source/LK4/EIG_SUMMARY.f90"
+# eigenvalue table (frequencies)
+perl -pi -e 's/^98004 FORMAT\(1X,2I8,5\(1ES20\.6\)\)/98004 FORMAT(1X,2I8,5(1ES24.16E3))/' "$src/Source/LK5/LINK5.f90"
 grep -q "ES24.16E3))\x27) GID_OUT_ARRAY" "$L91/WRITE_GRD_PRT_OUTPUTS.f90" &&
   [ "$(grep -c "OGEL(L,K),K=1,6" "$L91/WRITE_ELEM_NODE_FORCE.f90")" = 2 ] &&
   [ "$(grep -c "ES24.16E3" "$L91/WRITE_ELEM_NODE_FORCE.f90")" = 2 ] &&
-  grep -q "^95302 FORMAT(1X,2I8,1ES24.16E3" "$src/Source/LK4/EIG_SUMMARY.f90" ||
+  grep -q "^95302 FORMAT(1X,2I8,1ES24.16E3" "$src/Source/LK4/EIG_SUMMARY.f90" &&
+  grep -q "^98004 FORMAT(1X,2I8,5(1ES24.16E3))" "$src/Source/LK5/LINK5.f90" ||
   { echo "mystran: precision patch did not apply" >&2; exit 1; }
 
 rm -rf "$build"
@@ -63,7 +66,7 @@ mkdir -p "$build" "$out"
   -DCMAKE_Fortran_COMPILER="$FC" -DCMAKE_C_COMPILER="$CC" -DGIT_SUBMODULE=OFF \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 >"$build/configure.log" 2>&1 ||
   { tail -30 "$build/configure.log" >&2; exit 1; }
-make -C "$build" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" mystran >"$build/build.log" 2>&1 ||
+make -C "$build" -j"${MAKE_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}" mystran >"$build/build.log" 2>&1 ||
   { tail -40 "$build/build.log" >&2; exit 1; }
 bin="$(find "$src/Binaries" "$build" -type f -name mystran -perm -u+x 2>/dev/null | head -1)"
 [ -n "$bin" ] || { echo "mystran: binary not found" >&2; exit 1; }

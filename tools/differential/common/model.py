@@ -360,7 +360,10 @@ def rotational_rank(model, flags, springs):
         if e["type"] != "frame":
             continue
         for nid, end in ((m["ni"], "Start"), (m["nj"], "End")):
-            if not e.get("releaseT" + end):
+            # Torsion released at either end leaves no torsional stiffness
+            # at both ends (bending released at one end still couples the
+            # other end).
+            if not (e.get("releaseTStart") or e.get("releaseTEnd")):
                 dirs[nid].append(m["ex"])
             if not e.get("releaseMy" + end):
                 dirs[nid].append(m["ey"])
