@@ -20,7 +20,9 @@ Element pairs (see README.md for the justification of each):
   releases (My, Mz, T)     the released end on its own node, tied to the
                            joint by LIAISON_DDL on the three translations and
                            on the local rotation components that are not
-                           released (any axes, skew or not)
+                           released (any axes, skew or not); torsion released
+                           at both ends is released at the start only (same
+                           zero torque, no rigid twist mode)
   supports                 DDL_IMPO (settlements as imposed values);
                            inclined: LIAISON_DDL n.u = 0
   constraints              LIAISON_DDL rows built from the documented
@@ -415,7 +417,14 @@ def translate(d):
             chain.append(new_node([pi[k] + s * (pj[k] - pi[k]) for k in range(3)]))
         chain.append(f"N{e['nodeJ']}")
         for idx, end, joint in ((0, "Start", e["nodeI"]), (-1, "End", e["nodeJ"])):
-            kept = [ax for ax, key in ((ex, "releaseT"), (ey, "releaseMy"), (ez, "releaseMz")) if not e.get(key + end)]
+            rel = {k: e.get(k + end) for k in ("releaseT", "releaseMy", "releaseMz")}
+            if end == "End" and e.get("releaseTStart"):
+                # Torsion released at both ends: the member's twist would be a
+                # rigid mode of its two hinge nodes (singular in Code_Aster;
+                # stabileo condenses it away). One release already makes the
+                # torque zero, so the end keeps its torsion.
+                rel["releaseT"] = False
+            kept = [ax for ax, key in ((ex, "releaseT"), (ey, "releaseMy"), (ez, "releaseMz")) if not rel[key]]
             if len(kept) < 3:
                 h = new_node(pts[joint])
                 ties.append((f"N{joint}", h, kept))

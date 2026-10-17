@@ -70,16 +70,23 @@ def collect(a):
         for f in sorted(glob.glob(os.path.join(FIXTURES, "*-input.json"))):
             d = json.load(open(f))
             if C._is_3d(d):
-                jobs.append((os.path.basename(f)[:-len("-input.json")], d))
+                jobs.append(("fixture-" + os.path.basename(f)[:-len("-input.json")], d))
     for s in range(a.seed_start, a.seed_start + a.random3d):
         p = subprocess.run([a.bin, "--gen3d", str(s)], capture_output=True, text=True, check=True)
-        jobs.append((f"random3d-{s}", C.prune_orphans(json.loads(p.stdout))))
+        jobs.append((f"fuzz3d-{s}", C.prune_orphans(json.loads(p.stdout))))
     import gen_models
     for s in range(a.seed_start, a.seed_start + a.rich3d):
         jobs.append((f"rich3d-{s}", gen_models.rich_3d(s)))
     for s in range(a.seed_start, a.seed_start + a.aster3d):
         jobs.append((f"aster3d-{s}", gen.aster_3d(s)))
-    return jobs
+    # Names key the job directories and the results: make them unique (the
+    # fixtures include files named random3d-N, like the generated models).
+    seen = Counter()
+    out = []
+    for name, m in jobs:
+        seen[name] += 1
+        out.append((name if seen[name] == 1 else f"{name}~{seen[name]}", m))
+    return out
 
 
 # ---------------------------------------------------------------- stages
