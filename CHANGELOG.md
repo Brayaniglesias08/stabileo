@@ -31,6 +31,13 @@ regression test.
   outside the heel and a warping constant 24 times too large. The field now uses the
   unsymmetric-bending gradient `(Iz z - Iyz y)/D`, and agrees with an independent
   quadratic-element solution (sectionproperties) to 0.2% on shear centre and Cw.
+- **Saint-Venant J was far low on thin walls.** The section mesh was sized by triangle count
+  alone (A/2000), leaving one or two triangles through a 2-4 mm wall; the P1 Prandtl solve,
+  a strict lower bound, then read 18.5% low on a 400x200 I with 2-4 mm plates and 23.9% low
+  on a 2 mm channel against an independent quadratic-element solve. The mesh now also bounds
+  each triangle by (2A/P)^2/50 (P including holes, capped at 60 000 triangles): those cases
+  read 2.2% and 3.3% low, IPE 300 2.5% (was 3.6%). J stays a lower bound, so the change
+  raises J toward the true value and never above it.
 
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 
