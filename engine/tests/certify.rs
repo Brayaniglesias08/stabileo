@@ -1320,3 +1320,20 @@ fn full_results_bounds_only_when_certified() {
     assert!(!full.certificate.is_certified());
     assert!(full.force_bounds.is_empty() && full.shell_bounds.is_empty());
 }
+
+/// σ must be positive and finite. A negative σ makes `S − σI` positive
+/// definite for any symmetric K with λ_min > σ, and the bound ρ/σ would be
+/// negative; σ = 0 or +∞ give no bound. (Mutants on the σ guard in
+/// certify_linear_system_interval_rhs survived without this test.)
+#[test]
+fn linear_certificate_rejects_nonpositive_or_infinite_sigma() {
+    // K = diag(2, 3), f = (2, 3), ũ = (1, 1) slightly perturbed so ρ > 0.
+    let k = [2.0, 0.0, 0.0, 3.0];
+    let f = [2.0, 3.0];
+    let u = [1.0 + 1e-9, 1.0];
+    assert!(certify_linear_system(&k, 2, &f, &u, 1.0).is_certified(), "σ = 1 ≤ λ_min = 2 certifies");
+    for sigma in [-1.0, -0.5, 0.0, f64::INFINITY, f64::NAN] {
+        let c = certify_linear_system(&k, 2, &f, &u, sigma);
+        assert!(!c.is_certified(), "σ = {sigma} must not certify: {c:?}");
+    }
+}

@@ -12,4 +12,8 @@ exclude_re = [
     # yields an infinite bound, which finish() reports as non-finite anyway.
     "replace > with >= in certify_lambda_min_lower",
     "replace > with >= in finish",
+    # Same for σ: accepting σ = 0 in the guard gives the bound ρ/0 = +∞,
+    # which finish() reports as uncertified (tested with σ = 0 in
+    # tests/certify.rs::linear_certificate_rejects_nonpositive_or_infinite_sigma).
+    "replace > with >= in certify_linear_system_interval_rhs",
 ]
