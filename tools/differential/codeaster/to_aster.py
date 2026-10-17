@@ -33,7 +33,9 @@ Element pairs (see README.md for the justification of each):
                            loads as nodal forces at station nodes
   thermal                  PRE_EPSI: EPX = a.dTu, KY = a.dTz/hz,
                            KZ = a.dTy/hy (engine: a = 12e-6, h = sqrt(12 I/A);
-                           Code_Aster: dthy/dx = KY, dthz/dx = KZ)
+                           Code_Aster: dthy/dx = KY, dthz/dx = KZ); the
+                           initial strain is subtracted from Code_Aster's
+                           member forces, which omit it
 """
 
 import math
@@ -273,6 +275,12 @@ def translate(d):
         L, ex, ey, ez = geo[eid]
         if t == "thermal":
             thermal.setdefault(eid, []).append(x)
+            if e["type"] == "truss":
+                # BARRE ignores PRE_EPSI (no thermal response at all): the
+                # bar's exact equivalent, EA.a.dT pulling its ends apart.
+                fax = mats[e["materialId"]]["e"] * 1000.0 * secs[e["sectionId"]]["a"] * ALPHA * x["dtUniform"]
+                add_nodal(f"N{e['nodeI']}", [-fax * ex[k] for k in range(3)])
+                add_nodal(f"N{e['nodeJ']}", [fax * ex[k] for k in range(3)])
             continue
         if e["type"] == "truss":
             # The engine lumps truss member loads to the end nodes by statics
@@ -585,9 +593,7 @@ def translate(d):
         if comps:
             nodal_f.append(f"_F(GROUP_NO='G{name}', " + ", ".join(f"{k}={_f(v)}" for k, v in comps.items()) + ")")
     loads_c = []
-    if nodal_f:
-        loads_c.append("FORCE_NODALE=(" + "".join(f"\n        {s}," for s in nodal_f) + "\n    )")
-    pre = []
+    pre, eps0 = [], {}
     for eid, tls in thermal.items():
         e = by_id[eid]
         sec = secs[e["sectionId"]]
@@ -600,7 +606,18 @@ def translate(d):
             hz = math.sqrt(12 * sec["iy"] / sec["a"]) if sec["a"] > 1e-15 else 0.1
             comps["KY"] = ALPHA * gz / hz
             comps["KZ"] = ALPHA * gy / hy
-        pre.append(f"_F(GROUP_MA='E{eid}', " + ", ".join(f"{k}={_f(v)}" for k, v in comps.items()) + ")")
+        E = mats[e["materialId"]]["e"] * 1000.0
+        if e["type"] != "truss":  # trusses: nodal forces, see the load loop
+            pre.append(f"_F(GROUP_MA='E{eid}', " + ", ".join(f"{k}={_f(v)}" for k, v in comps.items()) + ")")
+        # Code_Aster's beam force fields (EFGE_ELNO, SIEF_ELNO) are the
+        # stiffness times the *total* strain: they leave out the initial
+        # strain (a freely expanding bar reports N = EA.eps0). The member
+        # force is the stiffness times the elastic strain, so postprocess
+        # subtracts these (README "Thermal loads").
+        eps0[eid] = {"N": E * sec["a"] * comps["EPX"], "MFY": E * sec["iy"] * comps.get("KY", 0.0),
+                     "MFZ": E * sec["iz"] * comps.get("KZ", 0.0)}
+    if nodal_f:
+        loads_c.append("FORCE_NODALE=(" + "".join(f"\n        {s}," for s in nodal_f) + "\n    )")
     if pre:
         loads_c.append("PRE_EPSI=(" + "".join(f"\n        {s}," for s in pre) + "\n    )")
     if loads_c:
@@ -673,7 +690,7 @@ def translate(d):
         support_nodes=sorted(flags),
         mpc_nodes=sorted({n for row in mpcs for n, _, _ in row}),
         elements=[dict(id=e["id"], type=e["type"], first=pieces[e["id"]][0], last=pieces[e["id"]][-1],
-                       axial=truss_axial.get(e["id"], [0.0, 0.0])) for e in elems],
+                       axial=truss_axial.get(e["id"], [0.0, 0.0]), eps0=eps0.get(e["id"], {})) for e in elems],
     )
     return comm_text(m.text(), "\n".join(L_)), meta
 
@@ -853,13 +870,14 @@ def postprocess(meta, raw):
         for k, (n, cn) in enumerate(zip(names, cmap)):
             if e["type"] == "truss":
                 if n == "n":
-                    v = c0[0][eidx["N"]]
+                    v = c0[0][eidx["N"]] - e["eps0"].get("N", 0.0)
                     fd["nStart"] = v + e["axial"][0]
                     fd["nEnd"] = v - e["axial"][1]
                 else:
                     fd[n + "Start"] = fd[n + "End"] = 0.0
                 continue
-            a, b = c0[0][eidx[cn]], c1[-1][eidx[cn]]
+            d0 = e["eps0"].get(cn, 0.0)
+            a, b = c0[0][eidx[cn]] - d0, c1[-1][eidx[cn]] - d0
             fd[n + "Start"] = a if n == "n" else -a
             fd[n + "End"] = b if n == "n" else -b
         forces[e["id"]] = fd

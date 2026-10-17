@@ -163,6 +163,18 @@ def finish(r, tol, dump_dir, model):
     # constraint equations in Code_Aster (REAC_NODA) but not in stabileo,
     # whose reactions are the support forces only: not comparable there.
     ares["reac"] = {n: v for n, v in ares["reac"].items() if n not in skip}
+    # compare.py scales forces by the largest reaction / end force. A
+    # thermal load on a statically determinate model causes none (free
+    # expansion), which would compare round-off with round-off: floor the
+    # scale with the restrained thermal force EA.eps0 (EI.kappa0 / size),
+    # entered as one identical pseudo-member on both sides.
+    th = [(abs(v) / (C_size(model) if k != "N" else 1.0)) for e in meta["elements"] for k, v in e["eps0"].items()]
+    if th and max(th) > 0:
+        pseudo = {k: max(th) for k in ("nStart", "nEnd")}
+        pseudo.update({k: 0.0 for k in ("vyStart", "vyEnd", "vzStart", "vzEnd", "mxStart", "mxEnd",
+                                        "myStart", "myEnd", "mzStart", "mzEnd")})
+        ares["forces"]["thermal-scale"] = dict(pseudo)
+        sres = dict(sres, forces=dict(sres["forces"], **{"thermal-scale": dict(pseudo)}))
     bad, groups = C.compare(model, sres, ares, tol)
     if bad is None:
         return dict(r, status="unloaded")
@@ -175,6 +187,11 @@ def finish(r, tol, dump_dir, model):
             json.dump(model, f, indent=1)
         shutil.copy(os.path.join(job, "model.comm"), base + ".comm")
     return r
+
+
+def C_size(model):
+    xs = [c for p in model["nodes"].values() for c in (p["x"], p.get("y", 0.0), p.get("z", 0.0))]
+    return max(max(xs) - min(xs), 1e-12)
 
 
 def _first_error(msg):
