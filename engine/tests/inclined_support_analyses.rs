@@ -691,8 +691,8 @@ fn pdelta_3d_inclined_support_matches_rotated_model() {
 // These keep the displacement in global axes for the elements and solve each
 // step in the support frames (or, for the ones that did not, used to mix the
 // two). Staged construction refuses inclined supports outright, so it is not
-// here; the 3D co-rotational solver does not converge on this frame even
-// without the inclined support, so it is not here either.
+// here. The 3D co-rotational solver did not converge on this frame before
+// #297; it does now and is tested at the end of the file.
 
 fn assert_static_2d(what: &str, a: &AnalysisResults, b: &AnalysisResults, rel: f64) {
     let ra = rotated_2d(THETA, &a.displacements);
@@ -896,3 +896,19 @@ fn winkler_3d_inclined_support_matches_rotated_model() {
     }
 }
 
+
+/// The 3D co-rotational solver did not converge on this frame before #297
+/// (#287 and #302 left it out for that reason, even with a plain support).
+/// With #297's rewrite (exact rigid rotation, frame carried by the end
+/// rotations) it converges, and the inclined support matches the rotated model.
+#[test]
+fn corotational_3d_inclined_support_matches_rotated_model() {
+    use dedaliano_engine::solver::corotational::solve_corotational_3d;
+    let q = q_3d();
+    for sub in SUBS_3D {
+        let a = solve_corotational_3d(&frame_3d(None, sub), 50, 1e-8, 4, false).expect("a");
+        let b = solve_corotational_3d(&frame_3d(Some(&q), sub), 50, 1e-8, 4, false).expect("b");
+        assert!(a.converged && b.converged, "corotational 3d sub {sub}: converged {} {}", a.converged, b.converged);
+        assert_static_3d(&format!("corotational 3d sub {sub}"), &q, &a.results, &b.results, 1e-6);
+    }
+}
