@@ -34,9 +34,10 @@ jobs:
       - name: Fortran and CMake (Mystran)
         if: matrix.program == 'mystran'
         run: sudo apt-get update && sudo apt-get install -y gfortran cmake
-      - name: CalculiX
+      # CalculiX is built by nix (calculix/setup.sh) with 17-digit output:
+      # distribution builds print 7 digits, a ~5e-7 floor at the tolerance.
+      - uses: cachix/install-nix-action@v31
         if: matrix.program == 'calculix'
-        run: sudo apt-get update && sudo apt-get install -y calculix-ccx && echo "CCX_BIN=$(command -v ccx)" >> "$GITHUB_ENV"
       - name: Compare
         run: tools/differential/ci.sh ${{ matrix.program }} ${{ github.event.inputs.seed }}
       - uses: actions/upload-artifact@v4

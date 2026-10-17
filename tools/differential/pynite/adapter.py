@@ -170,6 +170,13 @@ def build(model):
             if n in flags:
                 flags[n][k] = False
     rank, art_rot = rotational_rank(model, flags, spr)
+    for ld in model["loads"]:
+        x = ld["data"]
+        if ld["type"] == "nodal" and x["nodeId"] in art_rot and any(get(x, k) for k in ("mx", "my", "mz")):
+            # A moment on a node with no rotational stiffness is a local
+            # mechanism (stabileo refuses it); fixing that node's rotations
+            # here would solve it (as tools/opensees/compare.py).
+            raise Unsupported("nodal moment at a node without rotational stiffness")
     for n in art_rot:
         fl = flags.setdefault(n, [False] * 6)
         fl[3:] = [True, True, True]
