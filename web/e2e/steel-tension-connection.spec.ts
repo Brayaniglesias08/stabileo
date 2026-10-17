@@ -73,5 +73,10 @@ test('a tension member is not evaluated until its end connection is described', 
   await page.getByTestId('tc-result-steps-1').click();
   await expect(page.getByTestId('tc-result-pre-1')).toContainText('D.3.2');
   await expect(page.getByTestId('tc-result-pre-1')).toContainText('B.4.2.2');
+  // In the interface language, not the checker's Spanish log.
+  await expect(page.getByTestId('tc-result-pre-1')).toContainText('Yield on the gross section');
+  await expect(page.getByTestId('tc-result-pre-1')).toContainText('Member 1, end J');
+  await expect(page.getByTestId('tc-result-pre-1')).not.toContainText('Fluencia');
+  await expect(page.getByTestId('tc-result-phipn-1')).toHaveText('450.8 kN');
   await page.screenshot({ path: 'test-results/tension-evaluated.png', fullPage: false });
 });

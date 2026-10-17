@@ -60,6 +60,7 @@
 
 import { nominalHoleMm, type HoleKind } from '../../connection/bolt-geometry';
 import { ALL_PROFILES, profileToSectionFull } from '../../data/steel-profiles';
+import { msg, round, type EngineMessage } from '../../codes/message';
 
 // ─── The stored description ──────────────────────────────────────────
 
@@ -165,12 +166,17 @@ export interface EndNetArea {
   xBar?: number;
   L?: number;
   steps: string[];
+  /** The same steps as engine messages (`steel.tc.calc.*`), for surfaces in the user's language. */
+  messages: EngineMessage[];
 }
 
 const refuse = (code: RefusalCode, message: string): { refused: Refusal } => ({ refused: { code, message } });
 const mm = (v: number, d = 1) => (v * 1000).toFixed(d);
 const mm2 = (v: number) => (v * 1e6).toFixed(0);
 const f3 = (v: number) => v.toFixed(3);
+const r0 = (m2: number) => round(m2 * 1e6, 0);
+const r1mm = (m: number) => round(m * 1000, 1);
+const r3 = (v: number) => round(v, 3);
 const pos = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v) && v > 0;
 
 const byName = new Map(ALL_PROFILES.map((p) => [p.name, p]));
@@ -304,6 +310,18 @@ export function describeEnd(e: EndConnection): string {
   return `abulonada, ${l} fila(s) × ${n} bulon(es) M${e.diameterMm ?? '?'} (agujero ${e.holeKind === 'standard' ? 'normal' : 'holgado'})${e.pitchMm ? `, paso ${e.pitchMm} mm` : ''}${st}${web}, unida por ${CONNECTED_ES[e.connected]}`;
 }
 
+/** The connection as an engine message, for the calculation shown in the user's language. */
+export function describeEndMessage(e: EndConnection): EngineMessage {
+  const connected = msg(`steel.tc.connected.${e.connected}`);
+  if (e.kind === 'welded') {
+    return msg('steel.tc.calc.welded', { weld: msg(`steel.tc.weld.${e.weld}`), L: e.lengthMm ?? '—', connected });
+  }
+  return msg('steel.tc.calc.bolted', {
+    lines: e.lines ?? '?', n: e.boltsPerLine ?? '?', d: e.diameterMm ?? '?', hole: msg(`steel.tc.hole.${e.holeKind}`),
+    pitch: e.pitchMm ?? '—', connected,
+  });
+}
+
 /**
  * An, U and Ae at one end, for a section whose gross area is `section.a`.
  */
@@ -317,22 +335,26 @@ export function endNetArea(section: TensionSectionInput, end: EndConnection): En
   const n = g.count;
   const steps: string[] = [];
   steps.push(`  Union: ${describeEnd(end)}`);
+  const messages: EngineMessage[] = [msg('steel.tc.calc.connection', { what: describeEndMessage(end) })];
   const Aconn = n * parts.conn.reduce((s, e) => s + e.area, 0);
   const isAll = end.connected === 'all';
   const xBarL = (L: number) => {
     const raw = 1 - parts.xBar! / L;
     let U = Math.min(0.9, raw);
     steps.push(`  U = 1 − x̄/L = 1 − ${mm(parts.xBar!)}/${mm(L, 0)} = ${f3(raw)} ≤ 0,9 → ${f3(U)}  (D.3.2)`);
+    messages.push(msg('steel.tc.calc.u', { xBar: r1mm(parts.xBar!), L: round(L * 1000, 0), raw: r3(raw), U: r3(U) }));
     const lower = Math.min(1, Aconn / Ag);
     if (lower > U) {
       U = lower;
       steps.push(`  U ≥ A unida/Ag = ${mm2(Aconn)}/${mm2(Ag)} = ${f3(lower)}  (D.3, secciones abiertas)`);
+      messages.push(msg('steel.tc.calc.uFloor', { Aconn: r0(Aconn), Ag: r0(Ag), U: r3(lower) }));
     }
     return U;
   };
 
   if (end.kind === 'welded') {
     steps.push('  Sin agujeros en la union soldada: An = Ag  (B.4.2.2)');
+    messages.push(msg('steel.tc.calc.weldNoHoles'));
     if (g.kind === 'plate' && end.weld === 'longitudinal') {
       const L = pos(end.lengthMm) ? end.lengthMm / 1000 : undefined;
       if (L === undefined) return refuse('weldLength', 'falta la longitud L de los cordones longitudinales (D.3.5)');
@@ -343,23 +365,29 @@ export function endNetArea(section: TensionSectionInput, end: EndConnection): En
       if (!atLeast(1)) return refuse('plateWeldShort', `chapa con cordones longitudinales: L = ${mm(L, 0)} mm < w = ${mm(w, 0)} mm, D.3(2)(d) exige L ≥ w`);
       const U = atLeast(2) ? 1 : atLeast(1.5) ? 0.87 : 0.75;
       steps.push(`  Chapa con cordones en ambos bordes: L = ${mm(L, 0)} mm, w = ${mm(w, 0)} mm → U = ${U.toFixed(2)}  (D.3(2)(d))`);
+      messages.push(msg('steel.tc.calc.plateTable', { L: round(L * 1000, 0), w: round(w * 1000, 0), U }));
       steps.push(`  Ae = Ag·U = ${mm2(Ag)}·${U.toFixed(2)} = ${mm2(Ag * U)} mm²  (D.3.5)`);
-      return { Ag, An: Ag, U, Ae: Ag * U, clause: 'D.3.5', L, steps };
+      messages.push(msg('steel.tc.calc.aeAg', { Ag: r0(Ag), U, Ae: r0(Ag * U), clause: 'D.3.5' }));
+      return { Ag, An: Ag, U, Ae: Ag * U, clause: 'D.3.5', L, steps, messages };
     }
     if (isAll || g.kind === 'plate') {
       steps.push(`  Todos los elementos unidos: Ae = An = ${mm2(Ag)} mm²  (D.3(1))`);
-      return { Ag, An: Ag, U: 1, Ae: Ag, clause: 'D.3(1)', steps };
+      messages.push(msg('steel.tc.calc.all', { Ae: r0(Ag) }));
+      return { Ag, An: Ag, U: 1, Ae: Ag, clause: 'D.3(1)', steps, messages };
     }
     if (end.weld === 'transverse') {
       steps.push(`  Solo cordones transversales: Ae = A unida = ${mm2(Aconn)} mm², U = 1  (D.3(2)(c), D.3.4)`);
-      return { Ag, An: Ag, U: 1, Ae: Math.min(Ag, Aconn), clause: 'D.3.4', steps };
+      messages.push(msg('steel.tc.calc.transverse', { Ae: r0(Math.min(Ag, Aconn)) }));
+      return { Ag, An: Ag, U: 1, Ae: Math.min(Ag, Aconn), clause: 'D.3.4', steps, messages };
     }
     const L = pos(end.lengthMm) ? end.lengthMm / 1000 : undefined;
     if (L === undefined) return refuse('weldLength', 'falta la longitud L de los cordones longitudinales (D.3.2)');
     steps.push(`  x̄ = ${mm(parts.xBar!)} mm (Figura D.3.1), L = ${mm(L, 0)} mm`);
+    messages.push(msg('steel.tc.calc.xBarWeld', { xBar: r1mm(parts.xBar!), L: round(L * 1000, 0) }));
     const U = xBarL(L);
     steps.push(`  Ae = Ag·U = ${mm2(Ag)}·${f3(U)} = ${mm2(Ag * U)} mm²  (D.3(2)(b), D.3.3)`);
-    return { Ag, An: Ag, U, Ae: Ag * U, clause: 'D.3.3', xBar: parts.xBar!, L, steps };
+    messages.push(msg('steel.tc.calc.aeAg', { Ag: r0(Ag), U: r3(U), Ae: r0(Ag * U), clause: 'D.3.3' }));
+    return { Ag, An: Ag, U, Ae: Ag * U, clause: 'D.3.3', xBar: parts.xBar!, L, steps, messages };
   }
 
   // ── Bolted ──
@@ -376,6 +404,7 @@ export function endNetArea(section: TensionSectionInput, end: EndConnection): En
   if (nb >= 2 && !pos(end.pitchMm)) return refuse('pitch', 'falta el paso entre bulones a lo largo de la fuerza');
   const dh = (hole + 2) / 1000;
   steps.push(`  Agujero: ${hole} mm (Tabla J.3.3) + 2 mm = ${mm(dh)} mm  (B.4.2.2)`);
+  messages.push(msg('steel.tc.calc.hole', { hole, dh: r1mm(dh) }));
 
   // Which elements carry the `nl` lines, and which carry the secondary ones.
   const lineElems: Elem[] = secondary
@@ -400,6 +429,7 @@ export function endNetArea(section: TensionSectionInput, end: EndConnection): En
     if (stagger) {
       const zig = nl * dh * e.t - (nl - 1) * (stagger.s * stagger.s * e.t) / (4 * stagger.g);
       steps.push(`  Cadena recta: ${Math.ceil(nl / 2)}·${mm(dh)}·${mm(e.t)} = ${mm2(straight)} mm²; en zigzag: ${nl}·${mm(dh)}·${mm(e.t)} − ${nl - 1}·s²t/4g = ${mm2(zig)} mm²  (B.4.2.2)`);
+      messages.push(msg('steel.tc.calc.chains', { straight: r0(straight), zig: r0(zig) }));
       worst = Math.max(straight, zig);
     }
     deduct += worst;
@@ -411,24 +441,29 @@ export function endNetArea(section: TensionSectionInput, end: EndConnection): En
   deduct *= n;
   const An = Ag - deduct;
   steps.push(`  An = Ag − Σ agujeros = ${mm2(Ag)} − ${mm2(deduct)} = ${mm2(An)} mm²  (B.4.2.2)`);
+  messages.push(msg('steel.tc.calc.an', { Ag: r0(Ag), deduct: r0(deduct), An: r0(An) }));
   if (!(An > 0)) return refuse('netArea', 'An ≤ 0');
 
   if (isAll || g.kind === 'plate') {
     steps.push(`  Todos los elementos unidos: Ae = An = ${mm2(An)} mm²  (D.3(1))`);
-    return { Ag, An, U: 1, Ae: An, clause: 'D.3(1)', steps };
+    messages.push(msg('steel.tc.calc.all', { Ae: r0(An) }));
+    return { Ag, An, U: 1, Ae: An, clause: 'D.3(1)', steps, messages };
   }
   if (nb === 1) {
     // «Si existe sólo una fila de bulones Ae = área neta de los elementos directamente unidos».
     const Ae = Math.min(An, Aconn - deduct);
     if (!(Ae > 0)) return refuse('netArea', 'area neta de los elementos unidos ≤ 0');
     steps.push(`  Un solo bulon por fila: Ae = A neta de los elementos unidos = ${mm2(Aconn)} − ${mm2(deduct)} = ${mm2(Ae)} mm²  (D.3(2)(a))`);
-    return { Ag, An, U: Ae / An, Ae, clause: 'D.3(2)(a)', steps };
+    messages.push(msg('steel.tc.calc.oneBolt', { Aconn: r0(Aconn), deduct: r0(deduct), Ae: r0(Ae) }));
+    return { Ag, An, U: Ae / An, Ae, clause: 'D.3(2)(a)', steps, messages };
   }
   const L = (nb - 1) * end.pitchMm! / 1000;
   steps.push(`  x̄ = ${mm(parts.xBar!)} mm (Figura D.3.1), L = (${nb} − 1)·${end.pitchMm} = ${mm(L, 0)} mm`);
+  messages.push(msg('steel.tc.calc.xBarBolt', { xBar: r1mm(parts.xBar!), n: nb, pitch: end.pitchMm!, L: round(L * 1000, 0) }));
   const U = xBarL(L);
   steps.push(`  Ae = An·U = ${mm2(An)}·${f3(U)} = ${mm2(An * U)} mm²  (D.3(2)(a), D.3.1)`);
-  return { Ag, An, U, Ae: An * U, clause: 'D.3.1', xBar: parts.xBar!, L, steps };
+  messages.push(msg('steel.tc.calc.aeAn', { An: r0(An), U: r3(U), Ae: r0(An * U) }));
+  return { Ag, An, U, Ae: An * U, clause: 'D.3.1', xBar: parts.xBar!, L, steps, messages };
 }
 
 // ─── The member: every end that must be described ───────────────────
@@ -441,7 +476,7 @@ export interface MemberEnd {
 
 /** The governing Ae over a member's ends, or why it cannot be had. */
 export type MemberNetArea =
-  | { Ae: number; governing: MemberEnd; perEnd: Array<{ at: MemberEnd; result: EndNetArea }>; steps: string[] }
+  | { Ae: number; governing: MemberEnd; perEnd: Array<{ at: MemberEnd; result: EndNetArea }>; steps: string[]; messages: EngineMessage[] }
   | { missing: MemberEnd[]; steps: string[] }
   | { refused: Refusal; at: MemberEnd; steps: string[] };
 
@@ -454,16 +489,21 @@ export function memberNetArea(section: TensionSectionInput, ends: readonly Membe
     return { missing, steps: [`  Falta la union extrema en: ${missing.map(label).join('; ')}`] };
   }
   const perEnd: Array<{ at: MemberEnd; result: EndNetArea }> = [];
+  const messages: EngineMessage[] = [];
   for (const at of ends) {
     const r = endNetArea(section, at.connection!);
     if ('refused' in r) return { refused: r.refused, at, steps: [`  ${label(at)}: ${r.refused.message}`] };
     steps.push(`  — ${label(at)}:`, ...r.steps);
+    messages.push(msg('steel.tc.calc.end', { id: at.elementId, end: at.end.toUpperCase() }), ...r.messages);
     perEnd.push({ at, result: r });
   }
   if (perEnd.length === 0) return { missing: [], steps: ['  Sin extremos que describir'] };
   const gov = perEnd.reduce((m, p) => (p.result.Ae < m.result.Ae ? p : m), perEnd[0]!);
-  if (perEnd.length > 1) steps.push(`  Gobierna ${label(gov.at)}: Ae = ${mm2(gov.result.Ae)} mm²`);
-  return { Ae: gov.result.Ae, governing: gov.at, perEnd, steps };
+  if (perEnd.length > 1) {
+    steps.push(`  Gobierna ${label(gov.at)}: Ae = ${mm2(gov.result.Ae)} mm²`);
+    messages.push(msg('steel.tc.calc.governingEnd', { id: gov.at.elementId, end: gov.at.end.toUpperCase(), Ae: r0(gov.result.Ae) }));
+  }
+  return { Ae: gov.result.Ae, governing: gov.at, perEnd, steps, messages };
 }
 
 // ─── Which ends a member has to describe ────────────────────────────

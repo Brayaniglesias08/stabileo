@@ -16,6 +16,8 @@
   import { membersFor } from '../../../lib/store/steel-optimise.svelte';
   import { checkSteelMember } from '../../../lib/engine/verification-service';
   import { memberNetArea, type TensionSectionInput } from '../../../lib/engine/steel/tension-connection';
+  import { te } from '../../../lib/i18n/engine-text';
+  import { msg, round, type EngineMessage } from '../../../lib/codes/message';
 
   let { steelIds }: { steelIds: ReadonlySet<number> } = $props();
 
@@ -31,7 +33,7 @@
     ratio?: number;
     governs?: 'yield' | 'rupture';
     An?: number; U?: number; Ae?: number;
-    steps?: string[];
+    messages?: EngineMessage[];
   }
 
   const rows = $derived.by((): Row[] => {
@@ -58,12 +60,26 @@
         continue;
       }
       const gov = net.perEnd.find((p) => p.at === net.governing)!.result;
-      const yieldPhi = 0.9 * (mat.fy ?? 0) * (sec.a ?? 0) * 1000;
+      const Ag = sec.a ?? 0, fy = mat.fy ?? 0, fu = mat.fu ?? 0;
+      const yieldPhi = 0.9 * fy * Ag * 1000;
+      const ruptPhi = 0.75 * fu * net.Ae * 1000;
+      const governs = v.tension.phiPn < yieldPhi - 1e-9 ? 'rupture' : 'yield';
+      // The calculation in the user's language, from the same numbers the checker used.
+      const messages: EngineMessage[] = [
+        msg('steel.tc.calc.yieldTitle'),
+        msg('steel.tc.calc.yield', { Fy: fy, Ag: round(Ag * 1e6, 0), phiPn: round(yieldPhi, 1) }),
+        msg('steel.tc.calc.aeTitle'),
+        ...net.messages,
+        msg('steel.tc.calc.ruptureTitle'),
+        msg('steel.tc.calc.rupture', { Fu: fu, Ae: round(net.Ae * 1e6, 0), phiPn: round(ruptPhi, 1) }),
+        msg('steel.tc.calc.governs', {
+          which: msg(`steel.tc.results.${governs}`), phiPn: round(v.tension.phiPn, 1), Pu: round(m.demand.Nt, 1), ratio: round(v.tension.ratio, 3),
+        }),
+      ];
       out.push({
         id: m.elementId, Nt: m.demand.Nt, state: 'ok',
-        phiPn: v.tension.phiPn, ratio: v.tension.ratio,
-        governs: v.tension.phiPn < yieldPhi - 1e-9 ? 'rupture' : 'yield',
-        An: gov.An, U: gov.U, Ae: gov.Ae, steps: v.tension.steps,
+        phiPn: v.tension.phiPn, ratio: v.tension.ratio, governs,
+        An: gov.An, U: gov.U, Ae: gov.Ae, messages,
       });
     }
     return out.sort((a, b) => a.id - b.id);
@@ -91,7 +107,7 @@
   {:else}
     <table class="rows">
       <thead><tr>
-        <th>{t('steel.tc.col.member')}</th><th>Nt (kN)</th><th>An</th><th>U</th><th>Ae</th><th>φPn (kN)</th><th>{t('steel.tc.col.status')}</th>
+        <th>{t('steel.tc.col.member')}</th><th>Nt (kN)</th><th>An</th><th>U</th><th>Ae</th><th>φPn</th><th>{t('steel.tc.col.ratio')}</th><th>{t('steel.tc.col.status')}</th>
       </tr></thead>
       <tbody>
         {#each rows as r (r.id)}
@@ -102,14 +118,14 @@
               <td class="num">{mm2(r.An!)} mm²</td>
               <td class="num">{r.U!.toFixed(3)}</td>
               <td class="num">{mm2(r.Ae!)} mm²</td>
-              <td class="num">{r.phiPn!.toFixed(1)}</td>
+              <td class="num" data-testid="tc-result-phipn-{r.id}">{r.phiPn!.toFixed(1)} kN</td>
+              <td class="num"><span class="ratio" data-testid="tc-result-ratio-{r.id}">{(r.ratio! * 100).toFixed(0)} %</span></td>
               <td>
-                <span class="ratio" data-testid="tc-result-ratio-{r.id}">{(r.ratio! * 100).toFixed(0)} %</span>
                 <span class="dim">{tp('steel.tc.results.governs', { which: t(`steel.tc.results.${r.governs}`) })}</span>
                 <button class="link" onclick={() => { open = open === r.id ? null : r.id; }} data-testid="tc-result-steps-{r.id}">{t('steel.tc.results.steps')}</button>
               </td>
             {:else}
-              <td colspan="4" class="ne">
+              <td colspan="5" class="ne">
                 <strong>{t('steel.tc.results.notEvaluated')}</strong> —
                 {#if r.state === 'missing'}{tp('steel.tc.results.missing', { ends: r.missing ?? '' })}
                 {:else if r.state === 'refused'}{r.reason}
@@ -122,8 +138,8 @@
               </td>
             {/if}
           </tr>
-          {#if open === r.id && r.steps}
-            <tr class="steps"><td colspan="7"><pre data-testid="tc-result-pre-{r.id}">{r.steps.join('\n')}</pre></td></tr>
+          {#if open === r.id && r.messages}
+            <tr class="steps"><td colspan="8"><pre data-testid="tc-result-pre-{r.id}">{r.messages.map((m) => te(m)).join('\n')}</pre></td></tr>
           {/if}
         {/each}
       </tbody>
