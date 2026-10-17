@@ -103,6 +103,17 @@ under "What is left".
 17. **The beam flexure check ignores axial force** (`verifyProvidedReinforcement`, beam
     regions). A beam in tension (a tie, a rafter) is checked as if pure flexure.
 
+**Status.**
+
+- Fixed on this branch: 5, 6, 7, 8, 9, 15 and 16.
+- Fixed in part:
+  - 2: the app now calls `checkServiceability`. The CIRSOC 201 checker is reached through its
+    numeric batch, and the JSON entry point is covered by tests.
+  - 3: the design-results normaliser now honours the engine's `pass: false` and
+    `unevaluated`. The wrappers themselves still return `null` on error, and every new caller
+    treats `null` as "not verified".
+- Open: 1, 4, 10, 11, 12, 13, 14 and 17. See "What is left".
+
 ## Plan and status
 
 Each section below is filled in as the work lands. The
@@ -218,7 +229,37 @@ In progress.
 
 ## What is left
 
-In progress.
+In rough order of safety value:
+
+1. **CIRSOC 301 in Rust.** Write a `cirsoc301_check.rs` (the engine has AISC 360 only),
+   migrate `cirsoc301.ts` to an adapter, add a differential test, and gate
+   `verification-service.ts` and `steel/profile-optimise.ts`. This waits for #293, which
+   rewrites `cirsoc301.ts`.
+2. **Gate coverage.** Biaxial bending (Bresler), torsion and the slenderness magnifier are not
+   re-checked by the engine, because it has no checkers for them. Each result says so in
+   `engineRecheck.notRechecked`.
+3. **The legacy CIRSOC 201 designer** (`cirsoc201.ts`) still sizes sections in TypeScript with
+   2005-style rules. The gate now catches what it gets wrong. Next it should size against the
+   engine, so that it stops producing designs the gate has to reject.
+4. **Beam flexure ignores axial force** (finding 17). Ties and rafters are checked as if in
+   pure flexure.
+5. **Column checks under tension in the legacy path.** `verifyElement` takes a magnitude as
+   compression. The gate re-checks tension through the Rust kernel, but the TypeScript
+   verdict is still computed on compression.
+6. **Footings.** The Rust checker uses one axial force for both service bearing and factored
+   shear. It also has no eccentricity, flexure or position (edge or corner). It needs those
+   before `foundation-check.ts` can become an adapter.
+7. **Silent fallbacks.** `section-stress*.ts`, `shell-combos.ts` and
+   `verification-service.ts` (station extraction) quietly compute in TypeScript when WASM is
+   not ready (findings 4 and 11). `plastic-collapse.ts` reads any solver exception as a
+   mechanism (finding 12). It should tell a singular matrix apart from an error.
+8. **`pdelta-forces.ts`** patches the engine's P-Delta member forces with Kg·u (finding 14).
+   The fix belongs in Rust.
+9. **PRO report slab steel** is designed from invented loads (finding 13).
+10. **`loads/*`.** Wind, snow, seismic and combination coefficients are TypeScript only. That
+    is the next migration candidate after #292 lands.
+11. **Other CIRSOC 201 section shapes** (`cirsoc201-flanged.ts`, `-circular.ts`,
+    `-capacity.ts`, `interaction-diagram.ts`, `cirsoc-flex.ts`) still compute in TypeScript.
 
 ## Inventory
 
