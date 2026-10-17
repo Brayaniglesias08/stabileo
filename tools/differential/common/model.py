@@ -194,6 +194,83 @@ def nodalize(model):
     return m2, info
 
 
+_STATIONS = (0.2, 0.4, 0.6, 0.8)
+_SHIFTS = (0.0, 0.03, -0.03, 0.06, -0.06, 0.09, -0.09)
+
+
+def _solve4(a, b):
+    """x with a x = b for a 4x4 system (Gaussian elimination, partial pivoting)."""
+    a = [list(r) + [v] for r, v in zip(a, b)]
+    for i in range(4):
+        p = max(range(i, 4), key=lambda r: abs(a[r][i]))
+        a[i], a[p] = a[p], a[i]
+        for r in range(i + 1, 4):
+            c = a[r][i] / a[i][i]
+            a[r] = [x - c * y for x, y in zip(a[r], a[i])]
+    x = [0.0] * 4
+    for i in range(3, -1, -1):
+        x[i] = (a[i][4] - sum(a[i][k] * x[k] for k in range(i + 1, 4))) / a[i][i]
+    return x
+
+
+def moment_point_loads(model):
+    """Every distributed member load as point loads at four stations of the
+    member with the same moments of order 0..3 about its start.
+
+    A member's end displacements depend on a load only through its work
+    against the end-response functions (cubic for the Euler-Bernoulli
+    element, linear axially), i.e. through those four moments, so this is
+    exact for the original nodes (Euler-Bernoulli and Timoshenko, with or
+    without releases: all have cubic end responses). The stations are well spaced (0.2 L ..
+    0.8 L, shifted to stay clear of point loads): common.model.nodalize's
+    three Gauss points per load put stations as close as 0.11 (b - a) for a
+    load on [a, b], and CalculiX's solver loses digits on very short U1
+    pieces (12EI/L^3): a 1.9 mm piece next to a point load on a 5.37 m
+    member gave 1.2e-6 (building_ccx-25) against stabileo, PyNite and
+    Frame3DD agreeing to 1e-13, and short partial loads gave up to 4e-7
+    (frame2d_ccx-5002, frame3d_ccx-5165).
+    """
+    m = copy.deepcopy(model)
+    mem = members(m)
+    points = {}
+    for ld in m["loads"]:
+        if ld["type"] == "pointOnElement":
+            points.setdefault(ld["data"]["elementId"], []).append(ld["data"]["a"] / mem[ld["data"]["elementId"]]["L"])
+    loads, dist = [], {}
+    for ld in m["loads"]:
+        if ld["type"] == "distributed":
+            dist.setdefault(ld["data"]["elementId"], []).append(ld["data"])
+        else:
+            loads.append(ld)
+    for eid, xs in sorted(dist.items()):
+        L = mem[eid]["L"]
+        pts = points.get(eid, [])
+
+        def clearance(dlt):
+            st = [f + dlt for f in _STATIONS]
+            return min(abs(f - q) for f in st for q in pts + [0.0, 1.0])
+
+        dlt = max(_SHIFTS, key=clearance)
+        st = [(f + dlt) * L for f in _STATIONS]
+        A = [[x ** k for x in st] for k in range(4)]
+        acc = [[0.0, 0.0, 0.0] for _ in st]
+        for x in xs:
+            a = x.get("a") or 0.0
+            b = x.get("b") if x.get("b") is not None else L
+            for c, comp in (("X", 0), ("Y", 1), ("Z", 2)):
+                qi, qj = get(x, f"q{c}I"), get(x, f"q{c}J")
+                if qi == 0 and qj == 0:
+                    continue
+                # Moments of the linear load (3 Gauss points: exact to degree 5).
+                mom = [sum(p * xp ** k for p, xp in gauss_point_loads(qi, qj, a, b)) for k in range(4)]
+                for s_, v in zip(range(4), _solve4(A, mom)):
+                    acc[s_][comp] += v
+        for pos, (px, py, pz) in zip(st, acc):
+            loads.append({"type": "pointOnElement", "data": {"elementId": eid, "a": pos, "px": px, "py": py, "pz": pz}})
+    m["loads"] = loads
+    return m
+
+
 # ---------------------------------------------------------------- stabileo
 
 def stabileo(model, analysis="static", binary=None, **opts):

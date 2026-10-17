@@ -27,10 +27,10 @@ Mapping:
     makes MYSTRAN fail instead of being silently restrained.
   * loads: nodal -> FORCE / MOMENT. MYSTRAN has no PLOAD1 (no member loads
     of any kind), so every member load is moved to nodes inserted along the
-    member (common.model.nodalize: point loads exactly, distributed loads as
-    three Gauss point loads per piece, exact for the cubic end-response
-    functions of both elements; full-length uniform loads are split in two
-    halves first so that they are nodalized too). End forces of a split
+    member: distributed loads as four point loads at well-spaced stations
+    with the same moments of order 0..3 (common.model.moment_point_loads),
+    point loads where they are (common.model.nodalize); exact for the cubic
+    end-response functions of both elements. End forces of a split
     member are those of its first / last piece.
   * results: displacements and SPC forces (global = basic), element nodal
     forces in element axes (PARAM ELFORCEN LOCAL; forces on the element,
@@ -59,7 +59,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "common"))
 
 from model import (Unsupported, get, is_3d, lift_2d, lower_static_3d, members,  # noqa: E402
-                   nodalize, rotational_rank)
+                   moment_point_loads, nodalize, rotational_rank)
 
 BIN = os.environ.get("MYSTRAN_BIN", os.path.join(HERE, "..", ".tools", "mystran", "mystran"))
 
@@ -170,38 +170,16 @@ def _too_long(f):
     raise ValueError(f"field longer than 16 columns: {f!r}")
 
 
-def _split_uniform(model):
-    """Full-length member loads as two half-length pieces, so that nodalize
-    moves them to nodes as well (it keeps full-length uniform loads)."""
-    import copy
-    m = copy.deepcopy(model)
-    mem = members(m)
-    loads = []
-    for ld in m["loads"]:
-        x = ld["data"]
-        if ld["type"] == "distributed" and not x.get("a") and x.get("b") is None:
-            # Full-length (uniform or trapezoidal): two halves, the
-            # intensity interpolated at midspan.
-            L = mem[x["elementId"]]["L"]
-            for a, b, ta, tb in ((0.0, L / 2, 0.0, 0.5), (L / 2, L, 0.5, 1.0)):
-                d = dict(x)
-                d["a"], d["b"] = a, b
-                for c in "XYZ":
-                    qi, qj = get(x, f"q{c}I"), get(x, f"q{c}J")
-                    d[f"q{c}I"] = qi + ta * (qj - qi)
-                    d[f"q{c}J"] = qi + tb * (qj - qi)
-                loads.append({"type": "distributed", "data": d})
-        else:
-            loads.append(ld)
-    m["loads"] = loads
-    return m
-
-
 def write_bdf(model, analysis="static", densities=None, n_modes=6):
     """(text, maps) for a supported 3D model."""
     native, info = model, None
     if analysis == "static" and any(ld["type"] != "nodal" for ld in model["loads"]):
-        native, info = nodalize(_split_uniform(model))
+        # Moment-equivalent point loads at well-spaced stations: the Gauss
+        # points of several loads on one member can fall 0.2 mm apart, and
+        # MYSTRAN loses digits on such short pieces (frame2d-175: 6e-5 on a
+        # cantilever with a full and a partial trapezoid; PyNite, Frame3DD
+        # and Kratos agree with stabileo to 1e-13).
+        native, info = nodalize(moment_point_loads(model))
     mem = members(native)
     flags, disp, spr = {}, {}, {}
     for s in native["supports"].values():
