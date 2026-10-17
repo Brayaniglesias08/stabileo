@@ -226,7 +226,8 @@ pub struct SanityCase {
     /// solver's load vector. Absent: the equilibrium check cannot run for this case.
     #[serde(default)]
     pub applied: Option<[f64; 6]>,
-    /// Load kinds present in the case that `applied` does not account for.
+    /// Load kinds present in the case that `applied` does not account for. Any: the applied
+    /// side is not used, and the checks that read it say so.
     #[serde(default)]
     pub uncovered: Vec<String>,
     /// The moment components of `applied` and the reactions are expected to close (a linear
@@ -251,6 +252,18 @@ pub struct SanityCase {
     /// The case was solved (it has results).
     #[serde(default)]
     pub solved: bool,
+}
+
+impl SanityCase {
+    /// The applied side, when it accounts for every load in the case: a sum missing some loads
+    /// would accuse the model of what the sum left out.
+    pub fn summed(&self) -> Option<[f64; 6]> {
+        if self.uncovered.is_empty() {
+            self.applied
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

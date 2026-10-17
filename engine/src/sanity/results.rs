@@ -68,17 +68,21 @@ fn equilibrium(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
         return;
     }
     let tol = input.options.equilibrium_tol;
-    let mut unchecked: Vec<&SanityCase> = vec![];
+    let mut unchecked: Vec<(&SanityCase, String)> = vec![];
     let mut checked = 0;
     for c in &solved {
-        let Some(applied) = c.applied else {
-            unchecked.push(c);
-            continue;
-        };
-        if c.not_checkable.is_some() {
-            unchecked.push(c);
+        if let Some(why) = &c.not_checkable {
+            unchecked.push((c, why.clone()));
             continue;
         }
+        if !c.uncovered.is_empty() {
+            unchecked.push((c, c.uncovered.join(", ")));
+            continue;
+        }
+        let Some(applied) = c.applied else {
+            unchecked.push((c, String::new()));
+            continue;
+        };
         checked += 1;
         let react = reaction_resultant(c, &g.nodes);
         let fs = (0..3).map(|k| applied[k].abs().max(react[k].abs())).fold(0.0, f64::max);
@@ -96,10 +100,9 @@ fn equilibrium(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
                 }
             }
         }
-        let name = case_name(c);
         if let Some((k, res, rel)) = worst {
-            let uncovered = !c.uncovered.is_empty();
-            let mut msg = format!(
+            let name = case_name(c);
+            let msg = format!(
                 "Case '{}': Σ{} applied = {} but Σ reactions = {}; the difference is {} ({} % of the case's largest {}).",
                 name,
                 COMPONENTS[k],
@@ -109,55 +112,38 @@ fn equilibrium(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
                 fmt(rel * 100.0),
                 if k < 3 { "force" } else { "moment" }
             );
-            if uncovered {
-                msg.push_str(&format!(" Loads of kind {} are not in the applied sum, which may explain it.", c.uncovered.join(", ")));
-            }
             r.push(
-                finding(
-                    SanityCode::EquilibriumViolation,
-                    CheckId::Equilibrium,
-                    if uncovered { Severity::Warning } else { Severity::Error },
-                    msg,
-                )
-                .with("case", name.clone())
-                .with("component", COMPONENTS[k])
-                .with("applied", applied[k])
-                .with("reactions", react[k])
-                .with("residual", res)
-                .with("percent", rel * 100.0)
-                .case(c.id),
-            );
-        } else if !c.uncovered.is_empty() {
-            let msg = format!(
-                "Case '{}' balances, but loads of kind {} are not in the applied sum and were not checked.",
-                name,
-                c.uncovered.join(", ")
-            );
-            r.push(
-                finding(SanityCode::EquilibriumUncovered, CheckId::Equilibrium, Severity::Info, msg)
+                finding(SanityCode::EquilibriumViolation, CheckId::Equilibrium, Severity::Error, msg)
                     .with("case", name)
-                    .with("kinds", c.uncovered.join(", "))
+                    .with("component", COMPONENTS[k])
+                    .with("applied", applied[k])
+                    .with("reactions", react[k])
+                    .with("residual", res)
+                    .with("percent", rel * 100.0)
                     .case(c.id),
             );
         }
     }
+    let list = |v: &[(&SanityCase, String)]| {
+        v.iter()
+            .map(|(c, why)| if why.is_empty() { case_name(c) } else { format!("{} ({})", case_name(c), why) })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     if checked == 0 {
         r.skipped(
             CheckId::Equilibrium,
             SkipReason::NoAppliedSide,
-            format!("no solved case could be summed independently ({})", names(&unchecked)),
-            params(&[("cases", names(&unchecked).into())]),
+            format!("no solved case could be summed independently: {}", list(&unchecked)),
+            params(&[("cases", list(&unchecked).into())]),
         );
     } else if !unchecked.is_empty() {
-        let reasons: Vec<String> = unchecked
-            .iter()
-            .map(|c| format!("{}{}", case_name(c), c.not_checkable.as_ref().map(|w| format!(" ({})", w)).unwrap_or_default()))
-            .collect();
+        let reasons = list(&unchecked);
         r.partial(
             CheckId::Equilibrium,
             SkipReason::SomeCasesUnchecked,
-            format!("not checked: {}", reasons.join(", ")),
-            params(&[("cases", reasons.join(", ").into())]),
+            format!("not checked: {}", reasons),
+            params(&[("cases", reasons.into())]),
         );
     } else {
         r.ran(CheckId::Equilibrium);
@@ -169,13 +155,13 @@ fn equilibrium(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
 // ---------------------------------------------------------------------------
 
 fn gravity_direction(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
-    let gravity: Vec<&SanityCase> = input.cases.iter().filter(|c| c.kind.is_gravity() && c.applied.is_some()).collect();
+    let gravity: Vec<&SanityCase> = input.cases.iter().filter(|c| c.kind.is_gravity() && c.summed().is_some()).collect();
     if gravity.is_empty() {
         r.skipped(CheckId::GravityDirection, SkipReason::NoGravityCase, "no dead or live load case with loads that could be summed", Params::new());
         return;
     }
     for c in gravity {
-        let a = c.applied.unwrap();
+        let a = c.summed().unwrap();
         let v = a[g.up];
         let total = norm([a[0], a[1], a[2]]);
         if v > 1e-6 && v > 0.01 * total {
@@ -243,7 +229,7 @@ fn self_weight(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
         r.ran(CheckId::SelfWeight);
         return;
     }
-    if dead.iter().any(|c| c.applied.is_none()) {
+    if dead.iter().any(|c| c.summed().is_none()) {
         r.skipped(
             CheckId::SelfWeight,
             SkipReason::NoAppliedSide,
@@ -252,7 +238,7 @@ fn self_weight(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
         );
         return;
     }
-    let carried: f64 = dead.iter().map(|c| -c.applied.unwrap()[g.up]).sum();
+    let carried: f64 = dead.iter().map(|c| -c.summed().unwrap()[g.up]).sum();
     if carried < 0.9 * w {
         let msg = format!(
             "The structure weighs {} kN (ρ·A·L of its members and ρ·t·area of its shells), but no load case includes self-weight and the dead-load cases carry {} kN downward in all.",
@@ -284,7 +270,7 @@ fn weight_per_area(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
         r.skipped(CheckId::GravityWeight, SkipReason::NoGravityCase, "the model has no dead or live load case", Params::new());
         return;
     }
-    if gravity.iter().any(|c| c.applied.is_none()) {
+    if gravity.iter().any(|c| c.summed().is_none()) {
         r.skipped(
             CheckId::GravityWeight,
             SkipReason::NoAppliedSide,
@@ -293,7 +279,7 @@ fn weight_per_area(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
         );
         return;
     }
-    let w: f64 = gravity.iter().map(|c| -c.applied.unwrap()[g.up]).sum();
+    let w: f64 = gravity.iter().map(|c| -c.summed().unwrap()[g.up]).sum();
     let floors: Vec<_> = g.floors().collect();
     let area: f64 = floors.iter().map(|l| l.area).sum();
     let q = w / area;

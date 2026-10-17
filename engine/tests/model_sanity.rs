@@ -543,9 +543,14 @@ fn reactions_that_do_not_balance_the_loads_are_caught() {
     let f = find(&r, SanityCode::EquilibriumViolation);
     assert_eq!((f.severity, f.case_id), (Severity::Error, Some(1)));
     assert_eq!(f.params["component"], Param::Text("Fz".into()));
-    // When the case has loads the sum cannot total, the same gap is a warning, not an error.
+    // When the case has loads the sum cannot total, it is not judged on a partial sum: the check
+    // says which case it left out and why.
     input.cases[0].uncovered = vec!["moving".into()];
-    assert_eq!(find(&review(&input), SanityCode::EquilibriumViolation).severity, Severity::Warning);
+    let r = review(&input);
+    assert!(!r.has(SanityCode::EquilibriumViolation));
+    let st = r.status(CheckId::Equilibrium).unwrap();
+    assert_eq!((st.status, st.reason), (CheckStatusKind::Partial, Some(SkipReason::SomeCasesUnchecked)));
+    assert!(st.detail.contains("D (moving)"), "{}", st.detail);
 }
 
 #[test]

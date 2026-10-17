@@ -227,7 +227,7 @@ fn materials(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
         // Strength.
         if let Some(fy) = m.fy {
             if fy > 0.0 && (fy < FY_PLAUSIBLE.0 || fy > FY_PLAUSIBLE.1) {
-                let hint = unit_hint(fy, &STRESS_UNITS[1..], &[("a steel yield strength", 200.0, 700.0), ("a concrete strength", 15.0, 60.0)]);
+                let hint = unit_hint(fy, &STRESS_UNITS[1..], &[("steel", 200.0, 700.0), ("concrete", 15.0, 60.0)]);
                 let mut msg = format!(
                     "Material '{}': strength {} MPa is outside every structural material ({}–{} MPa).",
                     name, fmt(fy), fmt(FY_PLAUSIBLE.0), fmt(FY_PLAUSIBLE.1)
@@ -238,7 +238,7 @@ fn materials(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
                     .with("lo", FY_PLAUSIBLE.0)
                     .with("hi", FY_PLAUSIBLE.1);
                 if let Some((unit, v, what)) = hint {
-                    msg.push_str(&format!(" Read as {} it would be {} MPa, {}.", unit, fmt(v), what));
+                    msg.push_str(&format!(" Read as {} it would be {} MPa, typical of {}.", unit, fmt(v), what));
                     f = f.with("unit", unit).with("corrected", v).with("family", what);
                 }
                 f.message = msg;
