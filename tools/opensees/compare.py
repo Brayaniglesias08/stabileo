@@ -1076,6 +1076,12 @@ def analysis_modal(ctx):
     ops.wipeAnalysis()
     n = int(ctx["spec"].get("numModes", 4))
     lam = ops.eigen("-fullGenLapack", n)
+    # Massless directions are infinite eigenvalues, which fullGenLapack
+    # returns as ~1e308 followed by zeros: keep the ascending finite prefix.
+    for i, v in enumerate(lam):
+        if not v < 1e100 or (i and v < lam[i - 1]):
+            lam = lam[:i]
+            break
     modes = []
     for i in range(len(lam)):
         modes.append({nid: list(ops.nodeEigenvector(nid, i + 1))[:ctx["ndf"]] for nid in ctx["nodes"]})
@@ -1541,6 +1547,14 @@ def run_ext(name, job, binary, tol, dump_dir=None):
         lin = normalize_stabileo(stabileo(_probe_loads(d) if kind in MASS_MODES else d, binary), dim)
         sres = normalize_ext(kind, stabileo_job(job, binary), dim)
     except RuntimeError as ex:
+        ores = opensees_isolated(job)  # a model OpenSees cannot take either is not a failure
+        if "unsupported" in ores:
+            return dict(base, status="unsupported", why=[ores["unsupported"]])
+        v = ores.get("values") or []
+        if kind == "modal" and v and v[0] < 1e-3 * max(v):
+            # A rigid-body mode (a member hanging on hinges, say): the static
+            # probe does not load it, the eigenproblem finds it.
+            return dict(base, status="ill_conditioned", why=[f"mechanism (OpenSees omega_1 = {v[0]:.1e})"])
         return dict(base, status="stabileo_failed", why=[str(ex)[:200]])
     ill = sorted(set(lin["diags"]) & ILL_CONDITIONED)
     if ill:
