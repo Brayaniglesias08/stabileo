@@ -49,6 +49,24 @@ structure expressed without the feature or an analytical value.
   Now: exact rotation vector, frame carried by the mean end rotation, shears on the current chord;
   planar frames in any vertical plane, with and without releases, match the 2D solver to 1e-6.
   The tangent's geometric stiffness is condensed for the end releases, as in P-Delta.
+- **Connectors in the nonlinear solvers** (co-rotational, arc length, displacement control,
+  material- and fiber-nonlinear; 2D and 3D) were refused; they are now part of the tangent and
+  the internal forces. Small-displacement solvers use the linear connector. Co-rotational ones:
+  a zero-length connector is its springs in global axes; a connector with length has its axial
+  spring along the current chord (N = k·(L − L0), with the string stiffness N/L) and, in 2D, its
+  rotational spring on the relative rotation. Shear stiffness on a connector with length (and,
+  in 3D, its torsional and bending stiffness) has no large-displacement definition and is
+  refused by name. Checked at large displacement against a truss bar, a spring support and a
+  rotational spring support.
+- **Connectors in all-truss models (linear and every other path).** The connector matrix was
+  scattered through the node's own DOF list, so with two DOFs per node (three in 3D, or seven
+  with warping) its rows did not line up: a horizontal connector between two free truss nodes
+  pushed the far node vertically. Each local DOF is now mapped to its global DOF by name.
+- **Truss-only nodes in the nonlinear solvers.** A node reached only by trusses (or by members
+  hinged there) in a frame left the 2D co-rotational, arc-length, displacement-control,
+  material- and fiber-nonlinear tangents singular, so they refused a model the linear solver
+  answers; they now carry the linear assembler's artificial stiffness on that rotation (material
+  nonlinear recomputed it for all-hinged nodes only).
 
 #### Every analysis supports a model feature or refuses it by name (2026-10-17)
 
@@ -90,8 +108,8 @@ Now supported (results change):
 - **Influence lines** keep the model's constraints and connectors.
 
 Now refused by name (previously solved without the feature):
-- connectors: co-rotational, arc length, displacement control, material- and fiber-nonlinear
-  (2D and 3D), staged construction, 3D plastic;
+- connectors: staged construction, 3D plastic (the nonlinear solvers that refused them now
+  support them, see "Nonlinear and special solvers" above);
 - prescribed support displacements: co-rotational, arc length, displacement control,
   fiber-nonlinear, SSI, harmonic (2D and 3D), 3D contact;
 - inclined supports: arc length, displacement control, fiber-nonlinear, SSI (2D and 3D), 3D

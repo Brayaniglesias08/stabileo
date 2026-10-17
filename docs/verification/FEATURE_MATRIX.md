@@ -33,13 +33,13 @@ analytical value, or the linear solver in the linear limit).
 | load combinations | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | P-Delta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | P-Delta (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| corotational | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
-| corotational (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
-| material nonlinear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
-| material nonlinear (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
-| fiber nonlinear | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
-| arc length | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
-| displacement control | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
+| corotational | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| corotational (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| material nonlinear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| material nonlinear (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| fiber nonlinear | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| arc length | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| displacement control | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | staged (one stage) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R |
 | Winkler (no foundation) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | contact (no gaps) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -79,7 +79,7 @@ Features:
 - **F16** constraint (rigid link)
 - **F17** connector
 
-Totals: · 93, ✓ 414, R 26, ~ 8, IGN 2, BAD 1
+Totals: · 93, ✓ 421, R 19, ~ 8, IGN 2, BAD 1
 
 Notes on every cell that is not ✓ or ·:
 
@@ -112,13 +112,6 @@ Notes on every cell that is not ✓ or ·:
 - corotational (sparse path) × thermal load: free cantilever: R Corotational analysis does not support thermal loads (member 1, member 2, member 3, … (4 in all)); it would so…
 - arc length × thermal load: free cantilever: R Arc-length analysis does not support thermal loads (member 1, member 2, member 3, … (4 in all)); it would solv…
 - displacement control × thermal load: free cantilever: R Displacement-control analysis does not support thermal loads (member 1, member 2, member 3, … (4 in all)); it …
-- corotational × connector: axial connector: R Corotational analysis does not support connector elements (connector 1); it would solve the model without them…
-- corotational (sparse path) × connector: axial connector: R Corotational analysis does not support connector elements (connector 1); it would solve the model without them…
-- material nonlinear × connector: axial connector: R Material-nonlinear analysis does not support connector elements (connector 1); it would solve the model withou…
-- material nonlinear (sparse path) × connector: axial connector: R Material-nonlinear analysis does not support connector elements (connector 1); it would solve the model withou…
-- fiber nonlinear × connector: axial connector: R Fiber-nonlinear analysis does not support connector elements (connector 1); it would solve the model without t…
-- arc length × connector: axial connector: R Arc-length analysis does not support connector elements (connector 1); it would solve the model without them. …
-- displacement control × connector: axial connector: R Displacement-control analysis does not support connector elements (connector 1); it would solve the model with…
 - staged (one stage) × connector: axial connector: R Staged construction analysis does not support connector elements; it would solve the model without them. Remov…
 
 ## 3D
@@ -132,11 +125,11 @@ Notes on every cell that is not ✓ or ·:
 | load combinations | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | P-Delta | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | P-Delta (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | K | ✓ | ✓ | ✓ | ✓ |
-| corotational | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | R | R | R | R | R | R | R | R | R |
-| corotational (sparse path) | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | R | R | R | R | R | R | R | R | R |
-| material nonlinear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | R | R | R | R | R | R | R | R | R |
-| material nonlinear (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | R | R | R | R | R | R | R | R | R |
-| fiber nonlinear | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | R | R | R | R | R | R | R | R | R |
+| corotational | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | R | R | R | R | R | R | R |
+| corotational (sparse path) | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | R | R | R | R | R | R | R |
+| material nonlinear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | R | R | R | R | R | R | R |
+| material nonlinear (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | R | R | R | R | R | R | R |
+| fiber nonlinear | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | R | R | R | R | R | R | R |
 | staged (one stage) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | R | R | ✓ | ✓ | R | R | R | ✓ | ✓ | ✓ | ✓ |
 | Winkler (no foundation) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | contact (no gaps) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -187,7 +180,7 @@ Features:
 - **F27** shell edge load
 - **F28** shell thermal load
 
-Totals: · 174, ✓ 573, R 76, ~ 12, E 2, BAD 3
+Totals: · 174, ✓ 578, R 71, ~ 12, E 2, BAD 3
 
 Notes on every cell that is not ✓ or ·:
 
@@ -225,11 +218,6 @@ Notes on every cell that is not ✓ or ·:
 - plastic collapse × constraint (EqualDOF): tied coincident nodes: R Plastic (pushover) analysis does not support constraints (rigid links, diaphragms, EqualDOF, MPCs) (constraint…
 - plastic collapse × constraint (rigid link): offset beam: R Plastic (pushover) analysis does not support constraints (rigid links, diaphragms, EqualDOF, MPCs) (constraint…
 - plastic collapse × constraint (diaphragm): two columns: R Plastic (pushover) analysis does not support constraints (rigid links, diaphragms, EqualDOF, MPCs) (constraint…
-- corotational × connector: axial connector: R Corotational analysis does not support connector elements (connector 1); it would solve the model without them…
-- corotational (sparse path) × connector: axial connector: R Corotational analysis does not support connector elements (connector 1); it would solve the model without them…
-- material nonlinear × connector: axial connector: R Material-nonlinear analysis does not support connector elements (connector 1); it would solve the model withou…
-- material nonlinear (sparse path) × connector: axial connector: R Material-nonlinear analysis does not support connector elements (connector 1); it would solve the model withou…
-- fiber nonlinear × connector: axial connector: R Fiber-nonlinear analysis does not support connector elements (connector 1); it would solve the model without t…
 - staged (one stage) × connector: axial connector: R Staged construction analysis does not support connector elements; it would solve the model without them. Remov…
 - plastic collapse × connector: axial connector: R Plastic (pushover) analysis does not support connector elements (connector 1); it would solve the model withou…
 - staged (one stage) × curved beam: arch: R Staged construction analysis does not support curved beams; it would solve the model without them. Remove them…

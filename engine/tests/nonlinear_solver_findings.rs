@@ -489,3 +489,225 @@ fn corotational_3d_planar_portal_matches_2d_with_and_without_releases() {
         }
     }
 }
+
+// ==================== truss-only nodes and connectors ====================
+
+use dedaliano_engine::solver::{arc_length, fiber_nonlinear, material_nonlinear};
+
+fn node_disp<'a>(r: &'a AnalysisResults, id: usize) -> &'a Displacement {
+    r.displacements.iter().find(|d| d.node_id == id).unwrap()
+}
+
+/// Portal frame with a node 5 hung from both beam ends by two trusses: its
+/// rotation is held by nothing (the linear solver puts a tiny artificial
+/// stiffness on it).
+fn frame_with_truss_node(fx: f64, fz: f64) -> SolverInput {
+    make_input(
+        vec![(1, 0.0, 0.0), (2, 0.0, 3.0), (3, 4.0, 3.0), (4, 4.0, 0.0), (5, 2.0, 1.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, 0.01, 1e-4), (2, 0.002, 1e-8)],
+        vec![
+            (1, "frame", 1, 2, 1, 1, false, false), (2, "frame", 2, 3, 1, 1, false, false), (3, "frame", 3, 4, 1, 1, false, false),
+            (4, "truss", 2, 5, 1, 2, false, false), (5, "truss", 3, 5, 1, 2, false, false),
+        ],
+        vec![(1, 1, "fixed"), (2, 4, "fixed")],
+        vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 5, fx, fz, my: 0.0 })],
+    )
+}
+
+fn same_displacements(got: &AnalysisResults, want: &AnalysisResults, rel: f64, what: &str) {
+    let umax = want.displacements.iter().map(|d| d.ux.abs().max(d.uz.abs())).fold(0.0, f64::max);
+    for w in &want.displacements {
+        let g = node_disp(got, w.node_id);
+        assert!((g.ux - w.ux).abs() <= rel * umax && (g.uz - w.uz).abs() <= rel * umax,
+            "{what}: node {} ({}, {}) vs ({}, {})", w.node_id, g.ux, g.uz, w.ux, w.uz);
+    }
+}
+
+/// A node reached only by trusses, in a frame: every nonlinear 2D solver
+/// refused the model ("singular tangent") that the linear solver answers.
+/// Small load: each must reproduce the linear solution.
+#[test]
+fn nonlinear_2d_solvers_accept_truss_only_nodes() {
+    let s = frame_with_truss_node(1.0, -10.0);
+    let lin = linear::solve_2d(&s).unwrap();
+
+    let r = corotational::solve_corotational_2d(&s, 50, 1e-10, 1, false).unwrap();
+    assert!(r.converged);
+    same_displacements(&r.results, &lin, 1e-3, "co-rotational");
+
+    let mi = NonlinearMaterialInput { solver: s.clone(), material_models: HashMap::new(), section_capacities: HashMap::new(), max_iter: 30, tolerance: 1e-10, n_increments: 1 };
+    let r = material_nonlinear::solve_nonlinear_material_2d(&mi).unwrap();
+    assert!(r.converged);
+    same_displacements(&r.results, &lin, 1e-9, "material nonlinear");
+
+    let fi = fiber_nonlinear::FiberNonlinearInput {
+        solver: s.clone(), fiber_sections: HashMap::new(), n_integration_points: 5, max_iter: 30, tolerance: 1e-10, n_increments: 1, modified_nr: false,
+    };
+    let r = fiber_nonlinear::solve_fiber_nonlinear_2d(&fi).unwrap();
+    assert!(r.converged);
+    same_displacements(&r.results, &lin, 1e-9, "fiber nonlinear");
+
+    let target = node_disp(&lin, 5).uz;
+    let dc = arc_length::DisplacementControlInput { solver: s.clone(), control_node: 5, control_dof: 1, target_displacement: target, n_steps: 4, max_iter: 30, tolerance: 1e-10 };
+    let r = arc_length::solve_displacement_control(&dc).unwrap();
+    assert!(r.converged);
+    close(r.final_load_factor, 1.0, 1e-3, "displacement control: load factor at the linear displacement");
+    same_displacements(&r.results, &lin, 1e-3, "displacement control");
+
+    let al = arc_length::ArcLengthInput { solver: s, max_steps: 5, max_iter: 30, tolerance: 1e-8, initial_ds: 0.1, min_ds: 1e-6, max_ds: 0.2, target_iter: 5 };
+    let r = arc_length::solve_arc_length(&al).unwrap();
+    for st in r.steps.iter().filter(|st| st.converged) {
+        // Linear range: the reported displacement (first free DOF: node 2,
+        // u_x) is proportional to the load.
+        close(st.control_displacement, st.load_factor * node_disp(&lin, 2).ux, 1e-3, "arc length: linear path");
+    }
+    assert!(r.steps.iter().any(|st| st.converged));
+}
+
+fn conn(id: usize, i: usize, j: usize, k: [f64; 6]) -> ConnectorElement {
+    ConnectorElement { id, node_i: i, node_j: j, k_axial: k[0], k_shear: k[1], k_moment: k[2], k_shear_z: k[3], k_bend_y: k[4], k_bend_z: k[5] }
+}
+
+/// 3 m cantilever column (4 members) loaded at its top (node 5) by a large
+/// lateral and vertical force; node 10 is a fixed anchor.
+fn column_2d(anchor: (f64, f64)) -> SolverInput {
+    let mut s = make_input(
+        (1..=5).map(|i| (i, 0.0, 0.75 * (i - 1) as f64)).chain([(10, anchor.0, anchor.1)]).collect(),
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, 0.01, 1e-5), (2, 5e-6, 1e-12)],
+        (1..=4).map(|i| (i, "frame", i, i + 1, 1, 1, false, false)).collect(),
+        vec![(1, 1, "fixed"), (2, 10, "fixed")],
+        vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 5, fx: 60.0, fz: -100.0, my: 0.0 })],
+    );
+    s.supports.get_mut("2").unwrap().support_type = "fixed".into();
+    s
+}
+
+/// Co-rotational connectors (2D), each against the same structure without
+/// it, at large displacement (tip drift ~0.4 m on 3 m), where the linear
+/// limit no longer applies:
+/// - a tie with length and axial stiffness k = the truss bar of EA/L = k
+///   (the spring acts along the current chord);
+/// - a connector with length and rotational stiffness only, to a fixed node =
+///   a rotational spring support;
+/// - a zero-length connector with all three stiffnesses, to a fixed node =
+///   a spring support (global axes).
+/// They were refused; a shear stiffness on a connector with length still is.
+#[test]
+fn corotational_2d_connectors_match_their_equivalent_structures() {
+    let solve = |s: &SolverInput| {
+        let r = corotational::solve_corotational_2d(s, 100, 1e-8, 20, false).unwrap();
+        assert!(r.converged);
+        r.results
+    };
+    // Tie from the top to an anchor 4 m away at the base level.
+    let k = 200_000.0 * 1000.0 * 5e-6 / 5.0;
+    let mut with = column_2d((4.0, 0.0));
+    with.connectors.insert("1".into(), conn(1, 5, 10, [k, 0.0, 0.0, 0.0, 0.0, 0.0]));
+    let mut bar = column_2d((4.0, 0.0));
+    bar.elements.insert("9".into(), SolverElement { id: 9, elem_type: "truss".into(), node_i: 5, node_j: 10, material_id: 1, section_id: 2, hinge_start: false, hinge_end: false });
+    let (a, b) = (solve(&with), solve(&bar));
+    assert!(node_disp(&b, 5).ux > 0.05, "large displacement: {}", node_disp(&b, 5).ux);
+    same_displacements(&a, &b, 1e-8, "tie connector vs truss bar");
+    let (ra, rb) = (a.reactions.iter().find(|r| r.node_id == 10).unwrap(), b.reactions.iter().find(|r| r.node_id == 10).unwrap());
+    close(ra.rx, rb.rx, 1e-8, "anchor reaction x");
+    close(ra.rz, rb.rz, 1e-8, "anchor reaction z");
+
+    // Rotational connector with length to a fixed node = rotational spring.
+    let km = 500.0;
+    let mut with = column_2d((1.0, 3.0));
+    with.connectors.insert("1".into(), conn(1, 5, 10, [0.0, 0.0, km, 0.0, 0.0, 0.0]));
+    let mut spring = column_2d((1.0, 3.0));
+    spring.supports.insert("3".into(), SolverSupport { id: 3, node_id: 5, support_type: "spring".into(), kx: None, ky: None, kz: Some(km), dx: None, dz: None, dry: None, angle: None });
+    let (a, b) = (solve(&with), solve(&spring));
+    assert!(node_disp(&b, 5).ux > 0.05);
+    same_displacements(&a, &b, 1e-8, "rotational connector vs rotational spring");
+    close(node_disp(&a, 5).ry, node_disp(&b, 5).ry, 1e-8, "top rotation");
+
+    // Zero-length connector to a coincident fixed node = spring support.
+    let (kx, kz) = (30.0, 400.0);
+    let mut with = column_2d((0.0, 3.0));
+    with.connectors.insert("1".into(), conn(1, 5, 10, [kx, kz, km, 0.0, 0.0, 0.0]));
+    let mut spring = column_2d((0.0, 3.0));
+    spring.supports.remove("2");
+    spring.nodes.remove("10");
+    spring.supports.insert("3".into(), SolverSupport { id: 3, node_id: 5, support_type: "spring".into(), kx: Some(kx), ky: Some(kz), kz: Some(km), dx: None, dz: None, dry: None, angle: None });
+    let (a, b) = (solve(&with), solve(&spring));
+    assert!(node_disp(&b, 5).ux > 0.05);
+    same_displacements(&a, &b, 1e-8, "zero-length connector vs spring support");
+
+    // Shear stiffness across a connector with length: refused by name.
+    let mut bad = column_2d((4.0, 0.0));
+    bad.connectors.insert("7".into(), conn(7, 5, 10, [k, 10.0, 0.0, 0.0, 0.0, 0.0]));
+    let err = corotational::solve_corotational_2d(&bad, 100, 1e-10, 20, false).unwrap_err();
+    assert!(err.contains("connector 7") && err.contains("shear"), "{err}");
+    let dc = arc_length::DisplacementControlInput { solver: bad.clone(), control_node: 5, control_dof: 0, target_displacement: 0.1, n_steps: 4, max_iter: 30, tolerance: 1e-8 };
+    assert!(arc_length::solve_displacement_control(&dc).unwrap_err().contains("connector 7"));
+    let al = arc_length::ArcLengthInput { solver: bad, max_steps: 5, max_iter: 30, tolerance: 1e-8, initial_ds: 0.1, min_ds: 1e-6, max_ds: 0.2, target_iter: 5 };
+    assert!(arc_length::solve_arc_length(&al).unwrap_err().contains("connector 7"));
+}
+
+/// The 3D twin: a tie connector with length = the truss bar of EA/L = k, and
+/// a zero-length connector with all six stiffnesses to a fixed node = a
+/// spring support, at large displacement (tip loaded in x and y). Bending or
+/// shear stiffness on a connector with length is refused.
+#[test]
+fn corotational_3d_connectors_match_their_equivalent_structures() {
+    let column = |anchor: [f64; 3]| {
+        let mut s = make_3d_input(
+            (1..=5).map(|i| (i, 0.0, 0.0, 0.75 * (i - 1) as f64)).chain([(10, anchor[0], anchor[1], anchor[2])]).collect(),
+            vec![(1, 200_000.0, 0.3)],
+            vec![(1, 0.01, 1e-5, 2e-5, 1e-5), (2, 0.001, 1e-8, 1e-8, 1e-8)],
+            (1..=4).map(|i| (i, "frame", i, i + 1, 1, 1)).collect(),
+            vec![(1, vec![true; 6]), (10, vec![true; 6])],
+            vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 5, fx: 60.0, fy: 25.0, fz: -100.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None })],
+        );
+        s.left_hand = None;
+        s
+    };
+    let solve = |s: &SolverInput3D| {
+        let r = corotational::solve_corotational_3d(s, 100, 1e-8, 20, false).unwrap();
+        assert!(r.converged);
+        r.results
+    };
+    let same = |a: &AnalysisResults3D, b: &AnalysisResults3D, what: &str| {
+        let umax = b.displacements.iter().map(|d| d.ux.abs().max(d.uy.abs()).max(d.uz.abs())).fold(0.0, f64::max);
+        assert!(umax > 0.05, "{what}: large displacement ({umax})");
+        for w in &b.displacements {
+            let g = a.displacements.iter().find(|d| d.node_id == w.node_id).unwrap();
+            for (x, y) in [(g.ux, w.ux), (g.uy, w.uy), (g.uz, w.uz), (g.rx, w.rx), (g.ry, w.ry), (g.rz, w.rz)] {
+                assert!((x - y).abs() <= 1e-8 * umax.max(1.0), "{what}: node {} {x} vs {y}", w.node_id);
+            }
+        }
+    };
+    let k = 200_000.0 * 1000.0 * 0.001 / 5.0;
+    let mut with = column([4.0, 0.0, 0.0]);
+    with.connectors.insert("1".into(), conn(1, 5, 10, [k, 0.0, 0.0, 0.0, 0.0, 0.0]));
+    let mut bar = column([4.0, 0.0, 0.0]);
+    let mut e = bar.elements["1"].clone();
+    (e.id, e.elem_type, e.node_i, e.node_j, e.section_id) = (9, "truss".into(), 5, 10, 2);
+    bar.elements.insert("9".into(), e);
+    same(&solve(&with), &solve(&bar), "tie connector vs truss bar");
+
+    let ks = [30.0, 40.0, 400.0, 300.0, 200.0, 100.0]; // x, y, z, rx, ry, rz
+    let mut with = column([0.0, 0.0, 3.0]);
+    // Zero-length: local x = global X, local y = −Z, local z = +Y (the
+    // connector's frame for a global-x axis), so bending about local y is
+    // about Z and about local z is about Y.
+    with.connectors.insert("1".into(), conn(1, 5, 10, [ks[0], ks[2], ks[3], ks[1], ks[5], ks[4]]));
+    let mut spring = column([0.0, 0.0, 3.0]);
+    spring.nodes.remove("10");
+    spring.supports.retain(|_, s| s.node_id != 10);
+    let mut sp = spring.supports.values().next().unwrap().clone();
+    sp.node_id = 5;
+    (sp.rx, sp.ry, sp.rz, sp.rrx, sp.rry, sp.rrz) = (false, false, false, false, false, false);
+    (sp.kx, sp.ky, sp.kz, sp.krx, sp.kry, sp.krz) = (Some(ks[0]), Some(ks[1]), Some(ks[2]), Some(ks[3]), Some(ks[4]), Some(ks[5]));
+    spring.supports.insert("9".into(), sp);
+    same(&solve(&with), &solve(&spring), "zero-length connector vs spring support");
+
+    let mut bad = column([4.0, 0.0, 0.0]);
+    bad.connectors.insert("7".into(), conn(7, 5, 10, [k, 0.0, 0.0, 0.0, 5.0, 0.0]));
+    let err = corotational::solve_corotational_3d(&bad, 100, 1e-10, 20, false).unwrap_err();
+    assert!(err.contains("connector 7"), "{err}");
+}

@@ -75,14 +75,15 @@ pub fn solve_corotational_2d(
     // naming a node that does not exist panicked instead of returning an
     // error. In WASM that ends the module, not the call.
     super::linear::validate_input_2d(input)?;
-    // The tangent has no prescribed-displacement term and no connectors.
+    // The tangent has no prescribed-displacement term.
     // Temperature enters as fixed-end forces held in the global frame, so a
     // heated member that rotates is pushed by its own (fictitious) thermal
     // axial force: 12% on the tip rotation of a heated, bent cantilever.
     super::feature_gates::refuse_2d(input, "Corotational analysis", &[
-        super::feature_gates::Feature::Connectors, super::feature_gates::Feature::PrescribedDisplacements,
+        super::feature_gates::Feature::PrescribedDisplacements,
         super::feature_gates::Feature::ThermalLoads,
     ])?;
+    crate::element::connector::refuse_for_corotational_2d(input, "Corotational analysis")?;
 
     let dof_num = DofNumbering::build_2d(input);
 
@@ -100,6 +101,7 @@ pub fn solve_corotational_2d(
     // Get the full external load vector from linear assembly (reference load)
     let asm = assembly::assemble_2d(input, &dof_num);
     let f_total = asm.f.clone();
+    let art = assembly::artificial_stiffness_entries(&asm);
 
     // Global displacement vector (starts at zero)
     let mut u_full = vec![0.0; n];
@@ -153,7 +155,7 @@ pub fn solve_corotational_2d(
                     &mut trip_rows, &mut trip_cols, &mut trip_vals,
                 );
                 add_spring_contributions(
-                    input, &dof_num, &u_geom, &mut f_int,
+                    input, &dof_num, &u_geom, &mut f_int, &art,
                     &mut |gi, gj, v| {
                         if gi >= gj {
                             trip_rows.push(gi);
@@ -174,7 +176,7 @@ pub fn solve_corotational_2d(
                 k_t = vec![0.0; n * n];
                 assemble_corotational(input, &dof_num, &u_geom, &mut f_int, &mut k_t);
                 add_spring_contributions(
-                    input, &dof_num, &u_geom, &mut f_int,
+                    input, &dof_num, &u_geom, &mut f_int, &art,
                     &mut |gi, gj, v| k_t[gi * n + gj] += v,
                 );
 
@@ -747,14 +749,18 @@ fn subtract_element_fef(
     }
 }
 
-/// Add spring stiffness and internal forces from springs.
-/// `scatter` receives the diagonal stiffness entries (see the element
-/// assemblers for the dense/triplet split).
-fn add_spring_contributions(
+/// Add the stiffness and internal forces of everything that is not a member:
+/// support springs, connectors (co-rotational, see `element::connector`) and
+/// the linear assembler's artificial stiffness `art` on DOFs nothing else
+/// holds (`assembly::artificial_stiffness_entries`). `scatter` receives every
+/// entry, off-diagonal ones included (see the element assemblers for the
+/// dense/triplet split). `u_full` holds true global displacements.
+pub(crate) fn add_spring_contributions(
     input: &SolverInput,
     dof_num: &DofNumbering,
     u_full: &[f64],
     f_int: &mut [f64],
+    art: &[(usize, f64)],
     scatter: &mut impl FnMut(usize, usize, f64),
 ) {
     // Shared with the linear assembler (angle, rotational springs on any support).
@@ -762,6 +768,11 @@ fn add_spring_contributions(
         scatter(i, j, k);
         f_int[i] += k * u_full[j];
     }
+    for &(d, k) in art {
+        scatter(d, d, k);
+        f_int[d] += k * u_full[d];
+    }
+    crate::element::connector::corotational_connectors_2d(input, dof_num, u_full, f_int, scatter);
 }
 
 /// Solve the free-DOF system K_ff * x = r using dense Cholesky with LU fallback.
@@ -850,6 +861,7 @@ fn build_final_results(
 
     // Reactions: co-rotational internal forces at restrained DOFs minus external loads
     let asm = assembly::assemble_2d(input, dof_num);
+    let art = assembly::artificial_stiffness_entries(&asm);
     let nr = n - nf;
     let f_r: Vec<f64> = (nf..n).map(|i| asm.f[i]).collect();
 
@@ -874,7 +886,7 @@ fn build_final_results(
     if cs.is_some() {
         assemble_corotational(input, dof_num, &u_geom, &mut f_int_corot, &mut k_dummy);
         add_spring_contributions(
-            input, dof_num, &u_geom, &mut f_int_corot,
+            input, dof_num, &u_geom, &mut f_int_corot, &art,
             &mut |gi, gj, v| k_dummy[gi * n + gj] += v,
         );
 
@@ -891,7 +903,7 @@ fn build_final_results(
             input, dof_num, &u_geom, &mut f_int_corot, &mut tr, &mut tc, &mut tv,
         );
         add_spring_contributions(
-            input, dof_num, &u_geom, &mut f_int_corot,
+            input, dof_num, &u_geom, &mut f_int_corot, &art,
             &mut |d, _, v| {
                 tr.push(d);
                 tc.push(d);
@@ -1148,13 +1160,14 @@ pub fn solve_corotational_3d(
     }
 
     // Expand curved beams before DOF numbering and assembly.
-    // As in 2D: no prescribed-displacement term, no connectors, and
+    // As in 2D: no prescribed-displacement term, and
     // temperature as fixed global forces.
     super::feature_gates::refuse_3d(input, "Corotational analysis", &[
-        super::feature_gates::Feature::Connectors, super::feature_gates::Feature::PrescribedDisplacements, super::feature_gates::Feature::ThermalLoads,
+        super::feature_gates::Feature::PrescribedDisplacements, super::feature_gates::Feature::ThermalLoads,
         // The 3D co-rotational element has no warping DOF.
         super::feature_gates::Feature::Warping,
     ])?;
+    crate::element::connector::refuse_for_corotational_3d(input, "Corotational analysis")?;
     let input = &super::linear::expand_curved_beams_3d(input);
     let dof_num = DofNumbering::build_3d(input);
 
@@ -1812,8 +1825,8 @@ fn rotation_vector(r: &[[f64; 3]; 3]) -> [f64; 3] {
     [skew[0] * f, skew[1] * f, skew[2] * f]
 }
 
-/// Add spring stiffness and internal forces from springs (3D).
-/// `scatter` receives the diagonal stiffness entries (see the 2D twin).
+/// Add spring and connector stiffness and internal forces (3D); `scatter`
+/// receives every entry, off-diagonal ones included (see the 2D twin).
 fn add_spring_contributions_3d(
     input: &SolverInput3D,
     dof_num: &DofNumbering,
@@ -1837,6 +1850,7 @@ fn add_spring_contributions_3d(
             }
         }
     }
+    crate::element::connector::corotational_connectors_3d(input, dof_num, u_full, f_int, scatter);
 }
 
 /// Maximum translational displacement magnitude for 3D.
