@@ -138,9 +138,39 @@ engine agrees with it on 5 000 sections in both editions (φMn to 1e-7 relative,
 that the numeric batch and the JSON checker are the same function, and it pins each of the
 four disagreements.
 
-**Still to write:** CIRSOC 301 against `steel_check.rs` (waits for #293, see the PR body),
-serviceability, footings (`foundation-check.ts`, `punching-shear.ts`), station design forces,
-`spectral-case.ts` against `solver/spectral.rs`.
+**Serviceability** (`serviceability.test.ts`). On 3 000 random members `checkDeflection` and
+the engine's `check_serviceability` gave the same allowable deflection, ratio and verdict.
+Cantilevers were included, with the limit taken over 2L. The verdict now comes from the
+engine (step 4).
+
+**Footing shear** (`footing-shear.test.ts`). On 2 000 centred footings, with f'c up to 80 MPa
+to exercise the √f'c cap, punching and one-way shear disagreed on every footing deeper than
+250 mm. The Rust side was wrong:
+
+- punching was taken without λs (Tabla 22.6.5.2 with 22.5.5.1.3), 25 % too strong at
+  d = 525 mm;
+- one-way shear used 0,17·√f'c. That is row (a) of Tabla 22.5.5.1, which needs stirrups. A
+  footing has none, so row (c) applies, with λs and ρw.
+
+Fixed in `foundation_check.rs`. ρw is a new optional input, and 0,0018 is used when it is not
+given. Regression tests were added in `engine/tests/integration/foundation_check.rs`. The two
+sides now agree to 1e-9. Bearing is deliberately not compared: the engine uses Meyerhof's
+effective area and the app a linear pressure. Nor are moments, or the engine's single axial
+force used for both service and factored checks (see "What is left").
+
+**Station design forces** (`station-forces.test.ts`). On the QA-8 frame, the TypeScript
+fallback `extractElementStations` and the engine's station buffer agree at every common
+station. The engine path misses no governing demand the TypeScript finds.
+
+**CQC.** `loads/seismic-modal.ts` `cqcRho` was checked against `solver/spectral.rs`
+`combine_cqc` by reading the code. The Der Kiureghian formula is the same, and it is
+symmetric in r ↔ 1/r, so the two orderings agree. It was not compared numerically: the engine
+exports no correlation entry point, and `spectral-case.ts` builds the case differently from
+`solve_spectral_3d`.
+
+**Not written: CIRSOC 301 against `steel_check.rs`.** It waits for #293, which rewrites
+`cirsoc301.ts`. The two implement different codes (CIRSOC 301 and AISC 360), so the test has
+to map φ and the caps.
 
 ### 3. Engine re-check gate
 
@@ -178,7 +208,9 @@ designer anchored at 4 ‰ for the required steel and never looked at the provid
 | CIRSOC 201 legacy designer (`cirsoc201.ts` `checkFlexure`, `checkShear`, `checkColumn`) | Sizing stays in TypeScript and the verdict is re-checked by the engine (step 3). It is not yet a thin adapter. |
 | CIRSOC 201 other sections (`cirsoc201-capacity.ts`, `-flanged.ts`, `-circular.ts`, `interaction-diagram.ts`, `cirsoc-flex.ts`) | Not migrated. |
 | CIRSOC 301 (`cirsoc301.ts`) | Waiting for #293, which rewrites this file. No Rust CIRSOC 301 checker exists yet. |
-| Serviceability, footings, station design forces | Not started. |
+| Serviceability (`checkDeflection`) | **Migrated.** The verdict (allowable deflection, ratio, pass) comes from `check_serviceability`. Only the long-term multiplier stays in TypeScript. If the engine is not loaded, the check fails. `checkCrackWidth` has no engine counterpart; it was fixed but stays in TypeScript. |
+| Footings (`foundation-check.ts`, `punching-shear.ts`) | Not migrated. The Rust checker was corrected and is proven equal on shear for centred footings, but it does not model eccentricity, separate service and factored loads, or flexure, so it cannot replace the TypeScript yet. |
+| Station design forces | Production already uses the engine buffer. The TypeScript is the fallback when WASM is not ready (finding 4), and it is proven equal on the QA-8 frame. |
 
 ### 5. Hardening what stays in TypeScript
 
