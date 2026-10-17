@@ -685,3 +685,209 @@ fn pdelta_3d_inclined_support_matches_rotated_model() {
         }
     }
 }
+
+// ─── static nonlinear paths ────────────────────────────────────────────────
+//
+// These keep the displacement in global axes for the elements and solve each
+// step in the support frames (or, for the ones that did not, used to mix the
+// two). Staged construction refuses inclined supports outright, so it is not
+// here; the 3D co-rotational solver does not converge on this frame even
+// without the inclined support, so it is not here either.
+
+fn assert_static_2d(what: &str, a: &AnalysisResults, b: &AnalysisResults, rel: f64) {
+    let ra = rotated_2d(THETA, &a.displacements);
+    let scale = b.displacements.iter().fold(0.0f64, |m, d| m.max(d.ux.abs()).max(d.uz.abs()));
+    assert!(scale > 0.0, "{what}: no displacement");
+    for d in &b.displacements {
+        let x = ra[&d.node_id];
+        assert_close(&format!("{what} node {} ux", d.node_id), x[0], d.ux, scale, rel);
+        assert_close(&format!("{what} node {} uz", d.node_id), x[1], d.uz, scale, rel);
+        if d.node_id != 5 && d.node_id != 6 {
+            assert_close(&format!("{what} node {} ry", d.node_id), x[2], d.ry, scale, rel);
+        }
+    }
+    let rb: HashMap<usize, &Reaction> = b.reactions.iter().map(|r| (r.node_id, r)).collect();
+    let r_scale = b.reactions.iter().fold(0.0f64, |m, r| m.max(r.rx.abs()).max(r.rz.abs()).max(r.my.abs()));
+    for r in &a.reactions {
+        let Some(rb) = rb.get(&r.node_id) else { panic!("{what}: no reaction at {}", r.node_id) };
+        let (rx, rz) = rot2(THETA, r.rx, r.rz);
+        assert_close(&format!("{what} reaction {} rx", r.node_id), rx, rb.rx, r_scale, rel);
+        assert_close(&format!("{what} reaction {} rz", r.node_id), rz, rb.rz, r_scale, rel);
+        assert_close(&format!("{what} reaction {} my", r.node_id), r.my, rb.my, r_scale, rel);
+    }
+}
+
+fn json_input<T: serde::de::DeserializeOwned>(solver: SolverInput, extra: serde_json::Value) -> T {
+    let mut v = extra;
+    v["solver"] = serde_json::to_value(solver).unwrap();
+    serde_json::from_value(v).unwrap()
+}
+
+/// The portal alone (no truss-only nodes, which these tangents do not guard).
+fn portal_2d(rotated: bool, sub: usize) -> SolverInput {
+    let mut m = model_2d(THETA, rotated, sub, &LOADS_2D_NL[..2]);
+    m.elements.retain(|_, e| e.elem_type == "frame");
+    m.nodes.retain(|_, n| n.id != 5 && n.id != 6);
+    m.supports.retain(|_, s| s.node_id != 6);
+    m
+}
+
+const LOADS_2D_NL: [(usize, f64, f64); 3] = [(2, 2.0, -30.0), (3, 0.0, -30.0), (5, 1.0, -4.0)];
+
+#[test]
+fn corotational_2d_inclined_roller_matches_rotated_model() {
+    use dedaliano_engine::solver::corotational::solve_corotational_2d;
+    for sub in SUBS {
+        let a = solve_corotational_2d(&portal_2d(false, sub), 50, 1e-10, 5, false).expect("a");
+        let b = solve_corotational_2d(&portal_2d(true, sub), 50, 1e-10, 5, false).expect("b");
+        assert_static_2d(&format!("corotational sub {sub}"), &a.results, &b.results, 1e-6);
+    }
+}
+
+#[test]
+fn arc_length_2d_inclined_roller_matches_rotated_model() {
+    use dedaliano_engine::solver::arc_length::{solve_arc_length, ArcLengthInput};
+    for sub in SUBS {
+        // One step: later steps adapt the arc length to iteration counts (which
+        // roundoff can tip by one), so the two runs may take different paths.
+        let run = |rot: bool| solve_arc_length(&json_input::<ArcLengthInput>(portal_2d(rot, sub), serde_json::json!({"maxSteps": 1, "maxIter": 30, "initialDs": 0.5, "maxDs": 2.0, "minDs": 1e-6, "targetIter": 5, "tolerance": 1e-7}))).expect("arc");
+        let (a, b) = (run(false), run(true));
+        assert!(a.converged && b.converged && !a.steps.is_empty(), "{} {} {:?}", a.converged, b.converged, a.steps.iter().map(|s| (s.load_factor, s.iterations)).collect::<Vec<_>>());
+        assert_close("load factor", a.final_load_factor, b.final_load_factor, b.final_load_factor, 1e-7);
+        assert_static_2d(&format!("arc length sub {sub}"), &a.results, &b.results, 1e-6);
+    }
+}
+
+#[test]
+fn material_nonlinear_2d_inclined_roller_matches_rotated_model() {
+    use dedaliano_engine::solver::material_nonlinear::solve_nonlinear_material_2d;
+    for sub in SUBS {
+        let run = |rot: bool| solve_nonlinear_material_2d(&json_input::<NonlinearMaterialInput>(portal_2d(rot, sub), serde_json::json!({"materialModels": {}, "sectionCapacities": {}, "maxIter": 50, "tolerance": 1e-10, "nIncrements": 3}))).expect("mn");
+        let (a, b) = (run(false), run(true));
+        assert_static_2d(&format!("material nonlinear sub {sub}"), &a.results, &b.results, 1e-6);
+    }
+}
+
+#[test]
+fn contact_2d_inclined_roller_matches_rotated_model() {
+    use dedaliano_engine::solver::contact::{solve_contact_2d, ContactInput};
+    for sub in SUBS {
+        let run = |rot: bool| solve_contact_2d(&json_input::<ContactInput>(portal_2d(rot, sub), serde_json::json!({}))).expect("contact");
+        let (a, b) = (run(false), run(true));
+        assert_static_2d(&format!("contact sub {sub}"), &a.results, &b.results, 1e-6);
+    }
+}
+
+#[test]
+fn ssi_2d_inclined_roller_matches_rotated_model() {
+    use dedaliano_engine::solver::ssi::{solve_ssi_2d, SSIInput};
+    for sub in SUBS {
+        let run = |rot: bool| solve_ssi_2d(&json_input::<SSIInput>(portal_2d(rot, sub), serde_json::json!({"soilSprings": [], "maxIter": 30, "tolerance": 1e-10}))).expect("ssi");
+        let (a, b) = (run(false), run(true));
+        assert_static_2d(&format!("ssi sub {sub}"), &a.results, &b.results, 1e-6);
+    }
+}
+
+#[test]
+fn fiber_2d_inclined_roller_matches_rotated_model() {
+    use dedaliano_engine::solver::fiber_nonlinear::{solve_fiber_nonlinear_2d, FiberNonlinearInput};
+    for sub in SUBS {
+        let run = |rot: bool| solve_fiber_nonlinear_2d(&json_input::<FiberNonlinearInput>(portal_2d(rot, sub), serde_json::json!({"fiberSections": {}, "nIntegrationPoints": 3, "maxIter": 50, "tolerance": 1e-10, "nIncrements": 3, "modifiedNr": false}))).expect("fiber");
+        let (a, b) = (run(false), run(true));
+        assert_static_2d(&format!("fiber sub {sub}"), &a.results, &b.results, 1e-6);
+    }
+}
+
+#[test]
+fn winkler_2d_inclined_roller_matches_rotated_model() {
+    use dedaliano_engine::solver::winkler::{solve_winkler_2d, WinklerInput};
+    for sub in SUBS {
+        let run = |rot: bool| solve_winkler_2d(&WinklerInput { solver: portal_2d(rot, sub), foundation_springs: vec![] }).expect("winkler");
+        let (a, b) = (run(false), run(true));
+        assert_static_2d(&format!("winkler sub {sub}"), &a, &b, 1e-6);
+    }
+}
+
+fn assert_static_3d(what: &str, q: &Mat3, a: &AnalysisResults3D, b: &AnalysisResults3D, rel: f64) {
+    let ra = rotated_3d(q, &a.displacements);
+    let scale = b.displacements.iter().fold(0.0f64, |m, d| m.max(d.ux.abs()).max(d.uy.abs()).max(d.uz.abs()));
+    assert!(scale > 0.0, "{what}: no displacement");
+    for d in &b.displacements {
+        let (u, t) = ra[&d.node_id];
+        for (i, (x, y)) in u.iter().chain(&t).zip([d.ux, d.uy, d.uz, d.rx, d.ry, d.rz]).enumerate() {
+            assert_close(&format!("{what} node {} dof {i}", d.node_id), *x, y, scale, rel);
+        }
+    }
+    let rb: HashMap<usize, &Reaction3D> = b.reactions.iter().map(|r| (r.node_id, r)).collect();
+    let r_scale = b.reactions.iter().fold(0.0f64, |m, r| m.max(r.fx.abs()).max(r.fy.abs()).max(r.fz.abs()));
+    for ra in &a.reactions {
+        let Some(rb) = rb.get(&ra.node_id) else { panic!("{what}: no reaction at {}", ra.node_id) };
+        let (f, m) = (mul3(q, [ra.fx, ra.fy, ra.fz]), mul3(q, [ra.mx, ra.my, ra.mz]));
+        for (i, (x, y)) in f.iter().chain(&m).zip([rb.fx, rb.fy, rb.fz, rb.mx, rb.my, rb.mz]).enumerate() {
+            assert_close(&format!("{what} reaction {} {i}", ra.node_id), *x, y, r_scale, rel);
+        }
+    }
+}
+
+fn json_input_3d<T: serde::de::DeserializeOwned>(solver: SolverInput3D, extra: serde_json::Value) -> T {
+    let mut v = extra;
+    v["solver"] = serde_json::to_value(solver).unwrap();
+    serde_json::from_value(v).unwrap()
+}
+
+const LOADS_3D_NL: [(usize, [f64; 3]); 2] = [(2, [1.0, 0.5, -40.0]), (3, [0.0, 0.8, -40.0])];
+
+fn frame_3d(rot: Option<&Mat3>, sub: usize) -> SolverInput3D {
+    model_3d(normal_3d(), rot, sub, &LOADS_3D_NL)
+}
+
+#[test]
+fn material_nonlinear_3d_inclined_support_matches_rotated_model() {
+    use dedaliano_engine::solver::material_nonlinear::solve_nonlinear_material_3d;
+    let q = q_3d();
+    for sub in SUBS_3D {
+        let run = |rot: Option<&Mat3>| solve_nonlinear_material_3d(&json_input_3d::<NonlinearMaterialInput3D>(frame_3d(rot, sub), serde_json::json!({"materialModels": {}, "sectionCapacities": {}, "maxIter": 50, "tolerance": 1e-10, "nIncrements": 3}))).expect("mn 3d");
+        assert_static_3d(&format!("material nonlinear sub {sub}"), &q, &run(None).results, &run(Some(&q)).results, 1e-6);
+    }
+}
+
+#[test]
+fn fiber_3d_inclined_support_matches_rotated_model() {
+    use dedaliano_engine::solver::fiber_nonlinear::{solve_fiber_nonlinear_3d, FiberNonlinearInput3D};
+    let q = q_3d();
+    for sub in SUBS_3D {
+        let run = |rot: Option<&Mat3>| solve_fiber_nonlinear_3d(&json_input_3d::<FiberNonlinearInput3D>(frame_3d(rot, sub), serde_json::json!({"fiberSections": {}, "nIntegrationPoints": 3, "maxIter": 50, "tolerance": 1e-10, "nIncrements": 3, "modifiedNr": false}))).expect("fiber 3d");
+        assert_static_3d(&format!("fiber sub {sub}"), &q, &run(None).results, &run(Some(&q)).results, 1e-6);
+    }
+}
+
+#[test]
+fn contact_3d_inclined_support_matches_rotated_model() {
+    use dedaliano_engine::solver::contact::{solve_contact_3d, ContactInput3D};
+    let q = q_3d();
+    for sub in SUBS_3D {
+        let run = |rot: Option<&Mat3>| solve_contact_3d(&json_input_3d::<ContactInput3D>(frame_3d(rot, sub), serde_json::json!({}))).expect("contact 3d");
+        assert_static_3d(&format!("contact sub {sub}"), &q, &run(None).results, &run(Some(&q)).results, 1e-6);
+    }
+}
+
+#[test]
+fn ssi_3d_inclined_support_matches_rotated_model() {
+    use dedaliano_engine::solver::ssi::{solve_ssi_3d, SSIInput3D};
+    let q = q_3d();
+    for sub in SUBS_3D {
+        let run = |rot: Option<&Mat3>| solve_ssi_3d(&json_input_3d::<SSIInput3D>(frame_3d(rot, sub), serde_json::json!({"soilSprings": [], "maxIter": 30, "tolerance": 1e-10}))).expect("ssi 3d");
+        assert_static_3d(&format!("ssi sub {sub}"), &q, &run(None).results, &run(Some(&q)).results, 1e-6);
+    }
+}
+
+#[test]
+fn winkler_3d_inclined_support_matches_rotated_model() {
+    use dedaliano_engine::solver::winkler::{solve_winkler_3d, WinklerInput3D};
+    let q = q_3d();
+    for sub in SUBS_3D {
+        let run = |rot: Option<&Mat3>| solve_winkler_3d(&WinklerInput3D { solver: frame_3d(rot, sub), foundation_springs: vec![] }).expect("winkler 3d");
+        assert_static_3d(&format!("winkler sub {sub}"), &q, &run(None), &run(Some(&q)), 1e-6);
+    }
+}
+
