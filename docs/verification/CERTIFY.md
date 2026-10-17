@@ -430,9 +430,9 @@ inconclusive at this precision.
   possibly non-zero `Nu` is refused (the f64 check flags it incomplete).
 
 Wasm: `certify_steel_members`, `certify_ec3_members`, `certify_ec2_members`,
-`certify_cirsoc201_members`, `certify_rc_members`, `certify_timber_members` (bounded
-demands in; `ec3_demands` / `ec2_demands` / `cirsoc201_demands` / `rc_demands` /
-`timber_demands` convert the station demand sets and
+`certify_cirsoc201_members`, `certify_rc_members`, `certify_timber_members`,
+`certify_cfs_members` (bounded demands in; `ec3_demands` / `ec2_demands` /
+`cirsoc201_demands` / `rc_demands` / `timber_demands` / `cfs_demands` convert the station demand sets and
 `scale_demands` changes units, e.g. kN → N for EC2's Pa-based formulas, widening each
 bound by the scaling's rounding), `certify_steel_multi_case_2d/3d`
 (multi-case model + members in, `{ analysis, steel }` out).
@@ -445,12 +445,22 @@ bound by the scaling's rounding), `certify_steel_multi_case_2d/3d`
 | CIRSOC 201 (`cirsoc201_check`): RC flexure 10.2 (strain compatibility, singly / doubly reinforced, compression- and tension-steel yield branches, φ 9.3.2 with εty = 0.002 for fy ≤ 420 MPa else fy/Es), shear Cap. 11 (Vc with √f'c ≤ 25/3, Vs, Vs,max) | **certified** |
 | ACI 318-19 (`rc_check`): RC flexure 22.2 (strain compatibility, rectangular singly / doubly, T-beam flange / web), P-M interaction 22.4 at the axial load, axial capacity 22.4.2.1 / 22.4.3.1, φ Table 21.2.2, shear 22.5.5.1 (Av,min switch, λs, √f'c ≤ 8.3, Vs,max) | **certified** |
 | NDS timber (`timber_check`): bending 3.3 (CL with the Table 3.3.3 effective span), compression 3.6 (CP), tension 3.8, shear 3.4, interaction 3.9.1 / 3.9.2 (FcE1 amplification, saturated at 99) | **certified** |
-| masonry, CFS, connections, foundations, serviceability | not certified (f64 only) |
+| AISI S100 (`cfs_check`): compression E2 (weak-axis flexural buckling, local via Ae) / E4 distortional, tension D2, flexure F2.1 LTB / F4 distortional, weak-axis flexure, web shear G2.1 (three ranges), linear interaction H1.2 / H2 | **certified** |
+| masonry, connections, foundations, serviceability | not certified (f64 only) |
 
 Timber note: past buckling (`fc ≥ FcE1`) the f64 check saturates the 3.9.2 ratio at 99;
 the amplified term is written `fb/max(1 − fc/FcE1, fb/99)` (equal after the final
 `min(·, 99)`, and finite), so a box reaching `FcE1` has an enclosure reaching 99. A box
 that also contains a zero moment is refused (the term jumps 0 → 99 there).
+
+CFS note: flexural-torsional buckling of singly symmetric sections and second-order
+amplification are not in the f64 check (the web flags the former). Fixed while
+certifying (regression tests in `tests/integration/cfs_check.rs`): zero / non-finite
+capacities passed (now `unevaluated`), F2.1 read `1 + √X` for `√(1 + X)` (Me high; the
+web's compensating Cw rescaling in `cfs-code.ts` is removed), G2.1 used the yield branch
+up to the elastic limit, a misprinted inelastic limit and an elastic Vn missing a factor
+t, a shear demand without web geometry read ratio 0, and the interaction used AISC's
+H1-1a/b split instead of AISI's linear sum.
 
 EC3 note: an unbraced length `lb = 0` gives `Mcr = x/0`; the f64 check reads it as no
 LTB reduction, the interval check refuses (division by an interval containing 0).

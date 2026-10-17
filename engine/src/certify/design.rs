@@ -12,7 +12,8 @@
 //! compression E3, flexure F2/F6, shear G2 and the H1 interaction; EC3
 //! (`ec3_check`) member checks; EC2 (`ec2_check`) RC flexure and shear;
 //! CIRSOC 201 (`cirsoc201_check`) RC flexure and shear; ACI 318 (`rc_check`)
-//! RC flexure (incl. P-M interaction), shear and axial capacity.
+//! RC flexure (incl. P-M interaction), shear and axial capacity; NDS timber
+//! (`timber_check`); AISI S100 cold-formed steel (`cfs_check`).
 
 use std::collections::HashMap;
 
@@ -34,6 +35,10 @@ use crate::postprocess::rc_check::{
     flexure_section as rc_flexure_section, interaction_c_range, interaction_point,
     shear_capacity as rc_shear_capacity, RCDesignForces, RCMemberData, RCSectionType, RC_AXIAL, RC_FLEXURE,
     RC_SHEAR,
+};
+use crate::postprocess::cfs_check::{
+    cfs_capacities, CfsCapacities, CfsDesignForces, CfsMemberData, CFS_CHECK_NAMES, PHI_B as CFS_PHI_B,
+    PHI_C as CFS_PHI_C, PHI_T as CFS_PHI_T, PHI_V as CFS_PHI_V,
 };
 use crate::postprocess::rc_flexure::RcFlexureSection;
 use crate::postprocess::timber_check::{
@@ -788,6 +793,84 @@ pub fn timber_demands(demands: &[BoundedSteelDemand]) -> Vec<BoundedTimberDemand
         .iter()
         .map(|d| BoundedTimberDemand {
             forces: TimberDesignForces { element_id: d.forces.element_id, m: d.forces.my, n: Some(d.forces.n), v: d.forces.vy },
+            bound: d.bound,
+        })
+        .collect()
+}
+
+// ───────────────────────────── AISI S100 (CFS) ─────────────────────────────
+
+/// AISI S100 design forces with their certified error bounds (`n`→axial
+/// tension-positive, `my`→Mx strong axis, `mz`→My weak axis, `vy`→shear).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoundedCfsDemand {
+    pub forces: CfsDesignForces,
+    pub bound: DemandBound,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CertifiedCfsCheckInput {
+    pub members: Vec<CfsMemberData>,
+    pub demands: Vec<BoundedCfsDemand>,
+}
+
+/// Interval enclosures of the six AISI S100 ratios for one demand box.
+/// Mirrors `cfs_check::check_single_cfs_member`. A shear demand on a member
+/// without web geometry is refused (the f64 check flags it).
+pub fn cfs_ratio_enclosures(m: &CfsMemberData, f: &CfsDesignForces, b: &DemandBound) -> Result<[Interval; 6], String> {
+    let names = CFS_CHECK_NAMES;
+    let n = around(f.axial.unwrap_or(0.0), b.n, "axial")?;
+    let mx = around(f.mx.unwrap_or(0.0), b.my, "Mx")?.abs();
+    let my = around(f.my.unwrap_or(0.0), b.mz, "My")?.abs();
+    let v = around(f.shear.unwrap_or(0.0), b.vy, "shear")?.abs();
+    let zero = Interval::ZERO;
+    let caps: CfsCapacities<Interval> = cfs_capacities(m);
+    let phi = |x: f64, c: Interval| Interval::lit(x) * c;
+    let compression = loaded_ratio(names[0], (-n).max(zero), phi(CFS_PHI_C, caps.pn))?;
+    let tension = loaded_ratio(names[1], n.max(zero), phi(CFS_PHI_T, caps.tn))?;
+    let flex_x = loaded_ratio(names[2], mx, phi(CFS_PHI_B, caps.mn_x))?;
+    let flex_y = loaded_ratio(names[3], my, phi(CFS_PHI_B, caps.mn_y))?;
+    let shear = match caps.vn {
+        Some(vn) => loaded_ratio(names[4], v, phi(CFS_PHI_V, vn))?,
+        None if v.lo == 0.0 && v.hi == 0.0 => zero,
+        None => return Err(format!("{}: no web geometry (h, t) for a shear demand", names[4])),
+    };
+    let interaction = compression + tension + flex_x + flex_y;
+    let out = [compression, tension, flex_x, flex_y, shear, interaction];
+    for (r, name) in out.iter().zip(names) {
+        if !r.is_finite() {
+            return Err(format!("{name}: enclosure not finite"));
+        }
+    }
+    Ok(out)
+}
+
+/// Certified AISI S100 cold-formed steel member checks.
+pub fn certify_cfs_members(input: &CertifiedCfsCheckInput) -> Vec<CertifiedMemberResult> {
+    certify_members(
+        &input.members,
+        |m| m.element_id,
+        &input.demands,
+        |d| d.forces.element_id,
+        &CFS_CHECK_NAMES,
+        |m, d| cfs_ratio_enclosures(m, &d.forces, &d.bound).map(|r| r.to_vec()),
+    )
+}
+
+/// The same demand sets in AISI S100 form.
+pub fn cfs_demands(demands: &[BoundedSteelDemand]) -> Vec<BoundedCfsDemand> {
+    demands
+        .iter()
+        .map(|d| BoundedCfsDemand {
+            forces: CfsDesignForces {
+                element_id: d.forces.element_id,
+                axial: Some(d.forces.n),
+                mx: Some(d.forces.my),
+                my: d.forces.mz,
+                shear: d.forces.vy,
+            },
             bound: d.bound,
         })
         .collect()
@@ -1836,6 +1919,146 @@ mod tests {
             demands: vec![BoundedTimberDemand { forces: f, bound: ZERO_BOUND }],
         });
         assert!(!res[0].certified && !res[0].certified_ok);
+    }
+
+    // ───────────── AISI S100 (CFS) ─────────────
+
+    use crate::postprocess::cfs_check::{check_cfs_members, CfsCheckInput};
+
+    fn cfs_member(g: &mut Lcg, id: usize) -> CfsMemberData {
+        let s = g.range(0.5, 2.0);
+        let opt = |g: &mut Lcg, lo: f64, hi: f64| if g.unit() < 0.5 { None } else { Some(g.range(lo, hi)) };
+        let web = g.unit() < 0.7;
+        CfsMemberData {
+            element_id: id,
+            fy: [230e6, 345e6, 450e6][(g.unit() * 3.0) as usize % 3],
+            e: 200e9,
+            ag: 4.84e-4 * s,
+            ae: 4.84e-4 * s * g.range(0.6, 1.0),
+            ix: 1.16e-6 * s * s,
+            se_x: 1.53e-5 * s * g.range(0.7, 1.0),
+            sf_x: 1.53e-5 * s,
+            iy: 1.10e-7 * s * s,
+            se_y: 3.8e-6 * s,
+            rx: 0.049 * s.sqrt(),
+            ry: 0.0151 * s.sqrt(),
+            j: 3.73e-10 * s * g.range(0.5, 2.0),
+            cw: 7.5e-10 * s * s * g.range(0.5, 2.0),
+            lb: g.range(0.3, 6.0),
+            lc: g.range(0.3, 6.0),
+            k: opt(g, 0.5, 2.0),
+            cb: opt(g, 1.0, 2.3),
+            fcrd: opt(g, 50e6, 900e6),
+            fcrd_flex: opt(g, 50e6, 900e6),
+            aw: None,
+            h: if web { Some(g.range(0.08, 0.3)) } else { None },
+            t: if web { Some(g.range(0.0008, 0.004)) } else { None },
+        }
+    }
+
+    fn cfs_forces(g: &mut Lcg, m: &CfsMemberData) -> CfsDesignForces {
+        let pick = |g: &mut Lcg, x: f64| if g.unit() < 0.15 { None } else { Some(g.range(-x, x)) };
+        CfsDesignForces {
+            element_id: m.element_id,
+            axial: pick(g, 0.5 * m.ag * m.fy),
+            mx: pick(g, 0.6 * m.sf_x * m.fy),
+            my: pick(g, 0.6 * m.se_y * m.fy),
+            shear: if m.h.is_some() { pick(g, 3e4) } else { None },
+        }
+    }
+
+    fn cfs_f64(m: &CfsMemberData, f: &CfsDesignForces) -> [f64; 6] {
+        let r = &check_cfs_members(&CfsCheckInput { members: vec![m.clone()], forces: vec![f.clone()] })[0];
+        assert!(r.unevaluated.is_empty(), "{:?}", r.unevaluated);
+        [r.compression_ratio, r.tension_ratio, r.flexure_ratio_x, r.flexure_ratio_y, r.shear_ratio, r.interaction_ratio]
+    }
+
+    #[test]
+    fn cfs_f64_and_interval_paths_agree_on_points() {
+        let mut g = Lcg(100);
+        for i in 0..4000 {
+            let m = cfs_member(&mut g, i);
+            let f = cfs_forces(&mut g, &m);
+            let r = cfs_ratio_enclosures(&m, &f, &ZERO_BOUND).unwrap();
+            let p = cfs_f64(&m, &f);
+            for k in 0..6 {
+                let tol = 1e-12 * p[k].abs();
+                assert!(r[k].lo - tol <= p[k] && p[k] <= r[k].hi + tol, "{i}/{k}: {} ∉ {:?}", p[k], r[k]);
+                assert!(r[k].hi - r[k].lo <= 1e-11 * p[k].abs().max(1e-12), "{i}/{k}: wide {:?}", r[k]);
+            }
+        }
+    }
+
+    #[test]
+    fn cfs_enclosure_contains_sampled_demands() {
+        let mut g = Lcg(101);
+        for i in 0..400 {
+            let m = cfs_member(&mut g, i);
+            let f = cfs_forces(&mut g, &m);
+            let b = DemandBound {
+                n: f.axial.unwrap_or(0.0).abs() * g.range(0.0, 0.3) + 1.0,
+                my: f.mx.unwrap_or(0.0).abs() * g.range(0.0, 0.3),
+                mz: f.my.unwrap_or(0.0).abs() * g.range(0.0, 0.3),
+                vy: f.shear.unwrap_or(0.0).abs() * g.range(0.0, 0.3),
+            };
+            let r = cfs_ratio_enclosures(&m, &f, &b).unwrap();
+            for j in 0..40 {
+                let t = |g: &mut Lcg| if j < 2 { [-1.0, 1.0][j] } else { g.range(-1.0, 1.0) };
+                let s = CfsDesignForces {
+                    element_id: i,
+                    axial: Some(f.axial.unwrap_or(0.0) + b.n * t(&mut g)),
+                    mx: Some(f.mx.unwrap_or(0.0) + b.my * t(&mut g)),
+                    my: Some(f.my.unwrap_or(0.0) + b.mz * t(&mut g)),
+                    shear: if m.h.is_some() { Some(f.shear.unwrap_or(0.0) + b.vy * t(&mut g)) } else { None },
+                };
+                let p = cfs_f64(&m, &s);
+                for k in 0..6 {
+                    let tol = 1e-12 * p[k].abs();
+                    assert!(r[k].lo - tol <= p[k] && p[k] <= r[k].hi + tol, "{i}/{k}: {} ∉ {:?}", p[k], r[k]);
+                }
+            }
+        }
+    }
+
+    /// Members built on capacity thresholds (λc = 1.5, Fe = 2.78·Fy and
+    /// 0.56·Fy for LTB, h/t at both shear limits): the hull contains the f64.
+    #[test]
+    fn cfs_straddled_thresholds_are_enclosed() {
+        let mut g = Lcg(102);
+        let base = CfsMemberData { fcrd: None, fcrd_flex: None, k: Some(1.0), cb: Some(1.0), ..cfs_member(&mut g, 1) };
+        let pi = std::f64::consts::PI;
+        let mut cases = vec![];
+        // λc = 1.5: Fe = Fy/2.25 → lc = π·ry·sqrt(E/Fe)
+        cases.push(CfsMemberData { lc: pi * base.ry * (base.e * 2.25 / base.fy).sqrt(), ..base.clone() });
+        // shear limits: h/t = sqrt(E·kv/Fy) and 1.51·sqrt(...)
+        let lim = (base.e * 5.34 / base.fy).sqrt();
+        for r in [1.0, 1.51] {
+            cases.push(CfsMemberData { h: Some(0.15), t: Some(0.15 / (r * lim)), ..base.clone() });
+        }
+        let f = CfsDesignForces { element_id: 1, axial: Some(-1e4), mx: Some(1e3), my: Some(10.0), shear: Some(5e3) };
+        for (i, m) in cases.iter().enumerate() {
+            let r = cfs_ratio_enclosures(m, &f, &ZERO_BOUND).unwrap();
+            let p = cfs_f64(m, &f);
+            for k in 0..6 {
+                let tol = 1e-12 * p[k].abs();
+                assert!(r[k].lo - tol <= p[k] && p[k] <= r[k].hi + tol, "case {i}/{k}: {} ∉ {:?}", p[k], r[k]);
+            }
+        }
+    }
+
+    #[test]
+    fn cfs_refuses() {
+        let mut g = Lcg(103);
+        let m = CfsMemberData { h: None, t: None, ..cfs_member(&mut g, 1) };
+        let f = CfsDesignForces { element_id: 1, axial: Some(-1e3), mx: None, my: None, shear: Some(1e3) };
+        assert!(cfs_ratio_enclosures(&m, &f, &ZERO_BOUND).is_err());
+        let f0 = CfsDesignForces { shear: None, ..f.clone() };
+        assert!(cfs_ratio_enclosures(&m, &f0, &ZERO_BOUND).is_ok());
+        let res = certify_cfs_members(&CertifiedCfsCheckInput {
+            members: vec![CfsMemberData { ry: 0.0, ..m }],
+            demands: vec![BoundedCfsDemand { forces: f0, bound: ZERO_BOUND }],
+        });
+        assert!(!res[0].certified && !res[0].certified_ok, "{res:?}");
     }
 
     #[test]
