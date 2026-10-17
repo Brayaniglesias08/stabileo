@@ -4685,6 +4685,7 @@ const pt: Translations = {
   'exData.case.wind': "Vento",
   'exData.case.windPlusX': "Vento +X",
   'exData.case.windMinusX': "Vento −X",
+  'exData.case.windPlusY': "Vento +Y",
   'exData.case.seismicX': "Sismo X",
   'exData.case.seismicPlusX': "Sismo +X",
   'exData.case.snow': "Neve",

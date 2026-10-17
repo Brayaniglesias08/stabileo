@@ -5153,6 +5153,7 @@ const en: Record<string, string> = {
   'exData.case.wind': "Wind",
   'exData.case.windPlusX': "Wind +X",
   'exData.case.windMinusX': "Wind −X",
+  'exData.case.windPlusY': "Wind +Y",
   'exData.case.seismicX': "Seismic X",
   'exData.case.seismicPlusX': "Seismic +X",
   'exData.case.snow': "Snow",
