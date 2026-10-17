@@ -1039,7 +1039,7 @@ fn assembly_paths_agree() {
 #[test]
 #[ignore = "large sweep, run nightly with --release"]
 fn assembly_paths_agree_large() {
-    run_sweep(4000, 1500, 1_000_000);
+    run_sweep(40_000, 15_000, 1_000_000);
 }
 
 
