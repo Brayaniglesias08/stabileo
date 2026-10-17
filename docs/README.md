@@ -48,6 +48,7 @@ For contributors and for anyone who wants to look inside the engine. In English.
 - [verification/ASSEMBLY.md](verification/ASSEMBLY.md): cross-path assembly oracle: every path that builds the same K, loads, M or K_G compared entry by entry on random models
 - [verification/KANI.md](verification/KANI.md): Kani proofs of the element kernels, interval rounding and sparse index code, and how to run them safely
 - [verification/SYMBOLIC.md](verification/SYMBOLIC.md): frame element matrices derived symbolically from first principles and checked exactly against the Rust kernels
+- [verification/DESIGN_EXAMPLES.md](verification/DESIGN_EXAMPLES.md): every design check, clause by clause, against published worked examples (AISC, SCI, JRC, INTI-CIRSOC), with the discrepancies found and their root causes
 
 ### Roadmaps and project state
 
