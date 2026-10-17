@@ -76,14 +76,10 @@ const JUSTIFIED_WARNINGS: Record<string, string[]> = {
 
 /*
  * Examples whose linear results are absurd, and which the review therefore reports as errors.
- * They are not hidden: a node of the stadium canopy moves 254 m under its own dead load (the IPN
- * rafters bend about their weak axis out of the canopy's plane, held by almost nothing), and the
- * suspension bridge's deck sags 440 m because a cable bridge solved linearly, without the cables'
- * geometric stiffness, is a mechanism. Pinned here so a change to either is seen; the examples
- * themselves need fixing (or a nonlinear solve), which is outside this review.
+ * The suspension bridge's deck sags 440 m because a cable bridge solved linearly, without the
+ * cables' geometric stiffness, is a mechanism. Pinned here so a change is seen.
  */
 const KNOWN_ERRORS: Record<string, string[]> = {
-  'stadium-canopy': ['displacement_absurd'],
   'suspension-bridge': ['displacement_absurd'],
 };
 
