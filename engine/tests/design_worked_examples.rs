@@ -797,7 +797,7 @@ fn weld_run(segments: Vec<WeldSegment>, fexx: f64, phi: f64, vx: f64, vy: f64, m
 /// because of the 0.5 cm lever arm.
 #[test]
 fn weld_group_inti301_ej3_bracket_elastic_method() {
-    let seg = |x1, y1, x2, y2| WeldSegment { x1, y1, x2, y2, size: 1.0 };
+    let seg = |x1, y1, x2, y2| WeldSegment { x1, y1, x2, y2, size: 1.0, end_loaded: None };
     let segments = vec![seg(1.0, 10.5, 26.0, 10.5), seg(0.5, -10.0, 0.5, 10.0), seg(1.0, -10.5, 26.0, -10.5)];
     let r = weld_run(segments, 48.0, 0.60, 0.0, 130.0, 7309.0);
     published(r.total_length, 70.0, 1e-12, "weld length");
@@ -820,21 +820,37 @@ fn weld_group_inti301_ej3_bracket_elastic_method() {
 /// β = 1.2 − 0.002·144 = 0.912 (J2-1); Rn = 0.912·5.57·2·27 = 274 kips;
 /// φRn = 206 kips against Pu = 200 kips.
 ///
-/// DISCREPANCY (stabileo, unconservative): the weld-group check has no
-/// end-loaded length reduction (J2.2b(d), β), so it gives φRn = 225 kips —
-/// 9.5 % above the example — for any weld longer than 100 legs. Not fixed
-/// here: "end-loaded" is a property of how the joint is loaded, which the
-/// segment list does not carry. (The CIRSOC 301 fillet weld of the web app,
-/// `fillet-weld.ts`, does apply β.)
+/// Regression (D5): the weld-group check had no end-loaded length reduction
+/// (J2.2b(d), β) and gave φRn = 225 kips, 9.5 % above the example. A segment
+/// is now treated as end-loaded unless the caller says otherwise.
 #[test]
-#[ignore = "stabileo bug: weld group ignores the end-loaded fillet length reduction J2.2b(d) (reproduction)"]
-fn weld_group_aisc_j1_end_loaded_repro() {
+fn weld_group_aisc_j1_end_loaded() {
     let size = 3.0 / 16.0;
-    let segments = vec![
-        WeldSegment { x1: 0.0, y1: -4.5, x2: 27.0, y2: -4.5, size },
-        WeldSegment { x1: 0.0, y1: 4.5, x2: 27.0, y2: 4.5, size },
-    ];
-    let r = weld_run(segments, 70.0, 0.75, 200.0, 0.0, 0.0);
-    published(r.phi_fnw * 0.707 * size, 0.75 * 5.57, THREE_SF, "φ·Rn per inch, kds = 1");
-    published(200.0 / r.unity_ratio, 206.0, THREE_SF, "φRn with β = 0.912");
+    let run = |end_loaded| {
+        let segments = vec![
+            WeldSegment { x1: 0.0, y1: -4.5, x2: 27.0, y2: -4.5, size, end_loaded },
+            WeldSegment { x1: 0.0, y1: 4.5, x2: 27.0, y2: 4.5, size, end_loaded },
+        ];
+        weld_run(segments, 70.0, 0.75, 200.0, 0.0, 0.0)
+    };
+    for r in [run(None), run(Some(true))] {
+        published(r.phi_fnw * 0.707 * size, 0.75 * 5.57, THREE_SF, "φ·Rn per inch, kds = 1");
+        published(r.min_beta, 0.912, 1e-12, "β = 1.2 − 0.002·144 (J2-1)");
+        published(200.0 / r.unity_ratio, 206.0, THREE_SF, "φRn with β = 0.912");
+    }
+    // Declared not end-loaded: β does not apply and the full length counts.
+    let r = run(Some(false));
+    assert_eq!(r.min_beta, 1.0);
+    published(200.0 / r.unity_ratio, 0.75 * 5.57 * 54.0, THREE_SF, "φRn without β");
+}
+
+/// J2.2b(d) branches with no example of their own: l ≤ 100 w keeps β = 1,
+/// and l > 300 w caps the effective length at 180 w.
+#[test]
+fn weld_end_loaded_beta_branches() {
+    assert_eq!(end_loaded_beta(100.0, 1.0, true), 1.0);
+    published(end_loaded_beta(200.0, 1.0, true), 0.8, 1e-12, "β at l/w = 200");
+    published(end_loaded_beta(300.0, 1.0, true), 0.6, 1e-12, "β at l/w = 300");
+    published(end_loaded_beta(400.0, 1.0, true) * 400.0, 180.0, 1e-12, "Le = 180 w beyond 300 w");
+    assert_eq!(end_loaded_beta(400.0, 1.0, false), 1.0);
 }

@@ -11,6 +11,20 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Unsafe design-check disagreements closed (2026-10-17)
+
+**BREAKING (results): weld groups with long fillets, CIRSOC 301 slender-element columns,
+CIRSOC 301 noncompact/slender I-girders, CIRSOC 301 lateral-torsional buckling and EC3
+members in compression plus bending give lower capacities.** These were the unsafe
+disagreements left open by the published-example verification
+(`docs/verification/DESIGN_EXAMPLES.md`, D5, D6, D8, D11); each example is now a regression test.
+
+- **Weld groups ignored the end-loaded fillet length reduction β** (AISC 360-22 J2.2b(d),
+  CIRSOC 301-2018 §J.2.2(b) eq. J.2.1). AISC Example J.1 (two 27 in. runs of a 3/16 in.
+  fillet, l/w = 144) prints φRn = 206 kips; stabileo gave 225. `WeldSegment` takes an
+  optional `endLoaded`; absent, the segment is treated as end-loaded (the conservative side),
+  `false` opts out. The result reports `minBeta`.
+
 #### Design checks against published worked examples (2026-10-17)
 
 **BREAKING (results): CIRSOC 201 shear, CIRSOC 301 web shear, doubly reinforced ACI 318 / CIRSOC 201 flexure,

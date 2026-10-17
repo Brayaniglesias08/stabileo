@@ -51,7 +51,7 @@ Tests:
 | `ec2_check` | EN 1992-1-1 | Rust | 3.1.7 rectangular block flexure (singly, doubly with one-step compression steel), 6.2.2 VRd,c with k1·σcp, 6.2.3 VRd,s and VRd,max (cot θ 1–2.5) |
 | `rc_check` | ACI 318-19 | Rust | 22.2 Whitney block flexure (rectangular, doubly, T-beam), P–M point at Nu by strain compatibility, 21.2.2 φ, 22.5.5.1 Vc table with λs, Vs ≤ 0.66√f'c·bw·d |
 | `cirsoc201_check` | CIRSOC 201-2005 | Rust | Flexure (Whitney, doubly), 9.3.2 φ, 11.3.1.1 Vc, 11.5.7.9 Vs cap |
-| `connection_check` | AISC 360 (elastic method) | Rust | Bolt group elastic method with φRn input; fillet weld group elastic method, Fnw = 0.60·FEXX |
+| `connection_check` | AISC 360 (elastic method) | Rust | Bolt group elastic method with φRn input; fillet weld group elastic method, Fnw = 0.60·FEXX, J2.2b(d) end-loaded β |
 | `cfs_check` | AISI S100 | Rust | Effective width, flexure with LTB, compression with distortional interaction, combined |
 | `timber_check` | NDS | Rust | 3.3 bending with CL, 3.4 shear, 3.6/3.7 compression with CP, 3.8 tension, 3.9 combined |
 | `masonry_check` | TMS 402 | Rust | 9.3.4 axial with slenderness, 9.3.5 flexure, 9.3.6 shear, interaction |
@@ -128,7 +128,7 @@ Status: **pass** — stabileo reproduces the printed values at the stated roundi
 | Clause | Example | Printed values compared | Status |
 |---|---|---|---|
 | Weld group, elastic method (J.1.1), J.2.4 | INTI301 Ej. 3 (Ej. 3-1–3-2) | Aw = 70, f = 143.68 MPa per unit leg, Rd = 12.22 kN/cm, dw = 1.18 cm | pass (D13: 1.1 % lever-arm convention) |
-| Fillet weld J2.4, J2.2b(d) β | AISC J.1 (pp. J-2–J-4) | 5.57 kip/in, β = 0.912, φRn = 206 kips | **open** (D5) |
+| Fillet weld J2.4, J2.2b(d) β | AISC J.1 (pp. J-2–J-4) | 5.57 kip/in, β = 0.912, φRn = 206 kips | **fixed** (D5) |
 | Bolt group elastic method | — | AISC's eccentric-bolt examples use the IC method | uncovered |
 
 ### CIRSOC 301-2018 (`cirsoc301.ts`, TS)
@@ -178,7 +178,7 @@ tests in `engine/tests/integration/` and `web/src/lib/codes/cirsoc201/__tests__/
 | D2 | `rc_check`, `cirsoc201_check` doubly reinforced | Mn = 56.21 (ACI) / 56.97 (CIRSOC) vs 57.40 kNm | stabileo: neutral axis from the "A's yields" trial, never iterated; reported state satisfied neither compatibility nor the trial | **fixed**: bisection on c, shared helper |
 | D3 | `cirsoc201_check` shear | Vc 87.4 vs 85.8 kN (+1.9 %, unsafe) | stabileo: ACI 318M's 0.17 instead of CIRSOC 201-2005's 1/6 (and 0.66 for 2/3); φ transition at fixed 0.002 | **fixed** |
 | D4 | `ec3_check` | Lb = 0 → Mcr = c/0, χLT NaN, strong-axis check unevaluated | stabileo | **fixed**: χLT = 1 for Lb = 0 |
-| D5 | `connection_check` welds | AISC J.1: φRn 225 vs 206 kips (+9.5 %, unsafe) for l/w = 144 | stabileo: no J2.2b(d) end-loaded β | **open**: the segment list does not say which welds are end-loaded |
+| D5 | `connection_check` welds | AISC J.1: φRn 225 vs 206 kips (+9.5 %, unsafe) for l/w = 144 | stabileo: no J2.2b(d) end-loaded β | **fixed**: β (and Le = 180w beyond 300w) per segment; `endLoaded` defaults to true (conservative), `false` opts out |
 | D6 | `cirsoc301.ts` compression | slender box: φPn 237.4 vs 204.7 kN (+16 %, unsafe) | stabileo: no §E.7 Q | **open**: needs element geometry beyond the I-section parameters |
 | D7 | `cirsoc301.ts` shear | V2 (h/tw = 138): Cv 0.536 vs 0.336, φVn 207.8 vs 130.3 kN (+60 %, unsafe) | stabileo: AISC 360-10 rule (2.24√(E/Fy), kv = 5.34), no G.2.5, Aw = total depth for built-up | **fixed**: G.2.3–G.2.5 with kv = 5, `builtUp` |
 | D8 | `cirsoc301.ts` flexure | noncompact V2: φMn 326 vs 286.1 kNm (+14 %, unsafe); top-flange LTB not modelled | stabileo: only §F.2; no load height; inelastic LTB uses AISC 360-10's 0.7Fy and Lr, not CIRSOC's FL = Fy − Fr (F.2-6a/F.2-7a) | **open**: a new limit-state family (F.3/F.4) and a load-position input |
