@@ -538,6 +538,22 @@
     if (!ctx) return;
 
     /*
+     * Every frame starts from the canvas's own text and compositing defaults.
+     * The context persists between frames, and some thirty drawers set
+     * textBaseline, textAlign or alpha without putting them back; whatever the
+     * LAST of them left then applied to the text drawn first in the next frame
+     * (the axis letters, the deformed shape's displacement values), so the same
+     * view drew its labels a few pixels apart, off their boxes, depending on
+     * what had been on screen before it — e.g. after closing the free-body view
+     * or the plastic collapse.
+     */
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'start';
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.setLineDash([]);
+
+    /*
      * ONE label layout pass for the whole frame.
      *
      * Loads and diagrams are drawn by half a dozen functions — nodal, point,
@@ -1666,6 +1682,8 @@
     const picks = nodesToLabel(res.displacements.map((d) => ({ nodeId: d.nodeId, ux: d.ux, uy: 0, uz: d.uz })));
     ctx.font = 'bold 11px sans-serif';
     ctx.textAlign = 'left';
+    // The box below is laid out around an alphabetic baseline at s.y - 8.
+    ctx.textBaseline = 'alphabetic';
     for (const { nodeId, magnitude } of picks) {
       if (viewVisibility.isNodeHidden(nodeId)) continue;
       const n = modelStore.getNode(nodeId), d = byId.get(nodeId);
