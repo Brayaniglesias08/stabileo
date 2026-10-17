@@ -113,6 +113,8 @@ const c301En: Record<string, string> = {
   'c301.word.compressionFlangeYield': 'compression flange yield',
 
   'c301.refuse.noConnection': 'the end connection is missing (holes and the D.3 coefficient U)',
+  'c301.refuse.endsMissing': 'the end connection is missing at {ends} (holes and the D.3 coefficient U)',
+  'c301.refuse.endRefused': 'end {end}: {reason}',
   'c301.refuse.connectionRefused': 'end connection: {reason}',
   'c301.refuse.aeOutOfRange': 'Ae = {Ae} mm² outside (0, Ag]',
   'c301.refuse.anOutOfRange': 'An = {An} mm² outside (0, Ag]',

@@ -652,9 +652,16 @@ export function resolveTensionEnds(section: TensionSectionInput, ends: readonly 
   }
   if ('missing' in r) {
     const where = r.missing.map((e) => `barra ${e.elementId} extremo ${e.end.toUpperCase()}`).join(', ');
-    return { refused: `falta la union extrema (${where}): agujeros y coeficiente U de D.3` };
+    const ends = r.missing.map((e) => `#${e.elementId} ${e.end.toUpperCase()}`).join(', ');
+    return {
+      refused: `falta la union extrema (${where}): agujeros y coeficiente U de D.3`,
+      refusedMessage: { key: 'c301.refuse.endsMissing', params: { ends } },
+    };
   }
-  return { refused: `barra ${r.at.elementId} extremo ${r.at.end.toUpperCase()}: ${r.refused.message}` };
+  return {
+    refused: `barra ${r.at.elementId} extremo ${r.at.end.toUpperCase()}: ${r.refused.message}`,
+    refusedMessage: { key: 'c301.refuse.endRefused', params: { end: `#${r.at.elementId} ${r.at.end.toUpperCase()}`, reason: { key: `steel.tc.refuse.${r.refused.code}` } } },
+  };
 }
 
 export function checkSteelMember(

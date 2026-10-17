@@ -245,6 +245,9 @@ pub struct TensionConnection {
     pub resolved: Option<ResolvedAe>,
     #[serde(default)]
     pub refused: Option<String>,
+    /// The same refusal as a localisable message; wins over `refused` when both are given.
+    #[serde(rename = "refusedMessage", default)]
+    pub refused_message: Option<Msg>,
     #[serde(rename = "An", default)]
     pub an: Option<f64>,
     #[serde(default)]
@@ -449,6 +452,9 @@ fn effective_net_area<T: Real>(m: &Cirsoc301MemberData, st: &mut Steps) -> Resul
     let Some(c) = &m.tension_connection else {
         return Err(refuse("noConnection", &[]));
     };
+    if let Some(m) = &c.refused_message {
+        return Err(m.clone());
+    }
     if let Some(r) = &c.refused {
         return Err(refuse("connectionRefused", &[("reason", s(r.clone()))]));
     }

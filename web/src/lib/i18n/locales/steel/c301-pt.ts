@@ -113,6 +113,8 @@ const c301Pt: Record<string, string> = {
   'c301.word.compressionFlangeYield': 'escoamento da mesa comprimida',
 
   'c301.refuse.noConnection': 'falta a ligação de extremidade (furos e o coeficiente U de D.3)',
+  'c301.refuse.endsMissing': 'falta a ligação de extremidade em {ends} (furos e o coeficiente U de D.3)',
+  'c301.refuse.endRefused': 'extremidade {end}: {reason}',
   'c301.refuse.connectionRefused': 'ligação de extremidade: {reason}',
   'c301.refuse.aeOutOfRange': 'Ae = {Ae} mm² fora de (0, Ag]',
   'c301.refuse.anOutOfRange': 'An = {An} mm² fora de (0, Ag]',

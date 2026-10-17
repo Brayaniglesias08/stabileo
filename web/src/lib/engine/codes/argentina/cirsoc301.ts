@@ -153,6 +153,8 @@ export interface TensionConnection {
   resolved?: { Ae: number; steps: string[]; messages?: EngineMessage[] };
   /** The model's end connections could not give Ae: the reason, printed and returned as NOT EVALUATED. */
   refused?: string;
+  /** The same refusal as a localisable message (`c301.refuse.*`); the engine reports it as is. */
+  refusedMessage?: EngineMessage;
   An?: number;
   holes?: { count: number; d: number; t: number; staggers?: { s: number; g: number; t: number }[] };
   U?: number;
@@ -423,15 +425,22 @@ function unloaded<T extends Common>(r: T): T {
 // §D, §E, §F, §G, §H — one limit state at a time
 // ---------------------------------------------------------------------------
 
-function tensionOf(c: EngineCheck): SteelTensionResult {
-  return { Pu: c.demand, phiPn: c.capacity, ...common(c) };
+function tensionOf(c: EngineCheck, p?: SteelDesignParams): SteelTensionResult {
+  const r: SteelTensionResult = { Pu: c.demand, phiPn: c.capacity, ...common(c) };
+  // The model's end-connection refusal keeps its Spanish sentence in the log (the UI reads the message).
+  const legacy = p?.tensionConnection?.refused;
+  if (legacy && r.notEvaluatedMessage?.key.startsWith('c301.refuse.end')) {
+    r.notEvaluated = legacy;
+    r.steps = r.steps.map((x) => (x.includes(renderEs(r.notEvaluatedMessage!)) ? `  NO EVALUADO — ${legacy}` : x));
+  }
+  return r;
 }
 
 export function checkSteelTension(params: SteelDesignParams, Pu: number): SteelTensionResult {
   const zero = Math.abs(Pu) === 0;
   const r = run(params, { Nu: zero ? -1 : -Math.abs(Pu), Muz: 0, Muy: 0, Vu: 0 });
   if (!r?.tension) return { Pu: Math.abs(Pu), phiPn: 0, ...unavailable() };
-  const t = tensionOf(r.tension);
+  const t = tensionOf(r.tension, params);
   return zero ? { ...unloaded(t), Pu: 0, phiPn: t.notEvaluated ? v(r.tension, 'phiPnYield') || t.phiPn : t.phiPn } : t;
 }
 
@@ -530,7 +539,7 @@ export function verifySteelElement(input: SteelVerificationInput): SteelVerifica
     };
   }
 
-  const tension = r.tension && tensionOf(r.tension);
+  const tension = r.tension && tensionOf(r.tension, params);
   const compression = r.compression && compressionOf(r.compression);
   const flexureZ = flexureOf(r.flexureStrong);
   const flexureY = r.flexureWeak && flexureOf(r.flexureWeak);
