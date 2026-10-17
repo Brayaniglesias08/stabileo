@@ -68,9 +68,6 @@ const JUSTIFIED_WARNINGS: Record<string, string[]> = {
   '3d-tower': ['gravity_case_horizontal'],
   'tower-3d-2': ['gravity_case_horizontal'],
   'tower-3d-4': ['gravity_case_horizontal'],
-  // The live case's loads are all along global Y, horizontal in a Z-up model: 569 kN sideways and
-  // none down.
-  'la-bombonera': ['gravity_case_horizontal'],
   // "Sin peso propio": a weightless material on purpose (the blog's deep-beam comparison), solved
   // with self-weight on, so the warning is literally true and the example intends it.
   'deep-beam-bar': ['density_zero'],
