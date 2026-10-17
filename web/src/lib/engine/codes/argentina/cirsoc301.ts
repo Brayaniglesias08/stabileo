@@ -84,6 +84,39 @@ export interface SteelDesignParams {
    * tw, tf.
    */
   shearCentreOffset?: number;
+  /**
+   * La union extrema de un miembro traccionado, para el area neta efectiva Ae = An·U de D.2(b)
+   * y D.3. Ausente => la rotura en la seccion neta NO se evalua y la traccion queda NO EVALUADA:
+   * An depende de los agujeros y U de como se une la barra, datos que la seccion no tiene.
+   */
+  tensionConnection?: TensionConnection;
+}
+
+/**
+ * The end connection of a tension member (D.3, B.4.2.2). Lengths in m, areas in m².
+ *
+ * Net area An: `An` as given, else Ag − Σ holes·(d + 2 mm)·t + Σ s²·t/(4g) over the chain
+ * (B.4.2.2), else Ag (no holes: `holes` empty or absent).
+ * Shear lag U, in this order:
+ *   · `U` as given (0 < U ≤ 1);
+ *   · `allElementsConnected` — D.3(1): every element of the section is connected, U = 1;
+ *   · `plateWeld` {L, w} — D.3(2)(d), a flat plate welded along both edges: L ≥ 2w → 1,
+ *     2w > L ≥ 1,5w → 0,87, 1,5w > L ≥ w → 0,75, L < w refused; applied to Ag (D.3.5);
+ *   · `xBar` and `length` — D.3.2, U = 1 − x̄/L ≤ 0,9, never below `connectedArea`/Ag
+ *     when that is given (D.3, open sections). Applied to An if bolted, to Ag if welded
+ *     (`welded`, D.3.3).
+ * Without any of them U is unknown and the rupture limit state is refused.
+ */
+export interface TensionConnection {
+  An?: number;
+  holes?: { count: number; d: number; t: number; staggers?: { s: number; g: number; t: number }[] };
+  U?: number;
+  allElementsConnected?: boolean;
+  plateWeld?: { L: number; w: number };
+  xBar?: number;
+  length?: number;
+  connectedArea?: number;
+  welded?: boolean;
 }
 
 export interface SteelTensionResult {
@@ -92,6 +125,8 @@ export interface SteelTensionResult {
   ratio: number;
   status: VerifStatus;
   steps: string[];
+  /** Why the check could not be evaluated (no connection for D.2(b)). */
+  notEvaluated?: string;
 }
 
 export interface SteelCompressionResult {
@@ -252,9 +287,7 @@ export function checkSteelTension(params: SteelDesignParams, Pu: number): SteelT
 
   // A en m², Fy en MPa = N/mm² => convertir A a mm² para la multiplicacion
   // Pn = Fy * Ag  (N) => / 1000 => kN
-  // A (m²) * 1e6 = mm²
   const Ag_mm2 = A * 1e6;
-  const Ae_mm2 = Ag_mm2; // area neta efectiva = area bruta (sin agujeros)
 
   const phiY = 0.90;
   const phiR = 0.75;
@@ -268,12 +301,28 @@ export function checkSteelTension(params: SteelDesignParams, Pu: number): SteelT
   steps.push(`  Pn = Fy·Ag = ${fmt(Fy)}·${fmt(Ag_mm2, 0)} = ${fmt(PnY)} kN`);
   steps.push(`  φPn = ${fmt(phiY)}·${fmt(PnY)} = ${fmt(phiPnY)} kN`);
 
-  // Rotura en seccion neta
+  /*
+   * ── D.2(b): rupture on the effective net section, Ae = An·U (D.3) ──
+   *
+   * It used Ae = Ag: no hole deduction and no shear lag. A bolted angle connected by one leg
+   * (U ≈ 0,6–0,8, holes ≈ 15 %) was overstated by up to half. Without the connection the
+   * limit state cannot be evaluated, and is refused.
+   */
+  const absPu = Math.abs(Pu);
+  const ae = effectiveNetArea(params, steps);
+  if ('refused' in ae) {
+    steps.push(`§D2 — Rotura en seccion neta: NO EVALUADO — ${ae.refused}`);
+    return {
+      Pu: absPu, phiPn: absPu > 0 ? 0 : phiPnY, ratio: absPu > 0 ? Infinity : 0,
+      status: absPu > 0 ? 'fail' : 'ok', steps, notEvaluated: ae.refused,
+    };
+  }
+  const Ae_mm2 = ae.Ae * 1e6;
   const PnR = Fu * Ae_mm2 / 1000; // kN
   const phiPnR = phiR * PnR;
 
   steps.push(`§D2 — Rotura en seccion neta:`);
-  steps.push(`  Ae = ${fmt(Ae_mm2, 0)} mm² (sin agujeros)`);
+  steps.push(`  Ae = ${fmt(Ae_mm2, 0)} mm²`);
   steps.push(`  Pn = Fu·Ae = ${fmt(Fu)}·${fmt(Ae_mm2, 0)} = ${fmt(PnR)} kN`);
   steps.push(`  φPn = ${fmt(phiR)}·${fmt(PnR)} = ${fmt(phiPnR)} kN`);
 
@@ -281,7 +330,6 @@ export function checkSteelTension(params: SteelDesignParams, Pu: number): SteelT
   const governing = phiPn === phiPnY ? 'fluencia' : 'rotura';
   steps.push(`  Gobierna: ${governing}, φPn = ${fmt(phiPn)} kN`);
 
-  const absPu = Math.abs(Pu);
   const ratio = phiPn > 0 ? absPu / phiPn : (absPu > 0 ? Infinity : 0);
 
   steps.push(`  Pu = ${fmt(absPu)} kN`);
@@ -294,6 +342,61 @@ export function checkSteelTension(params: SteelDesignParams, Pu: number): SteelT
     status: statusFromRatio(ratio),
     steps,
   };
+}
+
+/** Ae (m²) per D.3 and B.4.2.2 from `tensionConnection`, or why it cannot be known. */
+function effectiveNetArea(p: SteelDesignParams, steps: string[]): { Ae: number } | { refused: string } {
+  const c = p.tensionConnection;
+  if (!c) return { refused: 'falta la union extrema (agujeros y coeficiente U de D.3)' };
+  const Ag = p.A;
+  let An = Ag;
+  if (c.An !== undefined) {
+    if (!(c.An > 0 && c.An <= Ag)) return { refused: `An = ${c.An} fuera de (0, Ag]` };
+    An = c.An;
+    steps.push(`  An = ${fmt(An * 1e6, 0)} mm² (dada)`);
+  } else if (c.holes && c.holes.count > 0) {
+    const { count, d, t } = c.holes;
+    if (!(d > 0 && t > 0)) return { refused: 'agujeros sin diametro o espesor' };
+    // B.4.2.2: the hole width is the nominal hole (Tabla J.3.3) plus 2 mm.
+    const stagger = (c.holes.staggers ?? []).reduce((acc, z) => acc + (z.s * z.s * z.t) / (4 * z.g), 0);
+    An = Ag - count * (d + 0.002) * t + stagger;
+    steps.push(`  An = Ag − n·(d + 2 mm)·t + Σs²t/4g = ${fmt(Ag * 1e6, 0)} − ${count}·${fmt((d + 0.002) * 1000, 1)}·${fmt(t * 1000, 1)} + ${fmt(stagger * 1e6, 0)} = ${fmt(An * 1e6, 0)} mm²  (B.4.2.2)`);
+    if (!(An > 0)) return { refused: 'An ≤ 0' };
+  }
+
+  if (c.U !== undefined) {
+    if (!(c.U > 0 && c.U <= 1)) return { refused: `U = ${c.U} fuera de (0, 1]` };
+    steps.push(`  U = ${fmt(c.U, 3)} (dado)`);
+    return { Ae: An * c.U };
+  }
+  if (c.allElementsConnected) {
+    steps.push(`  Todos los elementos unidos: Ae = An  (D.3(1))`);
+    return { Ae: An };
+  }
+  if (c.plateWeld) {
+    const { L, w } = c.plateWeld;
+    if (!(L > 0 && w > 0) || L < w) return { refused: 'chapa soldada en sus bordes con L < w (D.3(2)(d) exige L ≥ w)' };
+    const U = L >= 2 * w ? 1 : L >= 1.5 * w ? 0.87 : 0.75;
+    steps.push(`  Chapa con cordones longitudinales: L = ${fmt(L * 1000, 0)} mm, w = ${fmt(w * 1000, 0)} mm → U = ${fmt(U, 2)}  (D.3.5)`);
+    return { Ae: Ag * U };
+  }
+  if (c.xBar !== undefined && c.length !== undefined) {
+    if (!(c.xBar >= 0 && c.length > 0)) return { refused: 'x̄ o L de la union no validos' };
+    let U = Math.min(0.9, 1 - c.xBar / c.length);
+    steps.push(`  U = 1 − x̄/L = 1 − ${fmt(c.xBar * 1000, 1)}/${fmt(c.length * 1000, 0)} = ${fmt(1 - c.xBar / c.length, 3)} ≤ 0,9 → ${fmt(U, 3)}  (D.3.2)`);
+    if (c.connectedArea !== undefined && c.connectedArea > 0) {
+      const lower = Math.min(1, c.connectedArea / Ag);
+      if (lower > U) {
+        U = lower;
+        steps.push(`  U ≥ A unida/Ag = ${fmt(lower, 3)} (D.3, secciones abiertas)`);
+      }
+    }
+    if (!(U > 0)) return { refused: `U = ${fmt(U, 3)} ≤ 0` };
+    const base = c.welded ? Ag : An;
+    steps.push(`  Ae = ${c.welded ? 'Ag' : 'An'}·U  (${c.welded ? 'D.3.3' : 'D.3.1'})`);
+    return { Ae: base * U };
+  }
+  return { refused: 'la union no da U: falta U, allElementsConnected, plateWeld o x̄ y L (D.3)' };
 }
 
 // ---------------------------------------------------------------------------
@@ -1140,6 +1243,7 @@ export function checkSteelInteraction(
     // Traccion
     const tens = checkSteelTension(params, Pu);
     phiPn = tens.phiPn;
+    axialRefused = tens.notEvaluated;
     steps.push(`  Capacidad axial (traccion): φPn = ${fmt(phiPn)} kN`);
   }
 

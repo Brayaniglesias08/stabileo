@@ -148,12 +148,11 @@ describe('the departures the mapping found are still recorded', () => {
     expect(cb.assumptions.join(' ')).toMatch(/permite adoptar conservadoramente/);
   });
 
-  it('records that Ae is taken equal to Ag', () => {
-    // Rupture with no hole deduction: right for a welded member, optimistic for a bolted one, and
-    // the checker has no connection geometry to deduct from.
+  it('records that Ae comes from the connection, and is refused without it', () => {
+    // Ae = Ag used to be assumed: optimistic for a bolted member. Now An·U from the connection.
     const rupture = CIRSOC301_CLAUSE_MAP.find((e) => e.clause === 'D.2.2')!;
-    expect(rupture.assumptions.join(' ')).toMatch(/Ae/);
-    expect(rupture.limitations.length).toBeGreaterThan(0);
+    expect(rupture.assumptions.join(' ')).toMatch(/An/);
+    expect(rupture.limitations.join(' ')).toMatch(/NOT EVALUATED/);
   });
 
   it('cites the `a` variant for the inelastic compression branch', () => {

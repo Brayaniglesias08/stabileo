@@ -155,7 +155,6 @@ export const CIRSOC301_PROMOTION_KEY = 'steel.promotion.needsClauseMapAndBenchma
 export const CIRSOC301_JS_ASSUMPTIONS: readonly string[] = Object.freeze([
   'steel.assume.unbracedLengthIsMemberLength',
   'steel.assume.noSectionClassification',
-  'steel.assume.netAreaEqualsGross',
   'steel.assume.torsionalLengthIsMemberLength',
   'steel.assume.momentGradientIsUnity',
   'steel.assume.torsionalConstantZeroWhenAbsent',

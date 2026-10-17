@@ -75,6 +75,15 @@ inputs needed to compute them safely are absent.**
   channel without J is refused. Closed sections and solid bars are not checked for E.4. The
   steel workflow's «no torsional buckling» assumption is replaced by the one that remains:
   kz = 1 over the member length.
+- **CIRSOC 301 tension rupture took Ae = Ag** (no hole deduction, no shear lag), optimistic for
+  every bolted member and for any member connected through some of its elements. `SteelDesignParams`
+  takes `tensionConnection`: `An`, or `holes` (count, nominal d, t, staggers) with the 2 mm of
+  B.4.2.2 and s²t/4g; and U as given, `allElementsConnected` (D.3(1)), `plateWeld` {L, w} (D.3.5
+  table, L < w refused) or `xBar`/`length` (D.3.2, U = 1 − x̄/L ≤ 0.9, not below `connectedArea`/Ag,
+  on Ag when `welded`). **Without it, a member in tension is NOT EVALUATED** — the model holds no
+  hole pattern or connection, so app tension members are now reported not evaluated until the
+  connection can be given (`checkSteelMember`'s `lengths.tensionConnection`). The workflow's
+  «Ae = Ag» assumption is removed (it is a refusal now).
 
 #### Unsafe design-check disagreements closed (2026-10-17)
 
