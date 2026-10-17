@@ -326,6 +326,27 @@ fn rigid_link_slave_on_plain_support_restrains_the_master() {
     assert!(res.structured_diagnostics.iter().any(|d| d.code == DiagnosticCode::OverConstrainedDof));
 }
 
+/// A settlement of the inclined roller along its normal, with the constraint
+/// on the roller's node: the prescribed normal displacement reaches the
+/// constrained DOFs through the transform's restrained columns.
+#[test]
+fn linear_static_2d_settlement_at_inclined_roller_with_constraints() {
+    let u_n = -0.004;
+    for (name, c) in [("master", (|_| vec![json!({"type": "rigidLink", "masterNode": 4, "slaveNode": 7, "dofs": [0, 1, 2]})]) as Constraints2D),
+                      ("slave", |_| vec![json!({"type": "rigidLink", "masterNode": 7, "slaveNode": 4, "dofs": [0, 1, 2]})])] {
+        let mut a_in = model_2d(Sup::Inclined, 1, &c);
+        // dz alone: u_n = dx sin θ + dz cos θ.
+        a_in.supports.get_mut("4").unwrap().dz = Some(u_n / THETA.cos());
+        let mut b_in = model_2d(Sup::Rotated, 1, &c);
+        b_in.supports.get_mut("4").unwrap().dz = Some(u_n);
+        let (a, b) = (solve_2d(&a_in).expect(name), solve_2d(&b_in).expect(name));
+        let u4 = disp_2d(&a, 4);
+        let n = n2();
+        assert_close(&format!("{name}: n·u4"), n[0] * u4[0] + n[1] * u4[1], u_n, u_n.abs(), 1e-9);
+        compare_2d(name, &a.displacements, &b.displacements, true);
+    }
+}
+
 // ─── 3D ────────────────────────────────────────────────────────────────────
 
 /// Rotation turning N3 onto +z (Rodrigues about N3 × z).
