@@ -1493,7 +1493,6 @@ fn arch_3d() -> SolverInput3D {
 }
 
 #[test]
-#[ignore = "NEW: modal, buckling, harmonic and reduction 3D ignore curved beams"]
 fn curved_beams_reach_every_3d_solver() {
     use dedaliano_engine::solver::{harmonic, modal, reduction};
     let a = arch_3d();
@@ -1517,4 +1516,7 @@ fn curved_beams_reach_every_3d_solver() {
     assert_agree("harmonic amplitudes", &amp(&a), &amp(&e), 1);
     let guyan = |m: &SolverInput3D| reduction::guyan_reduce_3d(&reduction::GuyanInput3D { solver: m.clone(), boundary_nodes: vec![2] }).unwrap().k_condensed;
     assert_agree("Guyan condensed K", &guyan(&a), &guyan(&e), 1);
+    // The certificates check the model the solvers analyzed.
+    let cm = dedaliano_engine::certify::modal::certify_modal_3d(&a, &steel(), 3).unwrap();
+    assert!(cm.certificate.is_certified(), "modal certificate: {:?}", cm.certificate);
 }

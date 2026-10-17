@@ -218,6 +218,9 @@ pub struct BucklingSystem3D {
 
 #[doc(hidden)]
 pub fn buckling_system_3d(input: &SolverInput3D) -> Result<BucklingSystem3D, String> {
+    // Curved beams become segments first: `solve_3d` returns the segments' forces, which
+    // the unexpanded model has no elements for (an index panic).
+    let input = &super::linear::expand_curved_beams_3d(input);
     let linear = super::linear::solve_3d(input)?;
     let dof_num = DofNumbering::build_3d(input);
     let nf = dof_num.n_free;
@@ -379,6 +382,8 @@ pub fn solve_buckling_3d(
     input: &SolverInput3D,
     num_modes: usize,
 ) -> Result<BucklingResult3D, String> {
+    // Expanded as in `buckling_system_3d`, whose forces the element data reads.
+    let input = &super::linear::expand_curved_beams_3d(input);
     // Build lookup maps for O(1) access by id
     let elem_by_id: HashMap<usize, &SolverElement3D> =
         input.elements.values().map(|e| (e.id, e)).collect();

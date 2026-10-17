@@ -36,6 +36,11 @@ test there.
   101.5 rotated against 62.1 unrotated. K_G is now rotated into each inclined support's frame
   with K, and the mode shapes are reported back in global axes (they were left in the
   support's frame). The buckling certificate rotates the mode before checking it.
+- **3D modal, buckling, harmonic, Guyan and Craig–Bampton analyses ignored curved beams.** They
+  assembled the model without expanding its curved beams into segments (every other 3D solver
+  does, `expand_curved_beams_3d`), so an arch made of a curved beam had no stiffness or mass,
+  and 3D buckling panicked on the segments' element forces. They now expand first, and the
+  modal and harmonic certificates check the expanded model.
 
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 
