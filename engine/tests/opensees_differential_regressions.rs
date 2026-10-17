@@ -479,3 +479,54 @@ fn ground_motion_includes_mass_coupled_to_supports() {
     let peak = ux.iter().fold(0.0f64, |p, x| p.max(x.abs()));
     assert!(worst <= 1e-9 * peak, "max |u − u_ref| = {worst:.3e}, peak {peak:.3e}");
 }
+
+/// A plane frame with hinges must buckle and sway like the same frame built in
+/// 3D (in the x–z plane, out-of-plane DOFs held): the 3D Kg condenses a
+/// released end rotation with the elastic map, the 2D Kg used the node's
+/// rotation as the member's, a different member — 2.5 % on the load factor
+/// of this portal (beam hinged at one end) and 0.5–0.9 % on its P-Delta sway.
+#[test]
+fn hinged_plane_frame_kg_matches_its_3d_model() {
+    for (hs, he) in [(true, false), (false, true), (true, true)] {
+        let m2 = input_2d(json!({
+            "nodes": {"1": {"id": 1, "x": 0.0, "z": 0.0}, "2": {"id": 2, "x": 0.0, "z": 4.0},
+                      "3": {"id": 3, "x": 5.0, "z": 4.0}, "4": {"id": 4, "x": 5.0, "z": 0.0}},
+            "materials": {"1": {"id": 1, "e": 200000.0, "nu": 0.3}},
+            "sections": {"1": {"id": 1, "a": 0.01, "iz": 1e-4}},
+            "elements": {
+                "1": {"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2, "materialId": 1, "sectionId": 1},
+                "2": {"id": 2, "type": "frame", "nodeI": 2, "nodeJ": 3, "materialId": 1, "sectionId": 1,
+                      "hingeStart": hs, "hingeEnd": he},
+                "3": {"id": 3, "type": "frame", "nodeI": 4, "nodeJ": 3, "materialId": 1, "sectionId": 1}},
+            "supports": {"1": {"id": 1, "nodeId": 1, "type": "fixed"}, "2": {"id": 2, "nodeId": 4, "type": "pinned"}},
+            "loads": [{"type": "nodal", "data": {"nodeId": 2, "fx": 300.0, "fz": -500.0, "my": 0.0}},
+                      {"type": "nodal", "data": {"nodeId": 3, "fx": 0.0, "fz": -500.0, "my": 0.0}}]
+        }));
+        let held = |id: usize, ux: bool, uz: bool, ry: bool| json!({"nodeId": id, "rx": ux, "ry": true, "rz": uz,
+                                                                     "rrx": true, "rry": ry, "rrz": true});
+        let m3 = input_3d(json!({
+            "nodes": {"1": {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0}, "2": {"id": 2, "x": 0.0, "y": 0.0, "z": 4.0},
+                      "3": {"id": 3, "x": 5.0, "y": 0.0, "z": 4.0}, "4": {"id": 4, "x": 5.0, "y": 0.0, "z": 0.0}},
+            "materials": {"1": {"id": 1, "e": 200000.0, "nu": 0.3}},
+            "sections": {"1": {"id": 1, "a": 0.01, "iy": 1e-4, "iz": 1e-4, "j": 1e-4}},
+            "elements": {
+                "1": {"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2, "materialId": 1, "sectionId": 1},
+                "2": {"id": 2, "type": "frame", "nodeI": 2, "nodeJ": 3, "materialId": 1, "sectionId": 1,
+                      "releaseMyStart": hs, "releaseMyEnd": he},
+                "3": {"id": 3, "type": "frame", "nodeI": 4, "nodeJ": 3, "materialId": 1, "sectionId": 1}},
+            "supports": {"1": held(1, true, true, true), "2": held(2, false, false, false),
+                         "3": held(3, false, false, false), "4": held(4, true, true, false)},
+            "loads": [{"type": "nodal", "data": {"nodeId": 2, "fx": 300.0, "fy": 0.0, "fz": -500.0, "mx": 0.0, "my": 0.0, "mz": 0.0}},
+                      {"type": "nodal", "data": {"nodeId": 3, "fx": 0.0, "fy": 0.0, "fz": -500.0, "mx": 0.0, "my": 0.0, "mz": 0.0}}]
+        }));
+        let (b2, b3) = (solve_buckling_2d(&m2, 2).unwrap(), solve_buckling_3d(&m3, 2).unwrap());
+        for k in 0..2 {
+            let (l2, l3) = (b2.modes[k].load_factor, b3.modes[k].load_factor);
+            assert!(close(l2, l3, 1e-9), "hinges {hs}/{he}: λ{k} 2D {l2} vs 3D {l3}");
+        }
+        let (p2, p3) = (solve_pdelta_2d(&m2, 100, 1e-12).unwrap(), solve_pdelta_3d(&m3, 100, 1e-12).unwrap());
+        let ux2 = p2.results.displacements.iter().find(|d| d.node_id == 2).unwrap().ux;
+        let ux3 = p3.results.displacements.iter().find(|d| d.node_id == 2).unwrap().ux;
+        assert!(close(ux2, ux3, 1e-9), "hinges {hs}/{he}: P-Delta sway 2D {ux2} vs 3D {ux3}");
+    }
+}

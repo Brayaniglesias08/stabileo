@@ -14,8 +14,8 @@ It should capture what changed, not what should be built next.
 #### Solver fixes found by extending the OpenSees comparison to buckling, modal, P-Delta and time history (2026-10-17)
 
 **BREAKING (results): buckling load factors of models with axial point loads or partial /
-trapezoidal axial loads on members change, P-Delta member end forces change, ground-motion
-time histories change, and small modal models with massless DOFs now solve.** Found by `tools/opensees/compare.py --buckling2d/3d --modal2d/3d`; each has a
+trapezoidal axial loads on members change, P-Delta member end forces change, 2D buckling and
+P-Delta of hinged frames change, ground-motion time histories change, and small modal models with massless DOFs now solve.** Found by `tools/opensees/compare.py --buckling2d/3d --modal2d/3d`; each has a
 regression test in `engine/tests/opensees_differential_regressions.rs`.
 
 - **Buckling took each member's axial force as (N_start + N_end)/2.** The geometric
@@ -36,6 +36,12 @@ regression test in `engine/tests/opensees_differential_regressions.rs`.
   earthquake, random frames up to ~50 % less in OpenSees' comparison. The influence vector
   now spans every DOF (the full mass is assembled only when a restrained DOF moves with
   the ground), in 2D and 3D. Modal participation factors still use M_ff·r_f.
+- **2D buckling and P-Delta used an uncondensed Kg on hinged members.** The elastic
+  stiffness condenses a hinged end's rotation out of the member, but the 2D geometric
+  stiffness kept the consistent matrix on the node's rotation — the Kg of a different
+  member. A portal whose beam is hinged at one end buckled 2.5 % off its own 3D model
+  (which already condensed Kg). The 2D Kg is now condensed with the same elastic map as
+  the 3D one, in buckling, P-Delta, its end forces and the P-Delta certificate's terms.
 - **Modal analysis failed on small models with a massless DOF.** Hinged members (and
   3D members with any release) get a lumped mass with no rotational inertia, and a node
   of trusses only has none either; the dense eigensolver used below 80 DOFs
