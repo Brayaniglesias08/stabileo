@@ -1349,3 +1349,23 @@ fn linear_certificate_rejects_mismatched_dimensions() {
     assert!(ok(certify_linear_system(&k, 2, &[2.0, 3.0], &[1.0], 1.0)), "short ũ");
     assert!(ok(certify_linear_system(&k, 2, &[2.0, 3.0, 4.0], &[1.0, 1.0, 1.0], 1.0)), "long f and ũ");
 }
+
+/// A σ above λ_min(S) must fail even when it is below every diagonal entry:
+/// only the Schur-complement pivots reveal it. K = [[2, 1.9], [1.9, 2]] has
+/// λ_min = 0.1; σ = 1 leaves the second pivot 1 − 1.9² < 0. (Mutants that
+/// added, instead of subtracting, Σ L_ip² in the interval Cholesky survived
+/// and would certify a too-small bound.)
+#[test]
+fn linear_certificate_needs_every_pivot_positive() {
+    let k = [2.0, 1.9, 1.9, 2.0];
+    let f = [3.9, 3.9];
+    let u = [1.0 + 1e-6, 1.0 - 1e-6]; // exact solution (1, 1)
+    for sigma in [1.0, 0.5, 0.2] {
+        let c = certify_linear_system(&k, 2, &f, &u, sigma);
+        assert!(!c.is_certified(), "σ = {sigma} > λ_min = 0.1 must not certify: {c:?}");
+    }
+    let c = certify_linear_system(&k, 2, &f, &u, 0.09);
+    let Certificate::Certified { abs_bound, .. } = c else { panic!("σ = 0.09 < λ_min certifies: {c:?}") };
+    let err = (2.0f64 * 1e-12).sqrt();
+    assert!(abs_bound >= err, "bound {abs_bound} below the true error {err}");
+}
