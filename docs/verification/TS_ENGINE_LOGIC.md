@@ -105,14 +105,14 @@ under "What is left".
 
 **Status.**
 
-- Fixed on this branch: 5, 6, 7, 8, 9, 12, 15 and 16.
+- Fixed on this branch: 5, 6, 7, 8, 9, 12, 13, 15 and 16.
 - Fixed in part:
   - 2: the app now calls `checkServiceability`. The CIRSOC 201 checker is reached through its
     numeric batch, and the JSON entry point is covered by tests.
   - 3: the design-results normaliser now honours the engine's `pass: false` and
     `unevaluated`. The wrappers themselves still return `null` on error, and every new caller
     treats `null` as "not verified".
-- Open: 1, 4, 10, 11, 13, 14 and 17. See "What is left".
+- Open: 1, 4, 10, 11, 14 and 17. See "What is left".
 
 ## Plan and status
 
@@ -255,7 +255,7 @@ In rough order of safety value:
    exception after the kinematic check says "solvable" is now an error.)
 8. **`pdelta-forces.ts`** patches the engine's P-Delta member forces with Kg·u (finding 14).
    The fix belongs in Rust.
-9. **PRO report slab steel** is designed from invented loads (finding 13).
+9. **PRO report slab steel** (finding 13) is no longer printed. The section invented its load, span and f'c, and now says that slab steel is designed in the slab design. A report section built from the slab design's own results would be the real fix.
 10. **`loads/*`.** Wind, snow, seismic and combination coefficients are TypeScript only. That
     is the next migration candidate after #292 lands.
 11. **Other CIRSOC 201 section shapes** (`cirsoc201-flanged.ts`, `-circular.ts`,

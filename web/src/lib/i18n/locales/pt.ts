@@ -6138,6 +6138,7 @@ const pt: Translations = {
   'report.shortColumn': 'pilar curto',
   'report.slabLabel': 'Laje',
   'report.slabReinforcement': 'Armadura de Lajes',
+  'report.slabNotDesignedHere': 'A armadura de lajes não é dimensionada neste relatório. É dimensionada com os momentos da análise no dimensionamento de lajes; este relatório imprimia uma estimativa com uma carga suposta, que foi removida.',
   'report.slabTotalArea': 'Área total lajes: {area} m² · Volume concreto: {vol} m³',
   'report.slabs': 'Lajes',
   'report.slabsAndWalls': 'Lajes e Paredes',

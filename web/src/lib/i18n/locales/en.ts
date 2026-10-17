@@ -3919,6 +3919,7 @@ const en: Record<string, string> = {
   'report.longitudinalView': 'Longitudinal view',
   'report.jointDetails': 'Joint Details',
   'report.slabReinforcement': 'Slab Reinforcement',
+  'report.slabNotDesignedHere': 'Slab reinforcement is not designed in this report. It is designed from the analysis moments in the slab design; this report used to print an estimate from an assumed load, which has been removed.',
   'report.slabLabel': 'Slab',
   'report.unidirectional': 'One-way',
   'report.bidirectional': 'Two-way',

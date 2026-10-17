@@ -3912,6 +3912,7 @@ const es: Record<string, string> = {
   'report.longitudinalView': 'Vista longitudinal',
   'report.jointDetails': 'Detalle de Nudos',
   'report.slabReinforcement': 'Armado de Losas',
+  'report.slabNotDesignedHere': 'La armadura de losas no se diseña en este informe. Se diseña con los momentos del análisis en el diseño de losas; este informe imprimía una estimación con una carga supuesta, que fue eliminada.',
   'report.slabLabel': 'Losa',
   'report.unidirectional': 'Unidireccional',
   'report.bidirectional': 'Bidireccional',
