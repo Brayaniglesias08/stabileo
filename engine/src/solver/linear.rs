@@ -4199,6 +4199,17 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
         }
     }
     reject_ambiguous_shared_supports(input.supports.iter().map(|(k, s)| (s.node_id, k.as_str(), plain_rigid_3d(s))))?;
+    // An inclined support needs its direction: without a non-zero normal it
+    // used to solve silently as an ordinary support with its flags.
+    for s in input.supports.values() {
+        if s.is_inclined.unwrap_or(false) {
+            let n = [s.normal_x, s.normal_y, s.normal_z];
+            let len2: f64 = n.iter().map(|c| c.unwrap_or(0.0).powi(2)).sum();
+            if n.iter().any(Option::is_none) || len2.sqrt() <= 1e-12 {
+                return Err(format!("Support on node {}: an inclined support needs a non-zero normal (normalX, normalY, normalZ)", s.node_id));
+            }
+        }
+    }
     for load in &input.loads {
         let finite = match load {
             SolverLoad3D::Nodal(l) => l.fx.is_finite() && l.fy.is_finite() && l.fz.is_finite()

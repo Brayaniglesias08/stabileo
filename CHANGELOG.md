@@ -28,6 +28,10 @@ each with a regression test.
   3D; any other combination (springs, prescribed displacements, inclined directions) is
   rejected with an error naming the node. The web app already keeps one support per node.
   `tests/duplicate_support_reactions.rs`.
+- **A 3D inclined support without a usable normal solved as an ordinary support.**
+  `isInclined: true` with a missing or zero normal fell back to the support's restraint
+  flags. It is now rejected; the web app always sends the normal. Found while triaging
+  surviving mutants of the DOF numbering. `tests/solver_mutation_kills.rs`.
 - **Harmonic certificates reported NaN enclosures for a zero response.** When the target DOF
   was not excited (or the reported value equalled the candidate), the outward-rounded sum of
   squares had a lower end of −5e−324 and its interval square root was NaN, so a *certified*
