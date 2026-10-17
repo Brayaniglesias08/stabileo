@@ -3,6 +3,7 @@
 
 import type { SolverDiagnostic } from '../../types';
 import { ES_MPA } from './cirsoc201-basis';
+import { checkServiceability } from '../../wasm-solver';
 
 // ─── Crack Width (CIRSOC 201 §10.6, based on Gergely-Lutz / simplified) ───
 
@@ -141,15 +142,24 @@ export function checkDeflection(
   steps.push(`δ_total = ${(deltaTotal * 1000).toFixed(2)} mm`);
 
   const divisor = typeof limitType === 'number' ? limitType : limitType === 'L/240' ? 240 : limitType === 'L/480' ? 480 : 360;
-  const limit = limitLength / divisor;
   const over = limitLength === L ? 'L' : `${+(limitLength / L).toFixed(3)}L`;
-  steps.push(`δ_admisible = ${over}/${divisor} = ${(limit * 1000).toFixed(2)} mm`);
 
-  const ratio = deltaTotal / limit;
-  steps.push(`Ratio = ${ratio.toFixed(3)}`);
+  /*
+   * The verdict is the engine's (`serviceability.rs`, `check_serviceability`): the allowable
+   * deflection, the ratio and pass/fail. This module keeps only the long-term multiplier above,
+   * which the engine does not model. No engine, no verdict: the check fails, never passes.
+   */
+  const engine = checkServiceability({
+    members: [{ elementId: 0, span: limitLength, maxDeflection: deltaTotal, criterion: { spanRatio: divisor } }],
+  }) as Array<{ deflectionRatio: number; allowableDeflection: number; deflectionOk: boolean }> | null;
+  const r = engine?.[0];
+  const limit = r ? r.allowableDeflection : limitLength / divisor;
+  steps.push(`δ_admisible = ${over}/${divisor} = ${(limit * 1000).toFixed(2)} mm`);
+  const ratio = r ? r.deflectionRatio : Number.NaN;
+  steps.push(r ? `Ratio = ${ratio.toFixed(3)}` : 'Ratio: el motor no está disponible — no verificado');
 
   let status: DeflectionResult['status'] = 'ok';
-  if (ratio > 1.0) status = 'fail';
+  if (!r || !r.deflectionOk || !(ratio <= 1.0)) status = 'fail';
   else if (ratio > 0.8) status = 'warn';
 
   const diags: SolverDiagnostic[] = [];
