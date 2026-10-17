@@ -11,6 +11,21 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Further unsafe design-check gaps closed (2026-10-17)
+
+**BREAKING (results): web fillet welds, EC3/AISC lateral-torsional buckling, EC3 Class 4
+members, AISC 360 slender-element columns, CIRSOC 301 T/double-angle/channel columns and
+CIRSOC 301 tension members give lower capacities, or are refused (not evaluated) where the
+inputs needed to compute them safely are absent.**
+
+- **The web fillet weld applied β only to welds marked end-loaded** — the opposite default from
+  the engine's weld groups. `designFilletWeld` (joint designer) now treats an undeclared weld as
+  end-loaded (CIRSOC 301 §J.2.1, the conservative side); `loading: 'other'` opts out, and the
+  joint panel's selector defaults to end-loaded. The Connections tab's quick
+  `checkFilletWeld` credited `0.6 L` above `300 w` instead of the clause's `180 w` (at
+  `L = 600 w`, twice the allowed length); it now caps at `180 w` and takes `endLoaded`
+  (default true).
+
 #### Unsafe design-check disagreements closed (2026-10-17)
 
 **BREAKING (results): weld groups with long fillets, CIRSOC 301 slender-element columns,
