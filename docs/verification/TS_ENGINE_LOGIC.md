@@ -112,15 +112,73 @@ PR body holds the live checklist.
 
 ### 2. Differential tests, TypeScript against Rust
 
-In progress.
+Tests live in `web/src/lib/engine/__tests__/differential/` and use `fast-check`.
+
+**CIRSOC 201 beam sections** (`cirsoc201-beam.test.ts`). First the Rust checker
+(`cirsoc201_check.rs`) was rewritten so that it follows the clause (finding 5): both editions,
+strain compatibility, Tabla 21.2.2, 9.3.3.1, Tabla 22.5.5.1 with λs, and the caps of
+22.5.1.2, 22.5.3.1 and 22.5.3.3. The Rust tests in `engine/tests/integration/cirsoc201_check.rs`
+pin each clause. Then the TypeScript verifier (`station-design-forces.ts`
+`computeFlexureCapacity` and `computeShearCapacity`) was run against it on 4 000 random,
+physically valid sections:
+
+| Disagreement | Cases | Size | Which side was wrong |
+|---|---:|---|---|
+| The tension steel was assumed to yield (εt < εy) | 641 | φMn up to 18 % too high | TypeScript (22.2, strain compatibility) |
+| φ reached 0,90 at εt = 0,005 whatever fy | 419 | φ up to 2,7 % too high | TypeScript (Tabla 21.2.2: εty + 0,003) |
+| Stirrups credited above 420 MPa | 1 335 | Vs up to 19 % too high | TypeScript (22.5.3.3) |
+| No ductility check | 1 075 fail 9.3.3.1 | — | TypeScript: the check was missing |
+| A compression bar between the stress block and the neutral axis was charged for concrete it does not displace | a few | φMn ~1 % too low | TypeScript (conservative) |
+| Av,min computed with fyt capped at 420 MPa | 3 | Vc too high (row (c) beat row (a)) | Rust; fixed: 22.5.3.3 caps fyt in Vs only |
+
+Every TypeScript-side disagreement was unconservative except the last-but-one. All were fixed
+by moving the verdict into the engine (step 4). The test now holds an independent TypeScript
+statement of the clause, written from the text and not from the Rust. It checks that the
+engine agrees with it on 5 000 sections in both editions (φMn to 1e-7 relative, φVn to 1e-12),
+that the numeric batch and the JSON checker are the same function, and it pins each of the
+four disagreements.
+
+**Still to write:** CIRSOC 301 against `steel_check.rs` (waits for #293, see the PR body),
+serviceability, footings (`foundation-check.ts`, `punching-shear.ts`), station design forces,
+`spectral-case.ts` against `solver/spectral.rs`.
 
 ### 3. Engine re-check gate
 
-In progress.
+There are two production paths to a CIRSOC 201 "pass".
+
+- **Provided reinforcement and candidate search** (`verifyProvidedReinforcement`, used by
+  `design/adapters/cirsoc201-adapter.ts` and so by every candidate the search certifies).
+  Beam flexure, shear and ductility now come from the engine (step 4). Column axial force
+  with moment already came from the Rust column kernel. When the beam kernel is not loaded,
+  the verifier reports the member as not verifiable: the capacity is `null`, or φVn = 0,
+  which fails.
+- **Design and verification of the whole model** (`auto-verify.ts` → `verifyElement`, used
+  by `runCirsocDesign` and by the report). This path designed and checked with the same
+  TypeScript, so its own defects passed its own designs. `codes/argentina/cirsoc201-engine-gate.ts`
+  now re-checks every result. It takes the bars, their real diameters (the TypeScript sized `d`
+  for Ø16 whatever it chose) and the stirrups, and asks the engine about beam flexure, shear and
+  ductility. Columns go to the Rust column kernel on the standard layout of the chosen bars,
+  under the compression and under any tension the member sees. A TypeScript pass the engine
+  does not confirm becomes a failure with `VERIF_ENGINE_DISAGREES` and the engine's ratios. An
+  engine that cannot be asked gives `VERIF_ENGINE_UNAVAILABLE`, also a failure. Each result
+  carries `engineRecheck`. That includes `notRechecked`, the checks the engine has no checker
+  for yet: biaxial (Bresler), torsion and the slenderness magnifier.
+
+The gate found a real case on its first run. `verifyElement` designs a 25×50 beam under
+Mu = 330 kN·m with 4 Ø32 + 2 Ø20 and passes it (warn). With the bars it chose, its εt is
+2,6 ‰. That is below 9.3.3.1 of 2025 (5,1 ‰) and also below 10.3.5 of 2005 (4 ‰): the
+designer anchored at 4 ‰ for the required steel and never looked at the provided steel. Tests:
+`__tests__/cirsoc201-engine-gate.test.ts`.
 
 ### 4. Migration of the duplicates into Rust
 
-In progress.
+| Module | Status |
+|---|---|
+| CIRSOC 201 beam flexure and shear (`station-design-forces.ts` `computeFlexureCapacity`, `computeShearCapacity`) | **Migrated.** Thin adapters over `codes/argentina/cirsoc201-beam-kernel.ts` → `cirsoc201_beam_batch` (numeric boundary, the `steel-codes.ts` pattern without JSON, because the verifier asks thousands of times per run). The ductility check is new. |
+| CIRSOC 201 legacy designer (`cirsoc201.ts` `checkFlexure`, `checkShear`, `checkColumn`) | Sizing stays in TypeScript and the verdict is re-checked by the engine (step 3). It is not yet a thin adapter. |
+| CIRSOC 201 other sections (`cirsoc201-capacity.ts`, `-flanged.ts`, `-circular.ts`, `interaction-diagram.ts`, `cirsoc-flex.ts`) | Not migrated. |
+| CIRSOC 301 (`cirsoc301.ts`) | Waiting for #293, which rewrites this file. No Rust CIRSOC 301 checker exists yet. |
+| Serviceability, footings, station design forces | Not started. |
 
 ### 5. Hardening what stays in TypeScript
 

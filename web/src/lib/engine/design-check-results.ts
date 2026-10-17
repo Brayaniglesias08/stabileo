@@ -48,10 +48,19 @@ export interface DesignCheckSummary {
 
 // ─── Status helpers ──────────────────────────────────────────────
 
-function ratioToStatus(ratio: number): CheckStatus {
-  if (ratio <= 1.0) return 'ok';
-  if (ratio <= 1.1) return 'warn';
-  return 'fail';
+/**
+ * Above 1,0 is a failure, never a warning: no code these checkers implement grants an
+ * overstress band. This read 1,0 < ratio ≤ 1,1 as 'warn', which put a member 10 % over its
+ * design strength in amber next to CIRSOC 201's 'warn', a pass between 0,9 and 1,0. A ratio
+ * that is not a number is not a pass either.
+ */
+export function ratioToStatus(ratio: number): CheckStatus {
+  return ratio <= 1.0 ? 'ok' : 'fail';
+}
+
+/** The engine's own verdict: an explicit `pass: false` or an unevaluated check is a failure. */
+function engineRefused(r: any): boolean {
+  return r.pass === false || (Array.isArray(r.unevaluated) && r.unevaluated.length > 0);
 }
 
 // ─── CIRSOC 201 (RC, JS) adapter ─────────────────────────────────
@@ -281,7 +290,7 @@ export function normalizeWasmSteel(results: any[], codeId: string, codeName: str
       codeName,
       governingCheck: govCheck,
       utilization: unity,
-      status: verifiable ? ratioToStatus(unity) : 'fail',
+      status: verifiable && !engineRefused(r) ? ratioToStatus(unity) : 'fail',
       checks,
     };
   });
@@ -316,7 +325,7 @@ export function normalizeWasmRC(results: any[], codeId: string, codeName: string
       codeName,
       governingCheck: govCheck,
       utilization: unity,
-      status: verifiable ? ratioToStatus(unity) : 'fail',
+      status: verifiable && !engineRefused(r) ? ratioToStatus(unity) : 'fail',
       checks,
     };
   });

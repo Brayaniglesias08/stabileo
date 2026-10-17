@@ -1889,6 +1889,8 @@ const pt: Translations = {
   'diag.verifFailBiaxial': 'Verificação biaxial NÃO atende',
   'diag.verifFailColumn': 'Verificação de flexo-compressão NÃO atende',
   'diag.verifFailFlexure': 'Verificação de flexão NÃO atende',
+  'diag.verifEngineDisagrees': 'A reverificação do motor não confirma este resultado — tratado como falha',
+  'diag.verifEngineUnavailable': 'O motor não pôde reverificar este elemento — não verificado',
   'diag.verifFailShear': 'Verificação de cisalhamento NÃO atende',
   'diag.verifFailTorsion': 'Verificação de torção NÃO atende',
   'diag.verifSteelFailCompression': 'Verificação de compressão em aço NÃO atende',

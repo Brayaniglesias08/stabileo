@@ -3677,6 +3677,8 @@ const es: Record<string, string> = {
   'diag.nodes': 'Nodos',
   'diag.shells': 'Cáscaras',
   'diag.verifFailFlexure': 'Verificación de flexión NO cumple',
+  'diag.verifEngineDisagrees': 'La re-verificación del motor no confirma este resultado — se toma como falla',
+  'diag.verifEngineUnavailable': 'El motor no pudo re-verificar este elemento — no verificado',
   'diag.verifWarnFlexure': 'Verificación de flexión cercana al límite',
   'diag.verifFailShear': 'Verificación de corte NO cumple',
   'diag.verifWarnShear': 'Verificación de corte cercana al límite',

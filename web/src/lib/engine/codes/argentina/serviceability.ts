@@ -2,6 +2,7 @@
 // Separate module — does NOT modify the solver
 
 import type { SolverDiagnostic } from '../../types';
+import { ES_MPA } from './cirsoc201-basis';
 
 // ─── Crack Width (CIRSOC 201 §10.6, based on Gergely-Lutz / simplified) ───
 
@@ -26,21 +27,32 @@ export interface CrackResult {
  * @param cover concrete cover (m)
  * @param barDia bar diameter (mm)
  * @param barCount number of bars
+ * @param fc concrete strength f'c (MPa), for the cracked elastic section
  * @param exposure 'interior' | 'exterior' — affects limit
  */
 export function checkCrackWidth(
   b: number, h: number, d: number,
   AsProv: number, Ms: number,
   cover: number, barDia: number, barCount: number,
+  fc: number,
   exposure: 'interior' | 'exterior' = 'interior',
 ): CrackResult {
   const steps: string[] = [];
   const MsAbs = Math.abs(Ms);
 
-  // Service stress in steel: fs ≈ Ms / (As · jd) where jd ≈ 0.875·d
+  /*
+   * The cracked elastic section, which both fs and β come from: n = Es/Ec with
+   * Ec = 4700·√f'c (CIRSOC 201 §19.2.2.1), k = √(2ρn + (ρn)²) − ρn, c = k·d, j = 1 − k/3.
+   * fs used a fixed jd = 0,875·d and β = h/(h − dc), which drops the neutral axis.
+   */
   const As_m2 = AsProv * 1e-4;
-  const jd = 0.875 * d;
+  const n = ES_MPA / (4700 * Math.sqrt(fc));
+  const rhoN = (As_m2 / (b * d)) * n;
+  const k = Math.sqrt(2 * rhoN + rhoN * rhoN) - rhoN;
+  const c = k * d;
+  const jd = (1 - k / 3) * d;
   const fs = MsAbs / (As_m2 * jd) / 1000; // MPa
+  steps.push(`n = ${n.toFixed(2)}, k = ${k.toFixed(3)}, c = ${(c * 100).toFixed(1)} cm`);
   steps.push(`fs = Ms/(As·jd) = ${fs.toFixed(0)} MPa`);
 
   // dc = cover + stirrup + bar/2 (distance to bar center from tension face)
@@ -51,12 +63,17 @@ export function checkCrackWidth(
   const Aeff = 2 * dc * b / barCount; // m²
   steps.push(`A_eff/barra = ${(Aeff * 1e6).toFixed(0)} mm²`);
 
-  // Crack width (Gergely-Lutz simplified):
-  // w = 0.076·β·fs·∛(dc·A) × 1e-3 (mm)
-  // β = h / (h - dc) ≈ ratio of distances from NA to tension face
-  const beta = h / (h - dc);
-  const wk = 0.076 * beta * fs * Math.cbrt(dc * 1000 * Aeff * 1e6) * 1e-3; // mm
-  steps.push(`wk = 0.076·β·fs·∛(dc·A) = ${wk.toFixed(3)} mm`);
+  /*
+   * Gergely–Lutz in SI: w = 11·10⁻⁶·β·fs·∛(dc·A), w in mm with fs in MPa, dc in mm, A in mm².
+   * β = (h − c)/(d − c), the ratio of the distances from the neutral axis to the tension face
+   * and to the steel.
+   *
+   * This used 0,076·10⁻³, the coefficient of the inch-pound form (fs in ksi, w in inches),
+   * with SI inputs: 0,076/6,895 = 0,011, so every width came out 6,9 times too large.
+   */
+  const beta = (h - c) / (d - c);
+  const wk = 0.011 * beta * fs * Math.cbrt(dc * 1000 * Aeff * 1e6) * 1e-3; // mm
+  steps.push(`wk = 0.011·β·fs·∛(dc·A)·10⁻³ = ${wk.toFixed(3)} mm (β = ${beta.toFixed(3)})`);
 
   // Limits: interior 0.33 mm, exterior 0.25 mm
   const wLimit = exposure === 'exterior' ? 0.25 : 0.33;

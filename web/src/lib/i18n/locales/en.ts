@@ -3684,6 +3684,8 @@ const en: Record<string, string> = {
   'diag.nodes': 'Nodes',
   'diag.shells': 'Shells',
   'diag.verifFailFlexure': 'Flexure check FAILED',
+  'diag.verifEngineDisagrees': 'The engine re-check does not confirm this pass — treated as a failure',
+  'diag.verifEngineUnavailable': 'The engine could not re-check this member — not verified',
   'diag.verifWarnFlexure': 'Flexure check near limit',
   'diag.verifFailShear': 'Shear check FAILED',
   'diag.verifWarnShear': 'Shear check near limit',
