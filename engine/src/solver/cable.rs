@@ -169,6 +169,9 @@ pub fn solve_cable_2d(
     max_iter: usize,
     tolerance: f64,
 ) -> Result<CableAnalysisResult2D, String> {
+    // The same input checks as every other analysis (non-finite values,
+    // dangling ids, unknown support types, ambiguous shared supports).
+    linear::validate_input_2d(input)?;
     let dof_num = DofNumbering::build_2d(input);
 
     if dof_num.n_free == 0 {
@@ -597,6 +600,7 @@ pub fn solve_cable_3d(
 ) -> Result<CableAnalysisResult3D, String> {
     // Expand curved beams before DOF numbering and assembly.
     let input = &super::linear::expand_curved_beams_3d(input);
+    linear::validate_input_3d(input)?;
     let dof_num = DofNumbering::build_3d(input);
 
     if dof_num.n_free == 0 {

@@ -141,3 +141,36 @@ fn inclined_support_without_normal_is_rejected() {
         assert!(err.contains("inclined support needs a non-zero normal"), "{err}");
     }
 }
+
+/// An unknown 2D support type used to restrain nothing, silently.
+#[test]
+fn unknown_2d_support_type_is_rejected() {
+    let input: SolverInput = serde_json::from_value(json!({
+        "nodes": { "1": { "id": 1, "x": 0.0, "z": 0.0 }, "2": { "id": 2, "x": 3.0, "z": 0.0 } },
+        "materials": { "1": { "id": 1, "e": 200000.0, "nu": 0.3 } },
+        "sections": { "1": { "id": 1, "a": 0.01, "iz": 1e-4 } },
+        "elements": { "1": { "id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2, "materialId": 1, "sectionId": 1 } },
+        "supports": { "1": { "id": 1, "nodeId": 1, "type": "fixed" }, "2": { "id": 2, "nodeId": 2, "type": "roller" } },
+        "loads": [{ "type": "nodal", "data": { "nodeId": 2, "fx": 1.0, "fz": -1.0, "my": 0.0 } }]
+    }))
+    .unwrap();
+    let err = dedaliano_engine::solver::linear::solve_2d(&input).unwrap_err();
+    assert!(err.contains("unknown type 'roller'"), "{err}");
+}
+
+/// The cable solvers skipped input validation entirely; an unknown support
+/// type (or a non-finite value) reached them unchecked.
+#[test]
+fn cable_solver_validates_its_input() {
+    let input: SolverInput = serde_json::from_value(json!({
+        "nodes": { "1": { "id": 1, "x": 0.0, "z": 0.0 }, "2": { "id": 2, "x": 3.0, "z": 0.0 } },
+        "materials": { "1": { "id": 1, "e": 200000.0, "nu": 0.3 } },
+        "sections": { "1": { "id": 1, "a": 0.01, "iz": 1e-4 } },
+        "elements": { "1": { "id": 1, "type": "cable", "nodeI": 1, "nodeJ": 2, "materialId": 1, "sectionId": 1 } },
+        "supports": { "1": { "id": 1, "nodeId": 1, "type": "pinned" }, "2": { "id": 2, "nodeId": 2, "type": "pin" } },
+        "loads": [{ "type": "nodal", "data": { "nodeId": 2, "fx": 1.0, "fz": -1.0, "my": 0.0 } }]
+    }))
+    .unwrap();
+    let err = dedaliano_engine::solver::cable::solve_cable_2d(&input, &Default::default(), 20, 1e-8).unwrap_err();
+    assert!(err.contains("unknown type 'pin'"), "{err}");
+}

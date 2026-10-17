@@ -230,7 +230,8 @@ fn is_dof_restrained_2d(sup: &SolverSupport, local_dof: usize) -> bool {
         "guidedX" => local_dof == 1 || local_dof == 2, // uz+ry fixed, ux free
         "guidedY" | "guidedZ" => local_dof == 0 || local_dof == 2, // ux+ry fixed
         "inclinedRoller" => local_dof == 1, // Constrained normal to surface
-        "spring" => false,  // All spring DOFs are free (stiffness added to K)
+        // "spring" (every DOF free, its stiffness added to K) and "free".
+        // validate_input_2d rejects any other type.
         _ => false,
     }
 }

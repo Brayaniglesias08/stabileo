@@ -40,4 +40,9 @@ exclude_re = [
     # outward widening of 0 to ±5e−324; skipping on one zero or both is the
     # same up to that widening (sound either way).
     "replace \\|\\| with && in sub_prod",
+    # DofNumbering's |n| > 1e-12 test for inclined supports mirrors assembly's
+    # for callers that skip validation; validate_input_3d already rejects a
+    # zero or missing normal (tests/solver_mutation_kills.rs), so on validated
+    # input the length arithmetic cannot change the outcome.
+    "replace (\\+|\\*) with (-|\\+|\\*|/) in inclined_restrained_3d",
 ]
