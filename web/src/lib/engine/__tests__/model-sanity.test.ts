@@ -55,13 +55,10 @@ const summary = (r: SanityReport | null) => (r?.findings ?? []).map((f) => `${f.
 /*
  * Warnings the examples raise, each one examined and kept because it is true of the model:
  * the review is right to say it, and the example is right to be as it is. A new warning on an
- * example fails here until it is examined and justified the same way.
+ * example fails here until it is examined and justified the same way. None today: every warning
+ * the review raised on an example was a modelling error in it, and was fixed.
  */
-const JUSTIFIED_WARNINGS: Record<string, string[]> = {
-  // The diagrid's 42 floors carry no floor loads, only the frame's own weight: 0.22 kN/m². True of
-  // the example, which models the structure, not a loaded building.
-  'xl-diagrid-tower': ['weight_per_area_low'],
-};
+const JUSTIFIED_WARNINGS: Record<string, string[]> = {};
 
 /*
  * Examples whose linear results are absurd, and which the review therefore reports as errors.
