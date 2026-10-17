@@ -14,8 +14,9 @@ It should capture what changed, not what should be built next.
 #### Section properties and connections verified against exact forms and published values (2026-10-17)
 
 **BREAKING (results): asymmetric sections wound clockwise, the shear centre, shear areas and
-warping constant of sections with a product of inertia, and models using the IRAM steels
-solve differently.** Each was found by `docs/verification/SECTIONS_CONNECTIONS.md` and has a
+warping constant of sections with a product of inertia, thin-walled J, bolt bearing, long
+end-loaded welds, and models using the IRAM steels or the concrete/aluminium presets solve or
+check differently.** Each was found by `docs/verification/SECTIONS_CONNECTIONS.md` and has a
 regression test.
 
 - **Product of inertia ignored the winding.** `analyze_section` fixed the sign of `Iy`/`Iz`
@@ -56,6 +57,14 @@ regression test.
 - **The PRO advanced section panel could print Routh's J.** When the Saint-Venant solve
   failed it kept the polygon analyser's `j`, Routh's approximation (twice the true J on an I).
   It now shows no J in that case.
+- **IRAM steels (F-24, F-26, F-36) carried the 1984 elastic constants (unsafe).** E = 210 000
+  and G = 80 769 MPa came from CIRSOC 301:1984; CIRSOC 301-2018 §A.3.5 fixes E = 200 000 and
+  G = 77 200 MPa. Models in these grades were 5% too stiff (deflections and drift low).
+- **Material presets corrected to their standards.** Reinforced-concrete unit weight 25 kN/m³
+  for CIRSOC (CIRSOC 101-2025 Tabla 3.1), EN (EN 1991-1-1 Table A.1) and NBR presets (was 24 or
+  24.5: self-weight 4% low); NBR 6118 concrete uses the secant modulus `Ecs = alpha_i Eci` of
+  §8.2.8 for analysis (was `Eci`, 8-18% stiff); aluminium 5052-H32 130/210 MPa and 6063-T6
+  160/195 MPa per EN 1999-1-1 Tables 3.2a/3.2b (were typical values, up to 50% high on fo).
 
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 
