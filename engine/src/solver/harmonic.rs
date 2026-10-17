@@ -258,6 +258,15 @@ pub fn solve_harmonic_3d(input: &HarmonicInput3D) -> Result<HarmonicResult, Stri
 /// (`C = a₀M + a₁K`): the damping model the certificate refers to.
 pub fn solve_harmonic_3d_with_damping(input: &HarmonicInput3D) -> Result<(HarmonicResult, (f64, f64)), String> {
     super::linear::validate_input_3d(&input.solver)?;
+    super::feature_gates::refuse_3d(&input.solver, "Harmonic analysis", &[super::feature_gates::Feature::PrescribedDisplacements])?;
+    // Curved beams are expanded into straight members, as every static path
+    // does; left in place they were not part of the model at all.
+    let expanded = (!input.solver.curved_beams.is_empty()).then(|| {
+        let mut e = input.clone();
+        e.solver = super::linear::expand_curved_beams_3d(&input.solver);
+        e
+    });
+    let input = expanded.as_ref().unwrap_or(input);
     let referenced_material_ids = super::dynamic_validation::referenced_material_ids_3d(&input.solver);
     super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
     if !input.damping_ratio.is_finite() {

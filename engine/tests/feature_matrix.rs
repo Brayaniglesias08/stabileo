@@ -1596,6 +1596,11 @@ const KNOWN: &[(&str, &str, &str, &str)] = &[
     ("2D", "angled spring support", "buckling", "PR #279 (fix/sparse2d)"),
     ("2D", "angled spring support", "time history", "PR #279 (fix/sparse2d)"),
     ("2D", "inclined support", "time history", "PR #279 (fix/sparse2d)"),
+    // 3D buckling and time integration rotate K at inclined supports but not Kg / M.
+    ("3D", "inclined support", "buckling", "PR #287 (fix/inclined-supports)"),
+    ("3D", "inclined support", "time history", "PR #287 (fix/inclined-supports)"),
+    // Solid shell: singular on the sparse path, spurious modes in the spectral sum.
+    ("3D", "solid shell", "", "PR #289 (fix/solidshell)"),
 ];
 
 fn known_for(dim: &str, feature: &str, analysis: &str) -> Option<&'static str> {
@@ -1706,7 +1711,7 @@ fn matrix_2d() -> Matrix {
 
 #[test]
 fn feature_matrix() {
-    let ms = vec![matrix_2d()];
+    let ms = vec![matrix_2d(), matrix_3d()];
     let text = render(&ms);
     println!("{text}");
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/verification/FEATURE_MATRIX.md");
@@ -1729,14 +1734,1481 @@ fn feature_matrix() {
 #[test]
 #[ignore]
 fn debug_probe() {
-    for (dtu, dtg) in [(30.0, 0.0), (0.0, 20.0), (30.0, 20.0)] {
-        let mut m = beam(4, 4.0);
-        m.sup(1, 1, "fixed");
-        for e in 1..=4 {
-            m.load(SolverLoad::Thermal(SolverThermalLoad { element_id: e, dt_uniform: dtu, dt_gradient: dtg }));
+    let cases = cases_3d();
+    let c = cases.iter().find(|c| c.feature == "constraint (diaphragm)").unwrap();
+    for lateral in [true, false] {
+        for (lbl, m) in [("with", &c.with), ("without", &c.without), ("equiv", c.equiv.as_ref().unwrap())] {
+            let mut m = m.clone();
+            if !lateral {
+                m.s.loads = vec![];
+                m.nodal(2, [0.0, 0.0, -200.0, 0.0, 0.0, 0.0]);
+            }
+            let r = buckling::solve_buckling_3d(&m.s, 3).map(|r| r.modes.iter().map(|x| x.load_factor).collect::<Vec<_>>());
+            println!("lateral {lateral} {lbl}: {:?}", r);
         }
-        let lin = disp2(&linear::solve_2d(&m.s).unwrap(), &[5]);
-        let co = corotational::solve_corotational_2d(&m.s, 100, 1e-7, 4, false).unwrap();
-        println!("dtu {dtu} dtg {dtg}: lin {:?}\n   corot {} {:?}", lin, co.converged, disp2(&co.results, &[5]));
     }
+}
+
+// ==================== 3D model builder ====================
+
+#[derive(Clone)]
+struct M3 {
+    s: SolverInput3D,
+    /// section id → (extent along local z, extent along local y) of its rectangle.
+    rects: HashMap<usize, (f64, f64)>,
+}
+
+const FREE: [bool; 6] = [false; 6];
+const FIXED: [bool; 6] = [true; 6];
+
+impl M3 {
+    fn new() -> Self {
+        let mut m = M3 {
+            s: SolverInput3D {
+                nodes: HashMap::new(), materials: HashMap::new(), sections: HashMap::new(), elements: HashMap::new(),
+                supports: HashMap::new(), loads: vec![], constraints: vec![], left_hand: None, plates: HashMap::new(),
+                quads: HashMap::new(), quad9s: HashMap::new(), solid_shells: HashMap::new(), curved_shells: HashMap::new(),
+                curved_beams: vec![], connectors: HashMap::new(), solver_options: None,
+            },
+            rects: HashMap::new(),
+        };
+        m.mat(1, E, NU);
+        m.mat(STUB_MAT, E, NU);
+        m.sec(1, 0.3, 0.3);
+        // Deep in y: keeps lateral modes out of the way of the vertical ones
+        // a support feature acts on (a square beam buckles sideways first).
+        m.sec(6, 0.3, 0.9);
+        m
+    }
+    fn mat(&mut self, id: usize, e: f64, nu: f64) -> &mut Self {
+        self.s.materials.insert(id.to_string(), SolverMaterial { id, e, nu });
+        self
+    }
+    /// Rectangle `bz` (along local z) × `hy` (along local y): Iy = hy·bz³/12,
+    /// Iz = bz·hy³/12 — the convention of the fiber sections, Iy = Σ A z².
+    fn sec(&mut self, id: usize, bz: f64, hy: f64) -> &mut Self {
+        let (a, b) = (bz.max(hy), bz.min(hy));
+        let j = a * b.powi(3) * (1.0 / 3.0 - 0.21 * b / a * (1.0 - b.powi(4) / (12.0 * a.powi(4))));
+        self.s.sections.insert(
+            id.to_string(),
+            SolverSection3D { id, name: None, a: bz * hy, iy: hy * bz.powi(3) / 12.0, iz: bz * hy.powi(3) / 12.0, j, cw: None, as_y: None, as_z: None },
+        );
+        self.rects.insert(id, (bz, hy));
+        self
+    }
+    fn sec_mut(&mut self, id: usize) -> &mut SolverSection3D {
+        self.s.sections.get_mut(&id.to_string()).unwrap()
+    }
+    fn node(&mut self, id: usize, x: f64, y: f64, z: f64) -> &mut Self {
+        self.s.nodes.insert(id.to_string(), SolverNode3D { id, x, y, z });
+        self
+    }
+    fn elem(&mut self, id: usize, ty: &str, ni: usize, nj: usize, mat: usize, sec: usize) -> &mut Self {
+        self.s.elements.insert(
+            id.to_string(),
+            SolverElement3D {
+                id, elem_type: ty.into(), node_i: ni, node_j: nj, material_id: mat, section_id: sec,
+                release_my_start: false, release_my_end: false, release_mz_start: false, release_mz_end: false,
+                release_t_start: false, release_t_end: false, local_yx: None, local_yy: None, local_yz: None, roll_angle: None,
+            },
+        );
+        self
+    }
+    fn elem_mut(&mut self, id: usize) -> &mut SolverElement3D {
+        self.s.elements.get_mut(&id.to_string()).unwrap()
+    }
+    fn line(&mut self, ids: &[usize], a: [f64; 3], b: [f64; 3], first_elem: usize, mat: usize, sec: usize) -> &mut Self {
+        let n = ids.len() - 1;
+        for (k, &id) in ids.iter().enumerate() {
+            let t = k as f64 / n as f64;
+            self.node(id, a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2]));
+        }
+        for k in 0..n {
+            self.elem(first_elem + k, "frame", ids[k], ids[k + 1], mat, sec);
+        }
+        self
+    }
+    fn sup(&mut self, node: usize, f: [bool; 6]) -> &mut Self {
+        self.s.supports.insert(
+            node.to_string(),
+            SolverSupport3D {
+                node_id: node, rx: f[0], ry: f[1], rz: f[2], rrx: f[3], rry: f[4], rrz: f[5],
+                kx: None, ky: None, kz: None, krx: None, kry: None, krz: None, dx: None, dy: None, dz: None,
+                drx: None, dry: None, drz: None, rw: None, kw: None, normal_x: None, normal_y: None, normal_z: None, is_inclined: None,
+            },
+        );
+        self
+    }
+    fn sup_mut(&mut self, node: usize) -> &mut SolverSupport3D {
+        self.s.supports.get_mut(&node.to_string()).unwrap()
+    }
+    fn nodal(&mut self, node: usize, f: [f64; 6]) -> &mut Self {
+        self.s.loads.push(SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: node, fx: f[0], fy: f[1], fz: f[2], mx: f[3], my: f[4], mz: f[5], bw: None }));
+        self
+    }
+    fn load(&mut self, l: SolverLoad3D) -> &mut Self {
+        self.s.loads.push(l);
+        self
+    }
+    fn densities(&self) -> HashMap<String, f64> {
+        self.s.materials.values().map(|m| (m.id.to_string(), if m.id >= RIGID_MAT { 0.0 } else { RHO })).collect()
+    }
+    /// Rigidly rotate nodes and nodal loads by `r` (3×3).
+    fn rotated(&self, r: &[[f64; 3]; 3]) -> M3 {
+        let mut m = self.clone();
+        for n in m.s.nodes.values_mut() {
+            let v = rot3([n.x, n.y, n.z, 0.0, 0.0, 0.0], r);
+            n.x = v[0];
+            n.y = v[1];
+            n.z = v[2];
+        }
+        for l in m.s.loads.iter_mut() {
+            if let SolverLoad3D::Nodal(nl) = l {
+                let v = rot3([nl.fx, nl.fy, nl.fz, nl.mx, nl.my, nl.mz], r);
+                (nl.fx, nl.fy, nl.fz, nl.mx, nl.my, nl.mz) = (v[0], v[1], v[2], v[3], v[4], v[5]);
+            }
+        }
+        m
+    }
+    fn padded(&self) -> M3 {
+        let mut m = self.clone();
+        let ids: Vec<usize> = (5001..=5015).collect();
+        m.line(&ids, [100.0, 0.0, 0.0], [106.0, 0.0, 0.0], 5001, 1, 1);
+        m.sup(5001, FIXED);
+        m
+    }
+    fn elem_len(&self, id: usize) -> f64 {
+        let e = &self.s.elements[&id.to_string()];
+        let (a, b) = (&self.s.nodes[&e.node_i.to_string()], &self.s.nodes[&e.node_j.to_string()]);
+        ((b.x - a.x).powi(2) + (b.y - a.y).powi(2) + (b.z - a.z).powi(2)).sqrt()
+    }
+    /// Local axes (ex, ey, ez) of a member, as the solver computes them.
+    fn axes(&self, id: usize) -> ([f64; 3], [f64; 3], [f64; 3]) {
+        let e = &self.s.elements[&id.to_string()];
+        let (a, b) = (&self.s.nodes[&e.node_i.to_string()], &self.s.nodes[&e.node_j.to_string()]);
+        dedaliano_engine::element::compute_local_axes_3d(
+            a.x, a.y, a.z, b.x, b.y, b.z, e.local_yx, e.local_yy, e.local_yz, e.roll_angle, self.s.left_hand.unwrap_or(false),
+        )
+    }
+}
+
+fn rot_y(phi: f64) -> [[f64; 3]; 3] {
+    let (s, c) = phi.sin_cos();
+    [[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]]
+}
+
+fn transpose(r: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let mut t = [[0.0; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            t[i][j] = r[j][i];
+        }
+    }
+    t
+}
+
+fn disp3(r: &AnalysisResults3D, probes: &[usize]) -> Result<Out, String> {
+    let mut v = Vec::new();
+    for &p in probes {
+        let d = r.displacements.iter().find(|d| d.node_id == p).ok_or_else(|| format!("no displacement for probe node {p}"))?;
+        v.push([d.ux, d.uy, d.uz, d.rx, d.ry, d.rz]);
+    }
+    Ok(Out::D3(v))
+}
+
+struct Case3 {
+    feature: &'static str,
+    variant: &'static str,
+    keywords: &'static [&'static str],
+    is_load: bool,
+    with: M3,
+    without: M3,
+    equiv: Option<M3>,
+    equiv_linear_only: bool,
+    /// Rotation that takes `equiv` results back to `with` axes.
+    equiv_rot: Option<[[f64; 3]; 3]>,
+    probes: Vec<usize>,
+    tol: f64,
+    kinds: &'static [Kind],
+    analytic: Vec<(Kind, Out)>,
+    path: Option<Vec<usize>>,
+    /// Being fixed elsewhere: (analysis prefix → where), for every analysis when the prefix is "".
+    note: Option<&'static str>,
+}
+
+impl Case3 {
+    fn base(feature: &'static str, variant: &'static str, keywords: &'static [&'static str], with: M3, without: M3, probes: Vec<usize>) -> Self {
+        Case3 {
+            feature, variant, keywords, is_load: false, with, without, equiv: None, equiv_linear_only: false, equiv_rot: None, probes,
+            tol: 2e-3, kinds: ALL_KINDS, analytic: vec![], path: None, note: None,
+        }
+    }
+}
+
+/// Beam along x of `n` frames, nodes 1..=n+1.
+fn beam3(n: usize, l: f64, sec: usize) -> M3 {
+    let mut m = M3::new();
+    let ids: Vec<usize> = (1..=n + 1).collect();
+    m.line(&ids, [0.0, 0.0, 0.0], [l, 0.0, 0.0], 1, 1, sec);
+    m
+}
+
+/// A massless stub member released at both ends (axial stiffness k = EA/ℓ)
+/// from `node` along `dir` to a fixed node: a translational spring.
+fn stub3(m: &mut M3, node: usize, dir: [f64; 3], k: f64, sec_id: usize) {
+    let far = 1000 + node;
+    let n = m.s.nodes[&node.to_string()].clone();
+    m.node(far, n.x + dir[0], n.y + dir[1], n.z + dir[2]);
+    m.sup(far, FIXED);
+    stub_between3(m, node, far, k, sec_id);
+}
+
+fn stub_between3(m: &mut M3, a: usize, b: usize, k: f64, sec_id: usize) {
+    let (na, nb) = (m.s.nodes[&a.to_string()].clone(), m.s.nodes[&b.to_string()].clone());
+    let l = ((nb.x - na.x).powi(2) + (nb.y - na.y).powi(2) + (nb.z - na.z).powi(2)).sqrt();
+    let area = k * l / (E * 1000.0);
+    m.sec(sec_id + 10, (area).sqrt(), (area).sqrt());
+    let id = 2000 + a;
+    m.elem(id, "frame", a, b, STUB_MAT, sec_id + 10);
+    let e = m.elem_mut(id);
+    (e.release_my_start, e.release_my_end, e.release_mz_start, e.release_mz_end, e.release_t_start) = (true, true, true, true, true);
+}
+
+const EI3: f64 = E * 1000.0 * 0.3 * 0.3 * 0.3 * 0.3 / 12.0;
+
+fn cases_3d() -> Vec<Case3> {
+    let mut cases = Vec::new();
+    let l: f64 = 4.0;
+
+    // ---- baseline ----
+    {
+        let mut m = beam3(8, l, 1);
+        m.sup(1, FIXED);
+        m.nodal(9, [-100.0, 10.0, -10.0, 1.0, 0.0, 0.0]);
+        let (a, j) = (0.09, m.s.sections["1"].j);
+        let g = E * 1000.0 / (2.0 * (1.0 + NU));
+        let f1 = 1.875104f64.powi(2) / (2.0 * std::f64::consts::PI) * (EI3 * 1000.0 / (RHO * a * l.powi(4))).sqrt();
+        let pcr = std::f64::consts::PI.powi(2) * EI3 / (4.0 * l * l);
+        let ux = |x: f64, p: f64| p * x * x * (3.0 * l - x) / (6.0 * EI3);
+        let stat = Out::D3(vec![
+            [-100.0 * l / (E * 1000.0 * a), ux(l, 10.0), ux(l, -10.0), l / (g * j), f64::NAN, f64::NAN],
+            [-50.0 / (E * 1000.0 * a) * 2.0 * 2.0, ux(2.0, 10.0), ux(2.0, -10.0), 2.0 / (g * j), f64::NAN, f64::NAN],
+        ]);
+        let mut c = Case3::base("baseline frame", "cantilever", &[], m.clone(), m, vec![9, 5]);
+        c.analytic = vec![
+            (Kind::Modal, Out::S(vec![f1], true)),
+            (Kind::Buckling, Out::S(vec![pcr / 100.0], true)),
+            (Kind::Static, stat),
+            (Kind::Kinematic, Out::S(vec![0.0, 1.0], true)),
+        ];
+        c.tol = 5e-3;
+        cases.push(c);
+    }
+
+    // ---- truss member: a beam pinned about y at node 1, propped at the tip by a brace ----
+    {
+        let mk = |ty: &str, released: bool| {
+            let mut m = beam3(8, l, 1);
+            m.sec(2, 0.3, 0.6);
+            m.node(20, l, 0.0, -3.0);
+            m.elem(20, ty, 9, 20, STUB_MAT, 2);
+            if released {
+                let e = m.elem_mut(20);
+                (e.release_my_start, e.release_my_end, e.release_mz_start, e.release_mz_end, e.release_t_start) = (true, true, true, true, true);
+            }
+            m.sup(1, [true, true, true, true, false, true]).sup(20, FIXED);
+            m.nodal(9, [-100.0, 0.0, -20.0, 0.0, 0.0, 0.0]).nodal(5, [0.0, 2.0, -5.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let mut c = Case3::base("truss element", "propped beam", &["truss"], mk("truss", false), mk("frame", false), vec![9, 5]);
+        c.equiv = Some(mk("frame", true));
+        cases.push(c);
+    }
+
+    // ---- Timoshenko ----
+    {
+        let (b, lt) = (0.8f64, 3.0f64);
+        let mk = |shear: bool| {
+            let mut m = M3::new();
+            m.sec(1, b, b);
+            if shear {
+                m.sec_mut(1).as_y = Some(0.25 * b * b);
+                m.sec_mut(1).as_z = Some(0.25 * b * b);
+            }
+            let ids: Vec<usize> = (1..=9).collect();
+            m.line(&ids, [0.0, 0.0, 0.0], [lt, 0.0, 0.0], 1, 1, 1);
+            m.sup(1, FIXED);
+            m.nodal(9, [-50.0, 100.0, -100.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let ei = E * 1000.0 * b.powi(4) / 12.0;
+        let gas = E * 1000.0 / (2.0 * (1.0 + NU)) * 0.25 * b * b;
+        let u = |x: f64, p: f64| p * x * x * (3.0 * lt - x) / (6.0 * ei) + p * x / gas;
+        let stat = Out::D3(vec![
+            [-50.0 * lt / (E * 1000.0 * b * b), u(lt, 100.0), u(lt, -100.0), f64::NAN, f64::NAN, f64::NAN],
+            [-50.0 * lt / 2.0 / (E * 1000.0 * b * b), u(lt / 2.0, 100.0), u(lt / 2.0, -100.0), f64::NAN, f64::NAN, f64::NAN],
+        ]);
+        let mut c = Case3::base("Timoshenko shear area", "deep cantilever", &["timoshenko", "shear"], mk(true), mk(false), vec![9, 5]);
+        c.analytic = vec![(Kind::Static, stat)];
+        c.kinds = &[Kind::Static, Kind::Dynamic, Kind::Moving, Kind::Reduction];
+        cases.push(c);
+    }
+
+    // ---- warping torsion ----
+    {
+        let (j, cw) = (5e-6, 8e-6);
+        let mk = |warp: bool| {
+            let mut m = beam3(8, l, 1);
+            m.sec_mut(1).j = j;
+            if warp {
+                m.sec_mut(1).cw = Some(cw);
+            }
+            m.sup(1, FIXED);
+            if warp {
+                m.sup_mut(1).rw = Some(true);
+            }
+            m.nodal(9, [0.0, 0.0, -1.0, 2.0, 0.0, 0.0]);
+            m
+        };
+        let g = E * 1000.0 / (2.0 * (1.0 + NU));
+        let k = (g * j / (E * 1000.0 * cw)).sqrt();
+        let phi = |x: f64| 2.0 / (g * j) * (x - ((k * l).sinh() - (k * (l - x)).sinh()) / (k * (k * l).cosh()));
+        let mut c = Case3::base("warping torsion", "restrained cantilever", &["warping"], mk(true), mk(false), vec![9, 5]);
+        c.analytic = vec![(Kind::Static, Out::D3(vec![
+            [f64::NAN, f64::NAN, f64::NAN, phi(l), f64::NAN, f64::NAN],
+            [f64::NAN, f64::NAN, f64::NAN, phi(l / 2.0), f64::NAN, f64::NAN],
+        ]))];
+        c.tol = 1e-2;
+        // Static torsion only: the other analyses' probes (translations,
+        // lateral spectra, condensed translational stiffness) do not see it.
+        c.kinds = &[Kind::Static];
+        cases.push(c);
+    }
+
+    // ---- releases into a support = a pinned support ----
+    {
+        let mk = |release: bool, pinned: bool| {
+            let mut m = beam3(12, 6.0, 1);
+            m.sup(1, [false, true, true, true, true, true]);
+            m.sup(13, if pinned { [true, true, true, true, false, false] } else { FIXED });
+            if release {
+                let e = m.elem_mut(12);
+                (e.release_my_end, e.release_mz_end) = (true, true);
+            }
+            m.nodal(4, [0.0, 10.0, -40.0, 0.0, 0.0, 0.0]).nodal(10, [0.0, 0.0, -40.0, 0.0, 0.0, 0.0]).nodal(1, [200.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let l6: f64 = 6.0;
+        let f1 = 3.92660f64.powi(2) / (2.0 * std::f64::consts::PI) * (EI3 * 1000.0 / (RHO * 0.09 * l6.powi(4))).sqrt();
+        let pcr = 20.1907 * EI3 / (l6 * l6);
+        let mut c = Case3::base("member end release", "released into support", &["release", "hinge"], mk(true, false), mk(false, false), vec![5, 11]);
+        c.equiv = Some(mk(false, true));
+        c.analytic = vec![(Kind::Modal, Out::S(vec![f1], true)), (Kind::Buckling, Out::S(vec![pcr / 200.0], true))];
+        c.tol = 1e-2;
+        cases.push(c);
+    }
+
+    // ---- roll angle: 90° roll = the section's axes swapped ----
+    {
+        let mk = |roll: bool, swapped: bool| {
+            let mut m = beam3(8, l, 1);
+            if swapped { m.sec(1, 0.5, 0.2) } else { m.sec(1, 0.2, 0.5) };
+            if roll {
+                for id in 1..=8 {
+                    m.elem_mut(id).roll_angle = Some(90.0);
+                }
+            }
+            m.sup(1, FIXED);
+            m.nodal(9, [-50.0, 10.0, -20.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let mut c = Case3::base("local axes (roll angle)", "rolled 90°", &["roll", "local ax"], mk(true, false), mk(false, false), vec![9, 5]);
+        c.equiv = Some(mk(false, true));
+        cases.push(c);
+    }
+
+    // ---- translational spring support ----
+    {
+        let k = 2_000.0;
+        let mk = |spring: bool, stub: bool| {
+            let mut m = beam3(6, 6.0, 6);
+            m.sup(1, FIXED);
+            if spring {
+                m.sup(7, FREE);
+                m.sup_mut(7).kz = Some(k);
+            }
+            if stub {
+                stub3(&mut m, 7, [0.0, 0.0, -1.0], k, 2);
+            }
+            m.nodal(4, [0.0, 0.0, -30.0, 0.0, 0.0, 0.0]).nodal(7, [-300.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let mut c = Case3::base("spring support (translational)", "propped cantilever", &["spring"], mk(true, false), mk(false, false), vec![7, 4]);
+        c.equiv = Some(mk(false, true));
+        cases.push(c);
+    }
+
+    // ---- rotational spring support ----
+    {
+        let kr = 50_000.0;
+        let mk = |spring: bool, stub: bool| {
+            let mut m = beam3(6, 6.0, 6);
+            m.sup(1, [true, true, true, true, false, true]).sup(7, [false, true, true, false, false, false]);
+            if spring {
+                m.sup_mut(1).kry = Some(kr);
+            }
+            if stub {
+                // 4EI/ℓ = kr about y; the other rotations of node 1 are held.
+                let ls = 0.5;
+                let i = kr * ls / (4.0 * E * 1000.0);
+                let b = (12.0 * i).powf(0.25);
+                m.sec(3, b, b);
+                m.node(100, -ls, 0.0, 0.0);
+                m.elem(100, "frame", 100, 1, STUB_MAT, 3);
+                m.sup(100, FIXED);
+            }
+            m.nodal(3, [0.0, 0.0, -30.0, 0.0, 0.0, 0.0]).nodal(7, [-200.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let mut c = Case3::base("spring support (rotational)", "spring-restrained beam", &["spring"], mk(true, false), mk(false, false), vec![4, 1]);
+        c.equiv = Some(mk(false, true));
+        cases.push(c);
+    }
+
+    // ---- inclined support ----
+    {
+        let theta = 30f64.to_radians();
+        let mk = |inclined: bool| {
+            let mut m = beam3(6, 6.0, 6);
+            m.sup(1, FIXED).sup(7, [false, false, true, false, false, false]);
+            if inclined {
+                let s = m.sup_mut(7);
+                (s.rz, s.is_inclined, s.normal_x, s.normal_y, s.normal_z) = (false, Some(true), Some(theta.sin()), Some(0.0), Some(theta.cos()));
+            }
+            m.nodal(4, [0.0, 5.0, -30.0, 0.0, 0.0, 0.0]).nodal(7, [-150.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let mut c = Case3::base("inclined support", "roller normal at 30°", &["inclined"], mk(true), mk(false), vec![4, 7]);
+        // The normal (sin θ, 0, cos θ) is taken to +z by a rotation of −θ about y.
+        c.equiv = Some(mk(false).rotated(&rot_y(-theta)));
+        c.equiv_rot = Some(rot_y(theta));
+        cases.push(c);
+    }
+
+    // ---- prescribed displacement ----
+    {
+        let (delta, l6, p, a) = (-0.01, 6.0f64, 5.0, 3.0);
+        let r = 3.0 * EI3 * delta / l6.powi(3) + p * a * a * (3.0 * l6 - a) / (2.0 * l6.powi(3));
+        let mk = |settle: bool, equiv: bool| {
+            let mut m = beam3(6, l6, 1);
+            m.sup(1, FIXED);
+            m.nodal(4, [0.0, 0.0, -p, 0.0, 0.0, 0.0]);
+            if equiv {
+                m.sup(7, [true, true, false, false, false, false]);
+                m.nodal(7, [0.0, 0.0, r, 0.0, 0.0, 0.0]);
+            } else {
+                m.sup(7, [true, true, true, false, false, false]);
+                if settle {
+                    m.sup_mut(7).dz = Some(delta);
+                }
+            }
+            m
+        };
+        let mut c = Case3::base("prescribed displacement", "support settlement", &["prescribed", "settlement", "displacement"], mk(true, false), mk(false, false), vec![4, 7]);
+        c.equiv = Some(mk(false, true));
+        c.is_load = true;
+        c.kinds = IMPOSED;
+        cases.push(c);
+    }
+
+    // ---- thermal load (uniform + gradient through z) ----
+    {
+        let (dtu, dtg) = (30.0, 20.0);
+        let mk = |thermal: bool| {
+            let mut m = beam3(4, l, 1);
+            m.sup(1, FIXED);
+            m.nodal(5, [0.0, 0.0, -1.0, 0.0, 0.0, 0.0]);
+            if thermal {
+                for e in 1..=4 {
+                    m.load(SolverLoad3D::Thermal(SolverThermalLoad3D { element_id: e, dt_uniform: dtu, dt_gradient_y: 0.0, dt_gradient_z: dtg }));
+                }
+            }
+            m
+        };
+        let mut eq = mk(false);
+        let (ex, ey, _) = eq.axes(4);
+        let (a, iy) = (0.09, 0.3f64.powi(4) / 12.0);
+        let fx = E * 1000.0 * a * 12e-6 * dtu;
+        let my = E * 1000.0 * iy * 12e-6 * dtg / (12.0 * iy / a).sqrt();
+        eq.nodal(5, [fx * ex[0], fx * ex[1], fx * ex[2], my * ey[0], my * ey[1], my * ey[2]]);
+        let mut c = Case3::base("thermal load", "free cantilever", &["thermal", "temperature"], mk(true), mk(false), vec![5, 3]);
+        c.equiv = Some(eq);
+        c.equiv_linear_only = true;
+        c.is_load = true;
+        c.kinds = &[Kind::Static, Kind::Moving];
+        cases.push(c);
+    }
+
+    // ---- member loads ----
+    {
+        let canti = || {
+            let mut m = M3::new();
+            m.node(1, 0.0, 0.0, 0.0).node(2, l, 0.0, 0.0);
+            m.elem(1, "frame", 1, 2, 1, 1);
+            m.sup(1, FIXED);
+            m.nodal(2, [0.0, 0.0, -1.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let dist = |e: usize, qy: (f64, f64), qz: (f64, f64), ab: Option<(f64, f64)>| {
+            SolverLoad3D::Distributed(SolverDistributedLoad3D {
+                q_xi: 0.0, q_xj: 0.0, element_id: e, q_yi: qy.0, q_yj: qy.1, q_zi: qz.0, q_zj: qz.1, a: ab.map(|x| x.0), b: ab.map(|x| x.1),
+            })
+        };
+        let mut w = canti();
+        w.load(dist(1, (5.0, 5.0), (-20.0, -20.0), Some((1.0, 3.0))));
+        let mut wo = canti();
+        wo.load(dist(1, (5.0, 5.0), (-20.0, -20.0), None));
+        let mut eq = M3::new();
+        eq.node(1, 0.0, 0.0, 0.0).node(10, 1.0, 0.0, 0.0).node(11, 3.0, 0.0, 0.0).node(2, l, 0.0, 0.0);
+        eq.elem(1, "frame", 1, 10, 1, 1).elem(2, "frame", 10, 11, 1, 1).elem(3, "frame", 11, 2, 1, 1);
+        eq.sup(1, FIXED);
+        eq.nodal(2, [0.0, 0.0, -1.0, 0.0, 0.0, 0.0]);
+        eq.load(dist(2, (5.0, 5.0), (-20.0, -20.0), None));
+        let mut c = Case3::base("partial distributed load", "cantilever", &["partial", "distributed"], w, wo, vec![2]);
+        c.equiv = Some(eq);
+        c.is_load = true;
+        c.kinds = STATIC_ONLY;
+        cases.push(c);
+
+        let mut w = canti();
+        w.load(dist(1, (0.0, 10.0), (-10.0, -40.0), None));
+        let mut wo = canti();
+        wo.load(dist(1, (5.0, 5.0), (-10.0, -10.0), None));
+        let mut eq = M3::new();
+        let nseg = 40;
+        let ids: Vec<usize> = std::iter::once(1).chain(100..100 + nseg - 1).chain(std::iter::once(2)).collect();
+        eq.line(&ids, [0.0, 0.0, 0.0], [l, 0.0, 0.0], 1, 1, 1);
+        eq.sup(1, FIXED);
+        eq.nodal(2, [0.0, 0.0, -1.0, 0.0, 0.0, 0.0]);
+        for k in 0..nseg {
+            let t = (k as f64 + 0.5) / nseg as f64;
+            eq.load(dist(1 + k, (10.0 * t, 10.0 * t), (-10.0 - 30.0 * t, -10.0 - 30.0 * t), None));
+        }
+        let mut c = Case3::base("trapezoidal distributed load", "cantilever", &["trapezoid", "distributed"], w, wo, vec![2]);
+        c.equiv = Some(eq);
+        c.is_load = true;
+        c.kinds = STATIC_ONLY;
+        cases.push(c);
+
+        let mut w = canti();
+        w.load(SolverLoad3D::PointOnElement(SolverPointLoad3D { element_id: 1, a: 1.5, py: 20.0, pz: -50.0 }));
+        let wo = canti();
+        let mut eq = M3::new();
+        eq.node(1, 0.0, 0.0, 0.0).node(10, 1.5, 0.0, 0.0).node(2, l, 0.0, 0.0);
+        eq.elem(1, "frame", 1, 10, 1, 1).elem(2, "frame", 10, 2, 1, 1);
+        eq.sup(1, FIXED);
+        eq.nodal(2, [0.0, 0.0, -1.0, 0.0, 0.0, 0.0]);
+        let (_, ey, ez) = w.axes(1);
+        let f: Vec<f64> = (0..3).map(|k| 20.0 * ey[k] - 50.0 * ez[k]).collect();
+        eq.nodal(10, [f[0], f[1], f[2], 0.0, 0.0, 0.0]);
+        let mut c = Case3::base("point load on member", "cantilever", &["point"], w, wo, vec![2]);
+        c.equiv = Some(eq);
+        c.is_load = true;
+        c.kinds = STATIC_ONLY;
+        cases.push(c);
+    }
+
+    // ---- constraints ----
+    {
+        // EqualDOF on all six DOFs between coincident nodes = one node.
+        let mk = |tie: bool, merged: bool| {
+            let mut m = M3::new();
+            m.node(1, 0.0, 0.0, 0.0).node(2, 0.0, 0.0, 1.5).node(3, 0.0, 0.0, 3.0).node(4, 2.0, 0.0, 3.0).node(5, 4.0, 0.0, 3.0);
+            let j = if merged { 3 } else { 30 };
+            if !merged {
+                m.node(30, 0.0, 0.0, 3.0);
+            }
+            m.elem(1, "frame", 1, 2, 1, 1).elem(2, "frame", 2, 3, 1, 1).elem(3, "frame", j, 4, 1, 1).elem(4, "frame", 4, 5, 1, 1);
+            m.sup(1, FIXED).sup(5, [false, true, true, true, false, false]);
+            if tie {
+                m.s.constraints.push(Constraint::EqualDOF(EqualDOFConstraint { master_node: 3, slave_node: 30, dofs: vec![0, 1, 2, 3, 4, 5] }));
+            }
+            m.nodal(3, [20.0, 5.0, 0.0, 0.0, 0.0, 0.0]).nodal(4, [0.0, 0.0, -40.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let mut wo = mk(false, false);
+        wo.sup(30, [true, true, true, true, false, true]);
+        let mut c = Case3::base("constraint (EqualDOF)", "tied coincident nodes", &["constraint", "equaldof", "equal dof", "mpc"], mk(true, false), wo, vec![4, 2]);
+        c.equiv = Some(mk(false, true));
+        cases.push(c);
+
+        // Rigid link = a very stiff, massless member.
+        let mk = |link: bool, stiff: bool| {
+            let mut m = M3::new();
+            m.mat(RIGID_MAT, E * 1e3, NU);
+            m.sec(4, 2.0, 2.0);
+            m.node(1, 0.0, 0.0, 0.0).node(2, 0.0, 0.0, 3.0).node(3, 1.0, 0.0, 3.0).node(4, 4.0, 0.0, 3.0);
+            m.elem(1, "frame", 1, 2, 1, 1).elem(3, "frame", 3, 4, 1, 1);
+            m.sup(1, FIXED).sup(4, [false, true, true, true, false, false]);
+            if link {
+                m.s.constraints.push(Constraint::RigidLink(RigidLinkConstraint { master_node: 2, slave_node: 3, dofs: vec![0, 1, 2, 3, 4, 5] }));
+            }
+            if stiff {
+                m.elem(2, "frame", 2, 3, RIGID_MAT, 4);
+            }
+            m.nodal(2, [20.0, 5.0, 0.0, 0.0, 0.0, 0.0]).nodal(3, [0.0, 0.0, -40.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let mut wo = mk(false, false);
+        wo.sup(3, [true, true, true, true, false, true]);
+        let mut c = Case3::base("constraint (rigid link)", "offset beam", &["constraint", "rigid"], mk(true, false), wo, vec![2, 3]);
+        c.equiv = Some(mk(false, true));
+        cases.push(c);
+
+        // Diaphragm tying two column tops = a stiff member released out of plane.
+        let mk = |dia: bool, stiff: bool| {
+            let mut m = M3::new();
+            m.mat(RIGID_MAT, E * 100.0, NU);
+            m.sec(4, 1.0, 1.0);
+            m.node(1, 0.0, 0.0, 0.0).node(2, 0.0, 0.0, 3.0).node(3, 4.0, 0.0, 0.0).node(4, 4.0, 0.0, 3.0);
+            m.elem(1, "frame", 1, 2, 1, 1).elem(2, "frame", 3, 4, 1, 1);
+            m.sup(1, FIXED).sup(3, FIXED);
+            if dia {
+                m.s.constraints.push(Constraint::Diaphragm(DiaphragmConstraint { master_node: 2, slave_nodes: vec![4], plane: "XY".into() }));
+            }
+            if stiff {
+                m.elem(3, "frame", 2, 4, RIGID_MAT, 4);
+                let e = m.elem_mut(3);
+                // The diaphragm ties the slave's in-plane translations to the
+                // master's rigid motion; it leaves the slave's rotation free.
+                (e.release_my_start, e.release_my_end, e.release_t_start, e.release_mz_end) = (true, true, true, true);
+            }
+            // Only column 1–2 carries gravity: tied, the other column braces it.
+            // Equal x pushes leave the stand-in member without axial force,
+            // which its geometric stiffness would otherwise feel and the
+            // diaphragm, rightly, does not.
+            m.nodal(2, [15.0, 10.0, -200.0, 0.0, 0.0, 0.0]).nodal(4, [15.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let mut c = Case3::base("constraint (diaphragm)", "two columns", &["constraint", "diaphragm"], mk(true, false), mk(false, false), vec![2, 4]);
+        c.equiv = Some(mk(false, true));
+        c.tol = 5e-3;
+        cases.push(c);
+    }
+
+    // ---- connector ----
+    {
+        let k = 5_000.0;
+        let mk = |conn: bool, stub: bool| {
+            let mut m = beam3(6, 6.0, 6);
+            m.sup(1, FIXED);
+            m.node(50, 6.0, 0.0, -1.0);
+            m.sup(50, FIXED);
+            if conn {
+                m.s.connectors.insert(
+                    "1".into(),
+                    ConnectorElement { id: 1, node_i: 7, node_j: 50, k_axial: k, k_shear: 0.0, k_moment: 0.0, k_shear_z: 0.0, k_bend_y: 0.0, k_bend_z: 0.0 },
+                );
+            }
+            if stub {
+                stub_between3(&mut m, 7, 50, k, 2);
+            }
+            m.nodal(4, [0.0, 0.0, -30.0, 0.0, 0.0, 0.0]).nodal(7, [-300.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let mut c = Case3::base("connector", "axial connector", &["connector"], mk(true, false), mk(false, false), vec![7, 4]);
+        c.equiv = Some(mk(false, true));
+        cases.push(c);
+    }
+
+    // ---- curved beam: against the engine's own expansion into straight segments ----
+    {
+        let mk = |curved: bool| {
+            let mut m = M3::new();
+            m.node(1, 0.0, 0.0, 0.0).node(2, 5.0, 0.0, 3.0).node(3, 10.0, 0.0, 0.0);
+            m.sup(1, FIXED).sup(3, FIXED);
+            if curved {
+                m.s.curved_beams.push(CurvedBeamInput { node_start: 1, node_mid: 2, node_end: 3, material_id: 1, section_id: 1, num_segments: 12, hinge_start: false, hinge_end: false });
+            } else {
+                m.elem(1, "frame", 1, 2, 1, 1).elem(2, "frame", 2, 3, 1, 1);
+            }
+            m.nodal(2, [-5.0, 3.0, -40.0, 0.0, 0.0, 0.0]);
+            m
+        };
+        let w = mk(true);
+        let mut eq = M3 { s: linear::expand_curved_beams_3d(&w.s), rects: w.rects.clone() };
+        eq.s.curved_beams.clear();
+        let mut c = Case3::base("curved beam", "arch", &["curved"], w, mk(false), vec![2]);
+        c.equiv = Some(eq);
+        cases.push(c);
+    }
+
+    cases.extend(shell_cases());
+
+    for c in cases.iter_mut() {
+        if c.path.is_some() {
+            continue;
+        }
+        let m = &c.with.s;
+        let mut ids: Vec<usize> = m
+            .elements
+            .values()
+            .filter(|e| {
+                let (a, b) = (&m.nodes[&e.node_i.to_string()], &m.nodes[&e.node_j.to_string()]);
+                e.material_id < RIGID_MAT && (a.z - b.z).abs() < 1e-12 && (a.y - b.y).abs() < 1e-12 && b.x > a.x
+            })
+            .map(|e| e.id)
+            .collect();
+        ids.sort();
+        if ids.len() >= 2 && m.curved_beams.is_empty() {
+            c.path = Some(ids);
+        }
+    }
+    cases
+}
+
+// ---- shells: a strip cantilever with ν = 0 is a beam ----
+
+const STRIP_L: f64 = 4.0;
+const STRIP_B: f64 = 0.6;
+const STRIP_T: f64 = 0.1;
+const SHELL_MAT: usize = 2;
+
+fn sid(i: usize, j: usize) -> usize {
+    100 + i * 3 + j
+}
+
+/// Strip nodes: 9 along x by 3 across y, mid-surface at z = 0.
+fn strip_nodes(m: &mut M3) {
+    for i in 0..=8 {
+        for j in 0..=2 {
+            m.node(sid(i, j), STRIP_L * i as f64 / 8.0, STRIP_B * (j as f64 / 2.0 - 0.5), 0.0);
+        }
+    }
+    for j in 0..=2 {
+        m.sup(sid(0, j), FIXED);
+    }
+}
+
+/// The beam a strip of width b, thickness t and ν = 0 is, on the centreline nodes.
+fn strip_beam() -> M3 {
+    let mut m = M3::new();
+    m.mat(SHELL_MAT, E, 0.0);
+    let ids: Vec<usize> = (0..=8).map(|i| sid(i, 1)).collect();
+    // Depth (local z) t, width (local y) b: Iy = b·t³/12 vertical, Iz = t·b³/12 in plane.
+    m.sec(5, STRIP_T, STRIP_B);
+    m.sec_mut(5).j = STRIP_B * STRIP_T.powi(3) / 3.0;
+    m.line(&ids, [0.0, 0.0, 0.0], [STRIP_L, 0.0, 0.0], 1, SHELL_MAT, 5);
+    m.sup(sid(0, 1), FIXED);
+    m
+}
+
+/// Tip loads: axial compression and a downward force, shared across the tip
+/// edge with the weights `w` (or at the centreline node for the beam).
+fn strip_tip_loads(m: &mut M3, w: Option<[f64; 3]>) {
+    let (p, f) = (-200.0, -2.0);
+    match w {
+        Some(w) => {
+            for j in 0..=2 {
+                m.nodal(sid(8, j), [p * w[j], 0.0, f * w[j], 0.0, 0.0, 0.0]);
+            }
+        }
+        None => {
+            m.nodal(sid(8, 1), [p, 0.0, f, 0.0, 0.0, 0.0]);
+        }
+    }
+}
+
+fn strip(kind: &str) -> M3 {
+    let mut m = M3::new();
+    m.mat(SHELL_MAT, E, 0.0);
+    strip_nodes(&mut m);
+    let mut id = 1;
+    match kind {
+        "quad" | "curved" => {
+            for i in 0..8 {
+                for j in 0..2 {
+                    let nodes = [sid(i, j), sid(i + 1, j), sid(i + 1, j + 1), sid(i, j + 1)];
+                    if kind == "quad" {
+                        m.s.quads.insert(id.to_string(), SolverQuadElement { id, nodes, material_id: SHELL_MAT, thickness: STRIP_T });
+                    } else {
+                        m.s.curved_shells.insert(id.to_string(), SolverCurvedShellElement { id, nodes, material_id: SHELL_MAT, thickness: STRIP_T, normals: None });
+                    }
+                    id += 1;
+                }
+            }
+        }
+        "plate" => {
+            for i in 0..8 {
+                for j in 0..2 {
+                    let (a, b, c, d) = (sid(i, j), sid(i + 1, j), sid(i + 1, j + 1), sid(i, j + 1));
+                    for nodes in [[a, b, c], [a, c, d]] {
+                        m.s.plates.insert(id.to_string(), SolverPlateElement { id, nodes, material_id: SHELL_MAT, thickness: STRIP_T });
+                        id += 1;
+                    }
+                }
+            }
+        }
+        "quad9" => {
+            for i in (0..8).step_by(2) {
+                let nodes = [
+                    sid(i, 0), sid(i + 2, 0), sid(i + 2, 2), sid(i, 2),
+                    sid(i + 1, 0), sid(i + 2, 1), sid(i + 1, 2), sid(i, 1), sid(i + 1, 1),
+                ];
+                m.s.quad9s.insert(id.to_string(), SolverQuad9Element { id, nodes, material_id: SHELL_MAT, thickness: STRIP_T });
+                id += 1;
+            }
+        }
+        "solid" => {
+            // Two node layers at z = ±t/2; the mid-surface nodes above stay
+            // as the probes' neighbours only through the tip/root ties below.
+            for i in 0..=8 {
+                for j in 0..=2 {
+                    let n = m.s.nodes[&sid(i, j).to_string()].clone();
+                    m.node(1000 + sid(i, j), n.x, n.y, -STRIP_T / 2.0);
+                    m.node(2000 + sid(i, j), n.x, n.y, STRIP_T / 2.0);
+                }
+            }
+            m.s.supports.clear();
+            for j in 0..=2 {
+                m.sup(1000 + sid(0, j), FIXED).sup(2000 + sid(0, j), FIXED);
+            }
+            for i in 0..8 {
+                for j in 0..2 {
+                    let q = [sid(i, j), sid(i + 1, j), sid(i + 1, j + 1), sid(i, j + 1)];
+                    let nodes = [1000 + q[0], 1000 + q[1], 1000 + q[2], 1000 + q[3], 2000 + q[0], 2000 + q[1], 2000 + q[2], 2000 + q[3]];
+                    m.s.solid_shells.insert(id.to_string(), SolverSolidShellElement { id, nodes, material_id: SHELL_MAT });
+                    id += 1;
+                }
+            }
+            // The mid-surface grid is not part of a solid-shell model.
+            for i in 0..=8 {
+                for j in 0..=2 {
+                    m.s.nodes.remove(&sid(i, j).to_string());
+                }
+            }
+        }
+        _ => unreachable!(),
+    }
+    m
+}
+
+fn shell_cases() -> Vec<Case3> {
+    let mut out = Vec::new();
+    let bilinear = Some([0.25, 0.5, 0.25]);
+    for (kind, feature, kw, w) in [
+        ("plate", "plate (DKT triangle)", &["plate", "shell"][..], bilinear),
+        ("quad", "quad shell (MITC4)", &["quad", "shell"][..], bilinear),
+        ("quad9", "quad9 shell (MITC9)", &["quad9", "shell"][..], Some([1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0])),
+        ("curved", "curved shell", &["curved shell", "shell"][..], bilinear),
+    ] {
+        let mut with = strip(kind);
+        strip_tip_loads(&mut with, w);
+        let mut without = with.clone();
+        (without.s.plates, without.s.quads, without.s.quad9s, without.s.curved_shells) = Default::default();
+        let mut eq = strip_beam();
+        strip_tip_loads(&mut eq, None);
+        let mut c = Case3::base(feature, "strip cantilever, ν = 0", kw, with, without, vec![sid(8, 1), sid(4, 1)]);
+        c.equiv = Some(eq);
+        c.tol = 0.03;
+        // A shell's stiffness condensed to one edge node includes the local
+        // deformation around that node, which a beam does not have.
+        // Plastic hinges form in frame members; a shell-only strip has none.
+        c.kinds = &[Kind::Static, Kind::Modal, Kind::Buckling, Kind::Dynamic, Kind::Kinematic, Kind::Moving];
+        out.push(c);
+    }
+    {
+        // Solid shell: probes on the bottom layer.
+        let mut with = strip("solid");
+        let p = [(-200.0, -2.0)];
+        for j in 0..=2 {
+            let w = [0.25, 0.5, 0.25][j] / 2.0;
+            for layer in [1000, 2000] {
+                with.nodal(layer + sid(8, j), [p[0].0 * w, 0.0, p[0].1 * w, 0.0, 0.0, 0.0]);
+            }
+        }
+        let mut without = with.clone();
+        without.s.solid_shells.clear();
+        let mut eq = strip_beam();
+        strip_tip_loads(&mut eq, None);
+        // Probe ids differ: compare the beam's centreline with the bottom layer.
+        let mut eq2 = eq.clone();
+        for (id, n) in eq.s.nodes.iter() {
+            let nn = n.clone();
+            eq2.s.nodes.remove(id);
+            eq2.node(1000 + nn.id, nn.x, nn.y, nn.z);
+        }
+        for e in eq2.s.elements.values_mut() {
+            e.node_i += 1000;
+            e.node_j += 1000;
+        }
+        eq2.s.supports.clear();
+        eq2.sup(1000 + sid(0, 1), FIXED);
+        for l in eq2.s.loads.iter_mut() {
+            if let SolverLoad3D::Nodal(n) = l {
+                n.node_id += 1000;
+            }
+        }
+        let mut c = Case3::base("solid shell", "strip cantilever, ν = 0", &["solid shell", "shell"], with, without, vec![1000 + sid(8, 1), 1000 + sid(4, 1)]);
+        c.equiv = Some(eq2);
+        c.tol = 0.05;
+        // Rotations are not DOFs of a solid shell: compare translations.
+        c.note = Some("translations only");
+        // Plastic hinges form in frame members; a shell-only strip has none.
+        c.kinds = &[Kind::Static, Kind::Modal, Kind::Buckling, Kind::Dynamic, Kind::Kinematic, Kind::Moving];
+        out.push(c);
+    }
+    // Shell loads, on the MITC4 strip.
+    {
+        let base = || {
+            let mut m = strip("quad");
+            m.nodal(sid(8, 1), [0.0, 0.0, -0.1, 0.0, 0.0, 0.0]);
+            m
+        };
+        let quad_ids: Vec<usize> = (1..=16).collect();
+        let beam_with = |f: &dyn Fn(&mut M3)| {
+            let mut eq = strip_beam();
+            eq.nodal(sid(8, 1), [0.0, 0.0, -0.1, 0.0, 0.0, 0.0]);
+            f(&mut eq);
+            eq
+        };
+        // Pressure p on b·L, lumped at the beam nodes.
+        let p = 5.0;
+        let lumped = move |m: &mut M3, q: f64| {
+            for i in 0..=8 {
+                let w = if i == 0 || i == 8 { 0.5 } else { 1.0 };
+                m.nodal(sid(i, 1), [0.0, 0.0, q * w * STRIP_L / 8.0, 0.0, 0.0, 0.0]);
+            }
+        };
+        let mut w = base();
+        for &id in &quad_ids {
+            w.load(SolverLoad3D::QuadPressure(SolverPressureLoad { element_id: id, pressure: p }));
+        }
+        let mut c = Case3::base("shell pressure load", "MITC4 strip", &["pressure", "shell"], w, base(), vec![sid(8, 1), sid(4, 1)]);
+        c.equiv = Some(beam_with(&|m| lumped(m, p * STRIP_B)));
+        c.is_load = true;
+        c.tol = 0.03;
+        c.kinds = &[Kind::Static, Kind::Buckling];
+        out.push(c);
+
+        let rho = 7850.0;
+        let mut w = base();
+        for &id in &quad_ids {
+            w.load(SolverLoad3D::QuadSelfWeight(SolverQuadSelfWeightLoad { element_id: id, density: rho, gx: 0.0, gy: 0.0, gz: -9.81 }));
+        }
+        let q = -rho * 9.81 / 1000.0 * STRIP_B * STRIP_T;
+        let mut c = Case3::base("shell self-weight", "MITC4 strip", &["self-weight", "self weight", "body", "shell"], w, base(), vec![sid(8, 1), sid(4, 1)]);
+        c.equiv = Some(beam_with(&|m| lumped(m, q)));
+        c.is_load = true;
+        c.tol = 0.03;
+        c.kinds = &[Kind::Static, Kind::Buckling];
+        out.push(c);
+
+        // Edge load on the tip edge (edge 1 = nodes 1→2 of each tip quad), outward normal.
+        let qn = -100.0;
+        let mut w = base();
+        for id in [15, 16] {
+            w.load(SolverLoad3D::QuadEdge(SolverQuadEdgeLoad { element_id: id, edge: 1, qn, qt: 0.0 }));
+        }
+        let mut c = Case3::base("shell edge load", "MITC4 strip", &["edge", "shell"], w, base(), vec![sid(8, 1), sid(4, 1)]);
+        c.equiv = Some(beam_with(&|m| {
+            m.nodal(sid(8, 1), [qn * STRIP_B, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        }));
+        c.is_load = true;
+        c.tol = 0.03;
+        c.kinds = &[Kind::Static, Kind::Buckling];
+        out.push(c);
+
+        // Uniform temperature: free expansion αΔT·L at the tip.
+        let dt = 40.0;
+        let mut w = base();
+        for &id in &quad_ids {
+            w.load(SolverLoad3D::QuadThermal(SolverPlateThermalLoad { element_id: id, dt_uniform: dt, dt_gradient: 0.0, alpha: Some(12e-6) }));
+        }
+        let fx = E * 1000.0 * STRIP_B * STRIP_T * 12e-6 * dt;
+        let mut c = Case3::base("shell thermal load", "MITC4 strip", &["thermal", "temperature", "shell"], w, base(), vec![sid(8, 1), sid(4, 1)]);
+        c.equiv = Some(beam_with(&|m| {
+            m.nodal(sid(8, 1), [fx, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        }));
+        c.equiv_linear_only = true;
+        c.is_load = true;
+        c.tol = 0.03;
+        c.kinds = &[Kind::Static];
+        out.push(c);
+    }
+    out
+}
+
+// ==================== 3D analyses ====================
+
+struct Ana3 {
+    name: &'static str,
+    kind: Kind,
+    uses_loads: bool,
+    run: fn(&M3, &Case3) -> Result<Out, String>,
+}
+
+fn matnl_3d(m: &M3) -> Result<NonlinearMaterialResult3D, String> {
+    let inp = NonlinearMaterialInput3D {
+        solver: m.s.clone(),
+        material_models: m.s.materials.values().map(|x| (x.id.to_string(), MaterialModel { model_type: "elastic_perfectly_plastic".into(), fy: 1e9, alpha: None })).collect(),
+        section_capacities: m.s.sections.values().map(|x| (x.id.to_string(), SectionCapacity3D { np: 1e12, mpy: 1e12, mpz: 1e12, mpx: Some(1e12) })).collect(),
+        max_iter: 50,
+        tolerance: 1e-8,
+        n_increments: 2,
+    };
+    material_nonlinear::solve_nonlinear_material_3d(&inp)
+}
+
+fn fiber_3d(m: &M3) -> Result<fiber_nonlinear::FiberNonlinearResult3D, String> {
+    let sections = m
+        .s
+        .sections
+        .values()
+        .map(|s| {
+            let (bz, hy) = m.rects[&s.id];
+            let e = m.s.elements.values().find(|e| e.section_id == s.id).map_or(E, |e| m.s.materials[&e.material_id.to_string()].e);
+            (s.id.to_string(), rect_fibers(bz, hy, 40, 40, e))
+        })
+        .collect();
+    let inp = fiber_nonlinear::FiberNonlinearInput3D {
+        solver: m.s.clone(), fiber_sections: sections, n_integration_points: 5, max_iter: 50, tolerance: 1e-8, n_increments: 2, modified_nr: false,
+    };
+    fiber_nonlinear::solve_fiber_nonlinear_3d(&inp)
+}
+
+fn nodal_loads_3d(m: &M3) -> Vec<SolverNodalLoad3D> {
+    m.s.loads.iter().filter_map(|l| if let SolverLoad3D::Nodal(n) = l { Some(n.clone()) } else { None }).collect()
+}
+
+fn rows_3d() -> Vec<Ana3> {
+    vec![
+        Ana3 { name: "linear", kind: Kind::Static, uses_loads: true, run: |m, c| disp3(&linear::solve_3d(&m.s)?, &c.probes) },
+        Ana3 { name: "linear (sparse path)", kind: Kind::Static, uses_loads: true, run: |m, c| disp3(&linear::solve_3d(&m.padded().s)?, &c.probes) },
+        Ana3 {
+            name: "constrained",
+            kind: Kind::Static,
+            uses_loads: true,
+            run: |m, c| {
+                let ci = constraints::ConstrainedInput3D { solver: m.s.clone(), constraints: m.s.constraints.clone() };
+                disp3(&constraints::solve_constrained_3d(&ci)?, &c.probes)
+            },
+        },
+        Ana3 {
+            name: "certified linear",
+            kind: Kind::Static,
+            uses_loads: true,
+            run: |m, c| disp3(&dedaliano_engine::certify::solver::certify_linear_3d_full(&m.s)?.results, &c.probes),
+        },
+        Ana3 {
+            name: "load combinations",
+            kind: Kind::Static,
+            uses_loads: true,
+            run: |m, c| {
+                let mut s = m.s.clone();
+                let loads = std::mem::take(&mut s.loads);
+                let inp = load_cases::MultiCaseInput3D {
+                    solver: s,
+                    load_cases: vec![load_cases::LoadCase3D { name: "D".into(), loads }],
+                    combinations: vec![load_cases::CombinationDef { name: "C".into(), factors: [("D".to_string(), 1.0)].into() }],
+                };
+                disp3(&load_cases::solve_multi_case_3d(&inp)?.combination_results[0].results, &c.probes)
+            },
+        },
+        Ana3 { name: "P-Delta", kind: Kind::Static, uses_loads: true, run: |m, c| disp3(&conv(pdelta::solve_pdelta_3d(&m.s, 50, 1e-8).map(|r| (r.converged, r.results)))?, &c.probes) },
+        Ana3 { name: "P-Delta (sparse path)", kind: Kind::Static, uses_loads: true, run: |m, c| disp3(&conv(pdelta::solve_pdelta_3d(&m.padded().s, 50, 1e-8).map(|r| (r.converged, r.results)))?, &c.probes) },
+        Ana3 {
+            name: "corotational",
+            kind: Kind::Static,
+            uses_loads: true,
+            run: |m, c| disp3(&conv(corotational::solve_corotational_3d(&m.s, 100, 1e-6, 4, false).map(|r| (r.converged, r.results)))?, &c.probes),
+        },
+        Ana3 {
+            name: "corotational (sparse path)",
+            kind: Kind::Static,
+            uses_loads: true,
+            run: |m, c| disp3(&conv(corotational::solve_corotational_3d(&m.padded().s, 100, 1e-6, 4, false).map(|r| (r.converged, r.results)))?, &c.probes),
+        },
+        Ana3 { name: "material nonlinear", kind: Kind::Static, uses_loads: true, run: |m, c| disp3(&conv(matnl_3d(m).map(|r| (r.converged, r.results)))?, &c.probes) },
+        Ana3 { name: "material nonlinear (sparse path)", kind: Kind::Static, uses_loads: true, run: |m, c| disp3(&conv(matnl_3d(&m.padded()).map(|r| (r.converged, r.results)))?, &c.probes) },
+        Ana3 { name: "fiber nonlinear", kind: Kind::Static, uses_loads: true, run: |m, c| disp3(&conv(fiber_3d(m).map(|r| (r.converged, r.results)))?, &c.probes) },
+        Ana3 {
+            name: "staged (one stage)",
+            kind: Kind::Static,
+            uses_loads: true,
+            run: |m, c| {
+                let s = &m.s;
+                let mut v = serde_json::json!({
+                    "nodes": s.nodes, "materials": s.materials, "sections": s.sections, "elements": s.elements,
+                    "supports": s.supports, "loads": s.loads, "constraints": s.constraints,
+                    "plates": s.plates, "quads": s.quads, "quad9s": s.quad9s,
+                    "solidShells": s.solid_shells, "curvedShells": s.curved_shells, "curvedBeams": s.curved_beams, "connectors": s.connectors,
+                });
+                let mut sup_keys: Vec<usize> = s.supports.keys().map(|k| k.parse().unwrap()).collect();
+                sup_keys.sort();
+                v["stages"] = serde_json::json!([{
+                    "name": "all",
+                    "elementsAdded": s.elements.values().map(|e| e.id).collect::<Vec<_>>(),
+                    "loadIndices": (0..s.loads.len()).collect::<Vec<_>>(),
+                    "supportsAdded": sup_keys,
+                    "platesAdded": s.plates.values().map(|e| e.id).collect::<Vec<_>>(),
+                    "quadsAdded": s.quads.values().map(|e| e.id).collect::<Vec<_>>(),
+                }]);
+                let inp = staged::parse_staged_3d(&v.to_string())?;
+                disp3(&staged::solve_staged_3d(&inp)?.final_results, &c.probes)
+            },
+        },
+        Ana3 {
+            name: "Winkler (no foundation)",
+            kind: Kind::Static,
+            uses_loads: true,
+            run: |m, c| disp3(&winkler::solve_winkler_3d(&winkler::WinklerInput3D { solver: m.s.clone(), foundation_springs: vec![] })?, &c.probes),
+        },
+        Ana3 {
+            name: "contact (no gaps)",
+            kind: Kind::Static,
+            uses_loads: true,
+            run: |m, c| {
+                let inp: contact::ContactInput3D = serde_json::from_value(serde_json::json!({ "solver": m.s })).map_err(|e| e.to_string())?;
+                disp3(&conv(contact::solve_contact_3d(&inp).map(|r| (r.converged, r.results)))?, &c.probes)
+            },
+        },
+        Ana3 {
+            name: "SSI (no soil springs)",
+            kind: Kind::Static,
+            uses_loads: true,
+            run: |m, c| disp3(&conv(ssi::solve_ssi_3d(&ssi::SSIInput3D { solver: m.s.clone(), soil_springs: vec![], max_iter: 50, tolerance: 1e-8 }).map(|r| (r.converged, r.results)))?, &c.probes),
+        },
+        Ana3 {
+            name: "creep & shrinkage (t = t0)",
+            kind: Kind::Static,
+            uses_loads: true,
+            run: |m, c| {
+                let inp = creep_shrinkage::CreepShrinkageInput3D {
+                    solver: m.s.clone(), creep_params: HashMap::new(),
+                    time_steps: vec![creep_shrinkage::TimeStep3D { t_days: 28.0, additional_loads: vec![] }], aging_coefficient: 0.8,
+                };
+                let r = creep_shrinkage::solve_creep_shrinkage_3d(&inp)?;
+                let mut v = Vec::new();
+                for &p in &c.probes {
+                    let d = r.steps[0].displacements.iter().find(|d| d.node_id == p).ok_or("probe missing")?;
+                    v.push([d.ux, d.uy, d.uz, d.rx, d.ry, d.rz]);
+                }
+                Ok(Out::D3(v))
+            },
+        },
+        Ana3 {
+            name: "cable solver",
+            kind: Kind::Static,
+            uses_loads: true,
+            run: |m, c| disp3(&conv(cable::solve_cable_3d(&m.s, &m.densities(), 50, 1e-8).map(|r| (r.converged, r.results)))?, &c.probes),
+        },
+        Ana3 {
+            name: "modal",
+            kind: Kind::Modal,
+            uses_loads: false,
+            run: |m, _| Ok(Out::S(vec![modal::solve_modal_3d(&m.s, &m.densities(), 3)?.modes[0].frequency], true)),
+        },
+        Ana3 {
+            name: "certified modal",
+            kind: Kind::Modal,
+            uses_loads: false,
+            run: |m, _| Ok(Out::S(vec![dedaliano_engine::certify::modal::certify_modal_3d(&m.s, &m.densities(), 3)?.results.modes[0].frequency], true)),
+        },
+        Ana3 {
+            name: "buckling",
+            kind: Kind::Buckling,
+            uses_loads: true,
+            run: |m, _| Ok(Out::S(vec![buckling::solve_buckling_3d(&m.s, 2)?.modes[0].load_factor], true)),
+        },
+        Ana3 {
+            name: "time history",
+            kind: Kind::Dynamic,
+            uses_loads: false,
+            run: |m, c| {
+                let loads = nodal_loads_3d(m);
+                let inp = TimeHistoryInput3D {
+                    solver: m.s.clone(), densities: m.densities(), time_step: 0.002, n_steps: 120, method: "newmark".into(),
+                    beta: 0.25, gamma: 0.5, alpha: None, damping_xi: Some(0.05), ground_accel_x: None, ground_accel_y: None, ground_accel_z: None,
+                    force_history: Some(vec![TimeForceRecord3D { time: 0.0, loads: loads.clone() }, TimeForceRecord3D { time: 10.0, loads }]),
+                };
+                let r = time_integration::solve_time_history_3d(&inp)?;
+                let mut v = Vec::new();
+                for &p in &c.probes {
+                    let h = r.node_histories.iter().find(|h| h.node_id == p).ok_or("probe history missing")?;
+                    for k in (10..h.ux.len()).step_by(10) {
+                        v.push([h.ux[k], h.uy[k], h.uz[k], h.rx[k], h.ry[k], h.rz[k]]);
+                    }
+                }
+                Ok(Out::D3(v))
+            },
+        },
+        Ana3 {
+            name: "spectral",
+            kind: Kind::Dynamic,
+            uses_loads: false,
+            run: |m, c| {
+                let md = modal::solve_modal_3d(&m.s, &m.densities(), 4)?;
+                let modes = md
+                    .modes
+                    .iter()
+                    .map(|x| SpectralModeInput3D {
+                        frequency: x.frequency, period: x.period, omega: x.omega,
+                        displacements: x.displacements.iter().map(|d| SpectralModeDisp3D { node_id: d.node_id, ux: d.ux, uy: d.uy, uz: d.uz, rx: d.rx, ry: d.ry, rz: d.rz }).collect(),
+                        participation_x: x.participation_x, participation_y: x.participation_y, participation_z: x.participation_z,
+                        effective_mass_x: x.effective_mass_x, effective_mass_y: x.effective_mass_y, effective_mass_z: x.effective_mass_z,
+                    })
+                    .collect();
+                let inp = SpectralInput3D {
+                    solver: m.s.clone(), modes, densities: m.densities(),
+                    spectrum: DesignSpectrum { name: "flat".into(), points: vec![SpectrumPoint { period: 0.0, sa: 0.3 }, SpectrumPoint { period: 10.0, sa: 0.3 }], in_g: Some(true) },
+                    direction: "Z".into(), rule: Some("SRSS".into()), xi: Some(0.05), importance_factor: None, reduction_factor: None, total_mass: None,
+                };
+                let r = spectral::solve_spectral_3d(&inp)?;
+                let mut v = Vec::new();
+                for &p in &c.probes {
+                    let d = r.displacements.iter().find(|d| d.node_id == p).ok_or("probe missing")?;
+                    v.extend([d.ux, d.uy, d.uz]);
+                }
+                Ok(Out::S(v, false))
+            },
+        },
+        Ana3 {
+            name: "harmonic",
+            kind: Kind::Dynamic,
+            uses_loads: true,
+            run: |m, c| {
+                let mut comps = Vec::new();
+                for dof in ["x", "y", "z"] {
+                    let inp = harmonic::HarmonicInput3D {
+                        solver: m.s.clone(), densities: m.densities(), frequencies: vec![0.0, 1.0], damping_ratio: 0.05,
+                        response_node_id: c.probes[0], response_dof: dof.into(),
+                    };
+                    comps.push(harmonic::solve_harmonic_3d(&inp)?);
+                }
+                let mut out = Vec::new();
+                for k in 0..2 {
+                    out.push([comps[0].response_points[k].real, comps[1].response_points[k].real, comps[2].response_points[k].real, 0.0, 0.0, 0.0]);
+                    out.push([comps[0].response_points[k].imag, comps[1].response_points[k].imag, comps[2].response_points[k].imag, 0.0, 0.0, 0.0]);
+                }
+                Ok(Out::D3(out))
+            },
+        },
+        Ana3 {
+            name: "Guyan reduction",
+            kind: Kind::Reduction,
+            uses_loads: false,
+            run: |m, c| {
+                let r = reduction::guyan_reduce_3d(&reduction::GuyanInput3D { solver: m.s.clone(), boundary_nodes: vec![c.probes[0]] })?;
+                Ok(Out::S(translation_invariants(&r.k_condensed, r.n_boundary), true))
+            },
+        },
+        Ana3 {
+            name: "Craig–Bampton",
+            kind: Kind::Reduction,
+            uses_loads: false,
+            run: |m, c| {
+                let r = reduction::craig_bampton_3d(&reduction::CraigBamptonInput3D {
+                    solver: m.s.clone(), boundary_nodes: vec![c.probes[0]], n_modes: 2, densities: m.densities(),
+                })?;
+                let nb = r.n_boundary;
+                let mut kb = vec![0.0; nb * nb];
+                for i in 0..nb {
+                    for j in 0..nb {
+                        kb[i * nb + j] = r.k_reduced[i * r.n_reduced + j];
+                    }
+                }
+                Ok(Out::S(translation_invariants(&kb, nb), true))
+            },
+        },
+        Ana3 {
+            name: "plastic collapse",
+            kind: Kind::Plastic,
+            uses_loads: true,
+            run: |m, _| {
+                let sections = m
+                    .s
+                    .sections
+                    .values()
+                    .map(|s| {
+                        let (bz, hy) = m.rects[&s.id];
+                        let mat = m.s.elements.values().find(|e| e.section_id == s.id).map_or(1, |e| e.material_id);
+                        (s.id.to_string(), PlasticSectionData3D { a: s.a, iy: s.iy, iz: s.iz, material_id: mat, b: Some(hy), h: Some(bz), d: Some(bz) })
+                    })
+                    .collect();
+                let materials = m.s.materials.values().map(|x| (x.id.to_string(), PlasticMaterialData { fy: Some(if x.id >= RIGID_MAT { 1e9 } else { 250.0 }) })).collect();
+                let r = plastic::solve_plastic_3d(&PlasticInput3D { solver: m.s.clone(), sections, materials, max_hinges: None, mp_overrides: None })?;
+                Ok(Out::S(vec![r.collapse_factor], true))
+            },
+        },
+        Ana3 {
+            name: "kinematic check",
+            kind: Kind::Kinematic,
+            uses_loads: false,
+            run: |m, _| {
+                let r = kinematic::analyze_kinematics_3d(&m.s);
+                if let Some(e) = r.invalid_input {
+                    return Err(e);
+                }
+                Ok(Out::S(vec![r.mechanism_modes as f64, if r.is_solvable { 1.0 } else { 0.0 }], true))
+            },
+        },
+        Ana3 {
+            name: "moving loads",
+            kind: Kind::Moving,
+            uses_loads: true,
+            run: |m, c| {
+                let path = c.path.clone().ok_or("no path")?;
+                let inp = MovingLoadInput3D {
+                    solver: m.s.clone(),
+                    train: LoadTrain { name: "one axle".into(), axles: vec![Axle { offset: 0.0, weight: 50.0 }] },
+                    step: Some(0.5),
+                    path_element_ids: Some(path.clone()),
+                    gravity_direction: None,
+                };
+                let r = moving_loads::solve_moving_loads_3d(&inp)?;
+                let mut v = Vec::new();
+                for id in &path {
+                    let e = &r.elements[&id.to_string()];
+                    v.extend([e.my_max_pos, e.my_max_neg, e.vz_max_pos, e.vz_max_neg]);
+                }
+                Ok(Out::S(v, false))
+            },
+        },
+        Ana3 {
+            name: "influence line",
+            kind: Kind::Moving,
+            uses_loads: false,
+            run: |m, c| {
+                let target = il_target_3d(m)?;
+                let inp = influence::InfluenceLineInput3D {
+                    solver: m.s.clone(), quantity: "Fz".into(), target_node_id: Some(target), target_element_id: None,
+                    target_position: 0.5, n_points_per_element: 4, gravity_direction: None,
+                };
+                let r = influence::compute_influence_line_3d(&inp)?;
+                let path = c.path.as_ref().unwrap();
+                let mut pts: Vec<_> = r.points.iter().filter(|p| path.contains(&p.element_id)).collect();
+                pts.sort_by(|a, b| (a.element_id, (a.t * 1e6) as i64).cmp(&(b.element_id, (b.t * 1e6) as i64)));
+                Ok(Out::S(pts.iter().map(|p| p.value).collect(), false))
+            },
+        },
+    ]
+}
+
+/// Reaction node for 3D influence lines: the lowest-numbered supported node.
+fn il_target_3d(m: &M3) -> Result<usize, String> {
+    m.s.supports.values().map(|s| s.node_id).min().ok_or_else(|| "no support".to_string())
+}
+
+/// Invariants of the translational 3×3 block of a 6×6 (or larger) condensed stiffness.
+fn translation_invariants(k: &[f64], n: usize) -> Vec<f64> {
+    let mut b = [0.0; 9];
+    for i in 0..3 {
+        for j in 0..3 {
+            b[i * 3 + j] = k[i * n + j];
+        }
+    }
+    invariants(&b, 3)
+}
+
+fn moving_reference_3d(ana: &str, c: &Case3) -> Result<Out, String> {
+    let path = c.path.clone().ok_or("no path")?;
+    let m = &c.with;
+    if ana == "moving loads" {
+        let segs = moving_loads::build_load_path_3d(&m.s, Some(&path))?;
+        let total: f64 = segs.iter().map(|s| s.length).sum();
+        let train = LoadTrain { name: "one axle".into(), axles: vec![Axle { offset: 0.0, weight: 50.0 }] };
+        let mut env: BTreeMap<usize, [f64; 4]> = path.iter().map(|&id| (id, [0.0; 4])).collect();
+        let mut pos = 0.0;
+        while pos <= total + 1e-10 {
+            let mut s = m.s.clone();
+            s.loads = moving_loads::moving_loads_at_position_3d(&m.s, &train, "z", &segs, pos, total);
+            let r = linear::solve_3d(&s)?;
+            for ef in &r.element_forces {
+                if let Some(e) = env.get_mut(&ef.element_id) {
+                    e[0] = e[0].max(ef.my_start.max(ef.my_end));
+                    e[1] = e[1].min(ef.my_start.min(ef.my_end));
+                    e[2] = e[2].max(ef.vz_start.max(ef.vz_end));
+                    e[3] = e[3].min(ef.vz_start.min(ef.vz_end));
+                }
+            }
+            pos += 0.5;
+        }
+        Ok(Out::S(path.iter().flat_map(|id| env[id]).collect(), false))
+    } else {
+        let target = il_target_3d(m)?;
+        let mut vals = Vec::new();
+        for &eid in &path {
+            let l = m.elem_len(eid);
+            let (_, ey, ez) = m.axes(eid);
+            for k in 0..=4 {
+                let t = k as f64 / 4.0;
+                let mut s = m.s.clone();
+                s.loads = influence::influence_unit_loads_3d(eid, t * l, -ey[2], -ez[2]);
+                let r = linear::solve_3d(&s)?;
+                vals.push(influence::extract_value_3d("Fz", Some(target), None, 0.5, &r));
+            }
+        }
+        Ok(Out::S(vals, false))
+    }
+}
+
+fn run_3d(c: &Case3, a: &Ana3) -> Cell {
+    if !c.kinds.contains(&a.kind) {
+        return Cell { verdict: Verdict::NotApplicable, note: "covered by another variant".into() };
+    }
+    if a.kind == Kind::Moving && c.path.is_none() {
+        return Cell { verdict: Verdict::NotApplicable, note: "no straight load path in this model".into() };
+    }
+    let is_baseline = c.feature.starts_with("baseline");
+    let run = |m: &M3| guarded(|| (a.run)(m, c));
+    let mask_rot = |o: Out| match o {
+        Out::D3(v) if c.note == Some("translations only") => Out::D3(v.into_iter().map(|x| [x[0], x[1], x[2], f64::NAN, f64::NAN, f64::NAN]).collect()),
+        o => o,
+    };
+    let rotate = |o: Out| match (o, &c.equiv_rot) {
+        (Out::D3(v), Some(r)) => Out::D3(v.into_iter().map(|x| rot3(x, r)).collect()),
+        (o, _) => o,
+    };
+    let with = run(&c.with);
+    let reference = (|| -> Result<(Out, String), String> {
+        if a.kind == Kind::Moving {
+            return guarded(|| moving_reference_3d(a.name, c)).map(|o| (o, "linear solves position by position".into()));
+        }
+        if let Some((_, o)) = c.analytic.iter().find(|(k, _)| *k == a.kind) {
+            return Ok((o.clone(), "the analytical value".into()));
+        }
+        let linear_family = ["linear", "linear (sparse path)", "constrained", "certified linear", "load combinations"].contains(&a.name);
+        if let Some(eq) = c.equiv.as_ref().filter(|_| !c.equiv_linear_only || linear_family) {
+            let r = run(eq);
+            let invariant_ok = c.equiv_rot.is_none() || !matches!(r, Ok(Out::S(_, false)));
+            if invariant_ok {
+                match r {
+                    Ok(o) => return Ok((mask_rot(rotate(o)), "the equivalent model".into())),
+                    Err(e) if a.kind != Kind::Static => return Err(format!("equivalent model failed: {e}")),
+                    Err(_) => {}
+                }
+            }
+        }
+        if a.kind == Kind::Static {
+            if a.name == "linear" && !is_baseline {
+                return Err("linear has no equivalent model for this feature".into());
+            }
+            return guarded(|| disp3(&linear::solve_3d(&c.with.s)?, &c.probes)).map(|o| (mask_rot(o), "the linear solution".into()));
+        }
+        Err("no independent reference for this kind".into())
+    })();
+    classify(c.keywords, c.is_load, a.uses_loads, c.tol, is_baseline, with, || run(&c.without), reference)
+}
+
+fn matrix_3d() -> Matrix {
+    let cases = cases_3d();
+    let anas = rows_3d();
+    let mut m = Matrix::new("3D", anas.iter().map(|a| a.name).collect());
+    for c in &cases {
+        for (ai, a) in anas.iter().enumerate() {
+            m.add(c.feature, c.variant, ai, run_3d(c, a));
+        }
+    }
+    m
 }

@@ -23,16 +23,21 @@ fn corot_local_y_ref(
     xi: f64, yi: f64, zi: f64, xj: f64, yj: f64, zj: f64,
     lyx: Option<f64>, lyy: Option<f64>, lyz: Option<f64>,
 ) -> (Option<f64>, Option<f64>, Option<f64>) {
-    if lyx.is_some() {
-        return (lyx, lyy, lyz);
-    }
     let (dx, dy, dz) = (xj - xi, yj - yi, zj - zi);
     let l = (dx * dx + dy * dy + dz * dz).sqrt();
     if l < 1e-15 {
-        return (None, None, None);
+        return (lyx, lyy, lyz);
     }
-    let r = default_ey_ref(&[dx / l, dy / l, dz / l]);
-    (Some(r[0]), Some(r[1]), Some(r[2]))
+    /*
+     * Anchor to the initial frame's own local y (before roll and handedness,
+     * which `compute_local_axes_3d` applies again). An explicit local y nearly
+     * parallel to the member was passed through as is, and the parallel-vector
+     * fallback then picked its reference from each configuration separately:
+     * the deformed frame turned against the initial one and the iteration
+     * "converged" to 3.5 times the lateral deflection.
+     */
+    let (_, ey, _) = compute_local_axes_3d(xi, yi, zi, xj, yj, zj, lyx, lyy, lyz, None, false);
+    (Some(ey[0]), Some(ey[1]), Some(ey[2]))
 }
 
 /// Solve a 2D frame using co-rotational large displacement analysis.
@@ -1143,6 +1148,13 @@ pub fn solve_corotational_3d(
     }
 
     // Expand curved beams before DOF numbering and assembly.
+    // As in 2D: no prescribed-displacement term, no connectors, and
+    // temperature as fixed global forces.
+    super::feature_gates::refuse_3d(input, "Corotational analysis", &[
+        super::feature_gates::Feature::Connectors, super::feature_gates::Feature::PrescribedDisplacements, super::feature_gates::Feature::ThermalLoads,
+        // The 3D co-rotational element has no warping DOF.
+        super::feature_gates::Feature::Warping,
+    ])?;
     let input = &super::linear::expand_curved_beams_3d(input);
     let dof_num = DofNumbering::build_3d(input);
 
@@ -1632,6 +1644,13 @@ fn assemble_frame_corotational_3d(
 
     let theta_i_local = project(&theta_i_global);
     let theta_j_local = project(&theta_j_global);
+    // β is the axial vector of R_n·R_0ᵀ, a rotation in GLOBAL axes: it has to
+    // be taken to the corotated frame before it is subtracted from the
+    // (projected) nodal rotations. Subtracted as it was, it was right only
+    // where the member's local axes happen to coincide with the global ones
+    // (a member along +X); a column (local y = −Y) converged to itself folded
+    // in half, u_z = −2L, and reported convergence.
+    let [beta_x, beta_y, beta_z] = project(&[beta_x, beta_y, beta_z]);
 
     // Natural deformations (rigid body removed)
     let d_axial = l_n - l0;
@@ -2036,6 +2055,8 @@ fn compute_corotational_forces_3d(
         let theta_j = [u_elem_12[9], u_elem_12[10], u_elem_12[11]];
         let ti = project(&theta_i);
         let tj = project(&theta_j);
+        // β to the corotated frame, as in `assemble_frame_corotational_3d`.
+        let [beta_x, beta_y, beta_z] = project(&[beta_x, beta_y, beta_z]);
 
         let d_axial = l_n - l0;
         let d_nat = [

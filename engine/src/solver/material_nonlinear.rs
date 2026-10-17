@@ -901,6 +901,16 @@ pub fn solve_nonlinear_material_3d(
     input: &NonlinearMaterialInput3D,
 ) -> Result<NonlinearMaterialResult3D, String> {
     super::linear::validate_input_3d(&input.solver)?;
+    // The tangent is assembled from members and support springs only.
+    super::feature_gates::refuse_3d(&input.solver, "Material-nonlinear analysis", &[super::feature_gates::Feature::Connectors, super::feature_gates::Feature::Shells])?;
+    // Curved beams are expanded into straight members, as every static path
+    // does; left in place they were not part of the model at all.
+    let expanded = (!input.solver.curved_beams.is_empty()).then(|| {
+        let mut e = input.clone();
+        e.solver = super::linear::expand_curved_beams_3d(&input.solver);
+        e
+    });
+    let input = expanded.as_ref().unwrap_or(input);
     let pre_solve_diags = super::pre_solve_gates::run_pre_solve_gates_3d(&input.solver);
     super::pre_solve_gates::refuse_broken_elements(&pre_solve_diags)?;
     let solver = &input.solver;
@@ -1061,18 +1071,33 @@ pub fn solve_nonlinear_material_3d(
             // The prescribed-displacement coupling K_fr * u_r is already in
             // the residual via f_int (u_full carries the restrained values),
             // so the RHS is the residual itself.
-            let delta_u_f = if sparse_tangent {
-                // The 3D Newton loop does not constraint-reduce (unlike 2D —
-                // cs is only used for the final constraint-forces report), so
-                // the sparse CSC is built without a constraint system to
-                // match the dense path exactly.
+            // Constraint-reduced, as in 2D. The 3D loop used to solve the
+            // unreduced system and keep `cs` only for the constraint-force
+            // report, so rigid links, diaphragms and EqualDOF were not part of
+            // the structure it iterated on: a diaphragm-tied pair of columns
+            // was solved as two independent columns, and a node tied only by
+            // a constraint left the tangent singular.
+            let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
+            let rhs_s = match &cs {
+                Some(cs) => cs.reduce_vector(&r_free),
+                None => r_free,
+            };
+            let delta_u_indep = if sparse_tangent {
                 let k_s_csc = tangent_free_sparse_triplets(
-                    &trip_rows, &trip_cols, &trip_vals, nf, &None,
+                    &trip_rows, &trip_cols, &trip_vals, nf, &cs,
                 );
-                solve_tangent_sparse(&k_s_csc, &r_free, &mut sparse_sym_cache)?
+                solve_tangent_sparse(&k_s_csc, &rhs_s, &mut sparse_sym_cache)?
             } else {
                 let k_ff = extract_submatrix(&k_t, n, &free_idx, &free_idx);
-                solve_system(k_ff, r_free, nf)?
+                let k_s = match &cs {
+                    Some(cs) => cs.reduce_matrix(&k_ff),
+                    None => k_ff,
+                };
+                solve_system(k_s, rhs_s, ns)?
+            };
+            let delta_u_f = match &cs {
+                Some(cs) => cs.expand_solution(&delta_u_indep),
+                None => delta_u_indep,
             };
 
             // Update displacements (free DOFs; restrained stay at this

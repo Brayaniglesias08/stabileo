@@ -3235,3 +3235,25 @@ pub fn support_spring_entries_2d(input: &SolverInput, dof_num: &DofNumbering) ->
     }
     out
 }
+
+/// The support springs of a 3D model as diagonal stiffness entries `(i, i, k)`
+/// over all DOFs — what `assemble_3d` adds: `kx..krz` on their DOFs and `kw`
+/// on the warping DOF. For the nonlinear solvers that build their own
+/// tangents (see `support_spring_entries_2d`).
+pub fn support_spring_entries_3d(input: &SolverInput3D, dof_num: &DofNumbering) -> Vec<(usize, usize, f64)> {
+    let mut out = Vec::new();
+    let mut sups: Vec<&SolverSupport3D> = input.supports.values().collect();
+    sups.sort_by_key(|s| s.node_id);
+    for sup in sups {
+        let ks = [sup.kx, sup.ky, sup.kz, sup.krx, sup.kry, sup.krz, sup.kw];
+        for (local, k) in ks.into_iter().enumerate() {
+            let k = k.unwrap_or(0.0);
+            if k > 0.0 && local < dof_num.dofs_per_node {
+                if let Some(&d) = dof_num.map.get(&(sup.node_id, local)) {
+                    out.push((d, d, k));
+                }
+            }
+        }
+    }
+    out
+}

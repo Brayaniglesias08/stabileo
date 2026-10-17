@@ -26,6 +26,8 @@ pub enum Feature {
     MomentReleases,
     /// Rotational support springs.
     RotationalSprings,
+    /// Support springs of any kind.
+    SupportSprings,
     /// Constraints (rigid links, diaphragms, EqualDOF, MPCs).
     Constraints,
     /// Warping (7th DOF) members.
@@ -36,6 +38,9 @@ pub enum Feature {
     CurvedBeams,
     /// Thermal loads.
     ThermalLoads,
+    /// Thermal loads on plates, quad9 and curved shells (whose geometric
+    /// stiffness is computed from the total strain).
+    ShellThermalNonQuad,
 }
 
 impl Feature {
@@ -47,11 +52,13 @@ impl Feature {
             Feature::ShearDeformation => "shear deformation (Timoshenko shear areas)",
             Feature::MomentReleases => "member end releases (hinges)",
             Feature::RotationalSprings => "rotational support springs",
+            Feature::SupportSprings => "support springs",
             Feature::Constraints => "constraints (rigid links, diaphragms, EqualDOF, MPCs)",
             Feature::Warping => "warping members",
             Feature::Shells => "shell elements",
             Feature::CurvedBeams => "curved beams",
             Feature::ThermalLoads => "thermal loads",
+            Feature::ShellThermalNonQuad => "thermal loads on plates, quad9 or curved shells",
         }
     }
 }
@@ -99,13 +106,18 @@ fn find_2d(input: &SolverInput, f: Feature) -> Option<String> {
             .filter(|s| s.kz.is_some_and(|k| k > 0.0))
             .map(|s| format!("support {} (node {})", s.id, s.node_id))
             .collect(),
+        Feature::SupportSprings => sorted(input.supports.values(), |s| s.id)
+            .iter()
+            .filter(|s| [s.kx, s.ky, s.kz].into_iter().any(|k| k.is_some_and(|k| k > 0.0)))
+            .map(|s| format!("support {} (node {})", s.id, s.node_id))
+            .collect(),
         Feature::Constraints => (0..input.constraints.len()).map(|i| format!("constraint {}", i + 1)).collect(),
         Feature::ThermalLoads => input
             .loads
             .iter()
             .filter_map(|l| if let SolverLoad::Thermal(t) = l { Some(format!("member {}", t.element_id)) } else { None })
             .collect(),
-        Feature::Warping | Feature::Shells | Feature::CurvedBeams => vec![],
+        Feature::Warping | Feature::Shells | Feature::CurvedBeams | Feature::ShellThermalNonQuad => vec![],
     };
     summarize(found)
 }
@@ -151,12 +163,21 @@ fn find_3d(input: &SolverInput3D, f: Feature) -> Option<String> {
             .filter(|s| [s.krx, s.kry, s.krz].into_iter().any(|k| k.is_some_and(|k| k > 0.0)))
             .map(|s| format!("support at node {}", s.node_id))
             .collect(),
-        Feature::Constraints => (0..input.constraints.len()).map(|i| format!("constraint {}", i + 1)).collect(),
-        Feature::Warping => sorted(input.elements.values(), |e| e.id)
+        Feature::SupportSprings => sorted(input.supports.values(), |s| s.node_id)
             .iter()
-            .filter(|e| e.elem_type == "frame_warping")
-            .map(|e| format!("member {}", e.id))
+            .filter(|s| [s.kx, s.ky, s.kz, s.krx, s.kry, s.krz, s.kw].into_iter().any(|k| k.is_some_and(|k| k > 0.0)))
+            .map(|s| format!("support at node {}", s.node_id))
             .collect(),
+        Feature::Constraints => (0..input.constraints.len()).map(|i| format!("constraint {}", i + 1)).collect(),
+        Feature::Warping => {
+            let secs: std::collections::HashSet<usize> =
+                input.sections.values().filter(|s| s.cw.is_some_and(|c| c > 0.0)).map(|s| s.id).collect();
+            sorted(input.elements.values(), |e| e.id)
+                .iter()
+                .filter(|e| secs.contains(&e.section_id))
+                .map(|e| format!("member {}", e.id))
+                .collect()
+        }
         Feature::Shells => {
             let mut v: Vec<String> = Vec::new();
             v.extend(sorted(input.plates.values(), |p| p.id).iter().map(|p| format!("plate {}", p.id)));
@@ -167,6 +188,16 @@ fn find_3d(input: &SolverInput3D, f: Feature) -> Option<String> {
             v
         }
         Feature::CurvedBeams => (0..input.curved_beams.len()).map(|i| format!("curved beam {}", i + 1)).collect(),
+        Feature::ShellThermalNonQuad => input
+            .loads
+            .iter()
+            .filter_map(|l| match l {
+                SolverLoad3D::PlateThermal(t) | SolverLoad3D::Quad9Thermal(t) | SolverLoad3D::CurvedShellThermal(t) => {
+                    Some(format!("shell {}", t.element_id))
+                }
+                _ => None,
+            })
+            .collect(),
         Feature::ThermalLoads => input
             .loads
             .iter()
