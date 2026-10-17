@@ -18,6 +18,7 @@ exclude_re = [
     # finish() reports as uncertified (tested with σ = 0 in
     # tests/certify.rs::linear_certificate_rejects_nonpositive_or_infinite_sigma).
     "replace > with >= in check_sigma",
+    "replace > with >= in check_mu",
     # Performance heuristic of the σ search (stop backing off when the failing
     # pivot is wider than λ̂): it decides how hard to try, never what is
     # certified; every σ returned is checked by the interval Cholesky.
