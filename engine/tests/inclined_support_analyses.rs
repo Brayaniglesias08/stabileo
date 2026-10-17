@@ -738,8 +738,13 @@ const LOADS_2D_NL: [(usize, f64, f64); 3] = [(2, 2.0, -30.0), (3, 0.0, -30.0), (
 fn corotational_2d_inclined_roller_matches_rotated_model() {
     use dedaliano_engine::solver::corotational::solve_corotational_2d;
     for sub in SUBS {
-        let a = solve_corotational_2d(&portal_2d(false, sub), 50, 1e-10, 5, false).expect("a");
-        let b = solve_corotational_2d(&portal_2d(true, sub), 50, 1e-10, 5, false).expect("b");
+        // 1e-8: on the subdivided (sparse) portal the increment norm stalls on
+        // roundoff just above 1e-10, and since fix/nonlinear-solvers an
+        // unconverged solve reports the last converged increment (none here:
+        // zero displacements) instead of the abandoned iterate.
+        let a = solve_corotational_2d(&portal_2d(false, sub), 50, 1e-8, 5, false).expect("a");
+        let b = solve_corotational_2d(&portal_2d(true, sub), 50, 1e-8, 5, false).expect("b");
+        assert!(a.converged && b.converged, "corotational sub {sub}: converged {} {}", a.converged, b.converged);
         assert_static_2d(&format!("corotational sub {sub}"), &a.results, &b.results, 1e-6);
     }
 }
