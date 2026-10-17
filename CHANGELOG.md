@@ -31,6 +31,11 @@ test there.
   P/L in sway and −4·P·L/30 on a hinged rotation nothing else holds. A cantilever bracing a
   leaning column (hinged at both ends) now buckles at k·h = 3EI/h², as in 3D. The 2D and 3D
   members share one condensation (`condense_kg_plane`).
+- **3D buckling added K_G in global axes to a K rotated at inclined supports.** The critical
+  factor depended on how the model was oriented: a column guided by an inclined support gave
+  101.5 rotated against 62.1 unrotated. K_G is now rotated into each inclined support's frame
+  with K, and the mode shapes are reported back in global axes (they were left in the
+  support's frame). The buckling certificate rotates the mode before checking it.
 
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 

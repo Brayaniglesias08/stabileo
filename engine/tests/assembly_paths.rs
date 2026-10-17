@@ -896,7 +896,6 @@ const REPORTED: &[(&str, &str)] = &[
     ("2d.legacy_parallel.k_ff", "NEW, reported: legacy assemble_elements_parallel_2d (benches only) drops connectors"),
     ("2d.mass.inclined_frame", "NEW, reported: M is never rotated at inclined supports (modal, harmonic, time history, reduction use it with the rotated K)"),
     ("3d.mass.inclined_frame", "NEW, reported: M is never rotated at inclined supports (modal, harmonic, time history, reduction use it with the rotated K)"),
-    ("3d.buckling.kg", "NEW: 3D buckling K_G is not rotated at inclined supports"),
 ];
 
 /// Connectors on nodes without exactly 3 (2D) or 6 (3D) DOFs are scattered
@@ -1447,7 +1446,6 @@ fn sparse_3d_artificial_warping_stiffness_matches_dense() {
 /// the top's guide is an inclined support, K is assembled in its frame and
 /// K_G must follow; the mode shape is reported in global axes.
 #[test]
-#[ignore = "NEW: 3D buckling K_G is not rotated at inclined supports"]
 fn buckling_3d_invariant_under_rotation_with_inclined_support() {
     let column = |phi: f64| {
         // Rotated about +y by φ: x → (cos φ, 0, −sin φ), z → (sin φ, 0, cos φ).
