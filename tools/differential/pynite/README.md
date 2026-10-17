@@ -53,20 +53,25 @@ spring-over-restraint precedence, end-force signs) is documented in
 
 ## Results
 
-Run of 2026-10-17 (PyNite 3.2.0), `rich3d_eb` 1000 + `building_eb` 300 +
-`frame2d` 300 random models and the 114 engine fixtures:
+Run of 2026-10-17 (PyNite 3.2.0, after the engine changes of this branch):
+`rich3d_eb` 1000 + `building_eb` 300 + `frame2d` 300 random models (seeds
+from 0) plus 2600 more (seeds from 5000), and the 114 engine fixtures:
 
 | set | ok | ill-conditioned (both agree) | stabileo refused (mechanism) | unsupported |
 |---|---|---|---|---|
-| random (1600) | 1037 | 358 | 30 | 175 |
+| random, seeds 0.. (1600) | 1036 | 358 | 30 | 175 |
+| random, seeds 5000.. (2600) | 1534 | 746 | 48 | 272 |
 | fixtures (114) | 112 | 0 | 0 | 2 |
 
-Max normalized error over compared models: 5.9e-11 (all groups); no
-mismatch. Every model stabileo flagged or refused is singular in PyNite too:
-the reference condition number is ≥ 5.5e15 where PyNite could assemble it,
-and the remaining 251 are partial rotational mechanisms (a node with one or
-two independent rotational stiffness directions). The compared models have
-κ ≤ 1.3e6. No `silent_singular`, `false_reject` or `false_warning`.
+Max normalized error over compared models: 1.1e-9 (6e-11 on the first
+set); no mismatch. Every model stabileo flagged or refused is singular in
+PyNite too: the reference condition number is ≥ 5.5e15 where PyNite could
+assemble it, the rest are partial rotational mechanisms. Compared models
+have κ ≤ 1.3e6 (first set). The one `false_warning` found (rich3d_eb-557,
+κ = 4.1e4) was the first version of the engine's rigid-body gate, fixed.
+Two `false_reject` reports were harness artifacts (a torsion release at
+one end leaves no torsional stiffness at either end; Jacobi scaling hid a
+round-off diagonal in κ), fixed here.
 
 The earlier run that found the silent mechanisms (before the pivot threshold
 change, see `engine/tests/differential_regressions.rs`): 3 `silent_singular`
