@@ -30,7 +30,8 @@ fn ipe300_s275() -> Ec3MemberData {
         c1: Some(1.0),
         av: Some(25.7e-4), // ~50% of gross area for I-section
         interaction: None,
-        geometry: None,
+        // IPE 300: the depth the default top-flange load height is measured from.
+        geometry: Some(Ec3Geometry::I { h: 0.300, b: 0.150, tw: 0.0071, tf: 0.0107, r: 0.015 }),
         ltb: None,
     }
 }
@@ -121,6 +122,9 @@ fn ec3_flexure_ltb() {
 fn ec3_flexure_no_ltb() {
     let mut m = ipe300_s275();
     m.lb = 1.0; // Very short — no LTB
+    // Load at the shear centre: with the default top-flange load height even
+    // Lb = 1 m gives χLT ≈ 0.90 for this section.
+    m.ltb = Some(Ec3LtbData { load_position: Some(Ec3LoadPosition::ShearCentre), ..Default::default() });
 
     let input = Ec3CheckInput {
         members: vec![m],

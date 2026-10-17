@@ -41,7 +41,9 @@ fn ipe300(class: SectionClass) -> Ec3MemberData {
         av: None,
         interaction: None,
         geometry: None,
-        ltb: None,
+        // Load at the shear centre: these tests check the cross-section
+        // modulus, not LTB, which the default top-flange load would bring in.
+        ltb: Some(Ec3LtbData { load_position: Some(Ec3LoadPosition::ShearCentre), ..Default::default() }),
     }
 }
 

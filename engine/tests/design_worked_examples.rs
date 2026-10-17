@@ -453,12 +453,11 @@ fn ec3_run(m: Ec3MemberData, n_ed: f64, my_ed: f64, v_ed: f64) -> Ec3CheckResult
 /// Mc,Rd = 189.01 kNm (6.2.5); MEd/Mc,Rd = 0.479.
 /// Av = 3080 mm² (6.2.6(3)); Vpl,Rd = 417.9 kN (6.2.6(2)); VEd/Vpl,Rd = 0.152.
 ///
-/// The LTB part of A.1 is NOT reproducible: it loads the top flange
-/// (zg = +165 mm, C2 = 0.454) and uses the rolled-section curve of 6.3.2.3
-/// with the f-modification. stabileo has neither load height (Mcr is the
-/// zg = 0 expression) nor 6.3.2.3 — it implements the general case 6.3.2.2,
-/// which is permitted and more conservative. Lb = 0 below isolates the
-/// cross-section resistance (χLT = 1).
+/// The LTB part of A.1 (Mcr with zg = +165 mm) is the next test; its χLT is
+/// not compared, the example using the rolled-section curve of 6.3.2.3 with
+/// the f-modification where stabileo implements the general case 6.3.2.2
+/// (permitted, more conservative). Lb = 0 below isolates the cross-section
+/// resistance (χLT = 1).
 #[test]
 fn ec3_sbe_a1_ipe330_bending_and_shear_resistance() {
     let m = Ec3MemberData { a: 6260.0, wpl_y: 804.3e3, av: Some(3080.0), ..ec3_blank(235.0) };
@@ -466,6 +465,65 @@ fn ec3_sbe_a1_ipe330_bending_and_shear_resistance() {
     published(r.mb_rd / 1e6, 189.01, THREE_SF, "Mc,Rd (6.2.5)");
     published(r.flexure_ratio_y, 0.479, THREE_SF, "MEd/Mc,Rd");
     published(63.50e3 / r.shear_ratio / 1e3, 417.9, THREE_SF, "Vpl,Rd (6.2.6)");
+}
+
+/// [SBE] Worked Example A.1, IPE 330 S235, LTB part, pp. 4-60 – 4-61.
+///
+/// Printed: Iz = 788.1 cm⁴, It = 28.15 cm⁴, Iw = 199100 cm⁶, L = 5.70 m,
+/// E = 210000, G = 80770 N/mm²; k = kw = 1; uniformly distributed load on the
+/// top flange, zg = h/2 = +165 mm; SN003 C1 = 1.127, C2 = 0.454
+/// (C2·zg = 74.91 mm); Mcr = 113.9 kNm; λ̄LT = √(Wpl,y·fy/Mcr) = 1.288.
+///
+/// stabileo's G is E/2.6 = 80769 N/mm² (the example's 80770: 1e-5 relative).
+/// χLT is not compared: the example continues with 6.3.2.3 and f (D10).
+#[test]
+fn ec3_sbe_a1_ipe330_mcr_with_top_flange_load() {
+    let m = Ec3MemberData {
+        a: 6260.0,
+        wpl_y: 804.3e3,
+        iz: 788.1e4,
+        it: 28.15e4,
+        iw: 199_100e6,
+        lb: 5700.0,
+        c1: Some(1.127),
+        buckling_curve_lt: BucklingCurve::C,
+        geometry: Some(Ec3Geometry::I { h: 330.0, b: 160.0, tw: 7.5, tf: 11.5, r: 18.0 }),
+        ltb: Some(Ec3LtbData { c2: Some(0.454), ..Default::default() }),
+        ..ec3_blank(235.0)
+    };
+    let r = ec3_run(m.clone(), 0.0, 90.48e6, 0.0);
+    let mcr = r.mcr.expect("Mcr evaluated");
+    published(mcr / 1e6, 113.9, THREE_SF, "Mcr (SN003 eq. 2, zg = +165 mm)");
+    published((804.3e3 * 235.0 / mcr).sqrt(), 1.288, THREE_SF, "λ̄LT");
+
+    // The default load position IS the top flange: the same Mcr without
+    // naming it, and explicitly zg = +165 mm likewise.
+    let explicit = Ec3MemberData {
+        ltb: Some(Ec3LtbData { c2: Some(0.454), zg: Some(165.0), ..Default::default() }),
+        geometry: None,
+        ..m.clone()
+    };
+    published(ec3_run(explicit, 0.0, 90.48e6, 0.0).mcr.unwrap() / 1e6, 113.9, THREE_SF, "Mcr, zg given");
+
+    // At the shear centre Mcr is higher — what the check used to return for
+    // this top-flange-loaded beam (unconservative).
+    let sc = Ec3MemberData {
+        ltb: Some(Ec3LtbData { load_position: Some(Ec3LoadPosition::ShearCentre), ..Default::default() }),
+        ..m.clone()
+    };
+    assert!(ec3_run(sc, 0.0, 90.48e6, 0.0).mcr.unwrap() > 1.3 * mcr);
+
+    // No C2 given: C2 = C1 (1.127 > 0.454), a lower Mcr than the example's.
+    let no_c2 = Ec3MemberData { ltb: None, ..m.clone() };
+    assert!(ec3_run(no_c2, 0.0, 90.48e6, 0.0).mcr.unwrap() < mcr);
+
+    // Top flange (the default) with no depth and no zg: refused, not
+    // evaluated at zg = 0.
+    let blind = Ec3MemberData { geometry: None, ltb: None, ..m };
+    let r = ec3_run(blind, 0.0, 90.48e6, 0.0);
+    assert!(!r.pass);
+    assert!(r.mcr.is_none());
+    assert!(!r.unevaluated.is_empty());
 }
 
 /// [SBE] Worked Example A.2, IPE 400 S235, pp. 4-64 – 4-69.

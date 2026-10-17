@@ -201,7 +201,8 @@ fn ec3_nan_slenderness_does_not_become_full_capacity() {
             buckling_curve_z: BucklingCurve::B,
             buckling_curve_lt: BucklingCurve::B,
             gamma_m0: Some(1.0), gamma_m1: Some(1.0),
-            c1: None, av: None, interaction: None, geometry: None, ltb: None,
+            c1: None, av: None, interaction: None, geometry: None,
+            ltb: Some(Ec3LtbData { load_position: Some(Ec3LoadPosition::ShearCentre), ..Default::default() }),
         }],
         forces: vec![Ec3DesignForces {
             element_id: 1, n_ed: Some(-200e3), my_ed: Some(50e3), mz_ed: None, v_ed: None,
