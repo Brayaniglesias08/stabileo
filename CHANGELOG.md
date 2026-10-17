@@ -11,6 +11,35 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Nonlinear and special solvers answer for the model as given (2026-10-17)
+
+**BREAKING (results).** Tests: `engine/tests/nonlinear_solver_findings.rs`, each against the same
+structure expressed without the feature or an analytical value.
+
+- **2D contact returned the linear solution of the unmodified model.** Slack tension-only braces,
+  closed gaps and node-to-surface contacts changed the status report but not the displacements,
+  reactions or member forces (`linear::solve_2d` of the model as drawn). 2D and 3D contact now
+  solve every iteration on the model in its contact state and report that state: a slack member
+  is removed (the model is reassembled without it; 3D used to keep tension-only *frames* and
+  subtract only trusses) and carries only its own fixed-end forces; reactions and constraint
+  forces are those of the contact state (3D returned none).
+- **Gaps and node-to-surface contacts acted from zero displacement.** The penalty spring of a
+  closed gap now acts from the moment it closes (the opening g0 enters the load as ±k·g0):
+  u = (F + k·g0)/(EA/L + k) on a bar pushed into a gap, where it used to be F/(EA/L + k).
+- **Friction** was a stick spring μ·k at any load, with only the *reported* force clamped to μ·N;
+  a contact now slides (Coulomb force μ·N against the slip) once the stick force exceeds μ·N.
+- **Contact damping** added a spring of stiffness c to ground at the gap nodes (its "velocity"
+  force was always zero); it is now a proximal term that vanishes at a fixed point, and the final
+  state is solved without it.
+- **Inclined supports and prescribed displacements in contact:** the gap corrections are built in
+  global axes and rotated into the support frames, statuses are read in global axes, and support
+  settlements enter the solve (3D refused both; 2D read rotated displacements).
+- **Uplift supports were ignored** (kept as two-way restraints). 2D: a support whose vertical
+  reaction comes out tensile lifts off (pinned → rollerZ, fixed → guidedZ, rollerX → free) and
+  bears again if its node comes back below its seat. 3D uplift supports are refused by name, as
+  are unknown element behaviours, behaviours on missing elements and thermal loads on
+  tension/compression-only members.
+
 #### Every analysis supports a model feature or refuses it by name (2026-10-17)
 
 **BREAKING (results and refusals): several analyses solved a simplified model without a word;
