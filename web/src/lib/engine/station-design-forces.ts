@@ -1,4 +1,4 @@
-import { getColumnCapacityKernel } from './column-capacity-kernel';
+import { getColumnCapacityKernel, columnCapacityKernelRegistered } from './column-capacity-kernel';
 import { evaluateBeamSection } from './codes/argentina/cirsoc201-beam-kernel';
 /**
  * Station-based, sign-aware, per-combo force extraction for member design.
@@ -2436,6 +2436,16 @@ export function verifyProvidedReinforcement(
           limiting: 'axialFlexure', missingReinforcement: true,
         });
       }
+    } else if (hasTuples && !columnCapacityKernelRegistered()) {
+      // The column check is the engine's (Rust column kernel). Not loaded: not verified, never
+      // the TypeScript reference standing in for it unannounced.
+      pushStrength({
+        category: 'Longitudinal (engine unavailable)', demandCategory: 'N_compression',
+        utilization: Number.POSITIVE_INFINITY,
+        unit: 'kN·m', method: 'capacity', tuplesChecked: 0,
+        description: 'the engine column checker is not loaded — not verified',
+        limiting: 'unsupportedCheck',
+      });
     } else if (hasTuples) {
       const provArea = colLayout?.totalArea ?? (provided.longitudinal ? rebarGroupArea(provided.longitudinal) : 0);
       // Slenderness magnification applies to BOTH moment components.

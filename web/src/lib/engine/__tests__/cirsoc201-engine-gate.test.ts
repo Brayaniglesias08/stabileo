@@ -76,3 +76,23 @@ describe('engine re-check gate', () => {
     expect(engineRecheckElement(v, { stirrupDia: 8, NuShear: -900 }).engineRecheck.columnRatio!).toBeLessThan(1);
   });
 });
+
+describe('provided-reinforcement verifier without the engine', () => {
+  it('a column is not verified when the Rust column kernel is not registered', async () => {
+    const { registerColumnCapacityKernel } = await import('../column-capacity-kernel');
+    const { verifyProvidedReinforcement } = await import('../station-design-forces');
+    const wasm = await import('../../wasm/dedaliano_engine.js');
+    registerColumnCapacityKernel(null);
+    try {
+      const r = verifyProvidedReinforcement(1, 'column', { longitudinal: { count: 8, diameter: 16 }, stirrups: { diameter: 8, legs: 2, spacing: 0.15 } },
+        undefined, {}, { b: 0.3, h: 0.3, fc: 25, fy: 420, cover: 0.025, stirrupDia: 8 },
+        { elementId: 1, length: 3, comboResults: [{ comboId: 1, comboName: 'U', stations: [
+          { t: 0, x: 0, n: -500, vy: 5, vz: 5, my: 10, mz: 20, mx: 0 }] }] } as never);
+      const c = r.checks.find((k) => k.category.includes('engine unavailable'));
+      expect(c?.status).toBe('fail');
+      expect(r.overallStatus).not.toBe('pass');
+    } finally {
+      registerColumnCapacityKernel(wasm.solve_column_capacity_batch);
+    }
+  });
+});
