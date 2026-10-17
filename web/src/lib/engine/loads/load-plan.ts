@@ -692,12 +692,18 @@ export function buildLoadPlan(input: LoadPlanInput): LoadPlan {
     tributaryWidth: input.tributaryWidth,
   });
   derivation.push(...layout.notes);
-  /** The design live load of a member for an occupancy: by its own tributary area in panel mode. */
-  const reducedFor = (entry: OccupancyEntry, loKNm2: number, uniform: number, areas: Map<number, number>) => (elementId: number): number => {
+  /*
+   * The design live load of a member for an occupancy, by its own tributary area: in panel mode the
+   * area of the panels it carries; by width, the width times its length in plan, which is the area
+   * the width loads it with. By width every member used to take one reduction, read off the largest
+   * area any member of the model could carry (`tributaryAreaM2` above): an edge beam 6 m long under
+   * a 3 m width, KLL·AT = 36 m² < 37 m² and so not reducible by §4.7.2, came out 21 % lighter.
+   */
+  const widthArea = new Map(layout.widthMembers.map((m) => [m.elementId, input.tributaryWidth * m.horizontalLength]));
+  const reducedFor = (entry: OccupancyEntry, loKNm2: number, _uniform: number, areas: Map<number, number>) => (elementId: number): number => {
     if (!input.applyLiveReduction) return loKNm2;
-    if (!panelMode) return uniform;
     return codes.loads.reduce({
-      loKNm2, tributaryAreaM2: areas.get(elementId) ?? 0, elementKind: input.reductionElementKind,
+      loKNm2, tributaryAreaM2: (panelMode ? areas.get(elementId) : widthArea.get(elementId)) ?? 0, elementKind: input.reductionElementKind,
       floorsSupported: input.floorsSupported,
       passengerGarage: entry.assemblyKind === 'passengerGarage', publicAssembly: entry.assemblyKind === 'publicAssembly',
       noReduction: entry.noReduction === true,
@@ -707,7 +713,7 @@ export function buildLoadPlan(input: LoadPlanInput): LoadPlan {
   const floorAreas = input.roof ? layout.areaOf : new Map([...layout.areaOf].map(([id, a]) => [id, a + (layout.roofAreaOf.get(id) ?? 0)]));
   for (const [id, a] of layout.roofAreaOf) if (!input.roof && !floorAreas.has(id)) floorAreas.set(id, a);
   const liveOf = reducedFor(occ, lo, liveDesign, floorAreas);
-  if (input.applyLiveReduction && panelMode) {
+  if (input.applyLiveReduction) {
     const ls = [...floorAreas.keys()].map(liveOf);
     if (ls.length) derivation.push(msg('loadPlan.derivation.reductionPerMember', { min: round(Math.min(...ls), 3), max: round(Math.max(...ls), 3), n: ls.length }));
   }

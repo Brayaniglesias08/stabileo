@@ -298,11 +298,13 @@ describe('§4.7.3 – §4.7.6 — limits on the reduction', () => {
     expect(r.refs[0].clause).toBe('4.7.6');
   });
 
-  it('§4.7.6 permits it at the limit', () => {
+  it('§4.7.6 (2025) does not reduce a one-way slab at all below 5 kN/m², even within the width', () => {
+    // "Para losas en una sola dirección, las sobrecargas no se podrán reducir excepto en el caso
+    // de sobrecargas pesadas." Only the commentary and ASCE 7 allow it with the area cap.
     const r = reduceLiveLoad({
       loKNm2: 3, tributaryAreaM2: 200, elementKind: 'other', floorsSupported: 1,
       oneWaySlabSpanM: 4, tributaryWidthM: 6,
     });
-    expect(r.reduced).toBe(true);
+    expect(r.reduced).toBe(false);
   });
 });

@@ -223,6 +223,16 @@ export const PARTITION_EXEMPTION_LKNM2 = 4;
 export const PARTITION_REF = clause('cirsoc-101', '2025', '3.1.4',
   'carga debida a elementos divisorios');
 
+/**
+ * §4.3.2 — the least partition load, kN/m²: "La carga de dichos elementos deberá ser mayor o
+ * igual que 0,75 kN/m²". §3.1.4 only says one is owed; this is the number. (§4.3.2 releases
+ * live loads over 3,85 kN/m², §3.1.4 those over 4: the stricter, 4, is kept.)
+ */
+export const PARTITION_MINIMUM_KNM2 = 0.75;
+
+export const PARTITION_MINIMUM_REF = clause('cirsoc-101', '2025', '4.3.2',
+  'requerimientos para elementos divisorios');
+
 export interface PartitionCheck {
   /** True when §3.1.4 requires an allowance and the build-up carries none. */
   missing: boolean;
@@ -250,6 +260,15 @@ export function checkPartitionAllowance(
         lo: round(liveLoKNm2, 2), limit: PARTITION_EXEMPTION_LKNM2,
       }),
       refs: [PARTITION_REF],
+    };
+  }
+  if (partitionAllowanceKNm2 > 0 && partitionAllowanceKNm2 < PARTITION_MINIMUM_KNM2) {
+    return {
+      missing: true, exempt: false,
+      message: msg('loads.cirsoc101.dead.partitionBelowMinimum', {
+        q: round(partitionAllowanceKNm2, 2), min: PARTITION_MINIMUM_KNM2,
+      }),
+      refs: [PARTITION_REF, PARTITION_MINIMUM_REF],
     };
   }
   if (partitionAllowanceKNm2 > 0) {
