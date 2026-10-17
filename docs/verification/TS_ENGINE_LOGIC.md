@@ -225,7 +225,39 @@ designer anchored at 4 ‰ for the required steel and never looked at the provid
 
 ### 5. Hardening what stays in TypeScript
 
-In progress.
+**Property test of the detailing invariants**
+(`design/__tests__/detailing-invariants.property.test.ts`). Random fixed-ended beams are
+solved by the engine and designed by the bounded search. For every VERIFIED outcome the
+accepted bars are re-checked from geometry, not read back from the verdict:
+
+- engine φMn ≥ Mu at span and supports, with the other face's bars as compression steel;
+- εt ≥ εt,min;
+- engine φVn ≥ Vu;
+- every row's clear spacing ≥ max(25 mm, db) inside bw − 2·(cover + stirrup), which means the
+  cover is respected;
+- stirrup spacing ≤ min(d/2, 600 mm).
+
+Each run certifies more than 10 beams. A deliberately broken threshold is caught, and
+shrinking reduces it to its boundary.
+
+**Mutation testing.** Config: `web/stryker.config.json`. Run it with `npm run test:mutation`.
+It runs nightly in `.github/workflows/mutation-ts.yml`. Stryker runs a focused test set,
+`web/vitest.mutation.config.ts`: 62 files that take 9 s, where the whole unit pass took long
+enough that Stryker's dry run timed out. `.stryker-tmp` is excluded from vitest, because a
+sandbox collected by a normal run made every engine test fail: the WASM build is gitignored and
+so missing from the sandbox. The config re-includes the build for Stryker.
+
+Results on the critical modules this branch added or relies on:
+
+| Module | First run | After new tests | Notes |
+|---|---:|---:|---|
+| `codes/argentina/cirsoc201-engine-gate.ts` | 49,6 % (112 of 244 survived) | 82,8 % (39 survived) | The rest are equivalent: a NaN ratio that `!(x ≤ 1)` already fails, `<` against `≤` at exactly 1,0, and diagnostic text. |
+| `codes/argentina/cirsoc201-beam-kernel.ts` | 80,4 % | 96,1 % | The survivor is the output-length guard, which only fires on a mismatched engine build. |
+| `design-check-results.ts` | 50,6 % | 55,8 % | The normalisers for engine results read snake_case while the engine emits camelCase (fixed, found by a test written to kill these mutants). Most survivors are in label and combo-name plumbing of `normalizeCirsoc301` and `normalizeCirsoc201`. |
+
+The full critical set in `stryker.config.json` (CIRSOC 301, serviceability, footings,
+auto-verify, the candidate search, CIRSOC 201 anchorage and spacing) has not been run here. The
+machine was shared by eight agents. The nightly job runs it.
 
 ## What is left
 
