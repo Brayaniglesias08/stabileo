@@ -86,6 +86,12 @@ def run_case(adapter, model, analysis, tol, n_modes=6, mode_tol=None):
     else:
         kappa = rres.get("kappa")
         if kappa is not None and kappa > 1e12:
+            # The reference finds the stiffness singular (or nearly): stabileo
+            # must have said so (the ILL_CONDITIONED diagnostics were checked
+            # above, so here it solved silently).
+            if kappa > 1e14:
+                return dict(status="silent_singular", why=[f"kappa={kappa:.1e} min_pivot={rres.get('min_pivot')}"],
+                            kappa=kappa, min_pivot=rres.get("min_pivot"))
             return dict(status="ill_conditioned", why=[f"kappa={kappa:.1e}"])
         tol = max(tol, 100 * 2.2e-16 * (kappa or 0.0))
         bad, groups = R.static_compare(clean, sres, rres, tol)
@@ -182,7 +188,7 @@ def shrink(adapter, model, analysis, tol, n_modes=6, max_steps=400):
                 r = run_case(adapter, c, analysis, tol, n_modes)
             except Exception:  # noqa: a candidate may break a translator
                 continue
-            if r["status"] == "mismatch" and _worst(r) >= target:
+            if r["status"] == first["status"] and (r["status"] != "mismatch" or _worst(r) >= target):
                 cur, changed = c, True
                 break
     return cur
@@ -199,7 +205,7 @@ def run_all(adapter, cases, tol, jobs=4, dump_dir=None, do_shrink=False, verbose
         except Exception as ex:  # noqa: harness bug: report, keep going
             r = dict(status="harness_error", why=[traceback.format_exc()[-600:]])
         r.update(name=case.name, analysis=case.analysis)
-        if r["status"] == "mismatch" and dump_dir:
+        if r["status"] in ("mismatch", "silent_singular") and dump_dir:
             os.makedirs(dump_dir, exist_ok=True)
             base = os.path.join(dump_dir, f"{adapter.NAME}-{case.analysis}-{case.name}".replace("/", "_"))
             with open(base + ".json", "w") as f:
@@ -225,7 +231,7 @@ def run_all(adapter, cases, tol, jobs=4, dump_dir=None, do_shrink=False, verbose
 def summarize(results, verbose=False, out=print):
     from collections import Counter
     for r in results:
-        if verbose or r["status"] in ("mismatch", "harness_error"):
+        if verbose or r["status"] in ("mismatch", "harness_error", "silent_singular"):
             extra = r.get("why") or {k: f"{v:.1e}" for k, v in r.get("max_err", {}).items()}
             out(f"{r['status']:16} {r['analysis']:8} {r['name']}  {extra}")
             for w in r.get("worst", [])[:5] if r["status"] == "mismatch" else []:
@@ -242,7 +248,7 @@ def summarize(results, verbose=False, out=print):
                 g[k] = max(g.get(k, 0.0), v)
     if g:
         out("max normalized error over compared models: " + json.dumps({k: f"{v:.2e}" for k, v in sorted(g.items())}))
-    for st in ("known", "unsupported", "reference_failed", "stabileo_failed", "unstable"):
+    for st in ("known", "silent_singular", "unsupported", "reference_failed", "stabileo_failed", "unstable"):
         reasons = Counter(w[:120] for r in results if r["status"] == st
                           for w in ([r["known"]] if st == "known" else r["why"]))
         if reasons:

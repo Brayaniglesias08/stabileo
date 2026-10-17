@@ -239,7 +239,7 @@ _SUP2D = {  # 2D support type -> restrained (ux, uz, ry)
 }
 
 
-def lift_2d(model):
+def lift_2d(model, allow_hinges=False):
     """A 2D model (x, z plane) as the equivalent 3D model in the global XZ
     plane, out-of-plane DOFs (uy, rx, rz) fixed at every node.
 
@@ -247,8 +247,10 @@ def lift_2d(model):
     -Y: ry2d = -ry3d, my2d = -my3d. Every member gets localY = +Y, so its 3D
     local z is the 2D local y (the perpendicular load direction) and 2D
     bending is 3D bending about local y (Iy := iz, asY := asY). End forces
-    map as n = n, v = vz, m = -my. Springs, inclined rollers, thermal loads
-    and constraints raise Unsupported.
+    map as n = n, v = vz, m = -my. With `allow_hinges`, trusses stay trusses,
+    hinges become releaseMy and springs (kx, ky vertical, kz rotational; no
+    angle) become 3D springs. Inclined rollers, rotated springs, thermal
+    loads and constraints raise Unsupported.
     """
     if is_3d(model):
         return model
@@ -262,21 +264,35 @@ def lift_2d(model):
             t["asY"] = sct["asY"]
         m3["sections"][k] = t
     for k, e in model["elements"].items():
-        if e["type"] != "frame" or e.get("hingeStart") or e.get("hingeEnd"):
+        if not allow_hinges and (e["type"] != "frame" or e.get("hingeStart") or e.get("hingeEnd")):
             raise Unsupported("2D truss / hinge")
-        m3["elements"][k] = {"id": e["id"], "type": "frame", "nodeI": e["nodeI"], "nodeJ": e["nodeJ"],
-                             "materialId": e["materialId"], "sectionId": e["sectionId"],
-                             "localYx": 0.0, "localYy": 1.0, "localYz": 0.0}
+        if e["type"] not in ("frame", "truss"):
+            raise Unsupported(f"2D element {e['type']}")
+        t = {"id": e["id"], "type": e["type"], "nodeI": e["nodeI"], "nodeJ": e["nodeJ"],
+             "materialId": e["materialId"], "sectionId": e["sectionId"]}
+        if e["type"] == "frame":
+            t.update(localYx=0.0, localYy=1.0, localYz=0.0)
+            if e.get("hingeStart"):
+                t["releaseMyStart"] = True
+            if e.get("hingeEnd"):
+                t["releaseMyEnd"] = True
+        m3["elements"][k] = t
     sup = {}
     for s_ in sorted(model["supports"].values(), key=lambda s_: s_["id"]):
-        if s_["type"] not in _SUP2D:
+        if s_["type"] == "spring" and allow_hinges and not s_.get("angle"):
+            pass
+        elif s_["type"] not in _SUP2D:
             raise Unsupported(f"2D support {s_['type']}")
         sup[s_["nodeId"]] = s_  # highest id wins (DofNumbering::build_2d)
     for n in model["nodes"].values():
         s_ = sup.get(n["id"])
-        r = _SUP2D[s_["type"]] if s_ else (0, 0, 0)
+        r = _SUP2D.get(s_["type"], (0, 0, 0)) if s_ else (0, 0, 0)
         t = {"nodeId": n["id"], "rx": bool(r[0]), "ry": True, "rz": bool(r[1]),
              "rrx": True, "rry": bool(r[2]), "rrz": True}
+        if s_ and s_["type"] == "spring":
+            for k2, k3 in (("kx", "kx"), ("ky", "kz"), ("kz", "kry")):
+                if s_.get(k2):
+                    t[k3] = s_[k2]
         if s_:
             # Settlements act on restrained DOFs only (as in the engine).
             for d2, d3, k, sg in (("dx", "dx", 0, 1), ("dz", "dz", 1, 1), ("dy", "dz", 1, 1),
@@ -313,3 +329,120 @@ def lower_static_3d(res3, model2d):
     forces = {e: {"nStart": f["nStart"], "nEnd": f["nEnd"], "vStart": f["vzStart"], "vEnd": f["vzEnd"],
                   "mStart": -f["myStart"], "mEnd": -f["myEnd"]} for e, f in res3["forces"].items()}
     return dict(dim=2, disp=disp, reac=reac, forces=forces, art_rot=[], kappa=res3.get("kappa"))
+
+
+def _rank3(vs, tol=1e-9):
+    basis = []
+    for v in vs:
+        w = list(v)
+        for b in basis:
+            d = sum(w[k] * b[k] for k in range(3))
+            w = [w[k] - d * b[k] for k in range(3)]
+        n = math.sqrt(sum(x * x for x in w))
+        if n > tol:
+            basis.append([x / n for x in w])
+    return len(basis)
+
+
+def rotational_rank(model, flags, springs):
+    """({node: rank}, art_rot) of the rotational stiffness at each node of a
+    3D model (as tools/opensees/compare.py): frame ends contribute their
+    local axes whose moment (torsion: ex) is not released, rotational
+    restraints / springs their global axes. Rank 0 nodes (truss-only, all
+    released) are returned in art_rot: the engine puts a tiny artificial
+    spring there and their rotations are not compared. A partial rank is a
+    rotational mechanism: Unsupported."""
+    mem = members(model)
+    dirs = {n["id"]: [] for n in model["nodes"].values()}
+    for m in mem.values():
+        e = m["e"]
+        if e["type"] != "frame":
+            continue
+        for nid, end in ((m["ni"], "Start"), (m["nj"], "End")):
+            if not e.get("releaseT" + end):
+                dirs[nid].append(m["ex"])
+            if not e.get("releaseMy" + end):
+                dirs[nid].append(m["ey"])
+            if not e.get("releaseMz" + end):
+                dirs[nid].append(m["ez"])
+    for nid in dirs:
+        for k in range(3):
+            if flags.get(nid, [False] * 6)[3 + k] or springs.get(nid, {}).get(3 + k):
+                dirs[nid].append([1.0 if i == k else 0.0 for i in range(3)])
+    rank = {nid: _rank3(v) for nid, v in dirs.items()}
+    art = {nid for nid, r in rank.items() if r == 0}
+    bad = [nid for nid, r in rank.items() if 0 < r < 3]
+    if bad:
+        raise Unsupported(f"rotational mechanism at node {bad[0]}")
+    return rank, art
+
+
+# ---------------------------------------------------------------- isolation
+
+def run_isolated(script, payload, timeout=900):
+    """Run `script --worker` in a fresh interpreter with `payload` (JSON) on
+    stdin; returns its JSON reply. Python reference programs run this way:
+    they print, keep global state, and hold the GIL."""
+    import json
+    p = subprocess.run([sys.executable, "-I", script, "--worker"], input=json.dumps(payload),
+                       capture_output=True, text=True, timeout=timeout)
+    lines = p.stdout.strip().splitlines()
+    try:
+        out = json.loads(lines[-1])
+    except (json.JSONDecodeError, IndexError):
+        raise RuntimeError(f"{os.path.basename(script)} worker exit {p.returncode}: {p.stderr.strip()[-300:]}")
+    if "unsupported" in out:
+        raise Unsupported(out["unsupported"])
+    if "error" in out:
+        raise RuntimeError(out["error"])
+    return out["ok"]
+
+
+def worker_main(fn):
+    """Body of a `--worker` process: payload from stdin, fn(**payload) ->
+    one JSON line on stdout (dict keys become strings)."""
+    import json
+    import traceback
+    payload = json.load(sys.stdin)
+    try:
+        out = {"ok": fn(**payload)}
+    except Unsupported as ex:
+        out = {"unsupported": str(ex)}
+    except Exception as ex:  # noqa: report any failure to the parent
+        out = {"error": f"{type(ex).__name__}: {ex} {traceback.format_exc()[-400:]}"}
+    print("\n" + json.dumps(out, default=float))
+
+
+def int_keys(res):
+    """JSON round trip turns node / element ids into strings: undo it."""
+    for k in ("disp", "reac", "forces"):
+        if k in res:
+            res[k] = {int(i): v for i, v in res[k].items()}
+    if "shapes" in res:
+        res["shapes"] = [{int(i): v for i, v in s.items()} for s in res["shapes"]]
+    return res
+
+
+def nodes_inside_members(model, rel=1e-9):
+    """[(node, element)] with the node on the element's segment (excluding its
+    ends). stabileo does not connect such a node to the member; programs that
+    split members at nodes (PyNite's physical members) would."""
+    xyz = nodes_xyz(model)
+    out = []
+    for e in model["elements"].values():
+        pi, pj = xyz[e["nodeI"]], xyz[e["nodeJ"]]
+        d = [pj[k] - pi[k] for k in range(3)]
+        L2 = sum(x * x for x in d)
+        if L2 == 0:
+            continue
+        L = math.sqrt(L2)
+        for nid, p in xyz.items():
+            if nid in (e["nodeI"], e["nodeJ"]):
+                continue
+            t = sum((p[k] - pi[k]) * d[k] for k in range(3)) / L2
+            if not (0 < t < 1):
+                continue
+            q = [pi[k] + t * d[k] - p[k] for k in range(3)]
+            if math.sqrt(sum(x * x for x in q)) <= 1e-6 * (1 + L):
+                out.append((nid, e["id"]))
+    return out
