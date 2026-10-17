@@ -198,7 +198,7 @@ fn materials(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
                 if let Some((fam, lo, hi)) = target {
                     f = f.with("family", fam).with("lo", lo).with("hi", hi);
                 } else {
-                    f = f.with("hi", RHO_MAX);
+                    f = f.with("lo", 0.0).with("hi", RHO_MAX);
                 }
                 if let Some((unit, v, _)) = hint {
                     msg.push_str(&format!(" Read as {} it would be {} kN/m³.", unit, fmt(v)));
