@@ -284,7 +284,8 @@ In rough order of safety value:
 7. **Silent fallbacks.** `section-stress*.ts`, `shell-combos.ts` and
    `verification-service.ts` (station extraction) quietly compute in TypeScript when WASM is
    not ready (findings 4 and 11). (`plastic-collapse.ts`, finding 12, is fixed: an engine
-   exception after the kinematic check says "solvable" is now an error.)
+   exception after the kinematic check says "solvable" is now an error, unless the engine's
+   message names a mechanism, singularity or instability.)
 8. **`pdelta-forces.ts`** patches the engine's P-Delta member forces with Kg·u (finding 14).
    The fix belongs in Rust.
 9. **PRO report slab steel** (finding 13) is no longer printed. The section invented its load, span and f'c, and now says that slab steel is designed in the slab design. A report section built from the slab design's own results would be the real fix.

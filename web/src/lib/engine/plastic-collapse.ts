@@ -226,8 +226,13 @@ export function plasticCollapse2D(original: SolverInput, opts: PlasticCollapseOp
     if (!kin.isSolvable) { isMechanism = true; break; }
     let r: AnalysisResults;
     try { r = solve(work); } catch (e) {
+      const msg = (e as Error)?.message ?? String(e);
+      // The engine has its own mechanism detection (a hinged node free to rotate, a singular
+      // stiffness), finer than the kinematic count: its verdict is a mechanism. Anything else
+      // is a failure and is reported as one.
+      if (/mechanism|singular|instab/i.test(msg)) { isMechanism = true; break; }
       throw new Error(`Plastic collapse: the solve after ${hinges.length} hinge(s) failed although the `
-        + `structure is not a mechanism — ${(e as Error)?.message ?? String(e)}`);
+        + `structure is not a mechanism — ${msg}`);
     }
     const efOf = new Map(r.elementForces.map((ef) => [ef.elementId, ef]));
 
