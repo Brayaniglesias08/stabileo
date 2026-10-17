@@ -269,7 +269,6 @@ fn time_history_2d_static_loads_settle_to_linear_solution() {
 /// mass and reports the mode shape in the roller frame, so the frequencies of
 /// the original and the rigidly rotated model differ.
 #[test]
-#[ignore = "FINDING: 2D modal does not rotate the mass (or the mode shapes) at inclined rollers"]
 fn modal_2d_inclined_roller_rotation_invariance() {
     let mut densities = HashMap::new();
     densities.insert("1".to_string(), 7850.0);
@@ -334,7 +333,6 @@ fn column_3d(inclined: bool) -> SolverInput3D {
 /// `assemble_sparse_3d` itself shares the linear path's stiffness, so the 3D
 /// assembler has none of the 2D `_ex` differences; the gap is in the caller.
 #[test]
-#[ignore = "FINDING: 3D buckling does not rotate Kg (or the mode shapes) at inclined supports"]
 fn buckling_3d_inclined_support_matches_plain_restraint() {
     let a = buckling::solve_buckling_3d(&column_3d(true), 2).expect("inclined");
     let b = buckling::solve_buckling_3d(&column_3d(false), 2).expect("plain");
@@ -346,7 +344,6 @@ fn buckling_3d_inclined_support_matches_plain_restraint() {
 /// FINDING: 3D time integration pairs the rotated K with an unrotated mass and
 /// force history, and records states in the inclined-support frame.
 #[test]
-#[ignore = "FINDING: 3D time integration does not rotate M, loads or outputs at inclined supports"]
 fn time_history_3d_inclined_support_matches_plain_restraint() {
     let run = |inclined: bool| {
         let mut densities = HashMap::new();
