@@ -58,9 +58,6 @@ const summary = (r: SanityReport | null) => (r?.findings ?? []).map((f) => `${f.
  * example fails here until it is examined and justified the same way.
  */
 const JUSTIFIED_WARNINGS: Record<string, string[]> = {
-  // Nodes on a member's span that are not connected to it, found by the check added with this
-  // pin; each model is examined below and either fixed or the warning justified.
-  'suspension-bridge': ['node_on_span'],
   // The diagrid's 42 floors carry no floor loads, only the frame's own weight: 0.22 kN/m². True of
   // the example, which models the structure, not a loaded building.
   'xl-diagrid-tower': ['weight_per_area_low'],
@@ -76,12 +73,9 @@ const JUSTIFIED_WARNINGS: Record<string, string[]> = {
 
 /*
  * Examples whose linear results are absurd, and which the review therefore reports as errors.
- * The suspension bridge's deck sags 440 m because a cable bridge solved linearly, without the
- * cables' geometric stiffness, is a mechanism. Pinned here so a change is seen.
+ * None: an example that is not a valid structure under its own loads is fixed, not pinned here.
  */
-const KNOWN_ERRORS: Record<string, string[]> = {
-  'suspension-bridge': ['displacement_absurd'],
-};
+const KNOWN_ERRORS: Record<string, string[]> = {};
 
 const fixtures = readdirSync('src/lib/templates/fixtures')
   .filter((f) => f.endsWith('.json'))
