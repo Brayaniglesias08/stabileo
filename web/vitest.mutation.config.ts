@@ -19,7 +19,8 @@ export default mergeConfig(rest, defineConfig({
     exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**', '**/.stryker-tmp/**'],
     include: [
       'src/lib/engine/__tests__/differential/**/*.test.ts',
-      'src/lib/engine/__tests__/cirsoc201-engine-gate.test.ts',
+      'src/lib/engine/__tests__/cirsoc201-engine-gate*.test.ts',
+      'src/lib/engine/__tests__/cirsoc201-beam-kernel.test.ts',
       'src/lib/engine/__tests__/ts-logic-findings.test.ts',
       'src/lib/engine/__tests__/design-check-results.test.ts',
       'src/lib/engine/__tests__/beam-shear-2025.test.ts',
