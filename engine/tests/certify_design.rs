@@ -398,7 +398,8 @@ fn certified_ec3_utilization_end_to_end_2d() {
             serde_json::from_value(serde_json::json!({
                 "elementId": id, "fy": 355e3, "e": 210e6, "a": 5.381e-3, "wplY": 6.28e-4, "welY": 5.57e-4,
                 "wplZ": 1.25e-4, "welZ": 8.05e-5, "iy": 8.356e-5, "iz": 6.04e-6, "it": 2.01e-7, "iw": 1.26e-7,
-                "lcrY": 3.5, "lcrZ": 3.5, "lb": 3.5, "bucklingCurveY": "a", "c1": 1.13, "av": 2.568e-3
+                "lcrY": 3.5, "lcrZ": 3.5, "lb": 3.5, "bucklingCurveY": "a", "c1": 1.13, "av": 2.568e-3,
+                "geometry": { "shape": "I", "h": 0.3, "b": 0.15, "tw": 0.0071, "tf": 0.0107, "r": 0.015 }
             }))
             .unwrap()
         })

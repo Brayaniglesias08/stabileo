@@ -118,6 +118,133 @@ pub struct Ec3MemberData {
     /// conservative defaults documented on [`Ec3InteractionData`].
     #[serde(default)]
     pub interaction: Option<Ec3InteractionData>,
+    /// Cross-section geometry. Gives the depth the load height of
+    /// [`Ec3LtbData`] is measured from, and the plate widths the Class 4
+    /// effective section (EN 1993-1-5 4.4) is computed from.
+    #[serde(default)]
+    pub geometry: Option<Ec3Geometry>,
+    /// Lateral-torsional buckling inputs beyond C1: C2 and where the
+    /// transverse load acts. Absent: the load is on the TOP flange
+    /// (destabilising), see [`Ec3LtbData`].
+    #[serde(default)]
+    pub ltb: Option<Ec3LtbData>,
+}
+
+/// Cross-section geometry (m). Each shape is doubly symmetric by
+/// construction; a section that is not (a channel, a tee, an I with unequal
+/// flanges) has no geometry here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "shape", rename_all = "camelCase")]
+pub enum Ec3Geometry {
+    /// Doubly symmetric I or H: depth, flange width, web and flange
+    /// thickness, root radius (0 for a welded section: the flat widths are
+    /// then the largest, the conservative side).
+    #[serde(rename = "I")]
+    I {
+        h: f64,
+        b: f64,
+        tw: f64,
+        tf: f64,
+        #[serde(default)]
+        r: f64,
+    },
+    /// Rectangular hollow section: depth (parallel to z), width, wall.
+    #[serde(rename = "RHS")]
+    Rhs { h: f64, b: f64, t: f64 },
+    /// Circular hollow section: diameter, wall.
+    #[serde(rename = "CHS")]
+    Chs { d: f64, t: f64 },
+}
+
+impl Ec3Geometry {
+    /// Overall depth along z (m).
+    pub fn depth(&self) -> f64 {
+        match *self {
+            Ec3Geometry::I { h, .. } | Ec3Geometry::Rhs { h, .. } => h,
+            Ec3Geometry::Chs { d, .. } => d,
+        }
+    }
+}
+
+/// Where the transverse load acts, relative to the shear centre.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Ec3LoadPosition {
+    /// At the shear centre: zg = 0.
+    ShearCentre,
+    /// On the top (compression) flange: zg = +h/2, destabilising.
+    TopFlange,
+    /// On the bottom flange: zg = −h/2, stabilising.
+    BottomFlange,
+}
+
+/// Load height in the elastic critical moment, NCCI SN003b eq. (2):
+///
+/// Mcr = C1·π²EIz/L² · { √[Iw/Iz + L²GIt/(π²EIz) + (C2·zg)²] − C2·zg }
+///
+/// with k = kw = 1 (fork supports, warping free) and zg the distance from the
+/// point of load application to the shear centre, positive for a load acting
+/// towards the shear centre (a gravity load on the top flange). It replaces
+/// the zg = 0 expression (3), which is unconservative for top-flange loads.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ec3LtbData {
+    /// C2 for the moment diagram between lateral restraints, SN003b
+    /// Tables 3.2 / Figures 3.4, 3.6 (0 for end moments only). Absent:
+    /// * zg > 0 → C2 = C1. Mcr falls as C2 grows; with C2/C1 = 1 it is a
+    ///   lower bound for every transverse-load case of Table 3.2 (C2/C1 ≤
+    ///   1.645/1.683 = 0.98), and with the default C1 = 1 also for any case
+    ///   with C1 ≥ 1 and C2/C1 ≤ 1, because C1·f(C1·r·zg) grows with C1 at
+    ///   fixed r = C2/C1. For end moments combined with transverse load
+    ///   (Figures 3.3–3.6) give C1 and C2 explicitly.
+    /// * zg < 0 → C2 = 0: a stabilising load can only raise Mcr, and
+    ///   ignoring it is the conservative side.
+    #[serde(default)]
+    pub c2: Option<f64>,
+    /// Absent: `TopFlange` — the checker does not know where the load acts,
+    /// and the top flange gives the lowest Mcr (same choice as the CIRSOC 301
+    /// F.2 check). Needs `geometry` for the depth unless `zg` is given.
+    #[serde(default)]
+    pub load_position: Option<Ec3LoadPosition>,
+    /// Explicit zg (m), positive towards the shear centre. Overrides
+    /// `load_position`.
+    #[serde(default)]
+    pub zg: Option<f64>,
+}
+
+/// (zg, C2) for the Mcr of SN003b eq. (2), or `None` when the inputs cannot
+/// give them — a load position that needs a depth the member does not have,
+/// or a non-finite/negative input. `None` refuses the LTB check.
+pub(crate) fn ltb_load_height(m: &Ec3MemberData) -> Option<(f64, f64)> {
+    let ltb = m.ltb.clone().unwrap_or_default();
+    // C2 = 0 (a linear moment diagram, SN003b §2): C2·zg = 0 and the load
+    // height does not enter, so no depth is needed.
+    if ltb.c2 == Some(0.0) {
+        return Some((0.0, 0.0));
+    }
+    let zg = match ltb.zg {
+        Some(z) if z.is_finite() => z,
+        Some(_) => return None,
+        None => {
+            let depth = || m.geometry.as_ref().map(|g| g.depth()).filter(|h| h.is_finite() && *h > 0.0);
+            match ltb.load_position.unwrap_or(Ec3LoadPosition::TopFlange) {
+                Ec3LoadPosition::ShearCentre => 0.0,
+                Ec3LoadPosition::TopFlange => depth()? / 2.0,
+                Ec3LoadPosition::BottomFlange => -depth()? / 2.0,
+            }
+        }
+    };
+    if zg == 0.0 {
+        return Some((0.0, 0.0));
+    }
+    let c1 = m.c1.unwrap_or(1.0);
+    let c2 = match ltb.c2 {
+        Some(c) if c.is_finite() && c >= 0.0 => c,
+        Some(_) => return None,
+        None if zg > 0.0 => c1,
+        None => 0.0,
+    };
+    Some((zg, c2))
 }
 
 /// Inputs of the EN 1993-1-1 6.3.3 interaction, Annex B ("Method 2").
@@ -223,6 +350,10 @@ pub struct Ec3CheckResult {
     pub nb_rd: f64,
     /// LTB moment resistance Mb,Rd (N-m)
     pub mb_rd: f64,
+    /// Elastic critical moment Mcr (N-m) with the load height; absent for
+    /// Lb = 0 (no LTB) and when it could not be evaluated.
+    #[serde(default)]
+    pub mcr: Option<f64>,
     /// Overall pass
     pub pass: bool,
     /// Checks whose capacity could not be evaluated.
@@ -309,6 +440,8 @@ pub(crate) struct Ec3Capacities<T> {
     pub chi_y: T,
     pub chi_z: T,
     pub chi_lt: T,
+    /// Elastic critical moment (None for Lb = 0: no LTB).
+    pub mcr: Option<T>,
 }
 
 /// EN 1993-1-1 resistances 6.2.3, 6.3.1, 6.3.2, 6.2.5, 6.2.6.
@@ -343,20 +476,24 @@ pub(crate) fn ec3_capacities<T: Real>(m: &Ec3MemberData) -> Ec3Capacities<T> {
     let nb_y_rd = (chi_y * area * fy).dv(gamma_m1);
     let nb_z_rd = (chi_z * area * fy).dv(gamma_m1);
 
-    // Lateral-torsional buckling (EC3 6.3.2): elastic critical moment Mcr
-    // (simplified for doubly-symmetric I-sections)
+    // Lateral-torsional buckling (EC3 6.3.2): elastic critical moment Mcr of
+    // a doubly symmetric section with the load height zg, NCCI SN003b eq. (2).
     // Lb = 0 is a continuously restrained member: there is no LTB and χLT = 1
     // (6.3.2.2(4) with λLT = 0). Evaluating Mcr there divides by Lb² = 0 and
     // the 0·∞ that follows made the strong-axis check NaN, i.e. unevaluated,
     // for exactly the member whose resistance is simplest.
-    let chi_lt = if m.lb <= 0.0 {
-        T::exact(1.0)
+    let (chi_lt, mcr) = if m.lb <= 0.0 {
+        (T::exact(1.0), None)
     } else {
+        // A load height the inputs cannot give refuses the check (NaN →
+        // unevaluated): zg = 0 under a top-flange load overstates Mcr.
+        let (zg, c2) = ltb_load_height(m).unwrap_or((f64::NAN, f64::NAN));
         let (lb, iz) = (T::exact(m.lb), T::exact(m.iz));
+        let c2zg = T::exact(c2) * T::exact(zg);
         let mcr = (c1 * pi2 * e * iz).dv(lb * lb)
-            * (T::exact(m.iw).dv(iz) + (lb * lb * g * T::exact(m.it)).dv(pi2 * e * iz)).sqrt();
+            * ((T::exact(m.iw).dv(iz) + (lb * lb * g * T::exact(m.it)).dv(pi2 * e * iz) + c2zg.sq()).sqrt() - c2zg);
         let lambda_lt = (w_y * fy).dv(mcr).sqrt();
-        compute_chi(lambda_lt, T::lit(m.buckling_curve_lt.alpha()))
+        (compute_chi(lambda_lt, T::lit(m.buckling_curve_lt.alpha())), Some(mcr))
     };
     let mb_rd = (chi_lt * w_y * fy).dv(gamma_m1);
 
@@ -385,6 +522,7 @@ pub(crate) fn ec3_capacities<T: Real>(m: &Ec3MemberData) -> Ec3Capacities<T> {
         chi_y,
         chi_z,
         chi_lt,
+        mcr,
     }
 }
 
@@ -548,7 +686,7 @@ fn check_single_ec3_member(m: &Ec3MemberData, f: &Ec3DesignForces) -> Ec3CheckRe
     let mz_ed = f.mz_ed.unwrap_or(0.0);
     let v_ed = f.v_ed.unwrap_or(0.0);
 
-    let Ec3Capacities { npl_rd, nb_rd, mb_rd, mc_z_rd, vpl_rd, chi_y, chi_z, chi_lt, .. } = caps;
+    let Ec3Capacities { npl_rd, nb_rd, mb_rd, mc_z_rd, vpl_rd, chi_y, chi_z, chi_lt, mcr, .. } = caps;
 
     let mut ledger = CheckLedger::new();
     ledger.require_finite("Column buckling chi_y", chi_y);
@@ -621,6 +759,7 @@ fn check_single_ec3_member(m: &Ec3MemberData, f: &Ec3DesignForces) -> Ec3CheckRe
         chi_lt,
         nb_rd,
         mb_rd,
+        mcr: mcr.filter(|x| x.is_finite()),
         pass,
         unevaluated: ledger.into_unevaluated(),
     }

@@ -819,6 +819,15 @@ mod tests {
             c1: Some(1.13),
             av: Some(2.568e-3),
             interaction: None,
+            // IPE 300; the default top-flange load height needs the depth.
+            geometry: Some(crate::postprocess::ec3_check::Ec3Geometry::I {
+                h: 0.300,
+                b: 0.150,
+                tw: 0.0071,
+                tf: 0.0107,
+                r: 0.015,
+            }),
+            ltb: None,
         }
     }
 

@@ -30,6 +30,8 @@ fn ipe300_s275() -> Ec3MemberData {
         c1: Some(1.0),
         av: Some(25.7e-4), // ~50% of gross area for I-section
         interaction: None,
+        geometry: None,
+        ltb: None,
     }
 }
 

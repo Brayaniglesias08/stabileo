@@ -40,6 +40,8 @@ fn ipe300(class: SectionClass) -> Ec3MemberData {
         c1: None,
         av: None,
         interaction: None,
+        geometry: None,
+        ltb: None,
     }
 }
 

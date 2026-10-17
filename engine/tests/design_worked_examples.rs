@@ -422,7 +422,15 @@ fn ec3_blank(fy: f64) -> Ec3MemberData {
         c1: None,
         av: None,
         interaction: None,
+        geometry: None,
+        ltb: None,
     }
+}
+
+/// LTB with a linear moment diagram (end moments only): SN003b sets
+/// C2·zg = 0, i.e. the load height does not enter Mcr.
+fn end_moments_only() -> Ec3LtbData {
+    Ec3LtbData { c2: Some(0.0), ..Default::default() }
 }
 
 fn ec3_run(m: Ec3MemberData, n_ed: f64, my_ed: f64, v_ed: f64) -> Ec3CheckResult {
@@ -593,6 +601,9 @@ fn ec3_sbe_ms8_ex2_annex_b_interaction() {
         buckling_curve_y: BucklingCurve::A,
         buckling_curve_z: BucklingCurve::B,
         buckling_curve_lt: BucklingCurve::C,
+        // A column under end moments: the moment diagram is linear, so
+        // SN003b's C2·zg = 0 whatever the load height.
+        ltb: Some(end_moments_only()),
         ..ec3_blank(355.0)
     };
     let r = ec3_run(m, -n * 1e3, my * 1e6, 0.0);
@@ -658,6 +669,9 @@ fn ec3_interaction_k_above_one_is_applied() {
         buckling_curve_y: BucklingCurve::A,
         buckling_curve_z: BucklingCurve::B,
         buckling_curve_lt: BucklingCurve::C,
+        // A column under end moments: the moment diagram is linear, so
+        // SN003b's C2·zg = 0 whatever the load height.
+        ltb: Some(end_moments_only()),
         ..ec3_blank(355.0)
     };
     let r = ec3_run(m.clone(), -1500e3, 150e6, 0.0);
