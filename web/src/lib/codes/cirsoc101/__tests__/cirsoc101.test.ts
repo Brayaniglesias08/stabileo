@@ -32,14 +32,14 @@ describe('CIRSOC 101-2025 §2.3.2 — the seven basic combinations', () => {
   });
 
   it('expands (Lr ó S ó R) into one combination per present companion', () => {
-    const c = generateCombinations(inputs({ L: true, Lr: true, S: true, R: true }));
+    const c = generateCombinations(inputs({ L: true, Lr: true, S: true, R: true }, { notActing: false }));
     const two = c.filter((x) => x.basic === 2);
     expect(two.map((x) => x.id).sort()).toEqual(['2-Lr', '2-R', '2-S']);
     expect(two.find((x) => x.id === '2-Lr')!.label).toBe('1.2 D + 1.6 L + 0.5 Lr');
   });
 
   it('emits combination 3 in both the L and the 0,5 W variants', () => {
-    const c = generateCombinations(inputs({ L: true, Lr: true, W: true }, { maxLoKNm2: 2.0 }));
+    const c = generateCombinations(inputs({ L: true, Lr: true, W: true }, { maxLoKNm2: 2.0, notActing: false }));
     const three = c.filter((x) => x.basic === 3);
     expect(three.map((x) => x.id).sort()).toEqual(['3-Lr-L', '3-Lr-W']);
     expect(three.find((x) => x.id === '3-Lr-W')!.label).toBe('1.2 D + 1.6 Lr + 0.5 W');
