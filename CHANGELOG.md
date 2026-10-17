@@ -65,6 +65,10 @@ regression test.
   24.5: self-weight 4% low); NBR 6118 concrete uses the secant modulus `Ecs = alpha_i Eci` of
   §8.2.8 for analysis (was `Eci`, 8-18% stiff); aluminium 5052-H32 130/210 MPa and 6063-T6
   160/195 MPa per EN 1999-1-1 Tables 3.2a/3.2b (were typical values, up to 50% high on fo).
+- **M5x18.9 weak-axis inertia.** The IRAM table's Iz = 327 cm⁴ disagreed with its own
+  dimensions (outline 363) and with AISC Shapes Database v16.0 (362); now 362 cm⁴. Every
+  catalogue profile is now checked, tabulated against computed from its dimensions, by
+  `catalogue-tabulated-vs-computed.test.ts`.
 
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 
