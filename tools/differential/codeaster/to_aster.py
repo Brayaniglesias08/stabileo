@@ -302,6 +302,22 @@ def translate(d):
                 raise Unsupported("distributed load outside member")
             b = min(b, L)
             stations[eid].update((a / L, b / L))
+            sec = secs[e["sectionId"]]
+            if sec.get("asY") or sec.get("asZ"):
+                # POU_D_T's equivalent loads for a *varying* FORCE_POUTRE are
+                # the Euler-Bernoulli ones (shear deformation ignored; see
+                # README "Timoshenko members under varying loads"). The
+                # varying components go in as three Gauss point loads,
+                # exact for the cubic end response of an exact element.
+                x = dict(x)
+                for comp, (ki, kj) in (("px", ("qXI", "qXJ")), ("py", ("qYI", "qYJ")), ("pz", ("qZI", "qZJ"))):
+                    qi, qj = x.get(ki, 0.0) or 0.0, x.get(kj, 0.0) or 0.0
+                    if qi == qj:
+                        continue
+                    x[ki] = x[kj] = 0.0
+                    for pv, xa in gauss_point_loads(qi, qj, a, b):
+                        stations[eid].add(xa / L)
+                        point.setdefault(eid, []).append({"a": xa, "px": 0.0, "py": 0.0, "pz": 0.0, comp: pv})
             dist.setdefault(eid, []).append((a, b, x))
         elif t == "pointOnElement":
             if not (0 < x["a"] < L):
@@ -413,6 +429,39 @@ def translate(d):
         m.cell("SEG2", f"M{ncell}", [f"N{c['nodeI']}", f"N{c['nodeJ']}"], f"C{c['id']}")
         groups["DIS_TR"].append(f"C{c['id']}")
 
+    # ---- nodes left without DOFs: a joint whose members all end on hinge
+    # nodes carries no cell of its own (its translations, and rotations
+    # if not rotation-free, are then undefined in Code_Aster, while the
+    # ties need them). A zero-stiffness discrete cell gives them DOFs.
+    seg = dict(m.cells["SEG2"])
+    t_nodes, r_nodes = set(), set()
+    for e in elems:
+        for c in pieces[e["id"]]:
+            t_nodes.update(seg[c])
+            if e["type"] == "frame":
+                r_nodes.update(seg[c])
+    for c in conns:
+        t_nodes.update((f"N{c['nodeI']}", f"N{c['nodeJ']}"))
+        r_nodes.update((f"N{c['nodeI']}", f"N{c['nodeJ']}"))
+    for nid in springs:
+        t_nodes.add(f"N{nid}")
+        if nid not in art_rot:
+            r_nodes.add(f"N{nid}")
+    zero_cells = []
+    for nid in sorted(pts):
+        name = f"N{nid}"
+        if name in t_nodes and (nid in art_rot or name in r_nodes):
+            continue
+        ncell += 1
+        g = f"Z{nid}"
+        m.cell("POI1", f"M{ncell}", [name], g)
+        kind = "DIS_T" if nid in art_rot else "DIS_TR"
+        groups[kind].append(g)
+        zero_cells.append((g, kind))
+        t_nodes.add(name)
+        if kind == "DIS_TR":
+            r_nodes.add(name)
+
     # ---- command file
     L_ = []
     w = L_.append
@@ -457,6 +506,11 @@ def translate(d):
         else:
             discret.append(f"_F(GROUP_MA='S{nid}', CARA='K_TR_D_N', REPERE='GLOBAL', "
                            f"VALE=({', '.join(_f(v) for v in kv)}))")
+    for g, kind in zero_cells:
+        if kind == "DIS_T":
+            discret.append(f"_F(GROUP_MA={g!r}, CARA='K_T_D_N', REPERE='GLOBAL', VALE=(0.0, 0.0, 0.0))")
+        else:
+            discret.append(f"_F(GROUP_MA={g!r}, CARA='K_TR_D_N', REPERE='GLOBAL', VALE=(0.0,) * 6)")
     for c in conns:
         dx, dy, dz, n = connector_axes(pts[c["nodeI"]], pts[c["nodeJ"]])
         kv = [c.get(k) or 0.0 for k in ("kAxial", "kShear", "kShearZ", "kMoment", "kBendY", "kBendZ")]
@@ -486,7 +540,7 @@ def translate(d):
         if vals:
             ddl.append(f"_F(GROUP_NO='GN{nid}', " + ", ".join(f"{k}={_f(v)}" for k, v in vals.items()) + ")")
     for nid in sorted(art_rot):
-        if nid in has_rot:
+        if f"N{nid}" in r_nodes:
             ddl.append(f"_F(GROUP_NO='GN{nid}', DRX=0.0, DRY=0.0, DRZ=0.0)")
     for nid, nv in sorted(inclined.items()):
         liais.append(_liaison([(f"N{nid}", 0, nv[0]), (f"N{nid}", 1, nv[1]), (f"N{nid}", 2, nv[2])]))
@@ -524,7 +578,7 @@ def translate(d):
                     break
             if tgt is None:
                 raise RuntimeError("station node not found")
-            add_nodal(tgt, [x["py"] * ey[k] + x["pz"] * ez[k] for k in range(3)])
+            add_nodal(tgt, [(x.get("px") or 0.0) * ex[k] + x["py"] * ey[k] + x["pz"] * ez[k] for k in range(3)])
     for name, f in nodal.items():
         nid = int(name[1:]) if name.startswith("N") else None
         comps = {FORCE_KEYS[k]: f[k] for k in range(6) if abs(f[k]) > 0 and not (k >= 3 and nid in art_rot)}
@@ -590,7 +644,12 @@ def translate(d):
     if occ:
         w("QD = AFFE_CHAR_MECA_F(MODELE=MO, FORCE_POUTRE=(" + "".join(f"\n    {o}," for o in occ) + "\n))")
         excit.append("_F(CHARGE=QD)")
-    w("RES = MECA_STATIQUE(MODELE=MO, CHAM_MATER=CM, CARA_ELEM=CE, EXCIT=(" + ", ".join(excit) + ",))")
+    # NPREC: MUMPS reports a singular matrix when a pivot loses more than
+    # NPREC digits (default 8). The load-station splits add short pieces
+    # (stiffness ratios up to (L/h)^3) that cost regular models up to ~8
+    # digits; true mechanisms lose 11+ (see README).
+    w("RES = MECA_STATIQUE(MODELE=MO, CHAM_MATER=CM, CARA_ELEM=CE, SOLVEUR=_F(METHODE='MUMPS', NPREC=10), "
+      "EXCIT=(" + ", ".join(excit) + ",))")
     beam_groups = tuple(g for k in ("POU_D_E", "POU_D_T", "BARRE") for g in groups[k])
     w(f"RES = CALC_CHAMP(reuse=RES, RESULTAT=RES, FORCE=('REAC_NODA',))")
     if any(groups[k] for k in ("POU_D_E", "POU_D_T", "BARRE")):
@@ -617,6 +676,16 @@ def translate(d):
                        axial=truss_axial.get(e["id"], [0.0, 0.0])) for e in elems],
     )
     return comm_text(m.text(), "\n".join(L_)), meta
+
+
+_G3 = [(0.5 - 0.5 * math.sqrt(0.6), 5 / 18), (0.5, 8 / 18), (0.5 + 0.5 * math.sqrt(0.6), 5 / 18)]
+
+
+def gauss_point_loads(qi, qj, a, b):
+    """[(P, x)]: three point loads equivalent (in work against any quintic,
+    so any cubic response function) to the linear load qi -> qj on [a, b]."""
+    span = b - a
+    return [((qi + t * (qj - qi)) * w * span, a + t * span) for t, w in _G3]
 
 
 def _lever(qi, qj, a, b, L):

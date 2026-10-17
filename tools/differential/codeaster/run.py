@@ -19,8 +19,9 @@ of a native conda env (`setup.sh --native` -> .work/conda/bin/python), on the
 host. All models of a run are split over J batches, each one Code_Aster
 session (aster_batch.py).
 
-Exit status: 0 = every compared model agrees, 1 = mismatches, 2 = harness
-error (including Code_Aster failing on a model stabileo solved).
+Exit status: 0 = every compared model agrees, 1 = mismatches or models
+Code_Aster finds singular that stabileo solved without a warning
+(silent_singular), 2 = harness error (Code_Aster failing for another reason).
 """
 
 import argparse
@@ -146,7 +147,16 @@ def finish(r, tol, dump_dir, model):
     out, err = os.path.join(job, "result.json"), os.path.join(job, "error.txt")
     if not os.path.exists(out):
         msg = open(err).read() if os.path.exists(err) else "no result (Code_Aster session died?)"
-        return dict(r, status="aster_failed", why=[_first_error(msg)])
+        why = [_first_error(msg)]
+        if "<FACTOR_11>" in msg:
+            # Code_Aster finds the stiffness singular (a pivot lost more than
+            # NPREC = 10 digits) where stabileo solved without a warning.
+            return dict(r, status="silent_singular", why=why)
+        if "<FACTOR_57>" in msg:
+            # MUMPS could not reach RESI_RELA = 1e-6: the model is too
+            # ill-conditioned for Code_Aster to give a reference.
+            return dict(r, status="ill_conditioned", why=["code_aster: " + why[0]])
+        return dict(r, status="aster_failed", why=why)
     ares = to_aster.postprocess(meta, json.load(open(out)))
     skip = set(ares.pop("skip_reac"))
     # Reactions at constrained nodes include the multipliers of the
@@ -215,7 +225,7 @@ def main():
         shutil.rmtree(workdir, ignore_errors=True)
 
     for r in results:
-        if a.verbose or r["status"] in ("mismatch", "aster_failed"):
+        if a.verbose or r["status"] in ("mismatch", "aster_failed", "silent_singular"):
             extra = r.get("why") or {k: f"{v:.1e}" for k, v in r.get("max_err", {}).items()}
             print(f"{r['status']:16} {r['name']}  {extra}")
             for w in r.get("worst", [])[:5] if r["status"] == "mismatch" else []:
@@ -229,7 +239,7 @@ def main():
             g[k] = max(g.get(k, 0.0), v)
     if g:
         print("max normalized error over compared models: " + json.dumps({k: f"{v:.2e}" for k, v in sorted(g.items())}))
-    for st in ("unsupported", "stabileo_failed", "ill_conditioned", "aster_failed"):
+    for st in ("unsupported", "stabileo_failed", "ill_conditioned", "silent_singular", "aster_failed"):
         reasons = Counter(w[:120] for r in results if r["status"] == st for w in r["why"])
         if reasons:
             print(f"{st} reasons: " + json.dumps(dict(reasons.most_common(8))))
@@ -238,7 +248,7 @@ def main():
             json.dump(results, f, indent=1, default=str)
     if cnt.get("aster_failed"):
         return 2
-    return 1 if cnt.get("mismatch") else 0
+    return 1 if cnt.get("mismatch") or cnt.get("silent_singular") else 0
 
 
 if __name__ == "__main__":
