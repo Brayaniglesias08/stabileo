@@ -195,6 +195,24 @@ fn solve_generalized_eigen_inverse(a: &[f64], b: &[f64], n: usize, max_iter: usi
     Some(EigenResult { values: pairs.iter().map(|p| p.0).collect(), vectors })
 }
 
+/// `K x = λ M x` for a positive definite `K` and a positive *semi*definite
+/// mass `M`, smallest eigenvalues first, with the massless (infinite)
+/// eigenvalues dropped, so fewer than `n` values may come back. `None` when
+/// neither `M` nor `K` is positive definite. (#294's entry point; the same
+/// inverse-problem method as `solve_generalized_eigen` and the Lanczos dense
+/// fallback `dense_generalized_eigen_semidefinite`.)
+pub fn solve_generalized_eigen_mass(k: &[f64], m: &[f64], n: usize, max_iter: usize) -> Option<EigenResult> {
+    let r = solve_generalized_eigen(k, m, n, max_iter)?;
+    let kept: Vec<usize> = (0..r.values.len()).filter(|&j| r.values[j].is_finite()).collect();
+    let mut vectors = vec![0.0; n * n];
+    for (col, &j) in kept.iter().enumerate() {
+        for row in 0..n {
+            vectors[row * n + col] = r.vectors[row * n + j];
+        }
+    }
+    Some(EigenResult { values: kept.iter().map(|&j| r.values[j]).collect(), vectors })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,6 +235,21 @@ mod tests {
         assert!((result.values[0] - 1.0).abs() < 1e-10);
         assert!((result.values[1] - 2.0).abs() < 1e-10);
         assert!((result.values[2] - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn generalized_eigen_with_massless_dof() {
+        // K = [[2,-1],[-1,2]], M = diag(1, 0): the second DOF has no mass.
+        // Condensing it: k* = 2 - 1/2 = 1.5, λ = 1.5 (one finite mode).
+        let k = vec![2.0, -1.0, -1.0, 2.0];
+        let m = vec![1.0, 0.0, 0.0, 0.0];
+        assert!(generalized_eigen_cholesky(&k, &m, 2, 100).is_none());
+        let r = solve_generalized_eigen_mass(&k, &m, 2, 100).unwrap();
+        assert_eq!(r.values.len(), 1);
+        assert!((r.values[0] - 1.5).abs() < 1e-12, "{:?}", r.values);
+        // x = (1, 1/2) scaled to xᵀ M x = 1, K x = λ M x.
+        let (x0, x1) = (r.vectors[0], r.vectors[2]);
+        assert!((x0 * x0 - 1.0).abs() < 1e-12 && (x1 - 0.5 * x0).abs() < 1e-12);
     }
 
     #[test]
