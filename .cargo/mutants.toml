@@ -35,4 +35,8 @@ exclude_re = [
     # vs < 1e-15 is the same threshold.
     "replace < with <= in rotated_candidate_[23]d",
     "replace > with >= in rotated_candidate_[23]d",
+    # sub_prod skips a product with an exact zero factor only to avoid the
+    # outward widening of 0 to ±5e−324; skipping on one zero or both is the
+    # same up to that widening (sound either way).
+    "replace \\|\\| with && in sub_prod",
 ]
