@@ -1337,3 +1337,15 @@ fn linear_certificate_rejects_nonpositive_or_infinite_sigma() {
         assert!(!c.is_certified(), "σ = {sigma} must not certify: {c:?}");
     }
 }
+
+/// Mismatched dimensions are uncertified, never a panic or a certificate of
+/// a different system. (Mutants `||` → `&&` in check_inputs survived.)
+#[test]
+fn linear_certificate_rejects_mismatched_dimensions() {
+    let k = [2.0, 0.0, 0.0, 3.0];
+    let ok = |c: Certificate| !c.is_certified();
+    assert!(ok(certify_linear_system(&k[..3], 2, &[2.0, 3.0], &[1.0, 1.0], 1.0)), "short K");
+    assert!(ok(certify_linear_system(&k, 2, &[2.0], &[1.0, 1.0], 1.0)), "short f");
+    assert!(ok(certify_linear_system(&k, 2, &[2.0, 3.0], &[1.0], 1.0)), "short ũ");
+    assert!(ok(certify_linear_system(&k, 2, &[2.0, 3.0, 4.0], &[1.0, 1.0, 1.0], 1.0)), "long f and ũ");
+}
