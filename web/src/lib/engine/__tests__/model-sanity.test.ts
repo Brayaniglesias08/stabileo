@@ -60,8 +60,6 @@ const summary = (r: SanityReport | null) => (r?.findings ?? []).map((f) => `${f.
 const JUSTIFIED_WARNINGS: Record<string, string[]> = {
   // Nodes on a member's span that are not connected to it, found by the check added with this
   // pin; each model is examined below and either fixed or the warning justified.
-  'cable-stayed-bridge-small': ['node_on_span'],
-  'cable-stayed-bridge': ['node_on_span'],
   'suspension-bridge': ['node_on_span'],
   // Half the dead and live member loads are given in local Y, which is horizontal for those beams:
   // 1440 kN of the dead case (and 720 kN of the live) push the building sideways, and the columns
@@ -93,11 +91,9 @@ const JUSTIFIED_WARNINGS: Record<string, string[]> = {
   // regular column grid), and carries pipes, not floors: 2.4 kN/m². The band is for buildings and
   // the review cannot tell a rack from one; the warning says what it compared.
   'pipe-rack': ['weight_per_area_low'],
-  // Members whose ends move apart sideways by more than L/10 in a linear solve: under the 100-year
-  // wind the 1.5 m truss box at the top of the derrick (no diagonals), and under dead load ten
-  // members of the stadium's cantilever roof. Local near-mechanisms or very flexible zones in the
-  // demo models, which the review is right to point at.
-  'offshore-platform': ['deflection_large', 'node_on_span'],
+  // Members whose ends move apart sideways by more than L/10 in a linear solve: under dead load ten
+  // members of the stadium's cantilever roof. A very flexible zone in the demo model, which the
+  // review is right to point at.
   'full-stadium': ['deflection_large'],
 };
 
