@@ -1600,12 +1600,10 @@ fn assemble_frame_corotational_3d(
         elem.roll_angle, left_hand,
     );
 
-    // Corotated local axes (from deformed geometry, same reference)
-    let (ex_n, ey_n, ez_n) = compute_local_axes_3d(
-        xi_def, yi_def, zi_def,
-        xj_def, yj_def, zj_def,
-        ref_yx, ref_yy, ref_yz,
-        elem.roll_angle, left_hand,
+    // Corotated local axes: chord, and the twist carried by the end nodes.
+    let (ex_n, ey_n, ez_n) = corotated_axes_3d(
+        [dx_n / l_n, dy_n / l_n, dz_n / l_n], (&ex_0, &ey_0, &ez_0),
+        [u_elem[3], u_elem[4], u_elem[5]], [u_elem[9], u_elem[10], u_elem[11]],
     );
 
     // Rigid body rotation: R_rigid = R_n * R_0^T
@@ -1623,10 +1621,8 @@ fn assemble_frame_corotational_3d(
         }
     }
 
-    // Extract rigid body rotation angles (small angle: β ≈ axial of skew(R_rigid - I))
-    let beta_x = (r_rigid[2][1] - r_rigid[1][2]) / 2.0;
-    let beta_y = (r_rigid[0][2] - r_rigid[2][0]) / 2.0;
-    let beta_z = (r_rigid[1][0] - r_rigid[0][1]) / 2.0;
+    // Rigid-body rotation vector of the chord frame (exact, see `rotation_vector`).
+    let [beta_x, beta_y, beta_z] = rotation_vector(&r_rigid);
 
     // Project global rotations to corotated frame and subtract rigid body rotation
     let theta_i_global = [u_elem[3], u_elem[4], u_elem[5]];
@@ -1674,6 +1670,7 @@ fn assemble_frame_corotational_3d(
             f_local[i] += k_local[i * 12 + jj] * d_nat[jj];
         }
     }
+    current_length_shears(&mut f_local, l0, l_n);
 
     // Corotated transformation matrix
     let t_n = frame_transform_3d(&ex_n, &ey_n, &ez_n);
@@ -1701,7 +1698,9 @@ fn assemble_frame_corotational_3d(
 
     // Geometric stiffness (Przemieniecki formula)
     let axial_p = -f_local[0]; // Tension positive
-    let k_geo_local = frame_geo_stiffness_3d_local(axial_p, l_n);
+    // Condensed for the end releases: a released end rotation belongs to no
+    // one, and the uncondensed matrix put −4·P·L/30 on it.
+    let k_geo_local = super::geometric_stiffness::frame_kg_local_3d(axial_p, l_n, &Hinge3D::from_elem(elem));
     let k_geo_global = transform_stiffness(&k_geo_local, &t_n, 12);
 
     // Scatter to global
@@ -1721,46 +1720,96 @@ fn assemble_frame_corotational_3d(
     }
 }
 
-/// Przemieniecki geometric stiffness for a 3D frame element in local coordinates.
+/// Rotate `v` by the rotation vector `theta` (Rodrigues).
+fn rotate_by(theta: [f64; 3], v: &[f64; 3]) -> [f64; 3] {
+    let t = (theta[0] * theta[0] + theta[1] * theta[1] + theta[2] * theta[2]).sqrt();
+    if t < 1e-300 {
+        return *v;
+    }
+    let k = [theta[0] / t, theta[1] / t, theta[2] / t];
+    let (c, s) = (t.cos(), t.sin());
+    let kv = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+    let kxv = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]];
+    [0, 1, 2].map(|m| v[m] * c + kxv[m] * s + k[m] * kv * (1.0 - c))
+}
+
+/// The corotated frame of a 3D member: the initial frame turned by the mean
+/// of the two end rotations, then by the smallest rotation that takes its x
+/// axis onto the deformed chord `ex_n`.
 ///
-/// Local DOF order: [u, v, w, θx, θy, θz] per node (12 total).
-/// P > 0 = tension.
-fn frame_geo_stiffness_3d_local(p: f64, l: f64) -> Vec<f64> {
-    let mut kg = vec![0.0; 144];
-    if l < 1e-15 || p.abs() < 1e-20 {
-        return kg;
+/// The frame used to be rebuilt from the deformed chord and the initial
+/// reference vector alone. That is right only while the member bends in a
+/// plane containing or normal to the reference; otherwise the rebuilt frame
+/// twists about the chord by an amount of the order of the square of the
+/// rigid rotation, and the twist was read as torsion. A portal frame standing
+/// in a vertical plane at 53° to X, loaded in its plane, moved out of it.
+/// For rotations about one axis (any planar frame) this frame is exact.
+fn corotated_axes_3d(
+    ex_n: [f64; 3],
+    (ex_0, ey_0, ez_0): (&[f64; 3], &[f64; 3], &[f64; 3]),
+    theta_i: [f64; 3],
+    theta_j: [f64; 3],
+) -> ([f64; 3], [f64; 3], [f64; 3]) {
+    let mean = [0, 1, 2].map(|m| 0.5 * (theta_i[m] + theta_j[m]));
+    let e1 = rotate_by(mean, ex_0);
+    let e2 = rotate_by(mean, ey_0);
+    let e3 = rotate_by(mean, ez_0);
+    // Smallest rotation taking e1 onto ex_n.
+    let k = [e1[1] * ex_n[2] - e1[2] * ex_n[1], e1[2] * ex_n[0] - e1[0] * ex_n[2], e1[0] * ex_n[1] - e1[1] * ex_n[0]];
+    let sin = (k[0] * k[0] + k[1] * k[1] + k[2] * k[2]).sqrt();
+    let cos = e1[0] * ex_n[0] + e1[1] * ex_n[1] + e1[2] * ex_n[2];
+    let angle = sin.atan2(cos);
+    let phi = if sin > 1e-300 { [0, 1, 2].map(|m| k[m] / sin * angle) } else { [0.0; 3] };
+    (ex_n, rotate_by(phi, &e2), rotate_by(phi, &e3))
+}
+
+/// End shears in equilibrium with the end moments on the CURRENT chord.
+///
+/// With only rotations and the elongation in `d_nat`, every row of K·d gives
+/// shears V = (M_i + M_j)/L0, for any release or shear area. The member's end
+/// forces have to balance on the deformed chord, L_n: the 2D element does this
+/// through its B matrix, the 3D one did not, and left an out-of-balance of the
+/// order of the axial strain in every member.
+fn current_length_shears(f_local: &mut [f64; 12], l0: f64, l_n: f64) {
+    let r = l0 / l_n;
+    for k in [1, 2, 7, 8] {
+        f_local[k] *= r;
     }
-    let coeff = p / (30.0 * l);
+}
 
-    // Y-bending plane: DOFs 1(v_i), 5(θz_i), 7(v_j), 11(θz_j)
-    let y_dofs = [1, 5, 7, 11];
-    let l2 = l * l;
-    #[rustfmt::skip]
-    let y_vals: [[f64; 4]; 4] = [
-        [ 36.0,    3.0*l,  -36.0,    3.0*l ],
-        [  3.0*l,  4.0*l2,  -3.0*l, -l2    ],
-        [-36.0,   -3.0*l,   36.0,   -3.0*l ],
-        [  3.0*l, -l2,      -3.0*l,  4.0*l2],
+/// Rotation vector (axis × angle) of a rotation matrix: the logarithmic map.
+///
+/// The rigid rotation of a member's chord frame used to be taken as the axial
+/// vector of the skew part of R, which is sin(θ)·axis, not θ·axis: 1% short at
+/// 0.25 rad and 36% at 90°. The natural end rotations, nodal rotation minus
+/// rigid rotation, then carried the difference as spurious bending. A portal
+/// whose beam is pinned at both ends, swaying 0.5 m on a 3 m column, settled
+/// 1.5% further than the same frame in the 2D solver (which uses atan2), and
+/// at twice the load did not converge at all.
+fn rotation_vector(r: &[[f64; 3]; 3]) -> [f64; 3] {
+    let skew = [
+        (r[2][1] - r[1][2]) / 2.0,
+        (r[0][2] - r[2][0]) / 2.0,
+        (r[1][0] - r[0][1]) / 2.0,
     ];
-
-    // Z-bending plane: DOFs 2(w_i), 4(θy_i), 8(w_j), 10(θy_j)
-    let z_dofs = [2, 4, 8, 10];
-    #[rustfmt::skip]
-    let z_vals: [[f64; 4]; 4] = [
-        [ 36.0,   -3.0*l,  -36.0,   -3.0*l ],
-        [ -3.0*l,  4.0*l2,   3.0*l, -l2     ],
-        [-36.0,    3.0*l,   36.0,    3.0*l  ],
-        [ -3.0*l, -l2,       3.0*l,  4.0*l2 ],
-    ];
-
-    for i in 0..4 {
-        for jj in 0..4 {
-            kg[y_dofs[i] * 12 + y_dofs[jj]] += coeff * y_vals[i][jj];
-            kg[z_dofs[i] * 12 + z_dofs[jj]] += coeff * z_vals[i][jj];
+    let sin = (skew[0] * skew[0] + skew[1] * skew[1] + skew[2] * skew[2]).sqrt();
+    let cos = ((r[0][0] + r[1][1] + r[2][2] - 1.0) / 2.0).clamp(-1.0, 1.0);
+    let angle = sin.atan2(cos);
+    if sin < 1e-12 {
+        if cos > 0.0 {
+            return skew; // identity: θ ≈ skew to machine precision
         }
+        // θ = π: R = 2·a·aᵀ − I, the axis from the largest diagonal.
+        let k = (0..3).max_by(|&a, &b| r[a][a].partial_cmp(&r[b][b]).unwrap()).unwrap();
+        let ak = ((r[k][k] + 1.0) / 2.0).max(0.0).sqrt();
+        let mut axis = [0.0; 3];
+        for m in 0..3 {
+            axis[m] = if m == k { ak } else { (r[k][m] + r[m][k]) / (4.0 * ak) };
+        }
+        return [axis[0] * angle, axis[1] * angle, axis[2] * angle];
     }
-
-    kg
+    let f = angle / sin;
+    [skew[0] * f, skew[1] * f, skew[2] * f]
 }
 
 /// Add spring stiffness and internal forces from springs (3D).
@@ -2021,11 +2070,9 @@ fn compute_corotational_forces_3d(
             ref_yx, ref_yy, ref_yz,
             elem.roll_angle, left_hand,
         );
-        let (ex_n, ey_n, ez_n) = compute_local_axes_3d(
-            xi_def, yi_def, zi_def,
-            xj_def, yj_def, zj_def,
-            ref_yx, ref_yy, ref_yz,
-            elem.roll_angle, left_hand,
+        let (ex_n, ey_n, ez_n) = corotated_axes_3d(
+            [dx_n / l_n, dy_n / l_n, dz_n / l_n], (&ex_0, &ey_0, &ez_0),
+            [u_elem_12[3], u_elem_12[4], u_elem_12[5]], [u_elem_12[9], u_elem_12[10], u_elem_12[11]],
         );
 
         // Rigid body rotation
@@ -2039,9 +2086,7 @@ fn compute_corotational_forces_3d(
                 }
             }
         }
-        let beta_x = (r_rigid[2][1] - r_rigid[1][2]) / 2.0;
-        let beta_y = (r_rigid[0][2] - r_rigid[2][0]) / 2.0;
-        let beta_z = (r_rigid[1][0] - r_rigid[0][1]) / 2.0;
+        let [beta_x, beta_y, beta_z] = rotation_vector(&r_rigid);
 
         let project = |v: &[f64; 3]| -> [f64; 3] {
             [
@@ -2087,6 +2132,7 @@ fn compute_corotational_forces_3d(
                 f_local[i] += k_local[i * 12 + jj] * d_nat[jj];
             }
         }
+        current_length_shears(&mut f_local, l0, l_n);
 
         // Sign convention: match linear solver output
         forces.push(ElementForces3D {

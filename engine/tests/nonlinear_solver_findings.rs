@@ -393,3 +393,99 @@ fn contact_2d_gap_friction_slides_at_coulomb_limit() {
     let rx: f64 = r.results.reactions.iter().map(|r| r.rx).sum();
     close(rx, -fx, 1e-9, "horizontal equilibrium");
 }
+
+// ==================== 3D co-rotational: rigid rotation, releases ====================
+
+use dedaliano_engine::solver::corotational;
+
+/// Fixed-base portal (3 m columns in four members, 4 m beam) with the beam
+/// pinned at both ends when `hinged`; sway load `h` and gravity `p` at the
+/// beam ends. Node 5 is the top of the left column.
+fn portal_2d(h: f64, p: f64, hinged: bool) -> SolverInput {
+    let mut nodes = vec![];
+    let mut elems = vec![];
+    for (c, x) in [(0usize, 0.0), (1, 4.0)] {
+        for k in 0..=4 {
+            nodes.push((c * 5 + k + 1, x, 0.75 * k as f64));
+            if k > 0 {
+                let id = c * 4 + k;
+                elems.push((id, "frame", c * 5 + k, c * 5 + k + 1, 1, 1, false, false));
+            }
+        }
+    }
+    elems.push((9, "frame", 5, 10, 1, 1, hinged, hinged));
+    make_input(
+        nodes,
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, 0.01, 1e-5)],
+        elems,
+        vec![(1, 1, "fixed"), (2, 6, "fixed")],
+        vec![
+            SolverLoad::Nodal(SolverNodalLoad { node_id: 5, fx: h, fz: -p, my: 0.0 }),
+            SolverLoad::Nodal(SolverNodalLoad { node_id: 10, fx: 0.0, fz: -p, my: 0.0 }),
+        ],
+    )
+}
+
+/// The same portal in 3D, in the vertical plane through the horizontal unit
+/// vector `(cx, cy)`; a 2D hinge releases both bending axes.
+fn portal_3d(s: &SolverInput, cx: f64, cy: f64) -> SolverInput3D {
+    let nodes = s.nodes.values().map(|n| (n.id, n.x * cx, n.x * cy, n.z)).collect();
+    let elems = s.elements.values().map(|e| (e.id, "frame", e.node_i, e.node_j, 1, 1)).collect();
+    let sups = s.supports.values().map(|sp| (sp.node_id, vec![true; 6])).collect();
+    let loads = s
+        .loads
+        .iter()
+        .map(|l| match l {
+            SolverLoad::Nodal(n) => SolverLoad3D::Nodal(SolverNodalLoad3D {
+                node_id: n.node_id, fx: n.fx * cx, fy: n.fx * cy, fz: n.fz, mx: 0.0, my: 0.0, mz: 0.0, bw: None,
+            }),
+            _ => unreachable!(),
+        })
+        .collect();
+    let mut m = make_3d_input(nodes, vec![(1, 200_000.0, 0.3)], vec![(1, 0.01, 1e-5, 1e-5, 2e-5)], elems, sups, loads);
+    for e in s.elements.values() {
+        let x = m.elements.get_mut(&e.id.to_string()).unwrap();
+        (x.release_my_start, x.release_mz_start) = (e.hinge_start, e.hinge_start);
+        (x.release_my_end, x.release_mz_end) = (e.hinge_end, e.hinge_end);
+    }
+    m
+}
+
+/// A planar frame solved by the 3D co-rotational solver must reproduce the 2D
+/// one, which extracts the chord rotation exactly with atan2. The 3D solver
+/// took the rigid rotation as the skew part of R (sin θ, not θ) and balanced
+/// the end shears on the undeformed length; with the beam pinned at both ends
+/// (columns rotating 0.16 rad) it settled 1.5% further than the 2D solver, and
+/// at twice the load (0.5 rad) did not converge. In any vertical plane.
+#[test]
+fn corotational_3d_planar_portal_matches_2d_with_and_without_releases() {
+    for hinged in [false, true] {
+        for (h, p) in [(100.0, 300.0), (200.0, 500.0)] {
+            let s = portal_2d(h, p, hinged);
+            let r2 = corotational::solve_corotational_2d(&s, 100, 1e-8, 20, false).unwrap();
+            assert!(r2.converged, "2D hinged={hinged} H={h}");
+            for (cx, cy) in [(1.0, 0.0), (0.0, 1.0), (0.6, 0.8)] {
+                let r3 = corotational::solve_corotational_3d(&portal_3d(&s, cx, cy), 100, 1e-8, 20, false).unwrap();
+                assert!(r3.converged, "3D hinged={hinged} H={h} plane ({cx},{cy})");
+                let umax = r2.results.displacements.iter().map(|d| d.ux.abs().max(d.uz.abs())).fold(0.0, f64::max);
+                for d2 in &r2.results.displacements {
+                    let d3 = r3.results.displacements.iter().find(|d| d.node_id == d2.node_id).unwrap();
+                    let what = format!("hinged={hinged} H={h} plane ({cx},{cy}) node {}", d2.node_id);
+                    assert!((d3.ux - d2.ux * cx).abs() < 1e-6 * umax, "{what} ux {} vs {}", d3.ux, d2.ux * cx);
+                    assert!((d3.uy - d2.ux * cy).abs() < 1e-6 * umax, "{what} uy {} vs {}", d3.uy, d2.ux * cy);
+                    assert!((d3.uz - d2.uz).abs() < 1e-6 * umax, "{what} uz {} vs {}", d3.uz, d2.uz);
+                }
+                for (rx2, rx3) in r2.results.reactions.iter().zip({
+                    let mut v = r3.results.reactions.clone();
+                    v.sort_by_key(|r| r.node_id);
+                    v
+                }) {
+                    assert_eq!(rx2.node_id, rx3.node_id);
+                    close(rx3.fz, rx2.rz, 1e-6, "vertical reaction");
+                    close(rx3.fx * cx + rx3.fy * cy, rx2.rx, 1e-6, "horizontal reaction");
+                }
+            }
+        }
+    }
+}

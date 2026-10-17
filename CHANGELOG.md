@@ -39,6 +39,16 @@ structure expressed without the feature or an analytical value.
   bears again if its node comes back below its seat. 3D uplift supports are refused by name, as
   are unknown element behaviours, behaviours on missing elements and thermal loads on
   tension/compression-only members.
+- **3D co-rotational: large rotations, releases, frames out of the XZ/YZ planes.** The member's
+  rigid rotation was the skew part of R (sin θ, not θ: 1% short at 0.25 rad, 36% at 90°), its
+  corotated frame was rebuilt from the chord and a fixed reference vector (a spurious twist, read
+  as torsion, whenever a member bent in a plane neither containing nor normal to that reference),
+  and its end shears balanced the end moments on the undeformed length. A portal whose beam is
+  pinned at both ends settled 1.5% further than the same frame in the 2D solver and, at twice the
+  load, did not converge; the same portal in a vertical plane at 53° to X moved out of its plane.
+  Now: exact rotation vector, frame carried by the mean end rotation, shears on the current chord;
+  planar frames in any vertical plane, with and without releases, match the 2D solver to 1e-6.
+  The tangent's geometric stiffness is condensed for the end releases, as in P-Delta.
 
 #### Every analysis supports a model feature or refuses it by name (2026-10-17)
 
