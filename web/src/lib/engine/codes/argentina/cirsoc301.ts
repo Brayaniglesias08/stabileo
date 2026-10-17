@@ -378,8 +378,8 @@ function engineMember(elementId: number, p: SteelDesignParams): object {
 const UNAVAILABLE: EngineMessage = { key: 'c301.refuse.engineUnavailable' };
 
 /** One engine run for one demand, or null when the engine is not available. */
-function run(p: SteelDesignParams, f: { Nu: number; Muz: number; Muy: number; Vu: number }, elementId = 0): EngineMemberResult | null {
-  const out = engineCheckMembers([engineMember(elementId, p)], [{ elementId, ...f }]);
+function run(p: SteelDesignParams, f: { Nu: number; Muz: number; Muy: number; Vu: number }, elementId = 0, steps = true): EngineMemberResult | null {
+  const out = engineCheckMembers([engineMember(elementId, p)], [{ elementId, ...f }], { steps });
   return out?.[0] ?? null;
 }
 
@@ -510,9 +510,13 @@ export function checkSteelInteraction(params: SteelDesignParams, Pu: number, Mux
 // Verificacion completa de un elemento
 // ---------------------------------------------------------------------------
 
-export function verifySteelElement(input: SteelVerificationInput): SteelVerification {
+/**
+ * The whole member. `opts.trace: false` skips the calculation (no `steps`, no `messages`): for a
+ * search that screens many candidates and reports only the verdict.
+ */
+export function verifySteelElement(input: SteelVerificationInput, opts: { trace?: boolean } = {}): SteelVerification {
   const { elementId, Nu, Muy, Muz, Vu, params } = input;
-  const r = run(params, { Nu, Muz, Muy, Vu }, elementId);
+  const r = run(params, { Nu, Muz, Muy, Vu }, elementId, opts.trace ?? true);
 
   const header = [
     `=== Verificacion CIRSOC 301 — Elemento ${elementId} ===`,

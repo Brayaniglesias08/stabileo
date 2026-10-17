@@ -94,7 +94,19 @@ export interface CandidateVerdict {
   passes: boolean;
   /** Estimated deflection over limit, when a deflection criterion was given. */
   deflectionRatio?: number;
+  /**
+   * The engine refused a check for want of data on the MEMBER (an angle's E.5 end condition, a
+   * double angle's connectors, the end connection) or for a clause it does not implement (F.9,
+   * F.10): no other profile of the search can pass, so it stops there. The message key.
+   */
+  memberRefusal?: string;
 }
+
+/** Refusals no choice of profile can lift (`c301.refuse.*`). */
+const MEMBER_LEVEL_REFUSALS = new Set([
+  'c301.refuse.e5Condition', 'c301.refuse.e6Spacing', 'c301.refuse.e6Connector', 'c301.refuse.f9', 'c301.refuse.f10',
+  'c301.refuse.noConnection', 'c301.refuse.endsMissing', 'c301.refuse.engineUnavailable',
+]);
 
 /** A family's profiles, lightest first (ties by depth, so the shallower one wins). */
 export function familyByWeight(family: ProfileFamily): SteelProfile[] {
@@ -107,24 +119,32 @@ export function verdictFor(
   members: readonly OptimiseMember[],
   material: { fy?: number; e?: number; fu?: number },
   criteria: OptimiseCriteria = {},
+  /** Screen without the engine gate (see `checkSteelMember`); a pass must then be confirmed. */
+  screen = false,
 ): CandidateVerdict | null {
   const target = criteria.target ?? 1;
   const section = profileToSectionFull(profile);
   let worst: { ratio: number; elementId: number } | null = null;
   let passes = true;
+  let memberRefusal: string | undefined;
   for (const m of members) {
-    const v = checkSteelMember(m.elementId, m.demand, section, material, m.lengths, m.segment);
+    const v = checkSteelMember(m.elementId, m.demand, section, material, m.lengths, m.segment, { screen });
     if (!v) return null;
+    for (const c of [v.tension, v.compression, v.flexureZ, v.flexureY, v.shear, v.interaction]) {
+      const k = c?.notEvaluatedMessage?.key;
+      if (k && c!.ratio > 0 && MEMBER_LEVEL_REFUSALS.has(k)) memberRefusal ??= k;
+    }
     const r = steelGoverningRatio(v);
     if (v.overallStatus === 'fail' || !(r <= target)) passes = false;
     if (!worst || r > worst.ratio) worst = { ratio: r, elementId: m.elementId };
   }
   if (!worst) return null;
+  const refusal = memberRefusal ? { memberRefusal } : {};
   if (criteria.deflection?.length) {
     const dr = deflectionRatio(profile, criteria.deflection);
-    return { profile, ratio: worst.ratio, elementId: worst.elementId, passes: passes && dr <= 1, deflectionRatio: dr };
+    return { profile, ratio: worst.ratio, elementId: worst.elementId, passes: passes && dr <= 1, deflectionRatio: dr, ...refusal };
   }
-  return { profile, ratio: worst.ratio, elementId: worst.elementId, passes };
+  return { profile, ratio: worst.ratio, elementId: worst.elementId, passes, ...refusal };
 }
 
 export interface OptimiseResult {
@@ -173,11 +193,18 @@ export function lightestPassing(
   const list = candidates(criteria, family);
   for (const p of list) {
     if (I_FAMILIES.includes(p.family) && !mayPass(p, members, material, criteria.target ?? 1)) { pruned++; continue; }
-    const v = verdictFor(p, members, material, criteria);
+    // Screen fast, then confirm a pass with the engine gate: only a confirmed pass is chosen.
+    let v = verdictFor(p, members, material, criteria, true);
     if (!v) continue;
     tried++;
-    if (v.passes) return { chosen: v, best: v, tried, pruned };
+    if (v.passes) {
+      v = verdictFor(p, members, material, criteria);
+      if (v?.passes) return { chosen: v, best: v, tried, pruned };
+      if (!v) continue;
+    }
     if (!best || v.ratio < best.ratio) best = v;
+    // A refusal on the member's own data: no other profile can pass either.
+    if (v.memberRefusal) return { chosen: null, best: v, tried, pruned };
   }
   // Everything pruned: the heaviest candidate says how far the search is from passing.
   if (!best && list.length > 0) best = verdictFor(list[list.length - 1]!, members, material, criteria);

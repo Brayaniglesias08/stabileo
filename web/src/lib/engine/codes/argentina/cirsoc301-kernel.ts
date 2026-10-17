@@ -59,11 +59,11 @@ const fixRatio = (c: EngineCheck | undefined) => {
 };
 
 /** Check members. `members` are `SteelDesignParams` with `elementId`. Null when the engine is absent or throws. */
-export function engineCheckMembers(members: readonly object[], forces: readonly EngineForces[]): EngineMemberResult[] | null {
+export function engineCheckMembers(members: readonly object[], forces: readonly EngineForces[], opts: { steps?: boolean } = {}): EngineMemberResult[] | null {
   if (!check) return null;
   let out: EngineMemberResult[];
   try {
-    out = JSON.parse(check(JSON.stringify({ members, forces })));
+    out = JSON.parse(check(JSON.stringify({ members, forces, steps: opts.steps ?? true })));
   } catch {
     return null;
   }

@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { profileByName, profileToSectionFull } from '../../../data/steel-profiles';
 import { checkSteelMember, missingSteelInputs } from '../../verification-service';
 import { angleSection } from '../angle-section';
+import { lightestPassing } from '../profile-optimise';
 
 const mat = { fy: 235, fu: 370, e: 200_000 };
 const L80 = () => profileToSectionFull(profileByName('L 80x80x8')!);
@@ -73,5 +74,22 @@ describe('double angles', () => {
     const v = checkSteelMember(1, push(100), twoL('doubleX'), mat, { L: 3, Lb: 3 })!;
     expect(v.compression!.notEvaluatedMessage!.key).toBe('c301.refuse.unknownShape');
     expect(JSON.stringify(v.compression!.notEvaluatedMessage)).toContain('doubleX');
+  });
+});
+
+describe('the profile search over angles', () => {
+  it('stops at a refusal no profile can lift, and says which', () => {
+    const r = lightestPassing('L', [{ elementId: 1, demand: push(20), lengths: { L: 2, Lb: 2 } }], mat);
+    expect(r.chosen).toBeNull();
+    expect(r.tried).toBe(1);
+    expect(r.best?.memberRefusal).toBe('c301.refuse.e5Condition');
+  });
+
+  it('with the end condition stated, picks the lightest angle the gated engine confirms', () => {
+    const r = lightestPassing('L', [{ elementId: 1, demand: push(60), lengths: { L: 2, Lb: 2, angle: { endCondition: 'e5aLong' } } }], mat);
+    expect(r.chosen).not.toBeNull();
+    const v = checkSteelMember(1, push(60), profileToSectionFull(r.chosen!.profile), mat, { L: 2, Lb: 2, angle: { endCondition: 'e5aLong' } })!;
+    expect(v.overallStatus).toBe('ok');
+    expect(v.engineRecheck.certifiedOk).toBe(true);
   });
 });

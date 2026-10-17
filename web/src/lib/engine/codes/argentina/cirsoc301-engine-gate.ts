@@ -32,6 +32,11 @@ export interface SteelEngineRecheck {
   disagrees: boolean;
   /** The engine could not be asked. */
   unavailable: boolean;
+  /**
+   * A screening run (a search over candidates): not gated, so not to be shown as a pass. The
+   * search confirms the candidate it picks with a gated run.
+   */
+  screened?: boolean;
 }
 
 /** The demand sets of a steel member check, + compression as the checker reads them. */

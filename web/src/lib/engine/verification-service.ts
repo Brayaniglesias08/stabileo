@@ -692,6 +692,11 @@ export function checkSteelMember(
    * is the segment itself when `Lb` is the element's own length.
    */
   segment?: SteelSegmentDiagram,
+  /**
+   * `screen: true` — a search screening candidates: no calculation trace and no gate. Its pass is
+   * provisional (`engineRecheck.screened`); the search must confirm what it picks without it.
+   */
+  opts: { screen?: boolean } = {},
 ): (SteelVerification & { engineRecheck: SteelEngineRecheck }) | null {
   const { MuStrong: MuStrongMax, MuWeak: MuWeakMax, Vu: VuMax, diagram } = demand;
   const { L, Lb } = lengths;
@@ -852,8 +857,11 @@ export function checkSteelMember(
   const sets: SteelDemandSet[] = [];
   if (demand.Nc > 0 || demand.Nt === 0) sets.push({ Nu: demand.Nc, Muz: MuStrongMax, Muy: MuWeakMax, Vu: VuMax });
   if (demand.Nt > 0) sets.push({ Nu: -demand.Nt, Muz: MuStrongMax, Muy: MuWeakMax, Vu: VuMax });
-  const runs = sets.map((f) => verifySteelElement({ elementId, ...f, params: sdp }));
+  const runs = sets.map((f) => verifySteelElement({ elementId, ...f, params: sdp }, { trace: !opts.screen }));
   const worst = runs.reduce((w, v) => (steelGoverningRatio(v) > steelGoverningRatio(w) ? v : w));
+  if (opts.screen) {
+    return { ...worst, engineRecheck: { certified: false, certifiedOk: false, disagrees: false, unavailable: !worst.engine.available, screened: true } };
+  }
   // The engine's certified check confirms a pass on this exact input, or the pass is withdrawn
   // (`cirsoc301-engine-gate.ts`).
   return engineGateSteel(worst, sdp, sets);

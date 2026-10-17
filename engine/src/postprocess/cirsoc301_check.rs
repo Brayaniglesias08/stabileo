@@ -325,6 +325,13 @@ pub struct Cirsoc301DesignForces {
 pub struct Cirsoc301CheckInput {
     pub members: Vec<Cirsoc301MemberData>,
     pub forces: Vec<Cirsoc301DesignForces>,
+    /// Report the calculation (`steps`). Default true; a search screening candidates turns it off.
+    #[serde(default = "yes")]
+    pub steps: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 // ==================== Output ====================
@@ -1756,7 +1763,11 @@ fn finish_steps(st: &mut Steps, demand_key: &str, demand: f64, ratio: f64) {
 }
 
 pub fn check_tension(m: &Cirsoc301MemberData, pu: f64) -> CheckOutcome {
-    let mut st = Steps::new(true);
+    check_tension_t(m, pu, true)
+}
+
+fn check_tension_t(m: &Cirsoc301MemberData, pu: f64, trace: bool) -> CheckOutcome {
+    let mut st = Steps::new(trace);
     let pu = pu.abs();
     let (phi_y, rup) = tension_capacity::<f64>(m, &mut st);
     match rup {
@@ -1773,7 +1784,11 @@ pub fn check_tension(m: &Cirsoc301MemberData, pu: f64) -> CheckOutcome {
 }
 
 pub fn check_compression(m: &Cirsoc301MemberData, pu: f64) -> CheckOutcome {
-    let mut st = Steps::new(true);
+    check_compression_t(m, pu, true)
+}
+
+fn check_compression_t(m: &Cirsoc301MemberData, pu: f64, trace: bool) -> CheckOutcome {
+    let mut st = Steps::new(trace);
     let pu = pu.abs();
     match compression_capacity::<f64>(m, &mut st) {
         Err(r) => refused_outcome(pu, 0.0, "E", r, st.list),
@@ -1786,7 +1801,11 @@ pub fn check_compression(m: &Cirsoc301MemberData, pu: f64) -> CheckOutcome {
 }
 
 pub fn check_flexure(m: &Cirsoc301MemberData, mu: f64, strong: bool) -> CheckOutcome {
-    let mut st = Steps::new(true);
+    check_flexure_t(m, mu, strong, true)
+}
+
+fn check_flexure_t(m: &Cirsoc301MemberData, mu: f64, strong: bool, trace: bool) -> CheckOutcome {
+    let mut st = Steps::new(trace);
     let mu = mu.abs();
     match flexure_capacity::<f64>(m, strong, &mut st) {
         Err((r, clause)) => refused_outcome(mu, 0.0, clause, r, st.list),
@@ -1800,7 +1819,11 @@ pub fn check_flexure(m: &Cirsoc301MemberData, mu: f64, strong: bool) -> CheckOut
 }
 
 pub fn check_shear(m: &Cirsoc301MemberData, vu: f64) -> CheckOutcome {
-    let mut st = Steps::new(true);
+    check_shear_t(m, vu, true)
+}
+
+fn check_shear_t(m: &Cirsoc301MemberData, vu: f64, trace: bool) -> CheckOutcome {
+    let mut st = Steps::new(trace);
     let vu = vu.abs();
     let c = shear_capacity::<f64>(m, &mut st);
     let ratio = ratio_of(vu, c.phi_vn);
@@ -1811,10 +1834,14 @@ pub fn check_shear(m: &Cirsoc301MemberData, vu: f64) -> CheckOutcome {
 /// H.1 with the member's own axial and flexural checks. A capacity refused under load
 /// refuses the interaction.
 pub fn check_interaction(m: &Cirsoc301MemberData, nu: f64, mux: f64, muy: f64) -> CheckOutcome {
-    let mut st = Steps::new(true);
-    let axial = if nu >= 0.0 { check_compression(m, nu) } else { check_tension(m, nu) };
-    let fx = check_flexure(m, mux, true);
-    let fy = check_flexure(m, muy, false);
+    check_interaction_t(m, nu, mux, muy, true)
+}
+
+fn check_interaction_t(m: &Cirsoc301MemberData, nu: f64, mux: f64, muy: f64, trace: bool) -> CheckOutcome {
+    let mut st = Steps::new(trace);
+    let axial = if nu >= 0.0 { check_compression_t(m, nu, trace) } else { check_tension_t(m, nu, trace) };
+    let fx = check_flexure_t(m, mux, true, trace);
+    let fy = check_flexure_t(m, muy, false, trace);
     let pu = nu.abs();
     let refused = [(&axial, pu), (&fx, mux.abs()), (&fy, muy.abs())]
         .iter()
@@ -1865,14 +1892,19 @@ pub fn checks_present(nu: f64, mux: f64, muy: f64) -> (bool, bool, bool, bool) {
 }
 
 pub fn check_member(m: &Cirsoc301MemberData, f: &Cirsoc301DesignForces) -> Cirsoc301CheckResult {
+    check_member_with(m, f, true)
+}
+
+/// `check_member`, with the calculation trace (`steps`) only when `trace` is set.
+pub fn check_member_with(m: &Cirsoc301MemberData, f: &Cirsoc301DesignForces, trace: bool) -> Cirsoc301CheckResult {
     let (nu, mux, muy, vu) = (f.nu, f.mu_strong, f.mu_weak, f.vu);
     let (t, c, w, i) = checks_present(nu, mux, muy);
-    let tension = t.then(|| check_tension(m, nu));
-    let compression = c.then(|| check_compression(m, nu));
-    let flexure_strong = check_flexure(m, mux, true);
-    let flexure_weak = w.then(|| check_flexure(m, muy, false));
-    let shear = check_shear(m, vu);
-    let interaction = i.then(|| check_interaction(m, nu, mux, muy));
+    let tension = t.then(|| check_tension_t(m, nu, trace));
+    let compression = c.then(|| check_compression_t(m, nu, trace));
+    let flexure_strong = check_flexure_t(m, mux, true, trace);
+    let flexure_weak = w.then(|| check_flexure_t(m, muy, false, trace));
+    let shear = check_shear_t(m, vu, trace);
+    let interaction = i.then(|| check_interaction_t(m, nu, mux, muy, trace));
     let mut list: Vec<(&str, &CheckOutcome)> = vec![("flexureStrong", &flexure_strong), ("shear", &shear)];
     if let Some(o) = &tension {
         list.push(("tension", o));
@@ -1930,5 +1962,5 @@ pub fn check_member(m: &Cirsoc301MemberData, f: &Cirsoc301DesignForces) -> Cirso
 pub fn check_cirsoc301_members(input: &Cirsoc301CheckInput) -> Vec<Cirsoc301CheckResult> {
     let by_id: std::collections::HashMap<usize, &Cirsoc301MemberData> =
         input.members.iter().map(|m| (m.element_id, m)).collect();
-    input.forces.iter().filter_map(|f| by_id.get(&f.element_id).map(|m| check_member(m, f))).collect()
+    input.forces.iter().filter_map(|f| by_id.get(&f.element_id).map(|m| check_member_with(m, f, input.steps))).collect()
 }
