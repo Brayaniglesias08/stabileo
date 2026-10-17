@@ -1684,6 +1684,7 @@ const en: Record<string, string> = {
   'seismic.blocked.dynamicRequired': 'Art. 2.7.3 makes the dynamic methods mandatory: T = {t} s exceeds 3·T2 = {limit} s (T2 = {t2} s). The static method does not apply, whatever the height.',
   'seismic.blocked.heightOverTable25': 'Table 2.5 limits the static method to {limit} m for group {group} in zone {zone}; this building is {h} m tall.',
   'seismic.blocked.irregular': 'Table 2.5 admits the static method for buildings regular in plan and in elevation; this one was declared irregular.',
+  'seismic.blocked.aoIrregular': 'Table 2.5 admits the static method for group Ao only with line 1a of Tables 2.3 and 2.4 (no irregularity); this building was declared with a medium irregularity.',
   'seismic.assumed.groupCAsB': 'Table 2.5 has no column for group C, so it is read on group B\'s row, which is more demanding than group C\'s risk factor warrants.',
   'seismic.system.rc_walls': 'Isolated and coupled walls',
   'seismic.system.rc_frame_full_ductility': 'Moment frames with full ductility',

@@ -6368,6 +6368,7 @@ const pt: Translations = {
   'seismic.blocked.dynamicRequired': 'O art. 2.7.3 obriga aos métodos dinâmicos: T = {t} s supera 3·T2 = {limit} s (T2 = {t2} s). O método estático não se aplica, qualquer que seja a altura.',
   'seismic.blocked.heightOverTable25': 'A Tabela 2.5 limita o método estático a {limit} m para o grupo {group} na zona {zone}; esta construção mede {h} m.',
   'seismic.blocked.irregular': 'A Tabela 2.5 admite o método estático para construções regulares em planta e em altura; esta foi declarada irregular.',
+  'seismic.blocked.aoIrregular': 'A Tabela 2.5 admite o método estático para o grupo Ao só com a linha 1a das Tabelas 2.3 e 2.4 (sem irregularidade); esta construção foi declarada com irregularidade média.',
   'seismic.assumed.groupCAsB': 'A Tabela 2.5 não tem coluna para o grupo C. Lê-se na linha do grupo B, mais exigente que o seu fator de risco.',
   'seismic.system.rc_walls': 'Paredes isoladas e acopladas',
   'seismic.system.rc_frame_full_ductility': 'Pórticos com ductilidade completa',

@@ -1722,6 +1722,7 @@ const es: Record<string, string> = {
   'seismic.blocked.dynamicRequired': 'El art. 2.7.3 obliga a los métodos dinámicos: T = {t} s supera 3·T2 = {limit} s (T2 = {t2} s). El método estático no es aplicable, sea cual sea la altura.',
   'seismic.blocked.heightOverTable25': 'La Tabla 2.5 limita el método estático a {limit} m para el grupo {group} en zona {zone}; la construcción mide {h} m.',
   'seismic.blocked.irregular': 'La Tabla 2.5 admite el método estático con regularidad en planta y en altura; esta construcción se declaró irregular.',
+  'seismic.blocked.aoIrregular': 'La Tabla 2.5 admite el método estático para el grupo Ao solo con la línea 1a de las Tablas 2.3 y 2.4 (sin irregularidad); esta construcción se declaró con irregularidad media.',
   'seismic.assumed.groupCAsB': 'La Tabla 2.5 no tiene columna para el grupo C. Se lo lee en la fila del grupo B, que es más exigente que su factor de riesgo.',
   'seismic.system.rc_walls': 'Tabiques aislados y acoplados',
   'seismic.system.rc_frame_full_ductility': 'Pórticos con ductilidad completa',
