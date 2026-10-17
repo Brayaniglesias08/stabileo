@@ -608,6 +608,7 @@ mod tests {
             e: 200e9,
             g: None,
             depth: Some(0.308),
+            flange_slenderness: None,
         }
     }
 
@@ -637,6 +638,8 @@ mod tests {
         m.aw = if g.unit() < 0.2 { None } else { m.aw };
         m.cb = Some(g.range(1.0, 2.2));
         m.ky = Some(g.range(0.5, 2.1));
+        // Compact, noncompact and slender flanges (F3, F6.2), and absent.
+        m.flange_slenderness = if g.unit() < 0.4 { None } else { Some(g.range(4.0, 40.0)) };
         m
     }
 
