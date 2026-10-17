@@ -189,24 +189,24 @@ jobs:
           path: engine/fuzz/artifacts/${{ matrix.target }}/
           if-no-files-found: ignore
 
-  # Mutation testing (cargo-mutants, config .cargo/mutants.toml): every mutant
-  # of the certificate code (engine/src/certify/) and the element kernels
-  # (engine/src/element/) must be caught by the tests, or listed in the config's
-  # exclusions as equivalent. Sharded to fit the runner time limit; each shard
-  # fails on a missed mutant and uploads its report.
+  # Mutation testing (cargo-mutants, scripts/mutants.sh, .cargo/mutants.toml,
+  # docs/verification/FUZZ_MUTANTS.md) of the certificate code, the solver core
+  # (DOF numbering, assembly, reactions, validation) and the element kernels.
+  # About 22k mutants is days of CPU, so the mutants are split into 64 shards
+  # and each night (or manual run) 4 runners take the next 4, all of them every
+  # 16 days. A missed mutant fails the job: add a test,
+  # or exclude it in .cargo/mutants.toml with the reason it is equivalent.
   mutants:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 340
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        slot: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rust-src
+      - uses: dtolnay/rust-toolchain@stable
       # engine/.cargo/config.toml links with clang + mold.
       - name: Install mold linker
         run: |
@@ -219,11 +219,16 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-mutants
-      - name: Mutants (shard ${{ matrix.shard }}/8)
-        run: ./scripts/mutants.sh --shard ${{ matrix.shard }}/8 --jobs 2
+      - name: Pick shard
+        id: shard
+        run: |
+          day=$(( $(date -u +%s) / 86400 ))
+          echo "k=$(( (day * 4 + ${{ matrix.slot }}) % 64 ))" >> "$GITHUB_OUTPUT"
+      - name: Mutants (shard ${{ steps.shard.outputs.k }}/64)
+        run: ./scripts/mutants.sh --shard ${{ steps.shard.outputs.k }}/64 --jobs 2
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: mutants-report-${{ matrix.shard }}
+          name: mutants-report-${{ steps.shard.outputs.k }}
           path: mutants.out/
           if-no-files-found: ignore

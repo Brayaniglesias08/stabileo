@@ -19,28 +19,32 @@ cd "$root"
 
 scope=${MUTANTS_SCOPE:-all}
 files=()
-tests=(--lib)
+tests=()  # integration test targets, besides the library unit tests
 case $scope in
   certify | all)
     files+=(-f 'engine/src/certify/**')
-    for t in engine/tests/certify*.rs; do tests+=(--test "$(basename "$t" .rs)"); done
-    tests+=(--test fuzz_regressions)
+    for t in engine/tests/certify*.rs; do tests+=("$(basename "$t" .rs)"); done
+    tests+=(fuzz_regressions)
     ;;&
   solver | all)
     files+=(-f engine/src/solver/dof.rs -f engine/src/solver/assembly.rs -f engine/src/solver/linear.rs)
-    tests+=(--test certify --test duplicate_support_reactions --test determinate_exact --test index_exhaustive
-      --test solver_mutation_kills --test integration)
+    tests+=(certify certify_bundle duplicate_support_reactions determinate_exact index_exhaustive
+      fuzz_regressions solver_mutation_kills)
     ;;&
   element | all)
     files+=(-f 'engine/src/element/**')
-    tests+=(--test element_rigid_body_modes --test shell_patch_tests --test shell_rigid_body_modes
-      --test local_axis_convention --test determinate_exact --test opensees_differential_regressions)
+    tests+=(element_rigid_body_modes shell_patch_tests shell_rigid_body_modes
+      local_axis_convention determinate_exact opensees_differential_regressions)
     ;;
   certify | solver) ;;
   *) echo "MUTANTS_SCOPE must be certify, solver, element or all" >&2; exit 64 ;;
 esac
 
-cargo mutants --package dedaliano-engine "${files[@]}" --timeout-multiplier 3 "$@" -- "${tests[@]}"
+# -C passes each test-target flag to both `cargo test --no-run` and `cargo test`,
+# so only the listed targets are built per mutant (`-- …` reaches only the run).
+cargo_args=(-C --lib)
+for t in $(printf '%s\n' "${tests[@]}" | sort -u); do cargo_args+=(-C --test -C "$t"); done
+cargo mutants --package dedaliano-engine "${files[@]}" --timeout-multiplier 3 "${cargo_args[@]}" "$@"
 status=$?
 if [[ -s mutants.out/missed.txt ]]; then
   echo "Missed mutants (add a test, or exclude in .cargo/mutants.toml with a justification if equivalent):"
