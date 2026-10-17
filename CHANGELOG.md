@@ -38,6 +38,24 @@ regression test.
   each triangle by (2A/P)^2/50 (P including holes, capped at 60 000 triangles): those cases
   read 2.2% and 3.3% low, IPE 300 2.5% (was 3.6%). J stays a lower bound, so the change
   raises J toward the true value and never above it.
+- **Bolt bearing used the end bolt's clear distance for every bolt (unsafe).** CIRSOC 301
+  §J.3.10 takes `Lc = s - dh` for interior bolts; with a generous edge distance the interior
+  bolts are the weaker ones (at `s = 3d` they never reach the `2.4 d t Fu` cap), so both the
+  designed joint (`lib/connection/bolted-joint.ts`) and the PRO-tab calculator
+  (`lib/engine/connection-design.ts`) overstated bearing. The designed joint now sums
+  `min(shear, bearing)` per bolt, end and interior apart, as the clause prescribes; the
+  calculator, which has no layout, takes the smaller of the two `Lc` (interior at the given
+  spacing, or at the 3d minimum when none is given). Checked against the INTI CIRSOC 301-2018
+  worked examples 1 and 5.
+- **End-loaded fillet welds longer than 300w were credited 0.6L (unsafe).** CIRSOC 301 eq.
+  J.2.1 fixes the effective length at 180w beyond 300w; the PRO-tab weld calculator used
+  `beta = 0.6`, which matches only at exactly 300w (67% too much at 500w).
+- **Combined tension and shear divided the required shear stress by phi.** `frv` is the
+  required stress `V/(Ab n)`; the extra phi put the reduced tension of the designed joint
+  20-40% below Tabla J.3.6 at moderate shear (conservative). Now reproduces `806 - 2.5 fv`.
+- **The PRO advanced section panel could print Routh's J.** When the Saint-Venant solve
+  failed it kept the polygon analyser's `j`, Routh's approximation (twice the true J on an I).
+  It now shows no J in that case.
 
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 
