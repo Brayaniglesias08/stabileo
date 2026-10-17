@@ -21,6 +21,15 @@ each with a regression test.
   off by the applied load and a *certified* result failed global equilibrium. Each node now
   has a single reaction entry with its restrained reactions counted once (spring forces of
   all its supports still add). `tests/duplicate_support_reactions.rs`.
+- **Harmonic certificates reported NaN enclosures for a zero response.** When the target DOF
+  was not excited (or the reported value equalled the candidate), the outward-rounded sum of
+  squares had a lower end of −5e−324 and its interval square root was NaN, so a *certified*
+  result carried NaN amplitude enclosures and error bounds. The modulus now clamps that lower
+  end at 0 (sound: the sum is ≥ 0 exactly). `tests/fuzz_regressions.rs`.
+- **Time-history certificates reported +∞ relative update residuals for a structure at
+  rest.** The subnormal interval residual of exact zeros was divided by max‖u‖ = 0, giving
+  `null` in fields the web reads as numbers. Relative residuals now divide by
+  max(scale, `f64::MIN_POSITIVE`). `tests/fuzz_regressions.rs`.
 
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 
