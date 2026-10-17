@@ -66,3 +66,16 @@ describe('auto-verify checks a member in tension under tension in shear (finding
     expect(compression.shear.phiVc).toBeGreaterThan(none.shear.phiVc);
   });
 });
+
+describe('the engine verdict, read exactly (mutants of design-check-results.ts)', () => {
+  const read = (r: Record<string, unknown>) => normalizeWasmRC([{ elementId: 1, unityRatio: 0.5, ...r }], 'aci', 'ACI 318', new Map())[0].status;
+  it('pass: false alone fails', () => expect(read({ pass: false, unevaluated: [] })).toBe('fail'));
+  it('an unevaluated check alone fails', () => expect(read({ pass: true, unevaluated: ['Shear'] })).toBe('fail'));
+  it('pass: true with nothing unevaluated reads the ratio', () => {
+    expect(read({ pass: true, unevaluated: [] })).toBe('ok');
+    expect(read({ pass: true, unevaluated: [], unityRatio: 1.02 })).toBe('fail');
+  });
+  it('a result with no ratio at all is not a pass', () => {
+    expect(normalizeWasmRC([{ elementId: 1 }], 'aci', 'ACI 318', new Map())[0].status).toBe('fail');
+  });
+});
