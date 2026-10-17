@@ -427,8 +427,12 @@ fn check_2d(input: &SolverInput, densities: &HashMap<String, f64>, seed: u64) ->
         mask_diag(&mut kb, nf, &art);
         c.mat("2d.buckling.k_ff", &kb, &block(&kref, n, &free), nf);
         // −K_G must be in the frame of K: rotated at inclined supports. The
-        // reference is the same element-force K_G over all DOFs, rotated.
-        let mut kgl = dense(&build_kg_from_forces_2d(input, &all_free(&sys.dof_num), &sys.linear.element_forces, &[]).into_csc());
+        // reference is K_G at the linear solution's displacements (each
+        // member's N from its elongation, as buckling builds it since the
+        // OpenSees differential fix), over all DOFs, rotated.
+        let uu = u_of_2d(&sys.dof_num, &sys.linear);
+        let mut kgl = vec![0.0; n * n];
+        add_geometric_stiffness_2d(input, &sys.dof_num, &uu, &mut kgl);
         rotate_all_2d(&mut kgl, n, &stb.inclined_transforms_2d);
         let neg: Vec<f64> = block(&kgl, n, &free).iter().map(|v| -v).collect();
         c.mat("2d.buckling.kg", &dense(&sys.neg_kg_csc), &neg, nf);
@@ -703,7 +707,11 @@ fn check_3d(input: &SolverInput3D, densities: &HashMap<String, f64>, seed: u64) 
     if let Ok(sys) = buckling_system_3d(input) {
         c.mat("3d.buckling.k_ff", &dense(&sys.k_ff), &block(k, n, &free), nf);
         if !surfaces {
-            let mut kgl = dense(&build_kg_from_forces_3d(input, &all_free(&sys.dof_num), &sys.linear.element_forces).into_csc());
+            // K_G at the linear solution's displacements (N from elongation,
+            // as buckling builds it), over all DOFs, rotated like K.
+            let uu = u_of_3d(&sys.dof_num, &sys.linear);
+            let mut kgl = vec![0.0; n * n];
+            add_geometric_stiffness_3d(input, &sys.dof_num, &uu, &mut kgl);
             rotate_all_3d(&mut kgl, n, &st.inclined_transforms);
             let neg: Vec<f64> = block(&kgl, n, &free).iter().map(|v| -v).collect();
             c.mat("3d.buckling.kg", &dense(&sys.neg_kg_csc), &neg, nf);
@@ -1199,7 +1207,6 @@ fn ex_vs_dense(input: &SolverInput) {
 }
 
 #[test]
-#[ignore = "KNOWN: assemble_sparse_2d_ex ignores the spring angle, fixed in fix/sparse2d"]
 fn known_ex_angled_spring() {
     let mut s = sup_2d(2, 2, "spring");
     s.kx = Some(1e4);
@@ -1209,7 +1216,6 @@ fn known_ex_angled_spring() {
 }
 
 #[test]
-#[ignore = "KNOWN: assemble_sparse_2d_ex ignores inclined rollers, fixed in fix/sparse2d"]
 fn known_ex_inclined_roller() {
     let mut s = sup_2d(2, 2, "inclinedRoller");
     s.angle = Some(0.5);
@@ -1217,7 +1223,6 @@ fn known_ex_inclined_roller() {
 }
 
 #[test]
-#[ignore = "KNOWN: assemble_sparse_2d_ex has no orphan-rotation guard, fixed in fix/sparse2d"]
 fn known_ex_orphan_rotation() {
     // Node 3 is reached only by a truss in a frame model: its rotation is bare.
     ex_vs_dense(&model_2d_from(
@@ -1229,7 +1234,6 @@ fn known_ex_orphan_rotation() {
 }
 
 #[test]
-#[ignore = "KNOWN: assemble_sparse_2d_ex k_full omits springs on restrained DOFs, fixed in fix/sparse2d"]
 fn known_ex_spring_on_restrained_dof() {
     let mut s = sup_2d(2, 2, "pinned");
     s.kx = Some(1e4);
@@ -1239,7 +1243,6 @@ fn known_ex_spring_on_restrained_dof() {
 /// A connector between nodes 2 and 3 of a truss-only (2-DOF) model must put
 /// the same translational stiffness as in a 3-DOF model.
 #[test]
-#[ignore = "KNOWN: connector assembly hardcodes 3 DOFs per node in 2D, fixed in fix/connectors"]
 fn known_connector_on_two_dof_nodes() {
     let conn = ConnectorElement { id: 1, node_i: 2, node_j: 3, k_axial: 1e5, k_shear: 3e4, k_moment: 0.0, k_shear_z: 0.0, k_bend_y: 0.0, k_bend_z: 0.0 };
     let mut truss = model_2d_from(
@@ -1267,7 +1270,6 @@ fn known_connector_on_two_dof_nodes() {
 
 /// A connector in a warping (7-DOF) model must assemble like in a 6-DOF one.
 #[test]
-#[ignore = "KNOWN: connector assembly hardcodes 6 DOFs per node in 3D (index panic with warping), fixed in fix/connectors"]
 fn known_connector_on_warping_nodes() {
     let mut m = model_3d_from(
         &[(1, [0.0, 0.0, 0.0]), (2, [3.0, 0.0, 0.0]), (3, [3.0, 1.0, 0.0])],
@@ -1295,7 +1297,6 @@ fn known_connector_on_warping_nodes() {
 }
 
 #[test]
-#[ignore = "NEW, reported: assemble_sparse_2d_ex scales artificial stiffness by the largest free diagonal; belongs with fix/sparse2d"]
 fn reported_ex_artificial_stiffness_scale() {
     // Node 3's rotation is hinged out (artificial stiffness); the largest
     // diagonal sits on the fixed node 1.
@@ -1331,7 +1332,6 @@ fn reported_legacy_triplet_assemblers() {
 /// orientation, so the modal frequencies must not depend on it. Rotated, the
 /// slide is an inclined roller and K is assembled in its frame; M is not.
 #[test]
-#[ignore = "NEW, reported: the mass matrix is not rotated at inclined supports (modal, harmonic, time history, reduction)"]
 fn reported_modal_inclined_roller_frequencies_depend_on_orientation() {
     let beam = |phi: f64| {
         let pts: Vec<(usize, f64, f64)> = (0..5).map(|k| (k + 1, k as f64 * 1.5 * phi.cos(), k as f64 * 1.5 * phi.sin())).collect();
@@ -1353,7 +1353,6 @@ fn reported_modal_inclined_roller_frequencies_depend_on_orientation() {
 }
 
 #[test]
-#[ignore = "NEW, reported: the mass matrix is not rotated at inclined supports (modal, harmonic, time history, reduction)"]
 fn reported_modal_3d_inclined_support_frequencies_depend_on_orientation() {
     let beam = |phi: f64| {
         // Rotated about +y by φ: x → (cos φ, 0, −sin φ), z → (sin φ, 0, cos φ).
@@ -1372,7 +1371,6 @@ fn reported_modal_3d_inclined_support_frequencies_depend_on_orientation() {
 /// K comes from `assemble_sparse_2d_ex`, which does not rotate either (known
 /// bug, fix/sparse2d); once it does, K_G has to follow.
 #[test]
-#[ignore = "NEW, reported: 2D buckling K_G is never rotated at inclined supports; latent until fix/sparse2d"]
 fn reported_buckling_2d_kg_not_rotated() {
     let mut top = sup_2d(2, 2, "inclinedRoller");
     top.angle = Some(1.2);
