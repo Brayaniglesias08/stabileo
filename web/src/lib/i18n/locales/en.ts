@@ -6856,6 +6856,7 @@ const en: Record<string, string> = {
   'loads.dead.piso_baldosa_mortero': 'Cement-mortar tile',
   'loads.dead.tab_yeso_simple': 'Single plasterboard on metal studs, 95 mm',
   'loads.dead.tab_yeso_doble': 'Double plasterboard on metal studs, 120 mm',
+  'loads.dead.tabiques_minimo_432': 'Partition allowance, §4.3.2 minimum (per m² of floor)',
   'loads.dead.tab_yeso_ceramico_70': 'Precast self-supporting ceramic-gypsum panel, 70 mm',
   'loads.dead.tab_yeso_ceramico_100': 'Precast self-supporting ceramic-gypsum panel, 100 mm',
   'loads.dead.vid_sencillo': 'Single clear float glass, 2.0 mm',

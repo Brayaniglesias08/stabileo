@@ -6849,6 +6849,7 @@ const es: Record<string, string> = {
   'loads.dead.piso_baldosa_mortero': 'Baldosa de mortero de cemento',
   'loads.dead.tab_yeso_simple': 'Placa de yeso simple sobre bastidor metálico, 95 mm',
   'loads.dead.tab_yeso_doble': 'Placa de yeso doble sobre bastidor metálico, 120 mm',
+  'loads.dead.tabiques_minimo_432': 'Previsión de tabiques, mínimo del art. 4.3.2 (por m² de piso)',
   'loads.dead.tab_yeso_ceramico_70': 'Panel premoldeado de yeso cerámico autoportante, 70 mm',
   'loads.dead.tab_yeso_ceramico_100': 'Panel premoldeado de yeso cerámico autoportante, 100 mm',
   'loads.dead.vid_sencillo': 'Vidrio plano transparente sencillo, 2,0 mm',

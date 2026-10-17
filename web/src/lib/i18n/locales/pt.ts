@@ -3567,6 +3567,7 @@ const pt: Translations = {
   'loads.dead.piso_baldosa_mortero': 'Ladrilho de argamassa de cimento',
   'loads.dead.tab_yeso_simple': 'Placa de gesso simples sobre estrutura metálica, 95 mm',
   'loads.dead.tab_yeso_doble': 'Placa de gesso dupla sobre estrutura metálica, 120 mm',
+  'loads.dead.tabiques_minimo_432': 'Previsão de divisórias, mínimo do art. 4.3.2 (por m² de piso)',
   'loads.dead.tab_yeso_ceramico_70': 'Painel pré-moldado de gesso cerâmico autoportante, 70 mm',
   'loads.dead.tab_yeso_ceramico_100': 'Painel pré-moldado de gesso cerâmico autoportante, 100 mm',
   'loads.dead.vid_sencillo': 'Vidro plano transparente simples, 2,0 mm',
