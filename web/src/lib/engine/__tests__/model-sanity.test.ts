@@ -65,10 +65,6 @@ const JUSTIFIED_WARNINGS: Record<string, string[]> = {
   // regular column grid), and carries pipes, not floors: 2.4 kN/m². The band is for buildings and
   // the review cannot tell a rack from one; the warning says what it compared.
   'pipe-rack': ['weight_per_area_low'],
-  // Members whose ends move apart sideways by more than L/10 in a linear solve: under dead load ten
-  // members of the stadium's cantilever roof. A very flexible zone in the demo model, which the
-  // review is right to point at.
-  'full-stadium': ['deflection_large'],
 };
 
 /*
