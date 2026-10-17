@@ -4,7 +4,7 @@ use crate::linalg::*;
 use super::dof::DofNumbering;
 use super::assembly::*;
 use super::geometric_stiffness::{
-    add_plate_geometric_stiffness_3d, emit_geometric_stiffness_2d, emit_geometric_stiffness_3d, KgTriplets,
+    emit_geometric_stiffness_2d, emit_geometric_stiffness_3d, KgTriplets,
 };
 use super::constraints::FreeConstraintSystem;
 
@@ -300,35 +300,10 @@ pub fn buckling_system_3d(input: &SolverInput3D) -> Result<BucklingSystem3D, Str
     let mut kg = KgTriplets::new(if inclined_transforms.is_empty() { nf } else { n });
     emit_geometric_stiffness_3d(input, &dof_num, &u_full, &mut |i, j, v| if i >= j { kg.add(i, j, v) });
 
-    if has_surfaces {
-        if !input.quads.is_empty() {
-            super::geometric_stiffness::add_quad_geometric_stiffness_3d(
-                input, &dof_num, &u_full, &mut kg,
-            );
-        }
-        if !input.quad9s.is_empty() {
-            super::geometric_stiffness::add_quad9_geometric_stiffness_3d(
-                input, &dof_num, &u_full, &mut kg,
-            );
-        }
-        if !input.solid_shells.is_empty() {
-            super::geometric_stiffness::add_solid_shell_geometric_stiffness_3d(
-                input, &dof_num, &u_full, &mut kg,
-            );
-        }
-        if !input.curved_shells.is_empty() {
-            super::geometric_stiffness::add_curved_shell_geometric_stiffness_3d(
-                input, &dof_num, &u_full, &mut kg,
-            );
-        }
-        // Plate (DKT triangle) geometric stiffness from membrane stress resultants,
-        // off the same u_full.
-        if !input.plates.is_empty() {
-            add_plate_geometric_stiffness_3d(
-                input, &dof_num, &u_full, &mut kg,
-            );
-        }
-    }
+    // `emit_geometric_stiffness_3d` includes every shell family's Kg (plates,
+    // MITC4/9, solid and curved shells) off the same u_full since the feature
+    // matrix PR made P-Delta use it; adding them here again doubled the shell
+    // Kg and halved shell buckling factors.
 
     if !inclined_transforms.is_empty() {
         kg = kg.rotate_inclined(&inclined_transforms, nf);
