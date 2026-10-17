@@ -177,7 +177,10 @@ def _candidates(m):
                   "dx", "dy", "dz", "drx", "dry", "drz"):
             if s.get(f):
                 c = copy.deepcopy(m)
-                c["supports"][k].pop(f)
+                if f in ("rx", "ry", "rz", "rrx", "rry", "rrz"):
+                    c["supports"][k][f] = False  # required fields in 3D
+                else:
+                    c["supports"][k].pop(f)
                 yield c
     for k, e in m["elements"].items():
         for f in ("rollAngle", "localYx", "releaseMyStart", "releaseMyEnd", "releaseMzStart", "releaseMzEnd",
