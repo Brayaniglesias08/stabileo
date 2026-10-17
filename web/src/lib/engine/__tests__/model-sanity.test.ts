@@ -61,13 +61,6 @@ const JUSTIFIED_WARNINGS: Record<string, string[]> = {
   // Nodes on a member's span that are not connected to it, found by the check added with this
   // pin; each model is examined below and either fixed or the warning justified.
   'suspension-bridge': ['node_on_span'],
-  // Demo models whose loads carry no case: they fall into case 1, "Dead Load", lateral loads and
-  // all. In a PRO solve that case is factored as dead load with its lateral part in it.
-  '3d-cantilever-load': ['gravity_case_horizontal'],
-  '3d-portal-frame': ['gravity_case_horizontal'],
-  '3d-tower': ['gravity_case_horizontal'],
-  'tower-3d-2': ['gravity_case_horizontal'],
-  'tower-3d-4': ['gravity_case_horizontal'],
   // "Sin peso propio": a weightless material on purpose (the blog's deep-beam comparison), solved
   // with self-weight on, so the warning is literally true and the example intends it.
   'deep-beam-bar': ['density_zero'],
