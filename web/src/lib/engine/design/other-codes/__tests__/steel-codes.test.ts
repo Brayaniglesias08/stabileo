@@ -113,14 +113,18 @@ describe('steel members under other codes', () => {
     }
   });
 
-  it('EN 1993-1-1: the same beam reads MEd/Mb,Rd with Mcr for C1 = 1 and χLT from curve a', () => {
+  it('EN 1993-1-1: the same beam reads MEd/Mb,Rd with Mcr for C1 = C2 = 1, load on the top flange, χLT from curve a', () => {
     const L = 8, q = 10;
     const row = runOtherCode(EC3, beam(L, q)).rows[0]!;
+    expect(row.status).toBe('checked');
     const p = steelProps(IPE300 as never);
     if ('skip' in p) throw new Error('props');
     const Es = E * 1e6, G = Es / 2.6, Fy = FY * 1e6;
     const Iw = (IPE300.iz * (IPE300.h - IPE300.tf) ** 2) / 4, It = steelSectionConstants(IPE300 as never).J;
-    const Mcr = ((Math.PI ** 2 * Es * IPE300.iz) / L ** 2) * Math.sqrt(Iw / IPE300.iz + (L * L * G * It) / (Math.PI ** 2 * Es * IPE300.iz));
+    // NCCI SN003b eq. (2): the app does not know where the load acts, so zg = h/2 (top flange).
+    const c2zg = IPE300.h / 2;
+    const Mcr = ((Math.PI ** 2 * Es * IPE300.iz) / L ** 2)
+      * (Math.sqrt(Iw / IPE300.iz + (L * L * G * It) / (Math.PI ** 2 * Es * IPE300.iz) + c2zg ** 2) - c2zg);
     const lam = Math.sqrt((p.Zy * Fy) / Mcr);
     const phi = 0.5 * (1 + 0.21 * (lam - 0.2) + lam * lam);
     const chi = Math.min(1, 1 / (phi + Math.sqrt(phi * phi - lam * lam)));

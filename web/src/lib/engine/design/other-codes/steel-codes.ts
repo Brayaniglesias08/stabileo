@@ -3,7 +3,9 @@
  *
  * Both read the same section (`steel-props.ts`), the member's lengths (`unbraced-length.ts` —
  * the physical member's, or the stated Lb) and its stated effective-length factors. Cb (AISC) and
- * C1 (EC3) are left at 1,0, which both codes permit as the conservative value.
+ * C1 (EC3) are left at 1,0, which both codes permit as the conservative value. The app does not
+ * know where a transverse load acts on the section, so the EC3 Mcr takes it on the top flange
+ * (zg = h/2, C2 = C1), the lowest value; the checker refuses LTB without the section's depth.
  */
 import { checkSteelMembers, checkEc3Members } from '../../wasm-solver';
 import { materialFamilyOf } from '../../steel/material-family';
@@ -180,6 +182,11 @@ export const EC3: OtherCode = {
         sectionClass: `Class${cls}`,
         bucklingCurveY: curves.y, bucklingCurveZ: curves.z, bucklingCurveLt: ec3CurveLt(p),
         av: p.Aw,
+        // The depth the default top-flange load height of Mcr is measured from. r = 0: the
+        // root radius is not held, and the flat widths without it are the larger ones.
+        geometry: p.shape === 'I' ? { shape: 'I', h: p.h, b: p.b, tw: p.tw, tf: p.tf, r: 0 }
+          : p.shape === 'RHS' ? { shape: 'RHS', h: p.h, b: p.b, t: p.tw }
+          : { shape: 'CHS', d: p.h, t: p.tw },
         // 6.3.3 with Annex B factors: Cmy, Cmz, CmLT are left to the checker's Table B.3 upper
         // bound 1,0; a hollow section is not susceptible to torsional deformations (Table B.1).
         interaction: { hollow: p.shape === 'RHS' || p.shape === 'CHS' },

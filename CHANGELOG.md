@@ -25,6 +25,15 @@ inputs needed to compute them safely are absent.**
   `checkFilletWeld` credited `0.6 L` above `300 w` instead of the clause's `180 w` (at
   `L = 600 w`, twice the allowed length); it now caps at `180 w` and takes `endLoaded`
   (default true).
+- **EC3 Mcr ignored where the load acts** (the zg = 0 expression, NCCI SN003b eq. (3)), which
+  overstates Mcr for the usual gravity load on the top flange. It is now SN003b eq. (2) with
+  the load height zg and C2. `Ec3MemberData` takes optional `geometry` (I/RHS/CHS plate
+  dimensions) and `ltb` (`c2`, `loadPosition`, `zg`); absent, the load is on the **top flange**
+  (zg = +h/2) with C2 = C1 (a lower bound for every transverse-load case of SN003b Table 3.2),
+  and a top-flange load without a depth is refused (not evaluated). The result reports `mcr`.
+  SBE Worked Example A.1 (IPE 330, zg = +165 mm, C2 = 0.454: Mcr = 113.9 kNm; at the shear
+  centre the check gave more than 1.3× that) is a regression test. The web EC3 check sends
+  the section geometry, so its Mcr takes the top-flange load.
 
 #### Unsafe design-check disagreements closed (2026-10-17)
 
