@@ -140,19 +140,42 @@ pub fn assemble_mass_matrix_2d_sparse(
     dof_num: &DofNumbering,
     densities: &HashMap<String, f64>,
 ) -> CscMatrix {
-    assemble_mass_matrix_2d_sparse_inclined(input, dof_num, densities, &[])
+    assemble_mass_matrix_2d_sparse_impl(input, dof_num, densities, &[], dof_num.n_free)
 }
 
-/// `assemble_mass_matrix_2d_sparse` in the inclined-roller frames K was
-/// assembled in (`inclined_transforms_2d`), so K and M share one basis.
+/// `assemble_mass_matrix_2d_sparse` in the inclined-support frames K was
+/// assembled in, so K and M share one basis (free block).
 pub fn assemble_mass_matrix_2d_sparse_inclined(
     input: &SolverInput,
     dof_num: &DofNumbering,
     densities: &HashMap<String, f64>,
     inclined: &[InclinedTransformData2D],
 ) -> CscMatrix {
-    let nf = dof_num.n_free;
-    // With inclined rollers, keep every DOF until the rotation is applied.
+    assemble_mass_matrix_2d_sparse_impl(input, dof_num, densities, inclined, dof_num.n_free)
+}
+
+/// `assemble_mass_matrix_2d_sparse` (global axes) over the DOFs numbered below
+/// `nf`: the free block, or with `n_total` the whole matrix (the restrained
+/// DOFs' rows are what couples a ground motion's support translations to the
+/// free DOFs).
+pub fn assemble_mass_matrix_2d_sparse_block(
+    input: &SolverInput,
+    dof_num: &DofNumbering,
+    densities: &HashMap<String, f64>,
+    nf: usize,
+) -> CscMatrix {
+    assemble_mass_matrix_2d_sparse_impl(input, dof_num, densities, &[], nf)
+}
+
+/// The block below `nf`, in the inclined frames `inclined` when not empty.
+fn assemble_mass_matrix_2d_sparse_impl(
+    input: &SolverInput,
+    dof_num: &DofNumbering,
+    densities: &HashMap<String, f64>,
+    inclined: &[InclinedTransformData2D],
+    nf: usize,
+) -> CscMatrix {
+    // With inclined supports, keep every DOF until the rotation is applied.
     let keep = if inclined.is_empty() { nf } else { dof_num.n_total };
     let mut rows: Vec<usize> = Vec::new();
     let mut cols: Vec<usize> = Vec::new();
@@ -474,18 +497,41 @@ pub fn assemble_mass_matrix_3d_sparse(
     dof_num: &DofNumbering,
     densities: &HashMap<String, f64>,
 ) -> CscMatrix {
-    assemble_mass_matrix_3d_sparse_inclined(input, dof_num, densities, &[])
+    assemble_mass_matrix_3d_sparse_impl(input, dof_num, densities, &[], dof_num.n_free)
 }
 
 /// `assemble_mass_matrix_3d_sparse` in the inclined-support frames K was
-/// assembled in (`inclined_transforms`), so K and M share one basis.
+/// assembled in, so K and M share one basis (free block).
 pub fn assemble_mass_matrix_3d_sparse_inclined(
     input: &SolverInput3D,
     dof_num: &DofNumbering,
     densities: &HashMap<String, f64>,
     inclined: &[InclinedTransformData],
 ) -> CscMatrix {
-    let nf = dof_num.n_free;
+    assemble_mass_matrix_3d_sparse_impl(input, dof_num, densities, inclined, dof_num.n_free)
+}
+
+/// `assemble_mass_matrix_3d_sparse` (global axes) over the DOFs numbered below
+/// `nf`: the free block, or with `n_total` the whole matrix (the restrained
+/// DOFs' rows are what couples a ground motion's support translations to the
+/// free DOFs).
+pub fn assemble_mass_matrix_3d_sparse_block(
+    input: &SolverInput3D,
+    dof_num: &DofNumbering,
+    densities: &HashMap<String, f64>,
+    nf: usize,
+) -> CscMatrix {
+    assemble_mass_matrix_3d_sparse_impl(input, dof_num, densities, &[], nf)
+}
+
+/// The block below `nf`, in the inclined frames `inclined` when not empty.
+fn assemble_mass_matrix_3d_sparse_impl(
+    input: &SolverInput3D,
+    dof_num: &DofNumbering,
+    densities: &HashMap<String, f64>,
+    inclined: &[InclinedTransformData],
+    nf: usize,
+) -> CscMatrix {
     // With inclined supports, keep every DOF until the rotation is applied.
     let keep = if inclined.is_empty() { nf } else { dof_num.n_total };
     let left_hand = input.left_hand.unwrap_or(false);
