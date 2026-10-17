@@ -29,4 +29,10 @@ exclude_re = [
     # (CERTIFY.md) needs S − σI ⪰ 0 only, so a zero last pivot is sound, and a
     # zero earlier pivot makes the later entries non-finite, which fails.
     "replace > with >= in shifted_cholesky",
+    # rotated_candidate_{2,3}d: skipping the prescribed value on the first
+    # restrained DOF (d < nf → d <= nf) leaves the solver's own rotated value
+    # there, equal to the prescribed one up to rounding; zeroing |u_n| ≤ 1e-15
+    # vs < 1e-15 is the same threshold.
+    "replace < with <= in rotated_candidate_[23]d",
+    "replace > with >= in rotated_candidate_[23]d",
 ]
