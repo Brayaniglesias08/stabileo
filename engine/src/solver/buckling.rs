@@ -252,9 +252,11 @@ pub struct BucklingSystem3D {
 
 #[doc(hidden)]
 pub fn buckling_system_3d(input: &SolverInput3D) -> Result<BucklingSystem3D, String> {
+    super::feature_gates::refuse_3d(input, "Buckling analysis", &[super::feature_gates::Feature::ShellThermalNonQuad])?;
     // Curved beams become segments first: `solve_3d` returns the segments' forces, which
     // the unexpanded model has no elements for (an index panic).
-    let input = &super::linear::expand_curved_beams_3d(input);
+    let expanded = (!input.curved_beams.is_empty()).then(|| super::linear::expand_curved_beams_3d(input));
+    let input = expanded.as_ref().unwrap_or(input);
     let linear = super::linear::solve_3d(input)?;
     let dof_num = DofNumbering::build_3d(input);
     let nf = dof_num.n_free;
@@ -390,8 +392,10 @@ pub fn solve_buckling_3d(
     input: &SolverInput3D,
     num_modes: usize,
 ) -> Result<BucklingResult3D, String> {
-    // Expanded as in `buckling_system_3d`, whose forces the element data reads.
-    let input = &super::linear::expand_curved_beams_3d(input);
+    // Curved beams are expanded into straight members, as every static path
+    // does; left in place they were not part of the model at all.
+    let expanded = (!input.curved_beams.is_empty()).then(|| super::linear::expand_curved_beams_3d(input));
+    let input = expanded.as_ref().unwrap_or(input);
     // Build lookup maps for O(1) access by id
     let elem_by_id: HashMap<usize, &SolverElement3D> =
         input.elements.values().map(|e| (e.id, e)).collect();

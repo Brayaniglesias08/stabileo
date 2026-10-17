@@ -321,6 +321,10 @@ pub fn solve_modal_3d(
     // unexpanded model they were silently left out.
     let input = &super::linear::expand_curved_beams_3d(input);
     super::linear::validate_input_3d(input)?;
+    // Curved beams are expanded into straight members, as every static path
+    // does; left in place they were not part of the model at all.
+    let expanded = (!input.curved_beams.is_empty()).then(|| super::linear::expand_curved_beams_3d(input));
+    let input = expanded.as_ref().unwrap_or(input);
     let referenced_material_ids = super::dynamic_validation::referenced_material_ids_3d(input);
     super::dynamic_validation::validate_densities(densities, &referenced_material_ids)?;
     if num_modes == 0 {

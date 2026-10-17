@@ -545,6 +545,21 @@ pub(crate) fn build_kg_from_forces_3d_keep(
     kg
 }
 
+/// (α, ΔT_uniform, ΔT_gradient) of the thermal loads on a quad, summed.
+fn quad_thermal(input: &SolverInput3D, quad_id: usize) -> (f64, f64, f64) {
+    let (mut alpha, mut dtu, mut dtg) = (12e-6, 0.0, 0.0);
+    for l in &input.loads {
+        if let SolverLoad3D::QuadThermal(t) = l {
+            if t.element_id == quad_id {
+                alpha = t.alpha.unwrap_or(12e-6);
+                dtu += t.dt_uniform;
+                dtg += t.dt_gradient;
+            }
+        }
+    }
+    (alpha, dtu, dtg)
+}
+
 /// Add quad geometric stiffness to a pre-built Kg matrix, given displacements.
 /// Used by P-delta and other displacement-based geometric stiffness computations.
 pub fn add_quad_geometric_stiffness_3d(
@@ -580,9 +595,12 @@ pub fn add_quad_geometric_stiffness_3d(
         let mut u_local = [0.0; 24];
         u_local.copy_from_slice(&u_local_vec);
 
-        // Compute membrane stress resultants (force/length = stress × thickness)
-        // No thermal correction here: geometric stiffness uses the total stress state.
-        let s = crate::element::quad::quad_stresses(&coords, &u_local, e, nu, quad.thickness, 0.0, 0.0, 0.0);
+        // Membrane stress resultants (force/length = stress × thickness), from
+        // the mechanical strain: a free thermal expansion is stress-free and
+        // carries no geometric stiffness. Taken as total strain, a heated,
+        // unrestrained slab was stiffened in P-Delta by its own expansion.
+        let (alpha, dtu, dtg) = quad_thermal(input, quad.id);
+        let s = crate::element::quad::quad_stresses(&coords, &u_local, e, nu, quad.thickness, alpha, dtu, dtg);
         let nxx = s.sigma_xx * quad.thickness;
         let nyy = s.sigma_yy * quad.thickness;
         let nxy = s.tau_xy * quad.thickness;
@@ -898,6 +916,12 @@ pub(crate) fn emit_geometric_stiffness_3d(
             }
         }
     }
+
+    // Shells. Their geometric stiffness was assembled for buckling only:
+    // P-Delta on a model with slabs or walls left their membrane forces out
+    // of the tangent, so a compressed wall strip came back as its linear
+    // solution (13% short of the amplified one at P = 0.13·P_cr).
+    emit_shell_geometric_stiffness_3d(input, dof_num, u, emit);
 }
 
 /// One element's share of the P-Delta geometric stiffness in the affine form the
@@ -978,6 +1002,35 @@ pub fn geometric_stiffness_terms_2d(input: &SolverInput, dof_num: &DofNumbering)
         terms.push(KgAffineTerm { element_id: elem.id, dofs, g, elongation, e, a: sec.a, l, alpha: THERMAL_ALPHA, dt });
     }
     terms
+}
+
+/// The geometric stiffness of every shell family under the membrane forces of
+/// `u` (global axes), emitted as full symmetric entries over all DOFs.
+fn emit_shell_geometric_stiffness_3d(
+    input: &SolverInput3D,
+    dof_num: &DofNumbering,
+    u: &[f64],
+    emit: &mut dyn FnMut(usize, usize, f64),
+) {
+    if input.plates.is_empty() && input.quads.is_empty() && input.quad9s.is_empty()
+        && input.solid_shells.is_empty() && input.curved_shells.is_empty()
+    {
+        return;
+    }
+    // Every DOF is kept (the P-Delta reactions read the restrained rows).
+    let mut kg = KgTriplets::new(dof_num.n_total);
+    add_plate_geometric_stiffness_3d(input, dof_num, u, &mut kg);
+    add_quad_geometric_stiffness_3d(input, dof_num, u, &mut kg);
+    add_quad9_geometric_stiffness_3d(input, dof_num, u, &mut kg);
+    add_solid_shell_geometric_stiffness_3d(input, dof_num, u, &mut kg);
+    add_curved_shell_geometric_stiffness_3d(input, dof_num, u, &mut kg);
+    // The adders emit each unordered pair once, lower triangle.
+    for ((&i, &j), &v) in kg.rows.iter().zip(&kg.cols).zip(&kg.vals) {
+        emit(i, j, v);
+        if i != j {
+            emit(j, i, v);
+        }
+    }
 }
 
 /// The affine terms of `emit_geometric_stiffness_3d` (frames, trusses, cables).
