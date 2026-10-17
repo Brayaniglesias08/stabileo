@@ -92,7 +92,7 @@ describe('steel members under other codes', () => {
     if (row.status === 'checked') expect(row.reading.ratio / (P / NbRd)).toBeCloseTo(1, 3);
   });
 
-  it('AISC 360: an unbraced beam reads Mu/φMn with F2-4 lateral-torsional buckling, Cb = 1', () => {
+  it('AISC 360: an unbraced beam reads Mu/φMn with F2-4 lateral-torsional buckling, Cb = 1 with the load on the top flange (Cb/1,4)', () => {
     const L = 8, q = 10;
     const row = runOtherCode(AISC360, beam(L, q)).rows[0]!;
     expect(row.status).toBe('checked');
@@ -106,7 +106,9 @@ describe('steel members under other codes', () => {
     const Lp = 1.76 * p.rz * Math.sqrt(Es / Fy);
     const Lr = 1.95 * rts * (Es / (0.7 * Fy)) * Math.sqrt(jc + Math.sqrt(jc * jc + 6.76 * (0.7 * Fy / Es) ** 2));
     expect(L).toBeGreaterThan(Lr);
-    const Fcr = (Math.PI ** 2 * Es) / (L / rts) ** 2 * Math.sqrt(1 + 0.078 * jc * (L / rts) ** 2);
+    // The app does not know where the load acts: top flange, Cb·1,4^(2y/h) = 1/1,4 (Helwig et al. 1997).
+    const Cb = 1 / 1.4;
+    const Fcr = (Cb * Math.PI ** 2 * Es) / (L / rts) ** 2 * Math.sqrt(1 + 0.078 * jc * (L / rts) ** 2);
     const phiMn = 0.9 * Math.min(Fcr * p.Sy, Fy * p.Zy) / 1e3; // kN·m
     expect(Lp).toBeLessThan(L);
     if (row.status === 'checked') {
@@ -156,6 +158,24 @@ describe('steel members under other codes', () => {
     const phi = 0.5 * (1 + 0.49 * (lam - 0.2) + lam * lam); // welded I, tf ≤ 40, z-z: curve c
     const chi = 1 / (phi + Math.sqrt(phi * phi - lam * lam));
     if (row.status === 'checked') expect(row.reading.ratio / (P / (chi * aEff * fy * 1e3))).toBeCloseTo(1, 3);
+  });
+
+  it('AISC 360: a welded I column with a slender web is reduced by E7, not checked as E3 alone', () => {
+    const h = 0.6, b = 0.3, tf = 0.012, tw = 0.006, fy = 355;
+    const a = 2 * b * tf + (h - 2 * tf) * tw;
+    const iy = (b * h ** 3 - (b - tw) * (h - 2 * tf) ** 3) / 12;
+    const iz = (2 * tf * b ** 3) / 12 + ((h - 2 * tf) * tw ** 3) / 12;
+    const sec = { name: 'welded 600', shape: 'I', a, iy, iz, h, b, tw, tf, j: (2 * b * tf ** 3 + (h - 2 * tf) * tw ** 3) / 3 };
+    const row = runOtherCode(AISC360, column(sec, fy)).rows[0]!;
+    expect(row.status).toBe('checked');
+    const rz = Math.sqrt(iz / a), Fe = (Math.PI ** 2 * E) / (L / rz) ** 2;
+    const Fcr = fy / Fe <= 2.25 ? 0.658 ** (fy / Fe) * fy : 0.877 * Fe;
+    const e3Only = P / (0.9 * Fcr * 1e3 * a);
+    if (row.status === 'checked') {
+      expect(row.reading.unevaluated).toEqual([]);
+      // h/tw = 96 against λr·√(Fy/Fcr) ≈ 36: the web loses a large part of its width.
+      expect(row.reading.ratio).toBeGreaterThan(1.15 * e3Only);
+    }
   });
 
   it('names what AISC 360 requires and the checker leaves out', () => {

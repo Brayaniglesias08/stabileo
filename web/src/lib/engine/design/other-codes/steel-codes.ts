@@ -5,7 +5,8 @@
  * the physical member's, or the stated Lb) and its stated effective-length factors. Cb (AISC) and
  * C1 (EC3) are left at 1,0, which both codes permit as the conservative value. The app does not
  * know where a transverse load acts on the section, so the EC3 Mcr takes it on the top flange
- * (zg = h/2, C2 = C1), the lowest value; the checker refuses LTB without the section's depth.
+ * (zg = h/2, C2 = C1), the lowest value; the checker refuses LTB without the section's depth. The
+ * AISC checker likewise takes it on the top flange (Cb/1,4).
  */
 import { checkSteelMembers, checkEc3Members } from '../../wasm-solver';
 import { materialFamilyOf } from '../../steel/material-family';
@@ -60,9 +61,10 @@ const sheared = (d: GoverningDemand) => Math.abs(d.forces.vy) + Math.abs(d.force
 
 /**
  * What AISC 360 requires of this shape and the checker does not do. It evaluates F2 (compact
- * doubly symmetric I, yielding and lateral-torsional buckling), F6 yielding, E3 and G2 with
- * Cv1 = 1; so a noncompact flange or web in bending (F3–F5, F7, F8), a slender element in
- * compression (E7) and a web whose Cv1 is below 1 (G2.1b, G4) are named, not checked.
+ * doubly symmetric I, yielding and lateral-torsional buckling), F6 yielding, E3 with the E7
+ * slender-element reduction (from `aiscElements`) and G2 with Cv1 = 1; so a noncompact flange or
+ * web in bending (F3–F5, F7, F8) and a web whose Cv1 is below 1 (G2.1b, G4) are named, not
+ * checked. `compression` is kept for the record; the checker now reduces such a section.
  * Limits from Table B4.1b and B4.1a without the root radius, as `ec3-classify.ts` reads them.
  */
 export function aiscGaps(p: SteelProps, fy: number, E: number): { flexure: boolean; compression: boolean; shear: boolean } {
@@ -87,6 +89,26 @@ export function aiscGaps(p: SteelProps, fy: number, E: number): { flexure: boole
   };
 }
 const list = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
+
+/**
+ * The plate elements the checker's E7 slender-element reduction reads (Table B4.1a): an I's four
+ * flange outstands (rolled case 1 when picked from a rolled catalogue, else welded case 2 with
+ * the kc lower bound) and its web between the flanges (no root radius: the wider, conservative
+ * width); a rectangular tube's walls at width − 3t; a round tube's D/t.
+ */
+export function aiscElements(p: SteelProps, rolled: boolean) {
+  if (p.shape === 'CHS') return [{ kind: 'roundHss', b: p.h, t: p.tw }];
+  if (p.shape === 'RHS') {
+    return [
+      { kind: 'hssWall', b: p.b - 3 * p.tf, t: p.tf, count: 2 },
+      { kind: 'hssWall', b: p.h - 3 * p.tw, t: p.tw, count: 2 },
+    ];
+  }
+  return [
+    { kind: rolled ? 'rolledFlange' : 'weldedFlange', b: p.b / 2, t: p.tf, count: 4 },
+    { kind: 'web', b: p.h - 2 * p.tf, t: p.tw },
+  ];
+}
 
 export const AISC360: OtherCode = {
   id: 'aisc360',
@@ -115,6 +137,7 @@ export const AISC360: OtherCode = {
         j: p.J, cw: p.Cw, lb: ctx.Lb,
         e: E, g: E / (2 * (1 + (ctx.material.nu ?? 0.3))),
         depth: p.h,
+        compressionElements: aiscElements(p, !!(ctx.section as { profileFamily?: string }).profileFamily),
         gaps: aiscGaps(p, ctx.material.fy!, ctx.material.e),
       },
     };
@@ -123,7 +146,6 @@ export const AISC360: OtherCode = {
     const g = data.gaps as ReturnType<typeof aiscGaps>;
     const flags: string[] = [];
     if (g.flexure && bends(d)) flags.push('otherCodes.check.aiscNoncompact');
-    if (g.compression && d.forces.n < 0) flags.push('otherCodes.check.aiscSlender');
     if (g.shear && sheared(d)) flags.push('otherCodes.check.aiscWebShear');
     const { gaps: _g, ...rest } = data;
     return { data: rest, unevaluated: flags };

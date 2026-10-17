@@ -117,6 +117,15 @@ fn aisc_run(m: SteelMemberData, n: f64, my: f64, mz: f64, vy: f64) -> SteelCheck
     .remove(0)
 }
 
+/// The E7 elements of a rolled I (Table B4.1a cases 1 and 5): four flange
+/// outstands b = bf/2, and the web h between the fillets.
+fn rolled_i(bf: f64, tf: f64, h: f64, tw: f64) -> Option<Vec<AiscElement>> {
+    Some(vec![
+        AiscElement { kind: AiscElementKind::RolledFlange, b: bf / 2.0, t: tf, count: Some(4.0), kc: None },
+        AiscElement { kind: AiscElementKind::Web, b: h, t: tw, count: None, kc: None },
+    ])
+}
+
 /// [AISC] Example D.1, W8×21 tension member, pp. D-2 – D-4.
 ///
 /// Printed: Fy = 50, Fu = 65 ksi; Ag = 6.16 in²; An = 4.76 in²; U = 0.908.
@@ -153,6 +162,9 @@ fn aisc_e1c_w14x132_inelastic_flexural_buckling() {
         rz: 3.76, // AISC ry
         lby: 360.0,
         lbz: 360.0,
+        // Manual Table 1-1: bf = 14.7, tf = 1.03, tw = 0.645, h/tw = 17.7 —
+        // no slender element (λr = 13.5 flange, 35.9 web): Ae = Ag.
+        compression_elements: rolled_i(14.7, 1.03, 17.7 * 0.645, 0.645),
         ..aisc_blank(50.0)
     };
     let r = aisc_run(m, -840.0, 0.0, 0.0, 0.0);
@@ -172,6 +184,9 @@ fn aisc_e1d_w14x90_major_axis_governs() {
         rz: 3.70,
         lby: 360.0,
         lbz: 180.0,
+        // Manual Table 1-1: bf = 14.5, tf = 0.710, tw = 0.440, h/tw = 25.9;
+        // bf/2tf = 10.2 < 13.5: no slender element.
+        compression_elements: rolled_i(14.5, 0.710, 25.9 * 0.440, 0.440),
         ..aisc_blank(50.0)
     };
     let r = aisc_run(m, -840.0, 0.0, 0.0, 0.0);
@@ -199,12 +214,79 @@ fn aisc_e3_3_elastic_branch_via_inti301_ej10a_ipe300() {
         lby: 6500.0,
         lbz: 6500.0,
         e: 200_000.0,
+        // IPE 300: bf = 150, tf = 10.7, h = 300 − 2·10.7 − 2·15 = 248.6, tw = 7.1.
+        compression_elements: rolled_i(150.0, 10.7, 248.6, 7.1),
         ..aisc_blank(235.0)
     };
     let r = aisc_run(m, -200e3, 0.0, 0.0, 0.0);
     let pn = r.phi_pn_compression / 0.90;
     published(pn / 5380.0, 46.0, THREE_SF, "Fcr = 0.877·Fe (E3-3)");
     published(pn / 1e3, 210.3 / 0.85, THREE_SF, "Pn");
+}
+
+/// [Clause] AISC 360-22 E7.1, rectangular HSS with a slender wall, and E7.2,
+/// round HSS. No published example is reproduced here (the Design Examples
+/// were not at hand); every number is the clause applied by hand.
+///
+/// HSS 12×8×3/16, Fy = 50 ksi, design wall t = 0.174 in, Ag = 6.76 in²,
+/// r = 3.20 in, Lc = 288 in: Lc/r = 90.0, Fe = 35.34 ksi, Fcr = 27.65 ksi
+/// (E3-2). Table B4.1a case 6: λr = 1.40·√(E/Fy) = 33.72;
+/// λr·√(Fy/Fcr) = 45.34 (E7-2 limit).
+/// 12 in walls: b = 12 − 3t = 11.478, b/t = 65.97 > 45.34, slender;
+///   Fel = (1.38·λr/λ)²·Fy = 24.88 ksi (E7-5, Table E7.1(b): c1 = 0.20,
+///   c2 = 1.38), √(Fel/Fcr) = 0.9484, be = b(1 − 0.20·0.9484)·0.9484 = 8.821 in.
+/// 8 in walls: b/t = 42.98 < 45.34, fully effective.
+/// Ae = 6.76 − 2·(11.478 − 8.821)·0.174 = 5.835 in²; Pn = Fcr·Ae = 161.4 kips,
+/// φcPn = 145.2 kips (E3 alone, Ae = Ag: 168.2, +16 %).
+///
+/// Round HSS D = 20 in, t = 0.2 in, Fy = 42 ksi: D/t = 100 between 0.11E/Fy
+/// = 75.95 and 0.45E/Fy = 310.7, Ae = [0.038E/(Fy·D/t) + 2/3]·Ag = 0.9290·Ag
+/// (E7-7).
+#[test]
+fn aisc_e7_slender_hss_effective_area() {
+    let t = 0.174;
+    let wall = |b: f64| AiscElement { kind: AiscElementKind::HssWall, b, t, count: Some(2.0), kc: None };
+    let m = SteelMemberData {
+        ag: 6.76,
+        ry: 4.0,
+        rz: 3.20,
+        lby: 288.0,
+        lbz: 288.0,
+        compression_elements: Some(vec![wall(12.0 - 3.0 * t), wall(8.0 - 3.0 * t)]),
+        ..aisc_blank(50.0)
+    };
+    let r = aisc_run(m.clone(), -100.0, 0.0, 0.0, 0.0);
+    assert!(r.unevaluated.is_empty(), "{:?}", r.unevaluated);
+    published(r.ae.unwrap(), 5.835, THREE_SF, "Ae (E7-3, E7-5)");
+    published(r.phi_pn_compression / 0.90, 161.4, THREE_SF, "Pn = Fcr·Ae");
+    published(r.phi_pn_compression, 145.2, THREE_SF, "φcPn");
+
+    // The same column with no element data is refused, not given Ae = Ag.
+    let r = aisc_run(SteelMemberData { compression_elements: None, ..m }, -100.0, 0.0, 0.0, 0.0);
+    assert!(r.unevaluated.iter().any(|u| u.contains("E7")), "{:?}", r.unevaluated);
+
+    // Round HSS, E7.2.
+    let (d, tt) = (20.0, 0.2);
+    let ag = std::f64::consts::PI * (d - tt) * tt;
+    let pipe = |d_over_t: f64| SteelMemberData {
+        ag,
+        ry: 7.0,
+        rz: 7.0,
+        compression_elements: Some(vec![AiscElement {
+            kind: AiscElementKind::RoundHss,
+            b: d_over_t * tt,
+            t: tt,
+            count: None,
+            kc: None,
+        }]),
+        ..aisc_blank(42.0)
+    };
+    let r = aisc_run(pipe(100.0), -100.0, 0.0, 0.0, 0.0);
+    published(r.ae.unwrap() / ag, 0.038 * 29_000.0 / (42.0 * 100.0) + 2.0 / 3.0, 1e-9, "E7-7");
+    published(r.ae.unwrap() / ag, 0.9290, THREE_SF, "E7-7 factor");
+    // D/t beyond 0.45E/Fy is outside E7: refused.
+    let r = aisc_run(pipe(320.0), -100.0, 0.0, 0.0, 0.0);
+    assert!(!r.unevaluated.is_empty());
 }
 
 /// [AISC] Example F.1-1B, W18×50 continuously braced, p. F-8.
@@ -240,6 +322,9 @@ fn w18x50(lb_in: f64, cb: f64) -> SteelMemberData {
         cw: Some(cw),
         lb: Some(lb_in),
         cb: Some(cb),
+        // The examples take Cb from the moment diagram alone (load height
+        // not considered): the shear centre.
+        load_position: Some(AiscLoadPosition::ShearCentre),
         ..aisc_blank(50.0)
     }
 }
@@ -339,6 +424,7 @@ fn aisc_h3_w14x82_tension_and_biaxial_flexure() {
         cw: Some(iy_weak * ho * ho / 4.0),
         lb: Some(30.0 * 12.0),
         cb: Some(1.41),
+        load_position: Some(AiscLoadPosition::ShearCentre),
         ..aisc_blank(50.0)
     };
     let at = |lb_ft: f64| {

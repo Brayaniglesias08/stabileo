@@ -278,7 +278,12 @@ fn w_member(id: usize, lb: f64) -> SteelMemberData {
         "elementId": id, "fy": 345e3, "fu": 450e3, "ag": 1.23e-2, "aw": 3.08e-3,
         "lby": lb, "lbz": lb, "iy": 2.22e-4, "iz": 7.25e-5, "ry": 0.134, "rz": 0.0768,
         "zy": 1.59e-3, "zz": 7.23e-4, "sy": 1.44e-3, "sz": 4.77e-4, "j": 9.1e-7, "cw": 1.56e-6,
-        "lb": lb, "cb": 1.0, "e": 200e6, "depth": 0.308
+        "lb": lb, "cb": 1.0, "e": 200e6, "depth": 0.308,
+        // bf = 305, tf = 15.4, h = 255, tw = 9.9 mm: no slender element (E7).
+        "compressionElements": [
+            { "kind": "rolledFlange", "b": 0.1525, "t": 0.0154, "count": 4.0 },
+            { "kind": "web", "b": 0.255, "t": 0.0099 }
+        ]
     }))
     .unwrap()
 }

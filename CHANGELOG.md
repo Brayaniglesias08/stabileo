@@ -50,6 +50,21 @@ inputs needed to compute them safely are absent.**
   an I section as **welded** (Table 6.2 curves b/c, Table 6.4 c/d) unless it was picked from a
   rolled catalogue family — it read every I as rolled (a/b), unconservative for a welded or
   parametric section.
+- **AISC 360 compression had no slender-element reduction (E7)**: Pn = Fcr·Ag for every section.
+  A W14×22 at Lc = 1 m (h/tw = 53.3, footnoted slender in the Manual) was 10.9 % high, an
+  HSS 12×8×3/16 16 %. `SteelMemberData` takes `compressionElements` (Table B4.1a kind: rolled
+  or welded flange with kc, angle, tee stem, web, HSS wall, other stiffened, round HSS; b, t,
+  count); Ae follows E7-2/E7-3/E7-5 with Table E7.1 c1, c2, and E7-7 for round HSS. **Without
+  `compressionElements` the compression check is refused** (an empty list states that there is
+  no element to reduce); a round HSS with D/t > 0.45E/Fy is refused. The result reports `ae`
+  and names the check "Compression E3/E7".
+- **AISC 360 lateral-torsional buckling ignored the load height.** `loadPosition` (`shearCentre`,
+  `topFlange`, `bottomFlange`); absent, the load is on the **top flange** and Cb is multiplied
+  by 1.4^(2y/h) = 1/1.4 (Helwig, Frank & Yura 1997; SSRC Guide §5.2.3). A bottom-flange load is
+  not credited (Cb as given). Applies to F2-2 and F2-3; not to cantilevers, where the factor is
+  not valid and Cb itself must be given for the case.
+- The web AISC check sends the section's E7 elements (it marked slender columns not evaluated)
+  and its LTB takes the top-flange load.
 
 #### Unsafe design-check disagreements closed (2026-10-17)
 

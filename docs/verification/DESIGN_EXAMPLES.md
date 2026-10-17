@@ -89,7 +89,9 @@ Status: **pass** — stabileo reproduces the printed values at the stated roundi
 | G2-1 shear | AISC G.1B (p. G-4) | Aw = 10.2 in², Vn = 306 kips | doc (D9: φv = 0.90 not 1.00) |
 | H1-1b with tension, F2-2 with Cb, F6-1 | AISC H.3 (pp. H-8–H-11) | Lp = 8.76, Lr = 33.2 ft, φtPn = 1,080, Mnx = 6,560 kip-in, φbMnx = 492, φbMny = 168 kip-ft, Pr/Pc = 0.161, H1-1b = 0.873 | pass (Cb = 1.41 of H1.2 passed in) |
 | H1-1a | — | AISC H.1B needs Table 6-1 capacities of a W14×99 whose flanges are noncompact; not reproducible without F3/F6.2 inputs not printed | uncovered |
-| E4 torsional, E7 slender elements, F4/F5, G2.2 tension field, H1.2 Cb for tension | — | not implemented | uncovered (not implemented) |
+| E7 slender elements (E7.1 rectangular HSS, E7.2 round HSS) | — (clause by hand: HSS 12×8×3/16, Lc/r = 90; W14×22 at 1 m) | Ae = 5.835 in², Pn = 161.4 kips; W14×22 Ae = 3.778e-3 m² | clause test; refused without `compressionElements` |
+| F2 load height (Cb·1.4^(2y/h), Helwig et al. 1997) | — | top flange: φMn(F2-3) ÷ 1.4 | clause test; default top flange |
+| E4 torsional, F4/F5, G2.2 tension field, H1.2 Cb for tension | — | not implemented | uncovered (not implemented) |
 
 ### EN 1993-1-1 (`ec3_check`, Rust)
 
