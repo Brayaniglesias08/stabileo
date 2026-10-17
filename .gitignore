@@ -69,3 +69,8 @@ web/.dist-hookgate-on/
 # source file so any conversion can be re-verified against the exact document used.
 docs/codes/CIRSOC/*.pdf
 /.tools/
+
+
+# Stryker mutation testing (web/stryker.config.json)
+web/reports/mutation/
+web/.stryker-tmp/

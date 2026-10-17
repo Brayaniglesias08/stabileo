@@ -1128,7 +1128,11 @@ fn inti_cirsoc(as_comp: Option<f64>) -> Cirsoc201MemberData {
         d_prime: as_comp.map(|_| 0.034),
         av: None,
         s_stirrup: None,
+        fyt: None,
+        ag: None,
         lambda: None,
+        // INTI's worked examples follow CIRSOC 201-2005.
+        edition: dedaliano_engine::postprocess::cirsoc201_check::Cirsoc201Edition::E2005,
     }
 }
 
@@ -1143,7 +1147,7 @@ fn rc_run(m: RCMemberData, mu: f64) -> RCCheckResult {
 fn cirsoc_run(m: Cirsoc201MemberData, mu: f64, vu: f64) -> Cirsoc201CheckResult {
     check_cirsoc201_members(&Cirsoc201CheckInput {
         members: vec![m],
-        forces: vec![Cirsoc201DesignForces { element_id: 1, mu: Some(mu), vu: Some(vu) }],
+        forces: vec![Cirsoc201DesignForces { element_id: 1, mu: Some(mu), vu: Some(vu), axial_compression: None }],
     })
     .remove(0)
 }
