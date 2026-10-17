@@ -46,10 +46,12 @@ pub struct ElementBucklingData {
 /// so an axial point load or a partial axial load on a member gave the wrong
 /// load factor (3× on a truss in `opensees_differential_regressions`). It is
 /// also the force the P-Delta iteration uses.
-/// Shared by `solve_buckling_2d` and the buckling certificate. K and Kg are
+/// Shared by `solve_buckling_2d` and the buckling certificate (public, hidden,
+/// for the assembly-path oracle in tests/assembly_paths.rs). K and Kg are
 /// in the inclined-roller frames of `inclined_transforms_2d` (φ too, until
 /// rotated back with `reverse_inclined_transform_2d`).
-pub(crate) struct BucklingSystem2D {
+#[doc(hidden)]
+pub struct BucklingSystem2D {
     pub linear: AnalysisResults,
     pub dof_num: DofNumbering,
     pub k_ff: CscMatrix,
@@ -57,7 +59,8 @@ pub(crate) struct BucklingSystem2D {
     pub inclined_transforms_2d: Vec<InclinedTransformData2D>,
 }
 
-pub(crate) fn buckling_system_2d(input: &SolverInput) -> Result<BucklingSystem2D, String> {
+#[doc(hidden)]
+pub fn buckling_system_2d(input: &SolverInput) -> Result<BucklingSystem2D, String> {
     // 1. Linear solve to get axial forces
     let linear = super::linear::solve_2d(input)?;
     let dof_num = DofNumbering::build_2d(input);
@@ -237,15 +240,21 @@ pub fn solve_buckling_2d(
 /// The matrices of the 3D linear buckling problem (see `BucklingSystem2D`),
 /// including surface-element geometric stiffness. K and Kg are in the
 /// inclined-support frames of `inclined_transforms`.
-pub(crate) struct BucklingSystem3D {
+#[doc(hidden)]
+pub struct BucklingSystem3D {
     pub linear: AnalysisResults3D,
     pub dof_num: DofNumbering,
     pub k_ff: CscMatrix,
     pub neg_kg_csc: CscMatrix,
+    /// Inclined supports: K and −Kg are in each one's (normal, tangent) frame.
     pub inclined_transforms: Vec<InclinedTransformData>,
 }
 
-pub(crate) fn buckling_system_3d(input: &SolverInput3D) -> Result<BucklingSystem3D, String> {
+#[doc(hidden)]
+pub fn buckling_system_3d(input: &SolverInput3D) -> Result<BucklingSystem3D, String> {
+    // Curved beams become segments first: `solve_3d` returns the segments' forces, which
+    // the unexpanded model has no elements for (an index panic).
+    let input = &super::linear::expand_curved_beams_3d(input);
     let linear = super::linear::solve_3d(input)?;
     let dof_num = DofNumbering::build_3d(input);
     let nf = dof_num.n_free;
@@ -334,7 +343,6 @@ pub(crate) fn buckling_system_3d(input: &SolverInput3D) -> Result<BucklingSystem
         kg_csc
     };
 
-
     // The rest of the gate, now that -Kg exists: surfaces carry no axial force
     // to test, so the only way to know they contribute is to look at what they
     // assembled. `has_surfaces` spans every family including `curved_shells`,
@@ -382,6 +390,8 @@ pub fn solve_buckling_3d(
     input: &SolverInput3D,
     num_modes: usize,
 ) -> Result<BucklingResult3D, String> {
+    // Expanded as in `buckling_system_3d`, whose forces the element data reads.
+    let input = &super::linear::expand_curved_beams_3d(input);
     // Build lookup maps for O(1) access by id
     let elem_by_id: HashMap<usize, &SolverElement3D> =
         input.elements.values().map(|e| (e.id, e)).collect();
