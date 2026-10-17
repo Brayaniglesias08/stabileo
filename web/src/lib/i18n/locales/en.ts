@@ -6786,6 +6786,7 @@ const en: Record<string, string> = {
   'loadPlan.derivation.wind': 'Wind {dir}: qh = {qh} N/m², net pressure {net} kPa over a {front} m frontage.',
   'loadPlan.derivation.windLevel': 'Wind {dir}, level {level} m: band {z0}–{z1} m, mean net pressure {net} kPa, force {force} kN.',
   'loadPlan.derivation.seismic': 'Seismic: W = {weight} kN from the actual level masses, C = {coefficient}, V0 = {baseShear} kN.',
+  'loadPlan.derivation.seismicSnow': 'Snow in the seismic weight and combination (INPRES-CIRSOC 103 [3.15], [3.16]): f2 = {f2}, balanced roof snow {snow} kN, {added} kN added to the levels.',
   'loadPlan.derivation.combinationCount': '{count} combination(s) generated.',
   'loadPlan.assumption.selfWeightSkipped': '{count} member(s) without a valid section or density were left out of the self-weight.',
   'loadPlan.assumption.liveParticipation': 'The fraction of the live load included in the seismic weight was taken as {fraction}. It depends on the building\'s occupancy, and the project does not state it.',

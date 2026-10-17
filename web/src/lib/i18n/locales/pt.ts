@@ -3504,6 +3504,7 @@ const pt: Translations = {
   'loadPlan.derivation.reductionDisabled': 'Redução de sobrecarga não aplicada por decisão do projeto.',
   'loadPlan.derivation.liveBesideHandReduced': 'A sobrecarga reduzida vai para um caso próprio, não para {names}: um caso reduzido à mão a reduziria outra vez. Esse caso fica como está e entra nas combinações junto a ela.',
   'loadPlan.derivation.seismic': 'Sismo: W = {weight} kN das massas reais por nível, C = {coefficient}, V0 = {baseShear} kN.',
+  'loadPlan.derivation.seismicSnow': 'Neve no peso sísmico e na combinação (INPRES-CIRSOC 103 [3.15], [3.16]): f2 = {f2}, neve balanceada da cobertura {snow} kN, {added} kN somados aos níveis.',
   'loadPlan.derivation.wind': 'Vento {dir}: qh = {qh} N/m², pressão líquida {net} kPa sobre uma frente de {front} m.',
   'loadPlan.derivation.windLevel': 'Vento {dir}, nível {level} m: faixa {z0}–{z1} m, pressão líquida média {net} kPa, força {force} kN.',
   'loadPlan.note.windMinimumGoverns': 'No nível +{level} m governa a carga mínima de vento do artigo 2.1.5 sobre as pressões calculadas.',

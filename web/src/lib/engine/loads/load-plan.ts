@@ -48,6 +48,7 @@ import {
   assumed, clause, fromProject, type ClauseRef, type ProvenancedValue, fromCode,
 } from '../../codes/regulation';
 import type { DestinationGroup, OccupancyProbability, SeismicZone, SiteClass } from '../../codes/cirsoc103/spectrum';
+import { SIMULTANEITY_F2 } from '../../codes/cirsoc103/spectrum';
 import type { PeriodSystem, PlanRegularity } from '../../codes/cirsoc103/static-method';
 import { dedupeMessages, msg, round, type EngineMessage } from '../../codes/message';
 import type { ProjectRegulations } from '../../codes/roles';
@@ -239,6 +240,11 @@ export interface LoadPlanInput {
     torsion?: TorsionalIrregularity;
     /** §3.2: also at 45°, for lateral systems not in two perpendicular directions. */
     diagonal?: boolean;
+    /**
+     * Tabla 3.3's f2: whether the roof is horizontal or does not shed its snow (0,70) or sheds it
+     * (0,20). Absent: read from the planned roof's C_s, and 0,70 when there is none to read.
+     */
+    snowRetaining?: boolean;
   };
   generateCombinations: boolean;
   /**
@@ -347,6 +353,11 @@ export interface PlanSink {
   assumptions: EngineMessage[];
   unsupportedKeys: LoadPlan['unsupportedKeys'];
   blockedKeys: LoadPlan['blockedKeys'];
+  /**
+   * Set by the snow module: whether the planned roof keeps its snow (C_s = 1 on some surface), the
+   * "cubiertas que no permitan la evacuación de la nieve" of INPRES-CIRSOC 103 Tabla 3.3.
+   */
+  snowRetains?: boolean;
 }
 
 export interface LevelMass {
@@ -884,6 +895,27 @@ export function buildLoadPlan(input: LoadPlanInput): LoadPlan {
   const snowPlanned = codes.snow ? codes.snow.plan(input, sink, panelMode ? layout : undefined) : false;
 
   /*
+   * ── Snow in the seismic weight and combination, INPRES-CIRSOC 103-2018 ──
+   *
+   * [3.15] weighs each level as Wi = Di + f1·Li + f2·Si, and [3.16] combines 1,2 D ± 1,0 E +
+   * f1 L + f2 S, f2 from Tabla 3.3: 0,70 on a roof that is horizontal or does not shed its snow,
+   * 0,20 otherwise. The levels left the snow out and the combination took CIRSOC 101's 0,2 S.
+   * The roof sheds snow when the planned roof's C_s is below 1 everywhere; the project can say
+   * otherwise (`seismic.snowRetaining`).
+   */
+  let seismicF2: number | undefined;
+  if (snowPlanned && input.seismic?.enabled) {
+    const retains = input.seismic.snowRetaining ?? sink.snowRetains ?? true;
+    seismicF2 = retains ? SIMULTANEITY_F2.retaining : SIMULTANEITY_F2.other;
+    const balanced = cases.findIndex((c) => c.type === 'S' && (c.nameKey === 'snow.case.balanced' || c.nameKey === 'snow.case.balancedShaped'));
+    const byLevel = snowWeightByLevel(input.model, distributed, nodal, balanced, levels.map((l) => l.elevation));
+    let added = 0;
+    byLevel.forEach((w, k) => { if (w > 0) { levels[k]!.weightKN += seismicF2! * w; added += seismicF2! * w; } });
+    refs.push(clause('inpres-cirsoc-103-i', '2018', '3.6', 'acciones gravitatorias para la acción sísmica [3.15]'), clause('inpres-cirsoc-103-i', '2018', 'Tabla 3.3', 'factor de simultaneidad f2'));
+    derivation.push(msg('loadPlan.derivation.seismicSnow', { f2: seismicF2, snow: round(byLevel.reduce((a, b) => a + b, 0), 1), added: round(added, 1) }));
+  }
+
+  /*
    * ── Seismic ────────────────────────────────────────────────────
    *
    * Two ways to a coefficient. The reader can type C — somebody's calculation done
@@ -969,6 +1001,9 @@ export function buildLoadPlan(input: LoadPlanInput): LoadPlan {
     const ci: CombinationInputs = {
       present, maxLoKNm2: Math.max(lo, roofOccupancy?.uniformKNm2 ?? 0), earthPressurePermanent: input.soil?.permanent ?? true,
       hasGarageOrPublicAssembly: occ.garageOrPublicAssembly === true || roofOccupancy?.garageOrPublicAssembly === true,
+      // [3.16]'s companions, where the seismic action is planned by the code path or the
+      // participation the mass took: the combination keeps the share of L the mass has.
+      ...(present.E ? { seismicCompanions: { f1: participation.value, ...(seismicF2 !== undefined ? { f2: seismicF2 } : {}) } } : {}),
     };
     const set = input.combinationSet ?? 'ultimate';
     if (input.projectCombinations) {
@@ -1008,6 +1043,43 @@ export function buildLoadPlan(input: LoadPlanInput): LoadPlan {
 }
 
 export { describePlanDelta, type CaseAction, type CaseDisposition, type PlanDelta, type CurrentLoadState } from './load-plan-delta';
+
+/**
+ * The vertical load of one planned case on each level, kN: its line loads over their horizontal
+ * projection and its nodal forces, by the level nearest each member's midpoint or node.
+ */
+export function snowWeightByLevel(
+  model: LoadModelData, distributed: readonly PlannedDistributed[], nodal: readonly PlannedNodal[],
+  caseIndex: number, elevations: readonly number[],
+): number[] {
+  const out = elevations.map(() => 0);
+  if (caseIndex < 0 || elevations.length === 0) return out;
+  const nearest = (z: number) => {
+    let best = 0;
+    elevations.forEach((e, k) => { if (Math.abs(e - z) < Math.abs(elevations[best]! - z)) best = k; });
+    return best;
+  };
+  for (const d of distributed) {
+    if (d.caseType !== 'S' || d.caseIndex !== caseIndex) continue;
+    const el = model.elements.get(d.elementId);
+    const a = el && model.nodes.get(el.nodeI), b = el && model.nodes.get(el.nodeJ);
+    if (!a || !b) continue;
+    const L = Math.hypot(b.x - a.x, b.y - a.y, (b.z ?? 0) - (a.z ?? 0));
+    const Lh = Math.hypot(b.x - a.x, b.y - a.y);
+    if (L <= 0) continue;
+    const span = (d.b ?? L) - (d.a ?? 0);
+    const q = Math.abs((d.q + (d.qJ ?? d.q)) / 2);
+    // Per metre of member along local z or global Z: its vertical resultant is q over the span's
+    // horizontal projection; per metre of projection, the same.
+    out[nearest(((a.z ?? 0) + (b.z ?? 0)) / 2)]! += q * span * (Lh / L);
+  }
+  for (const n of nodal) {
+    if (n.caseType !== 'S' || n.caseIndex !== caseIndex) continue;
+    const node = model.nodes.get(n.nodeId);
+    if (node) out[nearest(node.z ?? 0)]! += Math.abs(n.fz);
+  }
+  return out;
+}
 
 /** Symbols a combination references, for mapping onto real case ids at apply time. */
 export function combinationSymbols(spec: LoadCombinationSpec): LoadSymbol[] {
