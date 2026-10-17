@@ -105,14 +105,14 @@ under "What is left".
 
 **Status.**
 
-- Fixed on this branch: 5, 6, 7, 8, 9, 15 and 16.
+- Fixed on this branch: 5, 6, 7, 8, 9, 12, 15 and 16.
 - Fixed in part:
   - 2: the app now calls `checkServiceability`. The CIRSOC 201 checker is reached through its
     numeric batch, and the JSON entry point is covered by tests.
   - 3: the design-results normaliser now honours the engine's `pass: false` and
     `unevaluated`. The wrappers themselves still return `null` on error, and every new caller
     treats `null` as "not verified".
-- Open: 1, 4, 10, 11, 12, 13, 14 and 17. See "What is left".
+- Open: 1, 4, 10, 11, 13, 14 and 17. See "What is left".
 
 ## Plan and status
 
@@ -251,8 +251,8 @@ In rough order of safety value:
    before `foundation-check.ts` can become an adapter.
 7. **Silent fallbacks.** `section-stress*.ts`, `shell-combos.ts` and
    `verification-service.ts` (station extraction) quietly compute in TypeScript when WASM is
-   not ready (findings 4 and 11). `plastic-collapse.ts` reads any solver exception as a
-   mechanism (finding 12). It should tell a singular matrix apart from an error.
+   not ready (findings 4 and 11). (`plastic-collapse.ts`, finding 12, is fixed: an engine
+   exception after the kinematic check says "solvable" is now an error.)
 8. **`pdelta-forces.ts`** patches the engine's P-Delta member forces with Kg·u (finding 14).
    The fix belongs in Rust.
 9. **PRO report slab steel** is designed from invented loads (finding 13).

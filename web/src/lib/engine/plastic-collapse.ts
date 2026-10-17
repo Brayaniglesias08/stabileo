@@ -217,11 +217,18 @@ export function plasticCollapse2D(original: SolverInput, opts: PlasticCollapseOp
   const steps: PlasticCollapseResult['steps'] = [];
 
   for (let step = 0; step < maxEvents; step++) {
-    let kin;
-    try { kin = analyzeKinematics(work); } catch { isMechanism = true; break; }
+    /*
+     * A mechanism is what the kinematic check says it is. An exception from that check or from
+     * the solve after it said "solvable" is an error, and it used to be recorded as collapse:
+     * an engine failure came out as a collapse factor.
+     */
+    const kin = analyzeKinematics(work);
     if (!kin.isSolvable) { isMechanism = true; break; }
     let r: AnalysisResults;
-    try { r = solve(work); } catch { isMechanism = true; break; }
+    try { r = solve(work); } catch (e) {
+      throw new Error(`Plastic collapse: the solve after ${hinges.length} hinge(s) failed although the `
+        + `structure is not a mechanism — ${(e as Error)?.message ?? String(e)}`);
+    }
     const efOf = new Map(r.elementForces.map((ef) => [ef.elementId, ef]));
 
     /*
@@ -399,7 +406,7 @@ export function plasticCollapse2D(original: SolverInput, opts: PlasticCollapseOp
   }
 
   if (!isMechanism) {
-    try { isMechanism = !analyzeKinematics(work).isSolvable; } catch { isMechanism = true; }
+    isMechanism = !analyzeKinematics(work).isSolvable;
   }
   return {
     collapseFactor: lambda,
