@@ -301,8 +301,8 @@ pub fn ec3_ratio_enclosures(
     let interaction = branch(
         n.lt(zero),
         || {
-            let ([e1, e2], _) = ec3_interaction(m, &caps, -n, my, mz);
-            e1.max(e2)
+            let ([e1, e2, e3], _) = ec3_interaction(m, &caps, -n, my, mz);
+            e1.max(e2).max(e3)
         },
         || branch(zero.lt(n), || tension + flex_y + flex_z, || flex_y + flex_z),
     );
@@ -803,6 +803,8 @@ mod tests {
             wpl_z: 1.25e-4,
             wel_z: 8.05e-5,
             weff_z: None,
+            e_n_y: None,
+            e_n_z: None,
             iy: 8.356e-5,
             iz: 6.04e-6,
             it: 2.01e-7,

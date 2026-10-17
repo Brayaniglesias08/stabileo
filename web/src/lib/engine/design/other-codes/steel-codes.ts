@@ -166,8 +166,12 @@ export const EC3: OtherCode = {
     if ('skip' in p) return p;
     const compressed = ctx.demands.some((d) => d.forces.n < 0);
     const cls = ec3Class(p, ctx.material.fy!, compressed);
-    if (cls === 4) return { skip: 'otherCodes.skip.ec3Class4' };
-    const curves = ec3Curves(p);
+    // Class 4 I and RHS: the checker computes Aeff and Weff from the geometry sent below
+    // (EN 1993-1-5 4.4). A Class 4 CHS is EN 1993-1-6, which it does not implement.
+    if (cls === 4 && p.shape === 'CHS') return { skip: 'otherCodes.skip.ec3Class4' };
+    // Rolled only when picked from a rolled catalogue family, as the CIRSOC 301 verification.
+    const rolled = !!(ctx.section as { profileFamily?: string }).profileFamily;
+    const curves = ec3Curves(p, rolled);
     webAreas.set(ctx, { Aw: p.Aw, AwWeak: p.AwWeak });
     // The web slenderness `at` checks shear buckling against, once per member, not per demand.
     ec3WebSlenderness.set(ctx, p.shape === 'CHS' ? null : (p.shape === 'RHS' ? p.h - 3 * p.tw : p.h - 2 * p.tf) / p.tw);
@@ -180,10 +184,11 @@ export const EC3: OtherCode = {
         iy: p.Iy, iz: p.Iz, it: p.J, iw: p.Cw,
         lcrY: (ctx.kStrong ?? 1) * ctx.L, lcrZ: (ctx.kWeak ?? 1) * ctx.L, lb: ctx.Lb,
         sectionClass: `Class${cls}`,
-        bucklingCurveY: curves.y, bucklingCurveZ: curves.z, bucklingCurveLt: ec3CurveLt(p),
+        bucklingCurveY: curves.y, bucklingCurveZ: curves.z, bucklingCurveLt: ec3CurveLt(p, rolled),
         av: p.Aw,
-        // The depth the default top-flange load height of Mcr is measured from. r = 0: the
-        // root radius is not held, and the flat widths without it are the larger ones.
+        // The depth the default top-flange load height of Mcr is measured from, and the plates
+        // a Class 4 effective section is computed from. r = 0: the root radius is not held, and
+        // the flat widths without it are the larger ones (lower ρ).
         geometry: p.shape === 'I' ? { shape: 'I', h: p.h, b: p.b, tw: p.tw, tf: p.tf, r: 0 }
           : p.shape === 'RHS' ? { shape: 'RHS', h: p.h, b: p.b, t: p.tw }
           : { shape: 'CHS', d: p.h, t: p.tw },

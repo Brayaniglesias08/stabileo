@@ -10,6 +10,8 @@ fn ipe300_s275() -> Ec3MemberData {
         a_eff: None,      // Class 4 effective properties; unused for Class 1-3
         weff_y: None,
         weff_z: None,
+        e_n_y: None,
+        e_n_z: None,
         wpl_y: 628e-6,    // 628 cm³
         wel_y: 557e-6,    // 557 cm³
         wpl_z: 96.9e-6,   // 96.9 cm³

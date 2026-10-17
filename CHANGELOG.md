@@ -34,6 +34,22 @@ inputs needed to compute them safely are absent.**
   SBE Worked Example A.1 (IPE 330, zg = +165 mm, C2 = 0.454: Mcr = 113.9 kNm; at the shear
   centre the check gave more than 1.3× that) is a regression test. The web EC3 check sends
   the section geometry, so its Mcr takes the top-flange load.
+- **EC3 Class 4 members used the gross A and Wel when Aeff/Weff were not given**, and never
+  added ΔM = eN·NEd. A Class 4 section buckles locally before A·fy or Wel·fy, so the stand-in
+  was unconservative by the whole effective-width reduction (a welded I 600×300×12×6 in S355:
+  Aeff = 8330 of A = 10 656 mm², −22 %). Aeff, Weff,y and Weff,z are now computed from
+  `geometry` by EN 1993-1-5 4.3/4.4 (internal and outstand ρ, Tables 4.1/4.2, web ψ from the
+  effective flanges, 4.4(3)) for I and RHS; `aEff`/`weffY`/`weffZ` still override. New
+  `eNY`/`eNZ` give the centroid shift; with geometry it is 0 (doubly symmetric). Without
+  either, the checks that need the missing property are refused and named ("Class 4 Aeff",
+  "Class 4 Weff,y", "Class 4 eN"); a Class 4 CHS (EN 1993-1-6) is refused. Class 3 and 4
+  members in compression also get the cross-section check 6.2.9.2/6.2.9.3
+  (`interactionRatioSection`), which (6.61)/(6.62) can fall below with Cm < 1. Tension
+  yields the gross section (6.2.3) for every class. The result reports `aEff`, `weffY`,
+  `weffZ`. The web EC3 check now checks Class 4 I and RHS members (it skipped them), and takes
+  an I section as **welded** (Table 6.2 curves b/c, Table 6.4 c/d) unless it was picked from a
+  rolled catalogue family — it read every I as rolled (a/b), unconservative for a welded or
+  parametric section.
 
 #### Unsafe design-check disagreements closed (2026-10-17)
 

@@ -406,6 +406,8 @@ fn ec3_blank(fy: f64) -> Ec3MemberData {
         wpl_z: 0.0,
         wel_z: 0.0,
         weff_z: None,
+        e_n_y: None,
+        e_n_z: None,
         iy: 0.0,
         iz: 0.0,
         it: 0.0,
@@ -744,6 +746,165 @@ fn ec3_interaction_k_above_one_is_applied() {
     let r = ec3_run(bad, -1500e3, 150e6, 0.0);
     assert!(!r.pass);
     assert!(!r.unevaluated.is_empty());
+}
+
+/// EN 1993-1-5 4.4 effective widths, the code's own form: λ̄p =
+/// (b̄/t)/(28.4·ε·√kσ). stabileo evaluates λ̄p = √(fy/σcr) with the member's
+/// E, which at E = 210 000 N/mm² is the same expression with 28.42 for the
+/// rounded 28.4 — inside the 0.5 % band.
+fn lambda_p(c_t: f64, fy: f64, k_sigma: f64) -> f64 {
+    c_t / (28.4 * (235.0 / fy).sqrt() * k_sigma.sqrt())
+}
+
+/// [Clause] EN 1993-1-5 4.3/4.4, Class 4 welded I 600×300×12×6, S355, no
+/// published example: every number below is the clause applied by hand,
+/// written out so a wrong clause cannot hide in the implementation.
+///
+/// A = 10 656 mm², Iy = 717.98e6 mm⁴; ε = 0.814.
+/// Flange outstand c = (300 − 6)/2 = 147, c/t = 12.25 > 14ε = 11.4 (Class 4),
+/// kσ = 0.43, λ̄p = 0.808 > 0.748, ρ = (λ̄p − 0.188)/λ̄p² = 0.949 (4.3).
+/// Web c = 576, c/t = 96, kσ = 4, λ̄p = 2.077, ρ = (λ̄p − 0.22)/λ̄p² = 0.430 (4.2).
+/// Aeff = A − 4·(1 − 0.949)·147·12 − (1 − 0.430)·576·6 = 8330 mm².
+/// Weff,y (4.4(3): web ψ from effective flange, gross web): the compression
+/// flange tips lose 2·7.46×12 mm², the axis drops 5.02 mm, web ψ = −0.966,
+/// kσ = 23.0, λ̄p = 0.866, ρ = 1; Ieff = 702.24e6 mm⁴,
+/// Weff,y = Ieff/(300 + 5.02) = 2302.3e3 mm³ (Wel,y = 2393.3e3).
+/// eN = 0 (doubly symmetric).
+#[test]
+fn ec3_class4_welded_i_effective_section_en1993_1_5() {
+    let (h, b, tf, tw, fy): (f64, f64, f64, f64, f64) = (600.0, 300.0, 12.0, 6.0, 355.0);
+    let a = 2.0 * b * tf + (h - 2.0 * tf) * tw;
+    let iy = (b * h * h * h - (b - tw) * (h - 2.0 * tf).powi(3)) / 12.0;
+    let iz = 2.0 * tf * b.powi(3) / 12.0 + (h - 2.0 * tf) * tw.powi(3) / 12.0;
+    let m = Ec3MemberData {
+        a,
+        wel_y: iy / (h / 2.0),
+        wel_z: iz / (b / 2.0),
+        iy,
+        iz,
+        section_class: SectionClass::Class4,
+        geometry: Some(Ec3Geometry::I { h, b, tw, tf, r: 0.0 }),
+        ..ec3_blank(fy)
+    };
+
+    // Hand values, clause by clause.
+    let lpf = lambda_p(147.0 / 12.0, fy, 0.43);
+    let rho_f = (lpf - 0.188) / (lpf * lpf);
+    let lpw = lambda_p(96.0, fy, 4.0);
+    let rho_w = (lpw - 0.22) / (lpw * lpw);
+    published(rho_f, 0.949, THREE_SF, "ρ flange (4.3)");
+    published(rho_w, 0.430, THREE_SF, "ρ web (4.2)");
+    let a_eff = a - 4.0 * (1.0 - rho_f) * 147.0 * 12.0 - (1.0 - rho_w) * 576.0 * 6.0;
+    published(a_eff, 8330.0, THREE_SF, "Aeff, by hand");
+
+    let eff = effective_section(&m, m.geometry.as_ref().unwrap()).expect("effective section");
+    published(eff.a_eff, 8330.0, THREE_SF, "Aeff");
+    published(eff.weff_y, 2302.3e3, THREE_SF, "Weff,y");
+    published(eff.weff_z, iz / (b / 2.0), 1e-9, "Weff,z (flanges fully effective in minor-axis bending here)");
+
+    // The check uses them: Nc,Rd = Aeff·fy, Mc,Rd = Weff,y·fy, and the
+    // Class 4 cross-section check 6.2.9.3 (eN = 0).
+    let r = ec3_run(m.clone(), -1000e3, 0.0, 0.0);
+    assert!(r.unevaluated.is_empty(), "{:?}", r.unevaluated);
+    published(r.a_eff.unwrap(), 8330.0, THREE_SF, "result Aeff");
+    published(r.interaction_ratio_section, 1000e3 / (8330.0 * fy), THREE_SF, "NEd/(Aeff·fy)");
+    let r = ec3_run(m.clone(), -1000e3, 300e6, 0.0);
+    published(
+        r.interaction_ratio_section,
+        1000e3 / (8330.0 * fy) + 300e6 / (2302.3e3 * fy),
+        THREE_SF,
+        "6.2.9.3 (6.44)",
+    );
+    published(r.weff_y.unwrap(), 2302.3e3, THREE_SF, "result Weff,y");
+
+    // The gross values used to stand in when Aeff/Weff were not given:
+    // NEd/(A·fy) = 0.264 where the section resists only Aeff (0.338).
+    assert!(r.interaction_ratio_section > 1000e3 / (a * fy) + 300e6 / (iy / 300.0 * fy));
+
+    // No geometry and no Aeff/Weff/eN: refused, with the reason named.
+    let blind = Ec3MemberData { geometry: None, ltb: Some(end_moments_only()), ..m.clone() };
+    let r = ec3_run(blind.clone(), -1000e3, 300e6, 0.0);
+    assert!(!r.pass);
+    assert!(r.unevaluated.iter().any(|u| u.contains("Class 4 Aeff")), "{:?}", r.unevaluated);
+    assert!(r.unevaluated.iter().any(|u| u.contains("Class 4 Weff,y")), "{:?}", r.unevaluated);
+
+    // Aeff and Weff given but no eN, no geometry: compression + bending is
+    // refused (ΔM = eN·NEd unknown), bending alone is evaluated.
+    let given = Ec3MemberData { a_eff: Some(8330.0), weff_y: Some(2302.3e3), weff_z: Some(360e3), ..blind };
+    let r = ec3_run(given.clone(), -1000e3, 300e6, 0.0);
+    assert!(!r.pass);
+    assert!(r.unevaluated.iter().any(|u| u.contains("Class 4 eN")), "{:?}", r.unevaluated);
+    let r = ec3_run(given.clone(), 0.0, 300e6, 0.0);
+    assert!(r.unevaluated.is_empty(), "{:?}", r.unevaluated);
+    published(r.flexure_ratio_y, 300e6 / (2302.3e3 * fy), THREE_SF, "My/(Weff,y·fy)");
+
+    // eN given: ΔMy = eN,y·NEd enters 6.2.9.3 and (6.61).
+    let shifted = Ec3MemberData { e_n_y: Some(20.0), e_n_z: Some(0.0), ..given };
+    let r = ec3_run(shifted, -1000e3, 0.0, 0.0);
+    assert!(r.unevaluated.is_empty(), "{:?}", r.unevaluated);
+    published(
+        r.interaction_ratio_section,
+        1000e3 / (8330.0 * fy) + 20.0 * 1000e3 / (2302.3e3 * fy),
+        THREE_SF,
+        "6.2.9.3 with ΔMy = eN·NEd",
+    );
+}
+
+/// [Clause] EN 1993-1-5 4.4, Table 4.2: minor-axis bending of a Class 4
+/// welded I 400×300×8×8, S355 — the outstands on the compressed side, free
+/// edge in compression, ψ = (tw/2)/(b/2) = 0.0267 from the gross section
+/// (4.4(3)), kσ = 0.57 − 0.21ψ + 0.07ψ² = 0.564, c/t = 146/8 = 18.25,
+/// λ̄p = 1.051, ρ = 0.781; each tip loses 31.96×8 mm², the axis moves
+/// 9.31 mm, Iz,eff = 26.15e6 mm⁴, Weff,z = Iz,eff/(150 + 9.31) = 164.2e3 mm³
+/// (Wel,z = 240.1e3). Also an RHS 400×200×6 S355 in compression:
+/// c/t = 382/6 = 63.7, λ̄p = 1.378, ρ = 0.610; 182/6 = 30.3, ρ = 1;
+/// Aeff = 7056 − 2·0.390·382·6 = 5268 mm².
+#[test]
+fn ec3_class4_minor_axis_and_rhs_effective_sections() {
+    let (h, b, tf, tw, fy): (f64, f64, f64, f64, f64) = (400.0, 300.0, 8.0, 8.0, 355.0);
+    let a = 2.0 * b * tf + (h - 2.0 * tf) * tw;
+    let iz = 2.0 * tf * b.powi(3) / 12.0 + (h - 2.0 * tf) * tw.powi(3) / 12.0;
+    let iy = (b * h.powi(3) - (b - tw) * (h - 2.0 * tf).powi(3)) / 12.0;
+    let m = Ec3MemberData {
+        a,
+        iy,
+        iz,
+        section_class: SectionClass::Class4,
+        geometry: Some(Ec3Geometry::I { h, b, tw, tf, r: 0.0 }),
+        ..ec3_blank(fy)
+    };
+    let psi = (tw / 2.0) / (b / 2.0);
+    let k = 0.57 - 0.21 * psi + 0.07 * psi * psi;
+    let lp = lambda_p(146.0 / 8.0, fy, k);
+    published((lp - 0.188) / (lp * lp), 0.781, THREE_SF, "ρ outstand, Table 4.2");
+    let eff = effective_section(&m, m.geometry.as_ref().unwrap()).unwrap();
+    published(eff.weff_z, 164.2e3, THREE_SF, "Weff,z");
+    let r = check_ec3_members(&Ec3CheckInput {
+        members: vec![m],
+        forces: vec![Ec3DesignForces { element_id: 1, n_ed: None, my_ed: None, mz_ed: Some(30e6), v_ed: None }],
+    })
+    .remove(0);
+    published(r.flexure_ratio_z, 30e6 / (164.2e3 * fy), THREE_SF, "Mz/(Weff,z·fy)");
+
+    let (h, b, t): (f64, f64, f64) = (400.0, 200.0, 6.0);
+    let rhs = Ec3MemberData {
+        a: 2.0 * (h + b) * t - 4.0 * t * t,
+        iy: (b * h.powi(3) - (b - 2.0 * t) * (h - 2.0 * t).powi(3)) / 12.0,
+        iz: (h * b.powi(3) - (h - 2.0 * t) * (b - 2.0 * t).powi(3)) / 12.0,
+        section_class: SectionClass::Class4,
+        geometry: Some(Ec3Geometry::Rhs { h, b, t }),
+        ..ec3_blank(fy)
+    };
+    let lp = lambda_p(382.0 / 6.0, fy, 4.0);
+    published((lp - 0.22) / (lp * lp), 0.610, THREE_SF, "ρ RHS web");
+    published(effective_section(&rhs, rhs.geometry.as_ref().unwrap()).unwrap().a_eff, 5268.0, THREE_SF, "Aeff RHS");
+
+    // A Class 4 CHS is EN 1993-1-6, not 1-5: no effective section, refused.
+    let chs = Ec3MemberData { geometry: Some(Ec3Geometry::Chs { d: 500.0, t: 4.0 }), ..rhs };
+    assert!(effective_section(&chs, chs.geometry.as_ref().unwrap()).is_none());
+    let r = ec3_run(Ec3MemberData { lcr_y: 1000.0, lcr_z: 1000.0, ..chs }, -100e3, 0.0, 0.0);
+    assert!(!r.pass);
+    assert!(r.unevaluated.iter().any(|u| u.contains("Class 4 Aeff")), "{:?}", r.unevaluated);
 }
 
 // ════════════════════════════════════════════════════════════════════════
