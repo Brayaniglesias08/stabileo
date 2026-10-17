@@ -1168,9 +1168,10 @@ pub fn check_suspicious_local_axes_3d(input: &SolverInput3D) -> Vec<StructuredDi
 /// about its centroid) are restricted to the restrained and spring DOFs, and
 /// the rank of that 6-column matrix must be 6.
 ///
-/// A rotational restraint counts only along the rotation axes the part's
-/// elements couple at that node (unreleased frame ends, shells): elsewhere the
-/// node turns independently of the part. Models with constraints, connectors,
+/// Rotational restraints act on the part only through the rotation axes its
+/// elements couple at that node (unreleased frame ends, shells): about the
+/// other axes the node turns independently of the part, so a restraint
+/// counts only in the combinations that axis cannot absorb. Models with constraints, connectors,
 /// inclined supports or unexpanded curved beams are not checked (their
 /// kinematics are not plain node-to-node connections); the factorization
 /// checks still apply to them.
@@ -1319,19 +1320,74 @@ pub fn check_rigid_body_restraint_3d(input: &SolverInput3D) -> Vec<StructuredDia
                     rows.push(row);
                 }
             }
+            // Rotations: the part turns the node by θ only along the axes
+            // its elements couple there (span S); along the complement F the
+            // node turns alone, φ = P_S θ + w, w ∈ F free. The restraints
+            // e_k·φ = 0 (k restrained) constrain θ through every
+            // combination y with yᵀ E F = 0 (E: rows e_k): yᵀ E P_S θ = 0.
             let basis = span(axes.get(id).map(|v| v.as_slice()).unwrap_or(&[]));
-            for k in 0..3 {
-                if !h[3 + k] {
-                    continue;
+            let restrained: Vec<usize> = (0..3).filter(|&k| h[3 + k]).collect();
+            if restrained.is_empty() || basis.is_empty() {
+                continue;
+            }
+            let mut comp: Vec<[f64; 3]> = basis.clone();
+            let complement = {
+                let mut f = Vec::new();
+                for e in full {
+                    let before = comp.len();
+                    comp = span(&[comp.clone(), vec![e]].concat());
+                    if comp.len() > before {
+                        f.push(*comp.last().unwrap());
+                    }
                 }
-                // The restraint of rotation k fixes the part only if axis k
-                // lies in the coupled span (otherwise the node turns alone).
-                let in_span: f64 = basis.iter().map(|b| b[k] * b[k]).sum();
-                if in_span > 1.0 - 1e-9 {
-                    let mut row = [0.0; 6];
-                    row[3 + k] = 1.0;
-                    rows.push(row);
+                f
+            };
+            // G = E F (r × f); y spans the orthogonal complement of range(G) in R^r.
+            let r = restrained.len();
+            let g_cols: Vec<Vec<f64>> = complement.iter().map(|f| restrained.iter().map(|&k| f[k]).collect()).collect();
+            let mut range: Vec<Vec<f64>> = Vec::new();
+            for col in &g_cols {
+                let mut w = col.clone();
+                for b in &range {
+                    let d: f64 = w.iter().zip(b).map(|(x, y)| x * y).sum();
+                    for (x, y) in w.iter_mut().zip(b) {
+                        *x -= d * y;
+                    }
                 }
+                let n = w.iter().map(|x| x * x).sum::<f64>().sqrt();
+                if n > 1e-9 {
+                    range.push(w.iter().map(|x| x / n).collect());
+                }
+            }
+            let mut ys: Vec<Vec<f64>> = Vec::new();
+            for k in 0..r {
+                let mut w = vec![0.0; r];
+                w[k] = 1.0;
+                for b in range.iter().chain(ys.iter()) {
+                    let d: f64 = w.iter().zip(b).map(|(x, y)| x * y).sum();
+                    for (x, y) in w.iter_mut().zip(b) {
+                        *x -= d * y;
+                    }
+                }
+                let n = w.iter().map(|x| x * x).sum::<f64>().sqrt();
+                if n > 1e-9 {
+                    ys.push(w.iter().map(|x| x / n).collect());
+                }
+            }
+            for y in ys {
+                // v = Eᵀ y (a 3-vector), row = P_S v on the θ columns.
+                let mut v = [0.0; 3];
+                for (j, &k) in restrained.iter().enumerate() {
+                    v[k] += y[j];
+                }
+                let mut row = [0.0; 6];
+                for b in &basis {
+                    let d = v[0] * b[0] + v[1] * b[1] + v[2] * b[2];
+                    for k in 0..3 {
+                        row[3 + k] += d * b[k];
+                    }
+                }
+                rows.push(row);
             }
         }
         let rank = rank6(rows);
