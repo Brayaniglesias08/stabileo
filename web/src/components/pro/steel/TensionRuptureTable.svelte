@@ -133,6 +133,7 @@
 
 <style>
   .tr { margin-top: 8px; }
+  .tr :global(td), .tr :global(th) { padding: 2px 6px; }
   .tr-title { margin: 0 0 2px; font-size: 0.72rem; }
   .num { font-family: var(--st-mono); text-align: right; white-space: nowrap; }
   .ne { color: var(--st-warn); }

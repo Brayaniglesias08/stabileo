@@ -30,6 +30,8 @@ test('a tension member is not evaluated until its end connection is described', 
   await page.getByTestId('pp-open-file').setInputFiles({
     name: 'hanger.ded', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(project)),
   });
+  // The file opens asynchronously: solve only once the model is in.
+  await expect.poll(() => page.evaluate(() => { const c = window.__stabileo.modelCensus(); return `${c.nodes}/${c.elements}/${c.loads}`; })).toBe("2/1/1");
   await page.evaluate(async () => { await window.__stabileoActions.solve(); });
   await page.getByTestId('pr-stage-design').click();
   await page.getByTestId('pr-cmd-steel').click();
@@ -60,6 +62,9 @@ test('a tension member is not evaluated until its end connection is described', 
   await editor.scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/tension-editor.png', fullPage: false });
   await editor.getByTestId('tc-apply').click();
+  // Writing a member property retires the results on hand, as every member edit does: re-solve.
+  await expect(page.getByTestId('tc-results-solve')).toBeVisible();
+  await page.evaluate(async () => { await window.__stabileoActions.solve(); });
 
   await row.scrollIntoViewIfNeeded();
   await expect(row).toHaveAttribute('data-state', 'ok');
