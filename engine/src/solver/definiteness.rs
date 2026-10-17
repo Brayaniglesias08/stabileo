@@ -33,6 +33,16 @@
 //! supports reached 9e-9 and 3e-8. Free rigid-body motions are caught exactly,
 //! before assembly, by `pre_solve_gates::check_rigid_body_restraint_3d`; this
 //! check catches internal mechanisms whose pivot is round-off.
+//!
+//! A second measurement (#296, verify/diff-codeaster) agrees:
+//! on 993 random space frames (differential
+//! testing against PyNite and OpenSees, tools/differential/) the pivots of
+//! the singular models (Jacobi-scaled condition number > 1e14) reached
+//! 5e-12 of their diagonal, while no regular model (condition number < 1e10)
+//! had a pivot below 2.4e-5 of its diagonal. The threshold sits between the
+//! two, with two orders of margin above the largest round-off pivot seen; a
+//! regular model only trips it with stiffness contrasts that cost it ten
+//! digits, which deserve the warning anyway.
 
 use crate::linalg::sparse::CscMatrix;
 use crate::linalg::sparse_chol::NumericCholesky;
