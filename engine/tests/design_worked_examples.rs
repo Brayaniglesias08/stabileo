@@ -764,3 +764,77 @@ fn cirsoc201_inti_3i_shear() {
     let r = cirsoc_run(m, 0.0, 174.6e3);
     published(r.vs / 1e3, 342.9, THREE_SF, "Vs capped at (2/3)·√f'c·bw·d");
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// Weld groups, elastic method (connection_check)
+// ════════════════════════════════════════════════════════════════════════
+
+use dedaliano_engine::postprocess::connection_check::*;
+
+fn weld_run(segments: Vec<WeldSegment>, fexx: f64, phi: f64, vx: f64, vy: f64, m: f64) -> WeldGroupResult {
+    check_weld_groups(&WeldGroupInput {
+        groups: vec![WeldGroupData { connection_id: 1, segments, fexx, phi: Some(phi) }],
+        forces: vec![WeldGroupForces { connection_id: 1, vx, vy, m: Some(m) }],
+    })
+    .remove(0)
+}
+
+/// [INTI301] Ejemplo 3, bracket welded on three sides, shear + in-plane
+/// moment, elastic analysis (§J.1.1), Ej. 3-1 – 3-2. Units kN, cm.
+///
+/// Printed: horizontal runs 25 cm at y = ±10.5 (from x = 1 to 26 cm),
+/// vertical run 20 cm at x = 0.5 cm, unit leg dw = 1 cm; Aw = 70 cm²;
+/// xg = 9.78 cm; Ip = Ix + Iy = 6179 + 5018 = 11197 cm⁴; Mug = 7309 kN·cm,
+/// Vug = 130 kN; at A (x = 16.22, y = 11): fxM = 71.8, fyM = 105.88,
+/// fyV = 18.57, f = 143.68 MPa per unit leg; φ = 0.60, Fnw = 288 MPa,
+/// Rd = 12.22 kN/cm for dw = 1 cm; required dw = 143.68/122.2 = 1.18 cm.
+///
+/// stabileo works on the throat (0.707·leg) and evaluates the weld LINE,
+/// y = 10.5 cm at A, where the example takes the outer edge of its 1 cm
+/// strip, y = 11 cm. With the example's own Ip, Mug and Vug the stress at
+/// the line is √((105.88 + 18.57)² + (7309·10.5/11197·10)²) = 142.08 MPa,
+/// and that is compared at 3 s.f.; the printed 143.68 is 1.1 % higher only
+/// because of the 0.5 cm lever arm.
+#[test]
+fn weld_group_inti301_ej3_bracket_elastic_method() {
+    let seg = |x1, y1, x2, y2| WeldSegment { x1, y1, x2, y2, size: 1.0 };
+    let segments = vec![seg(1.0, 10.5, 26.0, 10.5), seg(0.5, -10.0, 0.5, 10.0), seg(1.0, -10.5, 26.0, -10.5)];
+    let r = weld_run(segments, 48.0, 0.60, 0.0, 130.0, 7309.0);
+    published(r.total_length, 70.0, 1e-12, "weld length");
+    published(r.phi_fnw * 10.0, 0.60 * 288.0, 1e-12, "φ·Fnw (MPa)");
+    // stress per unit LEG (the example's convention) = stress on the throat × 0.707
+    let per_leg_mpa = r.max_weld_stress * 0.707 * 10.0;
+    let at_line = ((105.88f64 + 18.57).powi(2) + (7309.0f64 * 10.5 / 11197.0 * 10.0).powi(2)).sqrt();
+    published(per_leg_mpa, at_line, THREE_SF, "stress at A on the weld line");
+    published(per_leg_mpa, 143.68, 0.012, "printed stress at the strip edge (y = 11 cm)");
+    // Unity at dw = 1 cm is the required leg in cm: the example's f/Rd with
+    // the line stress, and the printed 1.18 (= 143.68/122.2 = 1.176, rounded up).
+    published(r.unity_ratio, at_line / 122.2, THREE_SF, "required dw at the weld line");
+    published(r.unity_ratio, 1.18, 0.02, "printed required dw");
+}
+
+/// [AISC] Example J.1, fillet weld in longitudinal shear, pp. J-2 – J-4.
+///
+/// Printed: two 27 in. runs of a 3/16 in. E70 fillet, end-loaded;
+/// Rn = 0.60·70·(0.707·3/16)·kds = 5.57 kip/in (kds = 1.0); l/w = 144 > 100 →
+/// β = 1.2 − 0.002·144 = 0.912 (J2-1); Rn = 0.912·5.57·2·27 = 274 kips;
+/// φRn = 206 kips against Pu = 200 kips.
+///
+/// DISCREPANCY (stabileo, unconservative): the weld-group check has no
+/// end-loaded length reduction (J2.2b(d), β), so it gives φRn = 225 kips —
+/// 9.5 % above the example — for any weld longer than 100 legs. Not fixed
+/// here: "end-loaded" is a property of how the joint is loaded, which the
+/// segment list does not carry. (The CIRSOC 301 fillet weld of the web app,
+/// `fillet-weld.ts`, does apply β.)
+#[test]
+#[ignore = "stabileo bug: weld group ignores the end-loaded fillet length reduction J2.2b(d) (reproduction)"]
+fn weld_group_aisc_j1_end_loaded_repro() {
+    let size = 3.0 / 16.0;
+    let segments = vec![
+        WeldSegment { x1: 0.0, y1: -4.5, x2: 27.0, y2: -4.5, size },
+        WeldSegment { x1: 0.0, y1: 4.5, x2: 27.0, y2: 4.5, size },
+    ];
+    let r = weld_run(segments, 70.0, 0.75, 200.0, 0.0, 0.0);
+    published(r.phi_fnw * 0.707 * size, 0.75 * 5.57, THREE_SF, "φ·Rn per inch, kds = 1");
+    published(200.0 / r.unity_ratio, 206.0, THREE_SF, "φRn with β = 0.912");
+}
