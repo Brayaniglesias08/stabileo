@@ -1977,7 +1977,46 @@ fn build_final_results_3d(
 }
 
 /// Compute element internal forces using co-rotational natural deformations (3D).
+/// Member end forces of the deformed state (3D): the co-rotational elastic
+/// forces K·d_nat plus the fixed-end forces of the member loads, with the
+/// load data the diagrams draw from.
+///
+/// The member loads were left out: a fixed-ended beam under a uniform load
+/// reported end moments qL²/12 short and end shears qL/2 short, with no load
+/// on the diagram, while the displacements were right. The fixed-end part is
+/// the linear solver's own, at zero displacement.
 fn compute_corotational_forces_3d(
+    input: &SolverInput3D,
+    dof_num: &DofNumbering,
+    u_full: &[f64],
+    left_hand: bool,
+) -> Vec<ElementForces3D> {
+    let zero = vec![0.0; dof_num.n_total];
+    let fixed_end: std::collections::HashMap<usize, ElementForces3D> =
+        super::linear::compute_internal_forces_3d(input, dof_num, &zero)
+            .into_iter()
+            .map(|f| (f.element_id, f))
+            .collect();
+    elastic_corotational_forces_3d(input, dof_num, u_full, left_hand)
+        .into_iter()
+        .map(|el| match fixed_end.get(&el.element_id) {
+            Some(fe) => ElementForces3D {
+                length: el.length,
+                n_start: fe.n_start + el.n_start, n_end: fe.n_end + el.n_end,
+                vy_start: fe.vy_start + el.vy_start, vy_end: fe.vy_end + el.vy_end,
+                vz_start: fe.vz_start + el.vz_start, vz_end: fe.vz_end + el.vz_end,
+                mx_start: fe.mx_start + el.mx_start, mx_end: fe.mx_end + el.mx_end,
+                my_start: fe.my_start + el.my_start, my_end: fe.my_end + el.my_end,
+                mz_start: fe.mz_start + el.mz_start, mz_end: fe.mz_end + el.mz_end,
+                ..fe.clone()
+            },
+            None => el,
+        })
+        .collect()
+}
+
+/// The co-rotational elastic part of the member end forces, K·d_nat (3D).
+fn elastic_corotational_forces_3d(
     input: &SolverInput3D,
     dof_num: &DofNumbering,
     u_full: &[f64],

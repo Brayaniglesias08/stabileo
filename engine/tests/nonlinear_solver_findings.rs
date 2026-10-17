@@ -711,3 +711,44 @@ fn corotational_3d_connectors_match_their_equivalent_structures() {
     let err = corotational::solve_corotational_3d(&bad, 100, 1e-10, 20, false).unwrap_err();
     assert!(err.contains("connector 7"), "{err}");
 }
+
+/// 3D co-rotational member end forces with member loads, in the small-load
+/// limit, against the linear solver: a spatial portal with a uniform load (in
+/// both local planes, partial on one member, axial on a column), a point
+/// load on the beam and a released beam end. The member loads' fixed-end
+/// forces were left out (a fixed-ended beam reported end moments qL²/12 and
+/// end shears qL/2 short) and the diagrams had no load.
+#[test]
+fn corotational_3d_member_forces_include_member_loads() {
+    let mut s = make_3d_input(
+        vec![(1, 0.0, 0.0, 0.0), (2, 0.0, 0.0, 3.0), (3, 4.0, 1.0, 3.0), (4, 4.0, 1.0, 0.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, 0.01, 1e-4, 2e-4, 1e-4)],
+        vec![(1, "frame", 1, 2, 1, 1), (2, "frame", 2, 3, 1, 1), (3, "frame", 3, 4, 1, 1)],
+        vec![(1, vec![true; 6]), (4, vec![true; 6])],
+        vec![
+            SolverLoad3D::Distributed(SolverDistributedLoad3D { q_xi: 0.0, q_xj: 0.0, element_id: 2, q_yi: 0.2, q_yj: 0.4, q_zi: -1.0, q_zj: -1.5, a: None, b: None }),
+            SolverLoad3D::Distributed(SolverDistributedLoad3D { q_xi: 0.3, q_xj: 0.3, element_id: 1, q_yi: 0.5, q_yj: 0.5, q_zi: 0.0, q_zj: 0.0, a: Some(0.5), b: Some(2.0) }),
+            SolverLoad3D::PointOnElement(SolverPointLoad3D { element_id: 2, a: 1.5, py: 0.3, pz: -2.0 }),
+            SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: 0.5, fy: 0.2, fz: 0.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None }),
+        ],
+    );
+    s.elements.get_mut("2").unwrap().release_mz_end = true;
+    let lin = linear::solve_3d(&s).unwrap();
+    let co = corotational::solve_corotational_3d(&s, 50, 1e-10, 1, false).unwrap();
+    assert!(co.converged);
+    let fmax = lin.element_forces.iter().flat_map(|f| [f.my_start, f.my_end, f.mz_start, f.mz_end, f.vz_start]).fold(0.0f64, |a, b| a.max(b.abs()));
+    for l in &lin.element_forces {
+        let c = co.results.element_forces.iter().find(|f| f.element_id == l.element_id).unwrap();
+        for (a, b, what) in [
+            (c.n_start, l.n_start, "N_i"), (c.n_end, l.n_end, "N_j"), (c.vy_start, l.vy_start, "Vy_i"), (c.vy_end, l.vy_end, "Vy_j"),
+            (c.vz_start, l.vz_start, "Vz_i"), (c.vz_end, l.vz_end, "Vz_j"), (c.mx_start, l.mx_start, "Mx_i"), (c.mx_end, l.mx_end, "Mx_j"),
+            (c.my_start, l.my_start, "My_i"), (c.my_end, l.my_end, "My_j"), (c.mz_start, l.mz_start, "Mz_i"), (c.mz_end, l.mz_end, "Mz_j"),
+        ] {
+            assert!((a - b).abs() < 1e-3 * fmax, "member {} {what}: {a} vs {b}", l.element_id);
+        }
+        assert_eq!(c.distributed_loads_z.len(), l.distributed_loads_z.len(), "member {} diagram loads", l.element_id);
+        assert_eq!(c.point_loads_z.len(), l.point_loads_z.len());
+        assert_eq!((c.q_zi, c.q_zj), (l.q_zi, l.q_zj));
+    }
+}

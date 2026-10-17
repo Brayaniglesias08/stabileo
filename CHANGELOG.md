@@ -49,6 +49,11 @@ structure expressed without the feature or an analytical value.
   Now: exact rotation vector, frame carried by the mean end rotation, shears on the current chord;
   planar frames in any vertical plane, with and without releases, match the 2D solver to 1e-6.
   The tangent's geometric stiffness is condensed for the end releases, as in P-Delta.
+- **3D co-rotational member forces left out the member loads.** End forces were K·d only: a
+  fixed-ended beam under a uniform load reported end moments qL²/12 short and end shears qL/2
+  short, and the diagrams showed no load, although the displacements were right. The fixed-end
+  forces and the load data are now the linear solver's; member forces match it in the
+  small-load limit (uniform, partial, axial and point member loads, with a release).
 - **Connectors in the nonlinear solvers** (co-rotational, arc length, displacement control,
   material- and fiber-nonlinear; 2D and 3D) were refused; they are now part of the tangent and
   the internal forces. Small-displacement solvers use the linear connector. Co-rotational ones:
