@@ -12,9 +12,10 @@
 #   * results are printed with %.16e instead of %11.6f / %10.3f, and the
 #     "print 0.0 below 1e-8 (displacements) / 1e-4 (forces)" cut-offs are
 #     removed.
-# A second binary, frame3dd-norot, also drops the rotary-inertia terms
-# (rho*Iy, rho*Iz) of the consistent mass matrix, which stabileo's
-# Euler-Bernoulli consistent mass does not have (see README.md).
+# A second binary, frame3dd-norot, also drops two terms stabileo's element
+# does not model (used for modal and P-Delta comparisons, see README.md):
+# the rotary inertia (rho*Iy, rho*Iz) of the consistent mass matrix and the
+# torsional geometric-stiffness term N*J/(A*L).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/.." && pwd)"
@@ -45,12 +46,21 @@ perl -pi -e '
   s/" %11\.3e", V\[/" %.16e", V[/g;
   s/f= %lf Hz,  T= %lf sec/f= %.16e Hz,  T= %.16e sec/;
 ' frame3dd_io.c
+# Frame3DD bug (main.c, modal analysis): a restrained DOF i is decoupled with
+# `for (j=i+1; ...) K[j][i]=K[i][j]=M[j][i]=M[i][j]=0`, which leaves its
+# coupling to every lower-numbered DOF in place: restrained DOFs act as stiff
+# springs carrying a mass traceM (0.5% low first frequency on a 4-member
+# frame with a partially restrained node). Zero the whole row and column.
+perl -0pi -e 's/for \(j=i\+1; j<=DoF; j\+\+\)\n(\s*)K\[j\]\[i\]=K\[i\]\[j\]=M\[j\]\[i\]=M\[i\]\[j\] = 0\.0;/for (j=1; j<=DoF; j++) if (j != i)\n$1K[j][i]=K[i][j]=M[j][i]=M[i][j] = 0.0;/' main.c
+grep -q "if (j != i)" main.c || { echo "frame3dd: modal reaction patch did not apply" >&2; exit 1; }
 
 srcs="main.c frame3dd.c frame3dd_io.c coordtrans.c eig.c HPGmatrix.c HPGutil.c NRutil.c"
 # shellcheck disable=SC2086
 "$cc" -O2 -w -o "$out/frame3dd" $srcs -lm
-perl -pi -e 's/^(\s*)ry =  d\*Iy;/$1ry = 0.0;/; s/^(\s*)rz =  d\*Iz;/$1rz = 0.0;/' frame3dd.c
-grep -q "ry = 0.0;" frame3dd.c || { echo "frame3dd: rotary-inertia patch did not apply" >&2; exit 1; }
+perl -pi -e 's/^(\s*)ry =  d\*Iy;/$1ry = 0.0;/; s/^(\s*)rz =  d\*Iz;/$1rz = 0.0;/;
+  s/kg\[4\]\[4\]  = kg\[10\]\[10\] = T\/L\*J\/Ax;/kg[4][4]  = kg[10][10] = 0.0;/' frame3dd.c
+grep -q "ry = 0.0;" frame3dd.c && grep -q "kg\[10\]\[10\] = 0.0;" frame3dd.c ||
+  { echo "frame3dd: norot patch did not apply" >&2; exit 1; }
 # shellcheck disable=SC2086
 "$cc" -O2 -w -o "$out/frame3dd-norot" $srcs -lm
 echo "built $out/frame3dd and $out/frame3dd-norot"
