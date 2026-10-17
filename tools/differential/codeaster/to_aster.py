@@ -552,34 +552,44 @@ def translate(d):
     if loads_c:
         w("LD = AFFE_CHAR_MECA(MODELE=MO,\n    " + ",\n    ".join(loads_c) + ",\n)")
         excit.append("_F(CHARGE=LD)")
-    # distributed member loads: one function load per (load, piece)
-    nf = 0
+    # Distributed member loads: Code_Aster accepts a single distributed-load
+    # charge for beam post-processing (CALCULEL2_92), and repeated
+    # FORCE_POUTRE occurrences on one cell overwrite each other, so every
+    # piece gets one formula per component summing all loads on it.
+    per_piece = {}
     for e in elems:
         L, ex, ey, ez = geo[e["id"]]
         pi = pts[e["nodeI"]]
+        sx = f"((X-{_f(pi[0])})*{_f(ex[0])} + (Y-{_f(pi[1])})*{_f(ex[1])} + (Z-{_f(pi[2])})*{_f(ex[2])})"
         for a, b, x in dist.get(e["id"], []):
             for c in pieces[e["id"]]:
                 s0, s1 = piece_span[c]
                 if s0 < a - 1e-9 * L or s1 > b + 1e-9 * L:
                     continue
-                comps = []
-                for ck, (ki, kj) in (("FX", ("qXI", "qXJ")), ("FY", ("qYI", "qYJ")), ("FZ", ("qZI", "qZJ"))):
+                # N / VY / VZ are local components (FX / FY / FZ are global).
+                for ck, (ki, kj) in (("N", ("qXI", "qXJ")), ("VY", ("qYI", "qYJ")), ("VZ", ("qZI", "qZJ"))):
                     qi, qj = x.get(ki, 0.0) or 0.0, x.get(kj, 0.0) or 0.0
                     if qi == 0 and qj == 0:
                         continue
-                    nf += 1
                     if qi == qj:
-                        expr = f"{_f(qi)} + 0.0*X"
+                        expr = _f(qi)
                     else:
-                        sx = f"((X-{_f(pi[0])})*{_f(ex[0])} + (Y-{_f(pi[1])})*{_f(ex[1])} + (Z-{_f(pi[2])})*{_f(ex[2])})"
                         expr = f"{_f(qi)} + ({_f(qj - qi)})*({sx} - {_f(a)})/{_f(b - a)}"
-                    w(f"Q{nf} = FORMULE(VALE={expr!r}, NOM_PARA=('X', 'Y', 'Z'))")
-                    comps.append(f"{ck}=Q{nf}")
-                if comps:
-                    nf += 1
-                    w(f"Q{nf} = AFFE_CHAR_MECA_F(MODELE=MO, FORCE_POUTRE=_F(GROUP_MA={c!r}, "
-                      f"TYPE_CHARGE='FORCE', {', '.join(comps)}))")
-                    excit.append(f"_F(CHARGE=Q{nf})")
+                    per_piece.setdefault(c, {}).setdefault(ck, []).append(expr)
+    occ = []
+    nf = 0
+    for c, comps in per_piece.items():
+        parts = []
+        for ck, exprs in sorted(comps.items()):
+            nf += 1
+            w(f"Q{nf} = FORMULE(VALE={' + '.join('(' + x + ')' for x in exprs) + ' + 0.0*X'!r}, "
+              "NOM_PARA=('X', 'Y', 'Z'))")
+            parts.append(f"{ck}=Q{nf}")
+        m.groups_ma.setdefault("G" + c, [c])  # MAILLE= is gone in 18.x
+        occ.append(f"_F(GROUP_MA={'G' + c!r}, TYPE_CHARGE='FORCE', {', '.join(parts)})")
+    if occ:
+        w("QD = AFFE_CHAR_MECA_F(MODELE=MO, FORCE_POUTRE=(" + "".join(f"\n    {o}," for o in occ) + "\n))")
+        excit.append("_F(CHARGE=QD)")
     w("RES = MECA_STATIQUE(MODELE=MO, CHAM_MATER=CM, CARA_ELEM=CE, EXCIT=(" + ", ".join(excit) + ",))")
     beam_groups = tuple(g for k in ("POU_D_E", "POU_D_T", "BARRE") for g in groups[k])
     w(f"RES = CALC_CHAMP(reuse=RES, RESULTAT=RES, FORCE=('REAC_NODA',))")
