@@ -107,3 +107,62 @@ describe('engine gate ratios', () => {
     expect(engineRecheckElement(col, { stirrupDia: 8, NuShear: 500 }).engineRecheck.columnRatio).toBe(ok.engineRecheck.columnRatio);
   });
 });
+
+describe('engine gate: the remaining mutants', () => {
+  it('a check that already failed in TypeScript is not reported as a disagreement, even when the engine fails it too', () => {
+    const v = verifyElement(base);
+    const failing = {
+      ...v,
+      flexure: { ...v.flexure, status: 'fail' as const, AsProv: v.flexure.AsProv / 3 },
+      shear: { ...v.shear, status: 'fail' as const, spacing: v.shear.spacing * 6 },
+    };
+    const g = engineRecheckElement(failing, { stirrupDia: 8, NuShear: 0 });
+    expect(g.engineRecheck.flexureRatio!).toBeGreaterThan(1);
+    expect(g.engineRecheck.shearRatio!).toBeGreaterThan(1);
+    expect(g.engineRecheck.disagreements).toEqual([]);
+    expect(g.diagnostics?.some((d) => d.code === 'VERIF_ENGINE_DISAGREES') ?? false).toBe(false);
+  });
+
+  it('a section with no tension steel cannot be asked about: not verified', () => {
+    const v = verifyElement(base);
+    const g = engineRecheckElement({ ...v, flexure: { ...v.flexure, AsProv: 0 } }, { stirrupDia: 8, NuShear: 0 });
+    expect(g.engineRecheck.unavailable).toBe(true);
+    expect(g.engineRecheck.flexureRatio).toBeUndefined();
+    const d = g.diagnostics!.find((x) => x.code === 'VERIF_ENGINE_UNAVAILABLE')!;
+    expect(d).toMatchObject({ severity: 'error', message: 'diag.verifEngineUnavailable', source: 'verification', elementIds: [7] });
+  });
+
+  it('ductility binds beams only', () => {
+    const col = verifyElement({ ...base, elementType: 'column', b: 0.4, h: 0.4, Mu: 40, Nu: 800 });
+    const g = engineRecheckElement(col, { stirrupDia: 8, NuShear: 0 });
+    expect(g.engineRecheck.ductilityRatio).toBeUndefined();
+    expect(g.engineRecheck.columnRatio!).toBeGreaterThan(0);
+  });
+
+  it('a column disagreement is named, carried in the diagnostic and leaves the input alone', () => {
+    const col = verifyElement({ ...base, elementType: 'column', b: 0.3, h: 0.3, Mu: 30, Vu: 10, Nu: 300 });
+    expect(col.column!.status).not.toBe('fail');
+    const g = engineRecheckElement(col, { stirrupDia: 8, NuShear: -1500 });
+    expect(g.engineRecheck.disagreements).toContain('column');
+    const d = g.diagnostics!.find((x) => x.code === 'VERIF_ENGINE_DISAGREES')!;
+    expect(d).toMatchObject({ severity: 'error', message: 'diag.verifEngineDisagrees', source: 'verification', elementIds: [7] });
+    expect(d.details).toMatchObject({ columnRatio: g.engineRecheck.columnRatio });
+    expect(col.column!.status).not.toBe('fail');
+  });
+
+  it('the ductility ratio travels in the diagnostic, and earlier diagnostics are kept', () => {
+    const v = verifyElement({ ...base, Mu: 330, b: 0.25, h: 0.5, Vu: 10 });
+    const before = v.diagnostics?.length ?? 0;
+    const g = engineRecheckElement(v, { stirrupDia: 8, NuShear: 0 });
+    const d = g.diagnostics!.find((x) => x.code === 'VERIF_ENGINE_DISAGREES')!;
+    expect(d.details).toMatchObject({ checks: 'ductility', ductilityRatio: g.engineRecheck.ductilityRatio });
+    expect(g.diagnostics!.length).toBe(before + 1);
+    for (const old of v.diagnostics ?? []) expect(g.diagnostics).toContainEqual(old);
+  });
+
+  it('no engine remark, no diagnostics list', () => {
+    const v = verifyElement({ ...base, Mu: 40, Vu: 30 });
+    expect(v.diagnostics).toBeUndefined();
+    expect(engineRecheckElement(v, { stirrupDia: 8, NuShear: 0 }).diagnostics).toBeUndefined();
+  });
+});
