@@ -36,7 +36,7 @@ means there is no test against an independent reference.
 | 6 | CIRSOC 102-2025 Fig. 2.4-1 note 2 | Past the first row's "0,0*", it was interpolated toward the second row's positive values. Note 2 prescribes 0,0. | Net roof uplift too small: 0,3 instead of 0,0 at 52,5°, h/L 0,5. | `verification-tables.test.ts` |
 | 7 | CIRSOC 101-2025 §4.7.2 (by width) | In width mode every member was reduced with the largest tributary area in the model. | An edge beam with KLL·AT = 36 m² < 37 m², which §4.7.2 does not reduce, came out 21 % light. | `engine/loads/__tests__/load-plan.test.ts` |
 | 8 | CIRSOC 101-2025 §4.7.6 | One-way slabs were reduced, following ASCE 7 and the commentary. The 2025 rule reads "no se podrán reducir excepto en el caso de sobrecargas pesadas". | Live load too low on one-way slabs (no current caller passes them). | `cirsoc101/__tests__/verification-loads-tables.test.ts` |
-| 9 | CIRSOC 101-2025 §4.3.2 | A partition allowance below 0,75 kN/m² counted as the allowance. | Partition load too low. | `verification-loads-tables.test.ts` |
+| 9 | CIRSOC 101-2025 §4.3.2 | A partition allowance below 0,75 kN/m² counted as the allowance; the default dead-load build-up itself carried 0,55 kN/m² (Tabla 3.1 double gypsum). Now warned, and the default uses a §4.3.2 row of 0,75 kN/m² of floor. | Partition load too low. | `verification-loads-tables.test.ts` |
 | 10 | CIRSOC 104-2005 Tablas 1.8 and 1.13 | Uspallata (0,80 kN/m²) and Villa Reynolds (0,45 kN/m²) are printed above the table headers and were missing. | They could only be read as their departments' 0,3 kN/m², 2.7 and 1.5 times too low. | `cirsoc104/__tests__/verification-tables.test.ts` |
 
 Errors found in the references, where stabileo follows the code:
