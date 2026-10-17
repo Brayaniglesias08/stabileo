@@ -124,15 +124,15 @@ const c301Es: Record<string, string> = {
 
   // Motivos de NO EVALUADO
   'c301.refuse.noConnection': 'falta la unión extrema (agujeros y coeficiente U de D.3)',
-  'c301.refuse.connectionRefused': '{reason}',
+  'c301.refuse.connectionRefused': 'unión extrema: {reason}',
   'c301.refuse.aeOutOfRange': 'Ae = {Ae} mm² fuera de (0, Ag]',
   'c301.refuse.anOutOfRange': 'An = {An} mm² fuera de (0, Ag]',
   'c301.refuse.holesIncomplete': 'agujeros sin diámetro o espesor',
-  'c301.refuse.anNonPositive': 'An ≤ 0',
+  'c301.refuse.anNonPositive': 'el área neta resulta An ≤ 0',
   'c301.refuse.uOutOfRange': 'U = {U} fuera de (0, 1]',
   'c301.refuse.plateWeldShort': 'chapa soldada en sus bordes con L < w (D.3(2)(d) exige L ≥ w)',
   'c301.refuse.xBarInvalid': 'x̄ o L de la unión no válidos',
-  'c301.refuse.uNonPositive': 'U = {U} ≤ 0',
+  'c301.refuse.uNonPositive': 'el coeficiente de corte diferido resulta U = {U} ≤ 0',
   'c301.refuse.noShearLag': 'la unión no da U: falta U, todos los elementos unidos, chapa soldada o x̄ y L (D.3)',
   'c301.refuse.unknownShape': 'forma de sección «{shape}» sin clasificación según la Tabla B.4.1a',
   'c301.refuse.elementInvalid': 'elemento comprimido «{kind}» no válido para la Tabla B.4.1a',
