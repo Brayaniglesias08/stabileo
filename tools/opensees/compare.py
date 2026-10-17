@@ -218,8 +218,7 @@ def check_supported_2d(d):
 
 def check_supported_3d(d):
     why = []
-    for k in ("constraints", "connectors", "plates", "quads", "quad9s",
-              "solidShells", "curvedShells", "curvedBeams"):
+    for k in ("constraints", "connectors", "quad9s", "solidShells", "curvedShells", "curvedBeams"):
         if _nonempty(d, k):
             why.append(k)
     if d.get("leftHand"):
@@ -239,7 +238,7 @@ def check_supported_3d(d):
         if s.get("rw") or s.get("kw"):
             why.append("warping support")
     for l in d["loads"]:
-        if l["type"] not in ("nodal", "distributed", "pointOnElement"):
+        if l["type"] not in ("nodal", "distributed", "pointOnElement", "pressure", "quadPressure"):
             why.append(f"load {l['type']}")
         elif l["type"] == "nodal" and l["data"].get("bw"):
             why.append("bimoment load")
@@ -647,6 +646,9 @@ def opensees_3d(d, mode="static", spec=None):
     art_rot = set()
     if ndf == 6:
         dirs = {nid: [] for nid in nodes}
+        for _, _, sn, _, _ in shells:
+            for nid in sn:
+                dirs[nid] += [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
         for e in elems:
             if e["type"] != "frame":
                 continue
@@ -704,7 +706,7 @@ def opensees_3d(d, mode="static", spec=None):
     point_loads = {}     # eid -> [(pos, [px, py, pz])]
     for ld in d["loads"]:
         t, x = ld["type"], ld["data"]
-        if t == "nodal" or etype[x["elementId"]]["type"] == "truss":
+        if t in ("nodal", "pressure", "quadPressure") or etype[x["elementId"]]["type"] == "truss":
             continue
         eid = x["elementId"]
         L = geo[eid][0]
@@ -825,6 +827,22 @@ def opensees_3d(d, mode="static", spec=None):
                             sec["a"], E, G, sec["j"], sec["iy"], sec["iz"], e["id"], *args)
         pieces[e["id"]] = subs
 
+    # Shells: quads -> ShellMITC4 (MITC4 bending, as the engine's; membrane
+    # bilinear + Hughes-Brezzi drilling vs the engine's EAS-7), plates ->
+    # ShellDKGT (DKT bending, as the engine's; GT9 membrane vs CST). The
+    # bending parts are the same formulation; models whose membrane and
+    # drilling DOFs are all restrained compare them exactly.
+    shell_sec = {}
+    for kind, sid, sn, mid, th in shells:
+        key = (mid, th)
+        if key not in shell_sec:
+            tag += 1
+            mm = mats[mid]
+            ops.section("ElasticMembranePlateSection", tag, mm["e"] * 1000.0, mm["nu"], th, 0.0)
+            shell_sec[key] = tag
+        tag += 1
+        ops.element("ShellMITC4" if kind == "quad" else "ShellDKGT", tag, *sn, shell_sec[key])
+
     ops.timeSeries("Linear", 1)
     ops.pattern("Plain", 1, 1)
     for eid, w in uniform_loads.items():
@@ -838,6 +856,13 @@ def opensees_3d(d, mode="static", spec=None):
             if x["nodeId"] in art_rot and any(abs(v) > 0 for v in f[3:]):
                 raise Unsupported("nodal moment on a rotation-free node")
             add_nodal(x["nodeId"], f[:ndf])
+            continue
+        if t in ("pressure", "quadPressure"):
+            sh = {(k_, i_): sn_ for k_, i_, sn_, _, _ in shells}.get(("plate" if t == "pressure" else "quad", x["elementId"]))
+            if sh is None:
+                continue  # the engine ignores a pressure on a missing element
+            for i_, f in _pressure_nodal([nodes[n_] for n_ in sh], x["pressure"]):
+                add_nodal(sh[i_], f + [0.0] * (ndf - 3))
             continue
         eid = x["elementId"]
         e = etype[eid]
@@ -991,7 +1016,39 @@ def _check_geom(d, elems, secs, has_frame):
 
 
 def _shell_elems(d):
-    return []
+    """[(tag kind, id, node ids, material id, thickness)]: plates (DKT+CST
+    triangles) and quads (MITC4), the shell families with an OpenSees pair."""
+    out = [("plate", p["id"], list(p["nodes"]), p["materialId"], p["thickness"])
+           for p in (d.get("plates") or {}).values()]
+    out += [("quad", q["id"], list(q["nodes"]), q["materialId"], q["thickness"])
+            for q in (d.get("quads") or {}).values()]
+    return out
+
+
+def _pressure_nodal(pts, p):
+    """Consistent nodal forces of a uniform pressure along the element normal,
+    as the engine (quad: integral of N_i over the bilinear map, 2x2 Gauss, with
+    the normal of the diagonals' cross product; triangle: p*A/3 each, normal
+    of (x1-x0) x (x2-x0)). [(node index, [fx, fy, fz])]."""
+    if len(pts) == 3:
+        n = _cross([pts[1][k] - pts[0][k] for k in range(3)], [pts[2][k] - pts[0][k] for k in range(3)])
+        area = _norm(n) / 2
+        ez = _unit(n)
+        return [(i, [p * area / 3 * ez[k] for k in range(3)]) for i in range(3)]
+    ez = _unit(_cross([pts[2][k] - pts[0][k] for k in range(3)], [pts[3][k] - pts[1][k] for k in range(3)]))
+    g = 1 / math.sqrt(3)
+    f = [0.0] * 4
+    for xi in (-g, g):
+        for eta in (-g, g):
+            nn = [(1 - xi) * (1 - eta) / 4, (1 + xi) * (1 - eta) / 4, (1 + xi) * (1 + eta) / 4, (1 - xi) * (1 + eta) / 4]
+            dxi = [-(1 - eta) / 4, (1 - eta) / 4, (1 + eta) / 4, -(1 + eta) / 4]
+            deta = [-(1 - xi) / 4, -(1 + xi) / 4, (1 + xi) / 4, (1 - xi) / 4]
+            a = [sum(dxi[i] * pts[i][k] for i in range(4)) for k in range(3)]
+            b = [sum(deta[i] * pts[i][k] for i in range(4)) for k in range(3)]
+            det = _norm(_cross(a, b))
+            for i in range(4):
+                f[i] += nn[i] * det
+    return [(i, [p * f[i] * ez[k] for k in range(3)]) for i in range(4)]
 
 
 def _np():
@@ -1343,7 +1400,8 @@ def compare(model, sres, ores, tol):
     # under the largest force (all-zero displacement fields otherwise
     # compare round-off against round-off).
     ea = max(m["e"] * 1000.0 for m in model["materials"].values()) * \
-        max(s_["a"] for s_ in model["sections"].values())
+        max([s_["a"] for s_ in model["sections"].values()] +
+            [p["thickness"] * size for k in ("plates", "quads") for p in (model.get(k) or {}).values()])
     u_floor = f_sc * size / ea
     sc = dict(ut=max(scale(tr), scale(ro) * size, u_floor), ur=max(scale(ro), scale(tr) / size, u_floor / size),
               rf=f_sc, rm=f_sc * size, ef=f_sc, em=f_sc * size)
@@ -1478,6 +1536,49 @@ def compare_th(model, sres, ores, tol):
     return bad, groups
 
 
+# Folded shells: different membrane formulations (see gen_models.shell).
+# OpenSees' ShellMITC4 membrane is the plain bilinear one and locks in
+# in-plane bending: on these cantilevers its lateral tip displacement is 5 %
+# (coarse) to 70 % (refined 4x) of the converged value, which the engine's
+# EAS-7 membrane is within a few percent of from the coarsest mesh. So the
+# translations are only reported (max_err "disp_t", not a failure), and what
+# is checked is the reaction resultant about the origin, which equilibrium
+# fixes exactly for any formulation: it catches a lost, doubled or misdirected
+# load (pressure normals, consistent nodal loads) and a wrong support.
+SHELL_DISP_TOL = math.inf
+
+
+def compare_shell(model, sres, ores, tol):
+    keep = {k: ores[k] for k in ("dim", "art_rot")}
+    trans = lambda dd: {n: u[:3] + [0.0] * 3 for n, u in dd.items()}  # noqa: E731
+    o2 = dict(keep, disp=trans(ores["disp"]), reac={}, forces={})
+    bad, groups = compare(model, dict(sres, disp=trans(sres["disp"]), reac={}, forces={}), o2, SHELL_DISP_TOL)
+    groups.pop("disp_r", None)
+    if bad is None:
+        return None, {}
+
+    def resultant(reac):
+        f, mm = [0.0] * 3, [0.0] * 3
+        for nid, r in reac.items():
+            n = next(v for v in model["nodes"].values() if v["id"] == nid)
+            p = (n["x"], n["y"], n["z"])
+            mxyz = _cross(p, r[:3])
+            for k in range(3):
+                f[k] += r[k]
+                mm[k] += r[3 + k] + mxyz[k]
+        return f + mm
+    rs, ro = resultant(sres["reac"]), resultant(ores["reac"])
+    sc = max(max(abs(v) for v in ro[:3]), 1e-300)
+    xs = [c for p in model["nodes"].values() for c in (p["x"], p["y"], p["z"])]
+    size = max(xs) - min(xs)
+    for k, name in enumerate(("Fx", "Fy", "Fz", "Mx", "My", "Mz")):
+        err = abs(rs[k] - ro[k]) / (sc if k < 3 else sc * size)
+        groups["resultant"] = max(groups.get("resultant", 0.0), err)
+        if err > tol:
+            bad.append(("resultant", 0, name, rs[k], ro[k], err))
+    return bad, groups
+
+
 # ---------------------------------------------------------------- driver
 
 def prune_orphans(d):
@@ -1502,7 +1603,9 @@ def opensees_worker(model):
                 spec["numModes"] += 1  # one more: the gap above the last compared mode
             if spec["analysis"] == "th":
                 d = dict(d, loads=[])
-            if spec["analysis"] == "th" and spec.get("groundAccel") is not None and not _is_3d(d):
+            if spec["analysis"] == "shell":
+                r = opensees_3d(d)
+            elif spec["analysis"] == "th" and spec.get("groundAccel") is not None and not _is_3d(d):
                 r = _planar_th_in_3d(d, spec)
             else:
                 r = (opensees_3d if _is_3d(d) else opensees_2d)(d, spec["analysis"], spec)
@@ -1611,7 +1714,7 @@ def run_ext(name, job, binary, tol, dump_dir=None):
         return dict(base, status="unsupported", why=why)
     try:
         lin = normalize_stabileo(stabileo(_probe_loads(d) if kind in MASS_MODES else d, binary), dim)
-        sres = normalize_ext(kind, stabileo_job(job, binary), dim)
+        sres = lin if kind == "shell" else normalize_ext(kind, stabileo_job(job, binary), dim)
     except RuntimeError as ex:
         ores = opensees_isolated(job)  # a model OpenSees cannot take either is not a failure
         if "unsupported" in ores:
@@ -1650,6 +1753,8 @@ def run_ext(name, job, binary, tol, dump_dir=None):
             groups.update({"lin_" + k: v for k, v in g2.items()})
     elif kind == "pdelta":
         bad, groups = compare(d, sres, ores, tol)
+    elif kind == "shell":
+        bad, groups = compare_shell(d, sres, ores, tol)
     else:
         bad, groups = compare_th(d, sres, ores, tol)
     if bad is None:
@@ -1672,6 +1777,8 @@ def main():
     ap.add_argument("--random3d", type=int, default=0)
     ap.add_argument("--rich2d", type=int, default=0, help="gen_models.rich_2d models")
     ap.add_argument("--rich3d", type=int, default=0, help="gen_models.rich_3d models")
+    ap.add_argument("--plates", type=int, default=0, help="gen_models.plate models (MITC4 / DKT bending)")
+    ap.add_argument("--shells", type=int, default=0, help="gen_models.shell folded cantilevers (loose tolerance)")
     for kind in EXT_KINDS:
         for dim in ("2d", "3d"):
             ap.add_argument(f"--{kind}{dim}", type=int, default=0, help=f"gen_models.job('{kind}', {dim[0]}) jobs")
@@ -1705,13 +1812,16 @@ def main():
             p = subprocess.run([a.bin, f"--gen{kind}", str(s)], capture_output=True, text=True, check=True)
             jobs.append((f"random{kind}-{s}", prune_orphans(json.loads(p.stdout))))
     import gen_models
-    for kind, n, gen in (("2d", a.rich2d, gen_models.rich_2d), ("3d", a.rich3d, gen_models.rich_3d)):
+    for kind, n, gen in (("2d", a.rich2d, gen_models.rich_2d), ("3d", a.rich3d, gen_models.rich_3d),
+                         ("plate", a.plates, gen_models.plate)):
         for s in range(a.seed_start, a.seed_start + n):
-            jobs.append((f"rich{kind}-{s}", gen(s)))
+            jobs.append((f"{'' if kind == 'plate' else 'rich'}{kind}-{s}", gen(s)))
     for kind in EXT_KINDS:
         for dim in (2, 3):
             for s in range(a.seed_start, a.seed_start + getattr(a, f"{kind}{dim}d")):
                 jobs.append((f"{kind}{dim}d-{s}", gen_models.job(kind, dim, s)))
+    for s in range(a.seed_start, a.seed_start + a.shells):
+        jobs.append((f"shell-{s}", {"analysis": "shell", "model": gen_models.shell(s, 2)}))
 
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
@@ -1727,7 +1837,14 @@ def main():
 
     from collections import Counter
     cnt = Counter(r["status"] for r in results)
-    print("\nsummary:", dict(cnt))
+    by_cat = {}
+    for r in results:
+        cat = r["name"].rsplit("-", 1)[0] if "-" in r["name"] else "files"
+        by_cat.setdefault(cat, Counter())[r["status"]] += 1
+    print()
+    for cat, c_ in sorted(by_cat.items()):
+        print(f"  {cat:12} {dict(c_)}")
+    print("summary:", dict(cnt))
     ok = [r for r in results if r["status"] in ("ok", "mismatch")]
     if ok:
         g = {}

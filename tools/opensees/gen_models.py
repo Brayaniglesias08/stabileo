@@ -495,3 +495,152 @@ def job(kind, dim, seed):
             for _, f in j["forceLoads"]:
                 f[0] += rng.uniform(5, 50)  # some horizontal excitation
     return j
+
+
+def plate(seed):
+    """A flat plate in the z = 0 plane for the shell comparison: an nx x ny
+    mesh of MITC4 quads, DKT triangles (each quad split along a random
+    diagonal) or both, interior nodes jittered, each edge free / simply
+    supported / clamped (stable combinations only), edge beams on some grid
+    lines, nodal forces and moments and element pressures. Every node's
+    in-plane translations and drilling rotation are restrained, so the
+    comparison is of plate bending (where the engine's MITC4 and DKT are the
+    formulations of OpenSees' ShellMITC4 and ShellDKGT) and of beam bending
+    and torsion coupled to it."""
+    rng = random.Random(seed)
+    nx, ny = rng.randint(2, 6), rng.randint(2, 6)
+    mode = rng.choice(["quad", "tri", "mixed"])
+    # Graded spacings under one skew: every quad is a parallelogram. OpenSees'
+    # ShellMITC4 turns the tied shear strains into Cartesian ones with the
+    # constant angles of Dvorkin & Bathe (1984), the engine with J^-1 at each
+    # Gauss point; the two agree exactly only where J is constant. Triangles
+    # (DKT on both sides) also get their interior nodes jittered.
+    xs, ys = [0.0], [0.0]
+    for v, n in ((xs, nx), (ys, ny)):
+        for _ in range(n):
+            v.append(v[-1] + rng.uniform(0.5, 2.0))
+    skew = rng.uniform(-0.4, 0.4) if rng.random() < 0.6 else 0.0
+    nid, nodes = {}, {}
+    for j in range(ny + 1):
+        for i in range(nx + 1):
+            k = len(nodes) + 1
+            nid[i, j] = k
+            dx = dy = 0.0
+            if mode == "tri" and 0 < i < nx and 0 < j < ny:
+                dx = rng.uniform(-0.15, 0.15) * (xs[i + 1] - xs[i - 1]) / 2
+                dy = rng.uniform(-0.15, 0.15) * (ys[j + 1] - ys[j - 1]) / 2
+            x, y = xs[i] + dx, ys[j] + dy
+            nodes[str(k)] = {"id": k, "x": round(x + skew * y, 6), "y": round(y, 6), "z": 0.0}
+    mats = {"1": {"id": 1, "e": rng.choice([3e4, 2e5]), "nu": rng.uniform(0.15, 0.3)}}
+    th = rng.uniform(0.08, 0.3)
+    quads, plates = {}, {}
+    for j in range(ny):
+        for i in range(nx):
+            c = [nid[i, j], nid[i + 1, j], nid[i + 1, j + 1], nid[i, j + 1]]
+            if mode == "quad" or (mode == "mixed" and rng.random() < 0.5):
+                k = len(quads) + 1
+                quads[str(k)] = {"id": k, "nodes": c, "materialId": 1, "thickness": th}
+            else:
+                tris = [(c[0], c[1], c[2]), (c[0], c[2], c[3])] if rng.random() < 0.5 else \
+                    [(c[0], c[1], c[3]), (c[1], c[2], c[3])]
+                for t in tris:
+                    k = len(plates) + 1
+                    plates[str(k)] = {"id": k, "nodes": list(t), "materialId": 1, "thickness": th}
+    while True:
+        edges = [rng.choice(["free", "ss", "clamped"]) for _ in range(4)]
+        if sum({"free": 0, "ss": 1, "clamped": 2}[e] for e in edges) >= 2:
+            break
+    on_edge = {}
+    for (i, j), k in nid.items():
+        for e, hit in zip(edges, (j == 0, i == nx, j == ny, i == 0)):
+            if hit and e != "free":
+                on_edge.setdefault(k, set()).add(e)
+    sups = {}
+    for (i, j), k in nid.items():
+        s = {"nodeId": k, "rx": True, "ry": True, "rz": False, "rrx": False, "rry": False, "rrz": True}
+        for e in on_edge.get(k, ()):
+            s["rz"] = True
+            if e == "clamped":
+                s["rrx"] = s["rry"] = True
+        sups[str(k)] = s
+    secs = {"1": {"id": 1, "a": 0.02, "iy": rng.uniform(1e-4, 2e-3), "iz": 1e-4, "j": rng.uniform(1e-5, 5e-4)}}
+    elems = {}
+    for j in range(1, ny):
+        if rng.random() < 0.3:
+            for i in range(nx):
+                k = len(elems) + 1
+                elems[str(k)] = {"id": k, "type": "frame", "nodeI": nid[i, j], "nodeJ": nid[i + 1, j],
+                                 "materialId": 1, "sectionId": 1}
+    loads = []
+    zero = {k: 0.0 for k in ("fx", "fy", "fz", "mx", "my", "mz")}
+    for _ in range(rng.randint(1, 4)):
+        n = rng.choice(list(nid.values()))
+        loads.append({"type": "nodal", "data": {**zero, "nodeId": n, "fz": rng.uniform(-50, 50),
+                                                "mx": rng.uniform(-10, 10), "my": rng.uniform(-10, 10)}})
+    for _ in range(rng.randint(0, 4)):
+        if quads and (not plates or rng.random() < 0.5):
+            loads.append({"type": "quadPressure", "data": {"elementId": rng.choice(list(quads.values()))["id"],
+                                                           "pressure": rng.uniform(-20, 20)}})
+        elif plates:
+            loads.append({"type": "pressure", "data": {"elementId": rng.choice(list(plates.values()))["id"],
+                                                       "pressure": rng.uniform(-20, 20)}})
+    return {"nodes": nodes, "materials": mats, "sections": secs, "elements": elems, "supports": sups,
+            "loads": loads, "plates": plates, "quads": quads}
+
+
+def shell(seed, refine=1):
+    """A thin-walled cantilever made of flat MITC4 panels (an angle, a channel
+    or a box-like fold), clamped at x = 0, with tip forces and a pressure on
+    one panel: shell behaviour, membrane and bending coupled at the folds.
+    The engine's membrane (EAS-7, drilling penalty on θz − ω) and OpenSees'
+    ShellMITC4 membrane (bilinear, Hughes-Brezzi drilling) are different
+    formulations, so these compare to a discretisation tolerance, not to
+    round-off; `refine` multiplies the mesh density."""
+    rng = random.Random(seed)
+    length = rng.uniform(2, 6)
+    shape = rng.choice(["angle", "channel", "zed"])
+    w = rng.uniform(0.3, 1.0)
+    # The cross-section polyline in the (y, z) plane.
+    if shape == "angle":
+        pts = [(0.0, w), (0.0, 0.0), (w * rng.uniform(0.6, 1.2), 0.0)]
+    elif shape == "channel":
+        f = w * rng.uniform(0.3, 0.6)
+        pts = [(f, w), (0.0, w), (0.0, 0.0), (f, 0.0)]
+    else:
+        f = w * rng.uniform(0.3, 0.6)
+        pts = [(-f, w), (0.0, w), (0.0, 0.0), (f, 0.0)]
+    nl = refine * rng.randint(8, 16)
+    nw = refine * rng.randint(2, 4)
+    sec = []  # polyline points, nw per segment
+    for a, b in zip(pts, pts[1:]):
+        for k in range(nw):
+            sec.append((a[0] + (b[0] - a[0]) * k / nw, a[1] + (b[1] - a[1]) * k / nw))
+    sec.append(pts[-1])
+    nodes, nid = {}, {}
+    for i in range(nl + 1):
+        for j, (y, z) in enumerate(sec):
+            k = len(nodes) + 1
+            nid[i, j] = k
+            nodes[str(k)] = {"id": k, "x": round(length * i / nl, 9), "y": y, "z": z}
+    th = w * rng.uniform(0.02, 0.06)
+    mats = {"1": {"id": 1, "e": rng.choice([7e4, 2e5]), "nu": 0.3}}
+    quads = {}
+    for i in range(nl):
+        for j in range(len(sec) - 1):
+            k = len(quads) + 1
+            quads[str(k)] = {"id": k, "nodes": [nid[i, j], nid[i + 1, j], nid[i + 1, j + 1], nid[i, j + 1]],
+                             "materialId": 1, "thickness": th}
+    flag = ["rx", "ry", "rz", "rrx", "rry", "rrz"]
+    sups = {str(j + 1): {"nodeId": nid[0, j], **{f: True for f in flag}} for j in range(len(sec))}
+    zero = {k: 0.0 for k in ("fx", "fy", "fz", "mx", "my", "mz")}
+    loads = []
+    for j in rng.sample(range(len(sec)), min(2, len(sec))):
+        loads.append({"type": "nodal", "data": {**zero, "nodeId": nid[nl, j], "fx": rng.uniform(-5, 5),
+                                                "fy": rng.uniform(-5, 5), "fz": rng.uniform(-5, 5)}})
+    seg = rng.randrange(len(pts) - 1)
+    p = rng.uniform(-5, 5)
+    for i in range(nl):
+        for j in range(seg * nw, (seg + 1) * nw):
+            loads.append({"type": "quadPressure", "data": {"elementId": i * (len(sec) - 1) + j + 1, "pressure": p}})
+    return {"nodes": nodes, "materials": mats, "sections": {}, "elements": {}, "supports": sups,
+            "loads": loads, "plates": {}, "quads": quads}
