@@ -163,11 +163,11 @@ describe('the departures the mapping found are still recorded', () => {
     expect(inelastic.clause).toBe('E.3.2a');
   });
 
-  it('records that torsional buckling is not covered', () => {
-    // E.4 governs for angles, tees and cruciforms — exactly the sections whose axes M2 already
-    // warns about. Not implemented, so those are checked on the wrong mode.
+  it('records the torsional length E.4 assumes', () => {
+    // E.4 is evaluated now; what remains assumed is kz = 1 over the member length.
     const axial = CIRSOC301_CLAUSE_MAP.find((e) => e.clause === 'E.3.1')!;
-    expect(axial.limitations.join(' ')).toMatch(/E\.4|torsional/);
+    expect(axial.assumptions.join(' ')).toMatch(/E\.4/);
+    expect(axial.assumptions.join(' ')).toMatch(/kz = 1/);
   });
 
   it('and records the Lb assumption on the LTB entries', () => {

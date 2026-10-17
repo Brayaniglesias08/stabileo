@@ -65,6 +65,16 @@ inputs needed to compute them safely are absent.**
   not valid and Cb itself must be given for the case.
 - The web AISC check sends the section's E7 elements (it marked slender columns not evaluated)
   and its LTB takes the top-flange load.
+- **CIRSOC 301 compression checked flexural buckling only (§E.3/E.7).** §E.4 is now evaluated
+  and Pn is the least of the limit states: E.4.4 torsional buckling for an I (whenever J and Cw
+  are given; refused without them when kz·Lz > ky·L), E.4.2/E.4.3 for a tee without slender
+  elements, E.4.5 flexural-torsional with Fez (E.4.9) for a channel or a slender tee, the Fe
+  going into E.7.2a/E.7.3a with Q. A rolled-flange tee 200×150×12×10 at L = 3 m: φPn =
+  392.8 kN where flexural buckling alone gave 451.8 (+15 %). `SteelDesignParams` takes `Kz`,
+  `Lz` (default 1 and L) and `shearCentreOffset` (default from the thin-walled plates); a tee or
+  channel without J is refused. Closed sections and solid bars are not checked for E.4. The
+  steel workflow's «no torsional buckling» assumption is replaced by the one that remains:
+  kz = 1 over the member length.
 
 #### Unsafe design-check disagreements closed (2026-10-17)
 

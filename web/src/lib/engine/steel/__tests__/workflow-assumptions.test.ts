@@ -143,7 +143,7 @@ describe('the declared assumptions describe what the app ACTUALLY does', () => {
       'steel.assume.unbracedLengthIsMemberLength',
       'steel.assume.noSectionClassification',
       'steel.assume.netAreaEqualsGross',
-      'steel.assume.noTorsionalBuckling',
+      'steel.assume.torsionalLengthIsMemberLength',
       'steel.assume.momentGradientIsUnity',
       'steel.assume.torsionalConstantZeroWhenAbsent',
     ]) {

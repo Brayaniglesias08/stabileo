@@ -111,10 +111,14 @@ const UNIVERSAL: readonly MemberAssumption[] = Object.freeze([
    * carries it either — the two lists are required to agree by `workflow-assumptions.test.ts`,
    * which is what caught this one still being here.
    */
+  /*
+   * `noTorsionalBuckling` (route: implement §E.4) was here. §E.4 is implemented; what remains
+   * assumed is the torsional length it uses.
+   */
   {
-    key: 'steel.assume.noTorsionalBuckling',
+    key: 'steel.assume.torsionalLengthIsMemberLength',
     source: 'assumed',
-    routeOutKey: 'steel.assume.route.implementE4',
+    routeOutKey: 'steel.assume.route.torsionalRestraint',
   },
   {
     key: 'steel.assume.momentGradientIsUnity',

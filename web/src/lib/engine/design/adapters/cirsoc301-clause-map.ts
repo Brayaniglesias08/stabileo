@@ -121,10 +121,14 @@ export const CIRSOC301_CLAUSE_MAP: readonly ClauseMapEntry[] = Object.freeze([
     expression: 'phiPn = 0.85 · Fcr · Ag',
     clause: 'E.3.1',
     inputs: ['A'],
-    assumptions: ['Flexural buckling only: no torsional or flexural-torsional mode is considered.'],
+    assumptions: [
+      'Pn is the least of flexural (E.3/E.7) and torsional or flexural-torsional buckling (E.4: '
+      + 'E.4.4 for an I, E.4.5 for a channel or a slender tee, E.4.2 for a tee), with kz = 1 over '
+      + 'Lz = L unless stated and the thin-walled shear centre of the plates.',
+    ],
     limitations: [
-      'E.4 covers torsional and flexural-torsional buckling, which governs for angles, tees and '
-      + 'cruciform sections. Not implemented, so those sections are checked on the wrong mode.',
+      'Closed sections and solid bars are not checked for E.4 (their torsional stiffness keeps it '
+      + 'from governing). Angles and asymmetric sections (E.4.6) are refused by the classification.',
     ],
     validation: 'unvalidated',
   },

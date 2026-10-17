@@ -72,6 +72,18 @@ export interface SteelDesignParams {
   G?: number;
   /** Elementos comprimidos para Q (§E.7), si se quieren dar explicitamente en vez de derivarlos. */
   compressionElements?: CompressionElement[];
+  /**
+   * Pandeo torsional y flexo-torsional, §E.4: factor kz (default 1,0 — torsion impedida y alabeo
+   * libre en los extremos) y longitud no arriostrada a torsion Lz (m, default L).
+   */
+  Kz?: number;
+  Lz?: number;
+  /**
+   * Distancia del centro de corte al baricentro sobre el eje de simetria (m), para 'U' y 'T'
+   * (xo, yo de E.4.10/E.4.11). Ausente => la de la seccion de chapas delgadas a partir de h, b,
+   * tw, tf.
+   */
+  shearCentreOffset?: number;
 }
 
 export interface SteelTensionResult {
@@ -486,6 +498,92 @@ function slenderReduction(
 // §E — Compresion
 // ---------------------------------------------------------------------------
 
+/**
+ * §E.4 — torsional and flexural-torsional buckling. Returns the governing critical stress from
+ * E.4 for the section (null where E.4 does not apply), or the reason it cannot be evaluated.
+ *
+ *   I (doubly symmetric):  Fe = [π²·E·Cw/(kz·Lz)² + G·J]/(Ix + Iy)                    (E.4.4)
+ *   U (symmetric about x), T with slender elements (symmetric about y):
+ *     Fe = (Fes + Fez)/(2H)·[1 − √(1 − 4·Fes·Fez·H/(Fes + Fez)²)]                      (E.4.5)
+ *     Fez = [π²·E·Cw/(kz·Lz)² + G·J]/(Ag·ro²), ro² = e0² + (Ix + Iy)/Ag, H = 1 − e0²/ro²
+ *   T without slender elements (case (a)):
+ *     Fcr = (Fcry + Fcrz)/(2H)·[1 − √(1 − 4·Fcry·Fcrz·H/(Fcry + Fcrz)²)]              (E.4.2)
+ *     Fcrz = G·J/(Ag·ro²)                                                              (E.4.3)
+ *   Closed sections (box, RHS, CHS) and solid bars: their torsional stiffness keeps E.4 from
+ *   governing; not evaluated.
+ *
+ * Fe goes into E.7.2a/E.7.3a (E.3.2a/E.3.3a with Q = 1) as the flexural Fe does.
+ */
+type TorsionalBuckling =
+  | { kind: 'none' }
+  | { kind: 'Fe'; Fe: number }
+  | { kind: 'Fcr'; Fcr: number }
+  | { kind: 'refused'; reason: string };
+
+function torsionalBuckling(
+  p: SteelDesignParams, shape: SteelShape, Q: number, fcrFlexural: (Fe: number) => number, steps: string[],
+): TorsionalBuckling {
+  if (shape === 'box' || shape === 'RHS' || shape === 'CHS' || shape === 'solid') return { kind: 'none' };
+  const { E, A, Iz, Iy, L } = p;
+  const G = p.G ?? G_CIRSOC;
+  const kz = p.Kz ?? 1.0;
+  const Lz = p.Lz ?? L;
+  const kzL = kz * Lz;
+  const Ky = p.Ky ?? 1.0, Kx = p.Kx ?? 1.0;
+  const J = p.J;
+  if (shape === 'I') {
+    // E.4 applies to a doubly symmetric open section when its torsional length exceeds the
+    // flexural one; it is evaluated whenever J and Cw are known (it can only lower Pn).
+    if (!(J && J > 0 && p.Cw && p.Cw > 0)) {
+      if (kzL > Ky * L) return { kind: 'refused', reason: '§E.4: kz·Lz > ky·L y faltan J o Cw para el pandeo torsional' };
+      steps.push(`  §E.4: sin J/Cw; no aplica a una seccion doblemente simetrica con kz·Lz ≤ ky·L`);
+      return { kind: 'none' };
+    }
+    const Fe = ((Math.PI ** 2 * E * p.Cw) / (kzL * kzL) + G * J) / (Iz + Iy);
+    steps.push(`  §E.4 pandeo torsional: Fe = [π²·E·Cw/(kz·Lz)² + G·J]/(Ix + Iy) = ${fmt(Fe, 1)} MPa  (E.4.4)`);
+    return { kind: 'Fe', Fe };
+  }
+  // Singly symmetric: U about x (the strong axis), T about y.
+  if (!(J && J > 0)) return { kind: 'refused', reason: '§E.4: falta J para el pandeo flexo-torsional' };
+  const e0 = p.shearCentreOffset ?? shearCentreOffsetOf(p, shape);
+  if (!(Number.isFinite(e0) && e0 >= 0)) return { kind: 'refused', reason: '§E.4: centro de corte desconocido' };
+  // Cw of a tee is small and of a channel not always given: 0 understates Fez (conservative).
+  const Cw = p.Cw && p.Cw > 0 ? p.Cw : 0;
+  const ro2 = e0 * e0 + (Iz + Iy) / A;
+  const H = 1 - (e0 * e0) / ro2;
+  const Fez = ((Math.PI ** 2 * E * Cw) / (kzL * kzL) + G * J) / (A * ro2);
+  const combine = (a: number, b: number) => ((a + b) / (2 * H)) * (1 - Math.sqrt(1 - (4 * a * b * H) / ((a + b) * (a + b))));
+  steps.push(`  §E.4: e0 = ${fmt(e0 * 1000, 1)} mm, ro² = ${fmt(ro2 * 1e4, 2)} cm², H = ${fmt(H, 3)}  (E.4.10, E.4.11)`);
+  if (shape === 'T' && Q >= 1) {
+    const ry = radiusOfGyration(Iy, A);
+    const Fcry = fcrFlexural((Math.PI ** 2 * E) / ((Ky * L) / ry) ** 2);
+    const Fcrz = (G * J) / (A * ro2);
+    const Fcr = combine(Fcry, Fcrz);
+    steps.push(`  §E.4(a) Te: Fcry = ${fmt(Fcry, 1)} MPa, Fcrz = G·J/(Ag·ro²) = ${fmt(Fcrz, 1)} MPa → Fcr = ${fmt(Fcr, 1)} MPa  (E.4.2, E.4.3)`);
+    return { kind: 'Fcr', Fcr };
+  }
+  const Fes = shape === 'U'
+    ? (Math.PI ** 2 * E) / ((Kx * L) / radiusOfGyration(Iz, A)) ** 2
+    : (Math.PI ** 2 * E) / ((Ky * L) / radiusOfGyration(Iy, A)) ** 2;
+  const Fe = combine(Fes, Fez);
+  steps.push(`  §E.4(b.2) flexo-torsional: Fe(eje de simetria) = ${fmt(Fes, 1)}, Fez = ${fmt(Fez, 1)} → Fe = ${fmt(Fe, 1)} MPa  (E.4.5, E.4.9)`);
+  return { kind: 'Fe', Fe };
+}
+
+/**
+ * Shear-centre offset from the centroid along the axis of symmetry, thin-walled plates (m):
+ *   T: the flange/stem junction, e0 = (h − tf)·tw·(h/2)/(b·tf + (h − tf)·tw) from the flange
+ *      mid-plane to the centroid;
+ *   U: e = 3·b'²·tf/(6·b'·tf + h'·tw) behind the web, centroid x̄ = b'²·tf/(2·b'·tf + h'·tw) in
+ *      front of it, e0 = e + x̄, with b' = b − tw/2 and h' = h − tf.
+ */
+function shearCentreOffsetOf(p: SteelDesignParams, shape: SteelShape): number {
+  const { h, b, tw, tf } = p;
+  if (shape === 'T') return ((h - tf) * tw * (h / 2)) / (b * tf + (h - tf) * tw);
+  const bp = b - tw / 2, hp = h - tf;
+  return (3 * bp * bp * tf) / (6 * bp * tf + hp * tw) + (bp * bp * tf) / (2 * bp * tf + hp * tw);
+}
+
 export function checkSteelCompression(params: SteelDesignParams, Pu: number): SteelCompressionResult {
   const steps: string[] = [];
   const { Fy, E, A, Iz, Iy, L } = params;
@@ -523,8 +621,8 @@ export function checkSteelCompression(params: SteelDesignParams, Pu: number): St
    *
    * which is E.3.2/E.3.3 for Q = 1 (a section with no slender element, B.4.1).
    */
-  const fcrOf = (Q: number) => {
-    const lam2 = Fy / Fe;
+  const fcrOf = (Q: number, fe = Fe) => {
+    const lam2 = Fy / fe;
     return Math.sqrt(Q * lam2) <= 1.5 ? Q * Math.pow(0.658, Q * lam2) * Fy : (0.877 / lam2) * Fy;
   };
 
@@ -558,11 +656,33 @@ export function checkSteelCompression(params: SteelDesignParams, Pu: number): St
     steps.push(`  Seccion sin elementos esbeltos (Tabla B.4.1a): Q = 1`);
   }
 
-  const Fcr = fcrOf(Q);
+  const FcrFlex = fcrOf(Q);
   const lamE = Math.sqrt(Fy / Fe);
   steps.push(Math.sqrt(Q) * lamE <= 1.5
-    ? `  λe·√Q = ${fmt(lamE * Math.sqrt(Q), 3)} ≤ 1,5 → Fcr = Q·0,658^(Q·λe²)·Fy = ${fmt(Fcr, 1)} MPa  (${Q < 1 ? 'E.7.2' : 'E.3.2'})`
-    : `  λe·√Q = ${fmt(lamE * Math.sqrt(Q), 3)} > 1,5 → Fcr = 0,877/λe²·Fy = ${fmt(Fcr, 1)} MPa  (${Q < 1 ? 'E.7.3' : 'E.3.3'})`);
+    ? `  λe·√Q = ${fmt(lamE * Math.sqrt(Q), 3)} ≤ 1,5 → Fcr = Q·0,658^(Q·λe²)·Fy = ${fmt(FcrFlex, 1)} MPa  (${Q < 1 ? 'E.7.2' : 'E.3.2'})`
+    : `  λe·√Q = ${fmt(lamE * Math.sqrt(Q), 3)} > 1,5 → Fcr = 0,877/λe²·Fy = ${fmt(FcrFlex, 1)} MPa  (${Q < 1 ? 'E.7.3' : 'E.3.3'})`);
+
+  /*
+   * ── §E.4: torsional and flexural-torsional buckling ─────────────
+   *
+   * Missing before: only flexural buckling was checked, so a tee, a channel or a doubly
+   * symmetric section braced only against flexure could pass with a capacity E.4 does not give.
+   * Pn is the least of the limit states (E.7: «el menor valor ... pandeo flexional, pandeo
+   * torsional y pandeo flexotorsional»).
+   */
+  const tb = torsionalBuckling(params, shape!, Q, (fe) => fcrOf(1, fe), steps);
+  if (tb.kind === 'refused') {
+    steps.push(`  NO EVALUADO — ${tb.reason}`);
+    const ratio = absPu > 0 ? Infinity : 0;
+    return {
+      Pu: absPu, KLr, Fe, Fcr: NaN, phiPn: 0, Q, ratio,
+      status: absPu > 0 ? 'fail' : 'ok', steps, notEvaluated: tb.reason,
+    };
+  }
+  const FcrTors = tb.kind === 'Fe' ? fcrOf(Q, tb.Fe) : tb.kind === 'Fcr' ? tb.Fcr : Infinity;
+  if (tb.kind === 'Fe') steps.push(`  Fcr (E.4 con Q) = ${fmt(FcrTors, 1)} MPa  (${Q < 1 ? 'E.7.2a/E.7.3a' : 'E.3.2a/E.3.3a'})`);
+  const Fcr = Math.min(FcrFlex, FcrTors);
+  if (FcrTors < FcrFlex) steps.push(`  Gobierna el pandeo ${shape === 'I' ? 'torsional' : 'flexo-torsional'} (§E.4): Fcr = ${fmt(Fcr, 1)} MPa`);
 
   // E.1: φc = 0,85. It read 0,90, the AISC 360 value, which the CIRSOC 301 text does not
   // adopt; the clause map already stated 0,85, so the check was 5,9 % on the unsafe side of it.
