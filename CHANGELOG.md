@@ -28,7 +28,9 @@ regression test in `engine/tests/opensees_differential_regressions.rs`.
   reactions came from K + Kg, but the end forces were recovered with the elastic K alone,
   so they balanced neither the joints nor the reactions: a free cantilever tip reported a
   moment and the base moment was not H·L + P·Δ. End forces are now (K + Kg(N))·u − FEF
-  for frame members; OpenSees agrees to ~1e-10 on 596 random frames.
+  for frame members; OpenSees agrees to ~1e-10 on 596 random frames. The web app's 3D
+  workaround that added Kg·u to the engine's forces (`pdelta-forces.ts`) is removed, since
+  with the engine fixed it counted the geometric part twice.
 - **Ground motion left out the mass coupled to the supports.** The relative-motion load
   is −(M·r)_f·a_g with r the rigid-body translation of every DOF, supports included; with
   a consistent mass the free DOFs are coupled to the supports' translations (M_fr·r_r),
