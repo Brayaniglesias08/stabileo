@@ -77,7 +77,7 @@ tiny artificial spring there) get their rotations fixed in OpenSees and are not
 compared; a model loading such a rotation is skipped.
 
 Not covered (reported as `unsupported`): thermal loads, constraints,
-connectors, plates/shells/solid shells, curved beams, warping (`cw`), inclined
+connectors, quad9 / solid / curved shells (plates and MITC4 quads: see below), curved beams, warping (`cw`), inclined
 supports, left-handed axes, torsion releases, Timoshenko releases on members
 whose local axes are skew to the global ones.
 
