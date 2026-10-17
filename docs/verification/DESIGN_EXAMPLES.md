@@ -37,6 +37,8 @@ Tests:
 |---|---|
 | AISC | AISC, *Companion to the AISC Steel Construction Manual, Vol. 1: Design Examples*, v16.0, first-semester edition (2023), ANSI/AISC 360-22. Page numbers are the examples' (D-3, F-11, …). |
 | SBE | SCI/CTICM, *Steel Buildings in Europe — Multi-Storey Steel Buildings, Part 4: Detailed Design* (2010), Appendix A worked examples. |
+| SBE-MS8 | SCI/CTICM, *Steel Buildings in Europe — Multi-Storey Steel Buildings, Part 8: Design software — Section Capacity* (2010), Appendix A, Worked Example 2. https://www.steelconstruction.info/images/8/8f/SBE_MS8.pdf |
+| SBE-SS4 | SCI/CTICM, *Steel Buildings in Europe — Single-Storey Steel Buildings, Part 4: Detailed Design of Portal Frames* (2010), Appendix D. https://www.steelconstruction.info/images/b/b8/SBE_SS4.pdf |
 | P364 | M. E. Brettle, A. L. Smith, *Steel Building Design: Worked Examples — Open Sections*, SCI P364 (2009), BS EN 1993-1-1 + UK NA. |
 | JRC-EC2 | F. Biasioli, G. Mancini, M. Just, M. Curbach, J. Walraven et al., *Eurocode 2: Background & Applications — Design of Concrete Buildings, Worked examples*, JRC report EUR 26566 EN (2014), ch. 3 (Walraven & Gmainer). |
 | INTI201 | V. Hernández Balat, J. F. Bissio, D. A. Ortega, *Ejemplos de Aplicación del Reglamento CIRSOC 201-2005*, INTI-CIRSOC (Aug. 2005). |
@@ -47,7 +49,7 @@ Tests:
 | Check | Code | Where | Clauses implemented |
 |---|---|---|---|
 | `steel_check` | AISC 360-16/22 LRFD | Rust | D2 tension (yield, rupture with An·U), E3 flexural buckling, F2 yielding + LTB (Lp, Lr, F2-2/F2-4, Cb input), F3 / F6.2 flange local buckling (new, optional `flangeSlenderness`), F6 minor axis, G2.1 shear (φv = 0.90, Cv1 input), H1-1 interaction |
-| `ec3_check` | EN 1993-1-1 | Rust | Class-dependent W/A (6.2), 6.2.3 / 6.2.4 axial, 6.2.5 bending, 6.2.6 shear (Av input), 6.3.1 flexural buckling (curves a–d), 6.3.2.2 LTB general case with Mcr(C1, zg = 0), simplified linear interaction labelled 6.3.3 |
+| `ec3_check` | EN 1993-1-1 | Rust | Class-dependent W/A (6.2), 6.2.3 / 6.2.4 axial, 6.2.5 bending, 6.2.6 shear (Av input), 6.3.1 flexural buckling (curves a–d), 6.3.2.2 LTB general case with Mcr(C1, zg = 0), 6.3.3 interaction (6.61)/(6.62) with Annex B factors (Cm input, default 1.0) |
 | `ec2_check` | EN 1992-1-1 | Rust | 3.1.7 rectangular block flexure (singly, doubly with one-step compression steel), 6.2.2 VRd,c with k1·σcp, 6.2.3 VRd,s and VRd,max (cot θ 1–2.5) |
 | `rc_check` | ACI 318-19 | Rust | 22.2 Whitney block flexure (rectangular, doubly, T-beam), P–M point at Nu by strain compatibility, 21.2.2 φ, 22.5.5.1 Vc table with λs, Vs ≤ 0.66√f'c·bw·d |
 | `cirsoc201_check` | CIRSOC 201-2005 | Rust | Flexure (Whitney, doubly), 9.3.2 φ, 11.3.1.1 Vc, 11.5.7.9 Vs cap |
@@ -99,7 +101,9 @@ Status: **pass** — stabileo reproduces the printed values at the stated roundi
 | 6.3.1 χ, Ncr, Nb,Rd | SBE A.5 (pp. 4-94–4-97) | χy = 0.808, χz = 0.671, Nb,Rd = 2349.5 kN, ratio 0.85 | pass |
 | 6.3.1, Class 3 | P364 Ex. 9 (sheets 1–6) | χz = 0.65, Nb,z,Rd = 3678 kN, Blue Book Nb,y,Rd = 5010 kN | pass |
 | 6.3.2 LTB | SBE A.1; P364 Ex. 3, 4, 5, 12 | — | uncovered: the examples load the top flange (zg ≠ 0) and/or use 6.3.2.3 with f, or take Mcr from LTBeam without printing It/Iw; stabileo implements 6.3.2.2 with zg = 0 (D10) |
-| 6.3.3 interaction | P364 Ex. 12 | — | uncovered: stabileo's interaction is a linear sum with k = 1, not 6.61/6.62 (D11) |
+| 6.3.3 / Annex B (Table B.2) kyy, kzy, (6.61), (6.62) | SBE-MS8 Ex. 2 (pp. 8-18–8-22) | λ̄y = 0.12, λ̄z = 0.540, χz = 0.865, Nb,y,Rd = 3507, Nb,z,Rd = 3034 kN, kyy = 0.997, kzy = 0.997, (6.61) = 0.647, (6.62) = 0.653 | **fixed** (D11); equations compared with the printed Mb,Rd (6.3.2.3, D10) |
+| Annex B with Cm < 1, both kzy branches | SBE-SS4 App. D column (pp. 4-97–4-103) | CmLT = 0.888 → kzy = 0.996, (6.62) = 0.832; CmLT = 0.6 → kzy = 0.977, 0.758; Cmy = 0.6 → kyy = 0.605, (6.61) = 0.625 | pass |
+| Annex B kyz, kzz (biaxial) | — | no free published Annex B example with Mz,Ed ≠ 0 found | uncovered |
 | 6.3.1.4 torsional buckling | P364 Ex. 9 | Nb,T,Rd = 4017 kN | uncovered (not implemented; does not govern) |
 
 ### EN 1992-1-1 (`ec2_check`, Rust)
@@ -184,7 +188,7 @@ tests in `engine/tests/integration/` and `web/src/lib/codes/cirsoc201/__tests__/
 | D8 | `cirsoc301.ts` flexure | noncompact V2: φMn 326 vs 286.1 kNm (+14 %, unsafe); top-flange LTB not modelled | stabileo: only §F.2; no load height; inelastic LTB uses AISC 360-10's 0.7Fy and Lr, not CIRSOC's FL = Fy − Fr (F.2-6a/F.2-7a) | **open**: a new limit-state family (F.3/F.4) and a load-position input |
 | D9 | `steel_check` shear | φvVn = 275 vs 306 kips (−10 %, safe) | stabileo deliberate: G2.1(a)'s φv = 1.00 needs "rolled" and h/tw, not in the input | documented |
 | D10 | `ec3_check` LTB | not comparable to the published examples | stabileo implements 6.3.2.2 (general, conservative) with zg = 0; examples use 6.3.2.3 with f and/or top-flange loading | documented; uncovered |
-| D11 | `ec3_check` interaction | linear sum with k = 1 | stabileo simplification; can be unconservative where Annex A/B gives kyy > 1 | open (report) |
+| D11 | `ec3_check` interaction | linear sum with k = 1 | stabileo simplification; unconservative where Annex B gives kyy > 1 | **fixed**: (6.61)/(6.62) with Annex B factors; Cm defaults to 1.0 (Table B.3 maximum) |
 | D12 | JRC-EC2 p. 90 | printed `(100·0,02·16,7)^(1/3)` | example typo: fcd for fck; its 69 kN is the fck = 25 value | example wrong |
 | D13 | INTI301 Ej. 3 | stabileo 1.1 % below | modelling convention: stabileo evaluates the weld line (y = 10.5 cm), the example the edge of its 1 cm strip (y = 11 cm) | neither wrong |
 | D14 | INTI201 Ej. 3.I | min stirrups 157 vs 159 mm²/m | example rounding: "bw/1.26" for fyt/(0.33·1000) = 1.273; the clause and the example's own §3.4.4 give 157 | example rounding |

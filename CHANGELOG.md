@@ -24,6 +24,15 @@ disagreements left open by the published-example verification
   fillet, l/w = 144) prints φRn = 206 kips; stabileo gave 225. `WeldSegment` takes an
   optional `endLoaded`; absent, the segment is treated as end-loaded (the conservative side),
   `false` opts out. The result reports `minBeta`.
+- **EC3 member interaction was a linear sum with every k = 1**, not EN 1993-1-1 6.3.3. It is
+  now eqs. (6.61)/(6.62) with the **Annex B** ("Method 2") interaction factors kyy, kyz, kzy,
+  kzz (Table B.1, or Table B.2 for open sections with an LTB length). `Ec3MemberData` takes an
+  optional `interaction` with Table B.3's `cmy`, `cmz`, `cmLt` (absent: 1.0, the table's upper
+  bound) and `hollow`; the result reports `kYy`, `kYz`, `kZy`, `kZz` and both equations. A Cm
+  outside [0.4, 1] is refused (not evaluated). Where Annex B gives k > 1 (near-uniform moment,
+  high NEd/Nb,Rd) the old sum was unconservative. SBE Multi-Storey Part 8 Example 2 and the
+  SBE Single-Storey Part 4 Appendix D column are regression tests. The web EC3 check no longer
+  marks the interaction as not evaluated.
 
 #### Design checks against published worked examples (2026-10-17)
 
