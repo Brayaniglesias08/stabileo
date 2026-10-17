@@ -33,7 +33,8 @@ import {
 import { extractBeamStationBuffer3D, extractBeamStationsGrouped3D, isSolverReady } from './wasm-solver';
 import { autoVerifyFromResults, type AutoVerifyModelData } from './auto-verify';
 import { classifyElement, type ElementVerification } from './codes/argentina/cirsoc201';
-import { verifySteelElement, type SteelVerification, type SteelVerificationInput, type SteelDesignParams, type TensionConnection } from './codes/argentina/cirsoc301';
+import { verifySteelElement, type SteelVerification, type SteelDesignParams, type TensionConnection } from './codes/argentina/cirsoc301';
+import { engineGateSteel, type SteelDemandSet, type SteelEngineRecheck } from './codes/argentina/cirsoc301-engine-gate';
 import { momentGradient, type StationMoment } from './steel/moment-gradient';
 import { memberNetArea, memberEndsFor, type MemberEnd, type TensionSectionInput } from './steel/tension-connection';
 import type { GoverningPerElement3D } from './governing-case';
@@ -634,7 +635,9 @@ export function steelGoverningRatio(v: SteelVerification): number {
  */
 export function resolveTensionEnds(section: TensionSectionInput, ends: readonly MemberEnd[]): TensionConnection {
   const r = memberNetArea(section, ends);
-  if ('Ae' in r) return { resolved: { Ae: r.Ae, steps: ['§D.3 — Area neta efectiva, de la union extrema del modelo:', ...r.steps] } };
+  if ('Ae' in r) {
+    return { resolved: { Ae: r.Ae, steps: ['§D.3 — Area neta efectiva, de la union extrema del modelo:', ...r.steps], messages: [{ key: 'steel.tc.calc.aeTitle' }, ...r.messages] } };
+  }
   if ('missing' in r) {
     const where = r.missing.map((e) => `barra ${e.elementId} extremo ${e.end.toUpperCase()}`).join(', ');
     return { refused: `falta la union extrema (${where}): agujeros y coeficiente U de D.3` };
@@ -668,7 +671,7 @@ export function checkSteelMember(
    * is the segment itself when `Lb` is the element's own length.
    */
   segment?: SteelSegmentDiagram,
-): SteelVerification | null {
+): (SteelVerification & { engineRecheck: SteelEngineRecheck }) | null {
   const { MuStrong: MuStrongMax, MuWeak: MuWeakMax, Vu: VuMax, diagram } = demand;
   const { L, Lb } = lengths;
   /*
@@ -814,16 +817,17 @@ export function checkSteelMember(
   };
 
 
-  const run = (Nu: number) => verifySteelElement({
-    // Muz/Muy are the CHECKER's names (strong/weak); the values come from the solver's
-    // my/mz channels — the same cross the inertias take above. The checker's axial sign is
-    // + compression.
-    elementId, Nu, Muz: MuStrongMax, Muy: MuWeakMax, Vu: VuMax, params: sdp,
-  });
-  const runs: SteelVerification[] = [];
-  if (demand.Nc > 0 || demand.Nt === 0) runs.push(run(demand.Nc));
-  if (demand.Nt > 0) runs.push(run(-demand.Nt));
-  return runs.reduce((worst, v) => (steelGoverningRatio(v) > steelGoverningRatio(worst) ? v : worst));
+  // Muz/Muy are the CHECKER's names (strong/weak); the values come from the solver's
+  // my/mz channels — the same cross the inertias take above. The checker's axial sign is
+  // + compression.
+  const sets: SteelDemandSet[] = [];
+  if (demand.Nc > 0 || demand.Nt === 0) sets.push({ Nu: demand.Nc, Muz: MuStrongMax, Muy: MuWeakMax, Vu: VuMax });
+  if (demand.Nt > 0) sets.push({ Nu: -demand.Nt, Muz: MuStrongMax, Muy: MuWeakMax, Vu: VuMax });
+  const runs = sets.map((f) => verifySteelElement({ elementId, ...f, params: sdp }));
+  const worst = runs.reduce((w, v) => (steelGoverningRatio(v) > steelGoverningRatio(w) ? v : w));
+  // The engine's certified check confirms a pass on this exact input, or the pass is withdrawn
+  // (`cirsoc301-engine-gate.ts`).
+  return engineGateSteel(worst, sdp, sets);
 }
 
 // ─── Unified VerificationReport ──────────────────────────────
