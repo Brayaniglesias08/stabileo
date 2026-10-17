@@ -14,8 +14,8 @@ It should capture what changed, not what should be built next.
 #### Solver fixes found by extending the OpenSees comparison to buckling, modal, P-Delta and time history (2026-10-17)
 
 **BREAKING (results): buckling load factors of models with axial point loads or partial /
-trapezoidal axial loads on members change, and small modal models with massless DOFs now
-solve.** Found by `tools/opensees/compare.py --buckling2d/3d --modal2d/3d`; each has a
+trapezoidal axial loads on members change, P-Delta member end forces change, and small
+modal models with massless DOFs now solve.** Found by `tools/opensees/compare.py --buckling2d/3d --modal2d/3d`; each has a
 regression test in `engine/tests/opensees_differential_regressions.rs`.
 
 - **Buckling took each member's axial force as (N_start + N_end)/2.** The geometric
@@ -24,6 +24,11 @@ regression test in `engine/tests/opensees_differential_regressions.rs`.
   member gave a wrong load factor (3× on a truss braced by a spring). Kg is now built at
   the linear solution with each member's force read from its elongation, EA·(δ/L − αΔT)
   — the exact mean, and the same force the P-Delta iteration uses.
+- **P-Delta member end forces left out the geometric stiffness.** Displacements and
+  reactions came from K + Kg, but the end forces were recovered with the elastic K alone,
+  so they balanced neither the joints nor the reactions: a free cantilever tip reported a
+  moment and the base moment was not H·L + P·Δ. End forces are now (K + Kg(N))·u − FEF
+  for frame members; OpenSees agrees to ~1e-10 on 596 random frames.
 - **Modal analysis failed on small models with a massless DOF.** Hinged members (and
   3D members with any release) get a lumped mass with no rotational inertia, and a node
   of trusses only has none either; the dense eigensolver used below 80 DOFs

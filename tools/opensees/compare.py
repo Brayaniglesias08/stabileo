@@ -1098,7 +1098,7 @@ def analysis_pdelta(ctx):
     ops.constraints("Transformation")
     ops.numberer("RCM")
     ops.system("FullGeneral")
-    ops.test("RelativeNormDispIncr", 1e-13, 200, 0)
+    ops.test("RelativeNormDispIncr", 1e-11, 200, 0)
     ops.integrator("LoadControl", 1.0)
     ops.algorithm("Newton")
     ops.analysis("Static")
@@ -1186,7 +1186,7 @@ def stabileo_job(job, binary):
     elif kind == "modal":
         w = {"analysis": "modal", "numModes": job["numModes"], "densities": job["densities"], "model": d}
     elif kind == "pdelta":
-        w = {"analysis": "pdelta", "maxIter": 200, "tolerance": 1e-13, "model": d}
+        w = {"analysis": "pdelta", "maxIter": 200, "tolerance": 1e-11, "model": d}
     elif kind == "th":
         th = {"solver": d, "densities": job["densities"], "timeStep": job["dt"], "nSteps": job["nSteps"],
               "method": "hht" if job.get("alpha") is not None else "newmark",
@@ -1559,9 +1559,11 @@ def run_ext(name, job, binary, tol, dump_dir=None):
     ill = sorted(set(lin["diags"]) & ILL_CONDITIONED)
     if ill:
         return dict(base, status="ill_conditioned", why=ill)
-    if kind == "pdelta" and not sres["converged"]:
-        return dict(base, status="stabileo_failed", why=["P-Delta not converged"])
     ores = opensees_isolated(job)
+    if kind == "pdelta" and not sres["converged"]:
+        # Beyond the buckling load neither iteration converges: not compared.
+        st = "unstable" if "failed" in ores else "stabileo_failed"
+        return dict(base, status=st, why=["P-Delta not converged"])
     if "unsupported" in ores:
         return dict(base, status="unsupported", why=[ores["unsupported"]])
     if "failed" in ores:

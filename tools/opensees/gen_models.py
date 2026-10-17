@@ -448,9 +448,10 @@ def job(kind, dim, seed):
             # Second-order effects of a few percent to ~2x: the buckling load
             # factor of these models is mostly 2..50.
             for ld in d["loads"]:
+                f = rng.uniform(0.5, 2.0)
                 for k, v in ld["data"].items():
                     if k not in ("nodeId", "elementId", "a", "b") and isinstance(v, float):
-                        ld["data"][k] = v * rng.uniform(0.5, 2.0)
+                        ld["data"][k] = v * f
         j = {"analysis": kind, "model": d}
         if kind == "buckling":
             j["numModes"] = 4

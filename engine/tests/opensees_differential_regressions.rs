@@ -3,7 +3,7 @@
 //! answer, which OpenSees also reproduces.
 
 use dedaliano_engine::solver::linear::{solve_2d, solve_3d};
-use dedaliano_engine::solver::{solve_buckling_2d, solve_buckling_3d, solve_modal_2d};
+use dedaliano_engine::solver::{solve_buckling_2d, solve_buckling_3d, solve_modal_2d, solve_pdelta_2d, solve_pdelta_3d};
 use dedaliano_engine::types::{SolverInput, SolverInput3D};
 use serde_json::json;
 
@@ -366,4 +366,66 @@ fn modal_with_massless_rotation_small_model() {
     assert!(close(res.modes[0].omega, omega, 1e-9), "ω {} vs {omega}", res.modes[0].omega);
     let omega_axial = (e * a / l / m).sqrt();
     assert!(close(res.modes[1].omega, omega_axial, 1e-9), "ω2 {} vs {omega_axial}", res.modes[1].omega);
+}
+
+/// P-Delta member end forces are those of the member that was solved,
+/// (K_e + Kg_e(N))·u_e − FEF: the reactions already came from K + Kg, but the
+/// end forces were recovered with the elastic K_e alone, so they balanced
+/// neither the joints nor the reactions — a free cantilever tip reported a
+/// moment (0.64 kN·m here) and the base moment was not the base reaction
+/// H·L + P·Δ. OpenSees (ElasticTimoshenkoBeam -geomNonlinear) agrees with
+/// the corrected forces to round-off.
+#[test]
+fn pdelta_2d_end_forces_balance_joints_and_reactions() {
+    let (l, h, p) = (4.0, 10.0, 500.0);
+    let input = input_2d(json!({
+        "nodes": {"1": {"id": 1, "x": 0.0, "z": 0.0}, "2": {"id": 2, "x": 0.0, "z": l}},
+        "materials": {"1": {"id": 1, "e": 200000.0, "nu": 0.3}},
+        "sections": {"1": {"id": 1, "a": 0.01, "iz": 1e-4}},
+        "elements": {"1": {"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2,
+                           "materialId": 1, "sectionId": 1}},
+        "supports": {"1": {"id": 1, "nodeId": 1, "type": "fixed"}},
+        "loads": [{"type": "nodal", "data": {"nodeId": 2, "fx": h, "fz": -p, "my": 0.0}}]
+    }));
+    let res = solve_pdelta_2d(&input, 100, 1e-12).unwrap();
+    assert!(res.converged);
+    let r = &res.results;
+    let ux = r.displacements.iter().find(|d| d.node_id == 2).unwrap().ux;
+    let my = r.reactions[0].my;
+    assert!(close(my.abs(), h * l + p * ux, 1e-9), "base reaction {my} vs HL + PΔ {}", h * l + p * ux);
+    let f = &r.element_forces[0];
+    assert!(f.m_end.abs() < 1e-9 * my.abs(), "free tip moment {}", f.m_end);
+    assert!(close(f.m_start.abs(), my.abs(), 1e-9), "base end moment {} vs reaction {my}", f.m_start);
+    assert!(close(f.v_start.abs(), h, 1e-9) && close(f.v_end.abs(), h, 1e-9), "shear {} {}", f.v_start, f.v_end);
+}
+
+/// The same in 3D, both bending planes: a column with a tip load in x, y, z.
+#[test]
+fn pdelta_3d_end_forces_balance_joints_and_reactions() {
+    let (l, hx, hy, p) = (3.5, 8.0, -5.0, 400.0);
+    let zero = json!(0.0);
+    let input = input_3d(json!({
+        "nodes": {"1": {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0},
+                  "2": {"id": 2, "x": 0.0, "y": 0.0, "z": l}},
+        "materials": {"1": {"id": 1, "e": 200000.0, "nu": 0.3}},
+        "sections": {"1": {"id": 1, "a": 0.01, "iy": 1.5e-4, "iz": 1e-4, "j": 2e-4}},
+        "elements": {"1": {"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2,
+                           "materialId": 1, "sectionId": 1}},
+        "supports": {"1": {"nodeId": 1, "rx": true, "ry": true, "rz": true,
+                           "rrx": true, "rry": true, "rrz": true}},
+        "loads": [{"type": "nodal", "data": {"nodeId": 2, "fx": hx, "fy": hy, "fz": -p,
+                                             "mx": zero, "my": zero, "mz": zero}}]
+    }));
+    let res = solve_pdelta_3d(&input, 100, 1e-12).unwrap();
+    assert!(res.converged);
+    let r = &res.results;
+    let d = r.displacements.iter().find(|d| d.node_id == 2).unwrap();
+    let re = &r.reactions[0];
+    // Base moments of the deformed column: about y from Hx and P·ux, about x from Hy and P·uy.
+    assert!(close(re.my.abs(), (hx * l + p * d.ux).abs(), 1e-9), "My {} vs {}", re.my, hx * l + p * d.ux);
+    assert!(close(re.mx.abs(), (hy * l + p * d.uy).abs(), 1e-9), "Mx {} vs {}", re.mx, hy * l + p * d.uy);
+    let f = &r.element_forces[0];
+    let base = re.mx.hypot(re.my);
+    assert!(f.my_end.abs() < 1e-9 * base && f.mz_end.abs() < 1e-9 * base, "tip moments {} {}", f.my_end, f.mz_end);
+    assert!(close(f.my_start.hypot(f.mz_start), base, 1e-9), "base end moment vs reaction");
 }
