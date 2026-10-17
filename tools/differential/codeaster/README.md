@@ -42,7 +42,8 @@ Inputs:
 - `--fixtures`: the 3D `engine/tests/fixtures/*-input.json` files, which
   include the example models (buildings, industrial hall, tower, grid slab,
   space truss and so on).
-- `--random3d N`: `engine/tests/fuzz_models` (`solve_json --gen3d`).
+- `--random3d N`: `engine/tests/fuzz_models` (`solve_json --gen3d`), named
+  `fuzz3d-N` (fixtures are prefixed `fixture-`; some are called random3d-N).
 - `--rich3d N`: `tools/opensees/gen_models.rich_3d`.
 - `--aster3d N`: `gen.py`, which is `rich_3d` plus the features listed above.
 
@@ -53,6 +54,17 @@ in `-j` batches, one Code_Aster session per batch (`aster_batch.py`; start-up
 costs about a second, a model a few tens of milliseconds). On a mismatch,
 `--dump-dir` keeps the model JSON and its `.comm` file, and the `.comm` file
 runs on its own under `run_aster`.
+
+`--flagged` also runs the models that stabileo flags as ill-conditioned
+(their statuses get a `flagged-` prefix). It checks that the warnings are not
+false alarms: a `flagged-ok` result means stabileo warned about a model that
+Code_Aster solves cleanly. On rich3d and aster3d seeds 0-299, every one of the
+212 flagged models was singular in Code_Aster (70) or a rotational mechanism
+by rank (142).
+
+A Code_Aster exception leaks its MUMPS instance, and after 50 of them a
+session refuses every further solve (FACTOR_60). Those jobs are rerun in fresh
+sessions.
 
 Statuses:
 
@@ -145,6 +157,9 @@ convergence study, never by widening the tolerance:
   short pieces (stiffness ratios up to (L/h)³) that cost regular models up to
   about 8 digits, while true mechanisms lose 11 or more, so `NPREC = 10`.
 - `MAILLE=` no longer exists in 18.x: every loaded piece gets its own group.
+- **Torsion released at both ends** leaves the member's twist as a rigid mode
+  of its two hinge nodes, which stabileo condenses away. The release is kept
+  at the start only, which gives the same zero torque.
 
 ## Findings
 
