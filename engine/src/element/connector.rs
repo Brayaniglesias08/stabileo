@@ -344,7 +344,8 @@ fn corotational_axial(
         return;
     }
     let e: Vec<f64> = d.iter().map(|v| v / l).collect();
-    let n = k * (l - l0);
+    let du: Vec<f64> = (0..dim).map(|m| u[tj[m]] - u[ti[m]]).collect();
+    let n = k * crate::solver::corotational::elongation(x0, &du, l0, l);
     let dofs: Vec<usize> = ti.iter().chain(tj.iter()).copied().collect();
     let r: Vec<f64> = (0..2 * dim).map(|a| if a < dim { -e[a] } else { e[a - dim] }).collect();
     for a in 0..2 * dim {

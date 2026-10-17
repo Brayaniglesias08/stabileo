@@ -108,6 +108,9 @@ pub fn solve_corotational_2d(
 
     let mut total_iterations = 0;
     let mut converged = true;
+    // The state and load factor of the last converged increment.
+    let mut u_converged = u_full.clone();
+    let mut converged_factor = 0.0f64;
 
     // Sparse symbolic factorization cache (ns >= SPARSE_THRESHOLD only): the
     // tangent's sparsity pattern is constant within a solve call, so the
@@ -304,24 +307,81 @@ pub fn solve_corotational_2d(
         }
 
         if !nr_converged {
+            // Report the last converged increment, not the iterate given up on.
             converged = false;
+            u_full.copy_from_slice(&u_converged);
             break;
         }
+        u_converged.copy_from_slice(&u_full);
+        converged_factor = load_factor;
     }
 
     // Find max displacement magnitude
     let max_displacement = compute_max_displacement(&dof_num, &u_full);
 
-    // Build final results using existing infrastructure
-    let results = build_final_results(input, &dof_num, &u_full, &cs)?;
+    // Results of the last converged state, under the loads it carries.
+    let scaled;
+    let at_state = if converged_factor < 1.0 {
+        scaled = scaled_loads_2d(input, converged_factor);
+        &scaled
+    } else {
+        input
+    };
+    let results = build_final_results(at_state, &dof_num, &u_full, &cs)?;
 
     Ok(CorotationalResult {
         results,
         iterations: total_iterations,
         converged,
         load_increments: n_increments,
+        load_factor: converged_factor,
         max_displacement,
     })
+}
+
+/// The model under `factor` times its loads: the state an unconverged solve
+/// reports is the last converged increment, and its reactions and member
+/// forces are those of the load that increment carries.
+fn scaled_loads_2d(input: &SolverInput, factor: f64) -> SolverInput {
+    let mut m = input.clone();
+    for l in m.loads.iter_mut() {
+        match l {
+            SolverLoad::Nodal(n) => { n.fx *= factor; n.fz *= factor; n.my *= factor; }
+            SolverLoad::Distributed(d) => { d.q_i *= factor; d.q_j *= factor; }
+            SolverLoad::PointOnElement(p) => {
+                p.p *= factor;
+                p.px = p.px.map(|v| v * factor);
+                p.my = p.my.map(|v| v * factor);
+            }
+            // Refused at the entry point.
+            SolverLoad::Thermal(_) => {}
+        }
+    }
+    m
+}
+
+/// 3D twin of [`scaled_loads_2d`] (shell, thermal and bimoment loads are
+/// refused at the entry point).
+fn scaled_loads_3d(input: &SolverInput3D, factor: f64) -> SolverInput3D {
+    let mut m = input.clone();
+    for l in m.loads.iter_mut() {
+        match l {
+            SolverLoad3D::Nodal(n) => {
+                for v in [&mut n.fx, &mut n.fy, &mut n.fz, &mut n.mx, &mut n.my, &mut n.mz] {
+                    *v *= factor;
+                }
+                n.bw = n.bw.map(|v| v * factor);
+            }
+            SolverLoad3D::Distributed(d) => {
+                for v in [&mut d.q_xi, &mut d.q_xj, &mut d.q_yi, &mut d.q_yj, &mut d.q_zi, &mut d.q_zj] {
+                    *v *= factor;
+                }
+            }
+            SolverLoad3D::PointOnElement(p) => { p.py *= factor; p.pz *= factor; }
+            _ => {}
+        }
+    }
+    m
 }
 
 /// Public entry point for co-rotational assembly (used by arc-length solver).
@@ -469,6 +529,7 @@ fn assemble_truss_corotational(
     let dx_n = (node_j.x + u_xj) - (node_i.x + u_xi);
     let dy_n = (node_j.z + u_yj) - (node_i.z + u_yi);
     let l_n = (dx_n * dx_n + dy_n * dy_n).sqrt();
+    let elong = elongation(&[dx0, dy0], &[u_xj - u_xi, u_yj - u_yi], l0, l_n);
 
     if l_n < 1e-15 {
         return;
@@ -477,7 +538,7 @@ fn assemble_truss_corotational(
     let c = dx_n / l_n;
     let s = dy_n / l_n;
 
-    let d_axial = l_n - l0;
+    let d_axial = elong;
     let axial_force = e * a / l0 * d_axial;
 
     // Internal force: f = N * r, where r = [-c, -s, c, s]
@@ -544,6 +605,7 @@ fn assemble_frame_corotational(
     let dx_n = (node_j.x + u_elem[3]) - (node_i.x + u_elem[0]);
     let dy_n = (node_j.z + u_elem[4]) - (node_i.z + u_elem[1]);
     let l_n = (dx_n * dx_n + dy_n * dy_n).sqrt();
+    let elong = elongation(&[dx0, dy0], &[u_elem[3] - u_elem[0], u_elem[4] - u_elem[1]], l0, l_n);
 
     if l_n < 1e-15 {
         return;
@@ -556,7 +618,7 @@ fn assemble_frame_corotational(
     let beta = alpha_n - alpha_0;
 
     // Natural deformations
-    let d_axial = l_n - l0;
+    let d_axial = elong;
     let theta_i = u_elem[2] - beta;
     let theta_j = u_elem[5] - beta;
 
@@ -994,8 +1056,9 @@ pub fn compute_corotational_forces(
             let dx_n = (node_j.x + u_xj) - (node_i.x + u_xi);
             let dy_n = (node_j.z + u_yj) - (node_i.z + u_yi);
             let l_n = (dx_n * dx_n + dy_n * dy_n).sqrt();
+            let elong = elongation(&[dx0, dy0], &[u_xj - u_xi, u_yj - u_yi], l0, l_n);
 
-            let d_axial = l_n - l0;
+            let d_axial = elong;
             let n_axial = e * sec.a / l0 * d_axial;
 
             forces.push(ElementForces {
@@ -1026,10 +1089,11 @@ pub fn compute_corotational_forces(
             let dx_n = (node_j.x + u_elem[3]) - (node_i.x + u_elem[0]);
             let dy_n = (node_j.z + u_elem[4]) - (node_i.z + u_elem[1]);
             let l_n = (dx_n * dx_n + dy_n * dy_n).sqrt();
+            let elong = elongation(&[dx0, dy0], &[u_elem[3] - u_elem[0], u_elem[4] - u_elem[1]], l0, l_n);
             let alpha_n = dy_n.atan2(dx_n);
 
             let beta = alpha_n - alpha_0;
-            let d_axial = l_n - l0;
+            let d_axial = elong;
             let theta_i_local = u_elem[2] - beta;
             let theta_j_local = u_elem[5] - beta;
 
@@ -1190,6 +1254,9 @@ pub fn solve_corotational_3d(
     let mut u_full = vec![0.0; n];
     let mut total_iterations = 0;
     let mut converged = true;
+    // The state and load factor of the last converged increment.
+    let mut u_converged = u_full.clone();
+    let mut converged_factor = 0.0f64;
 
     // See solve_corotational_2d: sparse symbolic factorization cache for the
     // ns >= SPARSE_THRESHOLD path (pattern is constant within a solve call).
@@ -1362,19 +1429,31 @@ pub fn solve_corotational_3d(
         }
 
         if !nr_converged {
+            // Report the last converged increment, not the iterate given up on.
             converged = false;
+            u_full.copy_from_slice(&u_converged);
             break;
         }
+        u_converged.copy_from_slice(&u_full);
+        converged_factor = load_factor;
     }
 
     let max_displacement = compute_max_displacement_3d(&dof_num, &u_full);
-    let results = build_final_results_3d(input, &dof_num, &u_full, left_hand, &cs, pre_solve_diags)?;
+    let scaled;
+    let at_state = if converged_factor < 1.0 {
+        scaled = scaled_loads_3d(input, converged_factor);
+        &scaled
+    } else {
+        input
+    };
+    let results = build_final_results_3d(at_state, &dof_num, &u_full, left_hand, &cs, pre_solve_diags)?;
 
     Ok(CorotationalResult3D {
         results,
         iterations: total_iterations,
         converged,
         load_increments: n_increments,
+        load_factor: converged_factor,
         max_displacement,
     })
 }
@@ -1512,13 +1591,14 @@ fn assemble_truss_corotational_3d(
     let dy_n = dy0 + u_yj - u_yi;
     let dz_n = dz0 + u_zj - u_zi;
     let l_n = (dx_n * dx_n + dy_n * dy_n + dz_n * dz_n).sqrt();
+    let elong = elongation(&[dx0, dy0, dz0], &[u_xj - u_xi, u_yj - u_yi, u_zj - u_zi], l0, l_n);
 
     if l_n < 1e-15 {
         return;
     }
 
     let r = [dx_n / l_n, dy_n / l_n, dz_n / l_n];
-    let axial_force = e * a / l0 * (l_n - l0);
+    let axial_force = e * a / l0 * elong;
 
     // Internal force: f = N * [-r, r]
     let signs: [f64; 6] = [-1.0, -1.0, -1.0, 1.0, 1.0, 1.0];
@@ -1593,6 +1673,7 @@ fn assemble_frame_corotational_3d(
     let dy_n = yj_def - yi_def;
     let dz_n = zj_def - zi_def;
     let l_n = (dx_n * dx_n + dy_n * dy_n + dz_n * dz_n).sqrt();
+    let elong = elongation(&[dx0, dy0, dz0], &[u_elem[6] - u_elem[0], u_elem[7] - u_elem[1], u_elem[8] - u_elem[2]], l0, l_n);
 
     if l_n < 1e-15 {
         return;
@@ -1662,7 +1743,7 @@ fn assemble_frame_corotational_3d(
     let [beta_x, beta_y, beta_z] = project(&[beta_x, beta_y, beta_z]);
 
     // Natural deformations (rigid body removed)
-    let d_axial = l_n - l0;
+    let d_axial = elong;
     let d_nat = [
         0.0, 0.0, 0.0,                                                          // u_i, v_i, w_i
         theta_i_local[0] - beta_x, theta_i_local[1] - beta_y, theta_i_local[2] - beta_z, // θx_i, θy_i, θz_i
@@ -1731,6 +1812,20 @@ fn assemble_frame_corotational_3d(
             }
         }
     }
+}
+
+/// Elongation L − L0 of a chord `d0` displaced by `du` (end j minus end i),
+/// with `l_n` = |d0 + du|, computed without the cancellation of L − L0.
+///
+/// Taken as the difference of two lengths, the elongation carried a rounding
+/// error of order ε·L0, so the axial force a residual of order ε·EA: under a
+/// small load (a 0.001 kN tip load on a 3 m cantilever) Newton could never
+/// reach the tolerance, and once an unconverged solve stopped returning its
+/// last iterate the answer was gone. (2·d0·du + du·du)/(L + L0) is exact.
+pub(crate) fn elongation(d0: &[f64], du: &[f64], l0: f64, l_n: f64) -> f64 {
+    let num: f64 = d0.iter().zip(du).map(|(a, b)| (2.0 * a + b) * b).sum();
+    let den = l_n + l0;
+    if den > 0.0 { num / den } else { 0.0 }
 }
 
 /// Rotate `v` by the rotation vector `theta` (Rodrigues).
@@ -2057,7 +2152,8 @@ fn elastic_corotational_forces_3d(
             let dy_n = dy0 + uj[1] - ui[1];
             let dz_n = dz0 + uj[2] - ui[2];
             let l_n = (dx_n * dx_n + dy_n * dy_n + dz_n * dz_n).sqrt();
-            let n_axial = e * sec.a / l0 * (l_n - l0);
+            let elong = elongation(&[dx0, dy0, dz0], &[uj[0] - ui[0], uj[1] - ui[1], uj[2] - ui[2]], l0, l_n);
+            let n_axial = e * sec.a / l0 * elong;
 
             forces.push(ElementForces3D {
                 element_id: elem.id, length: l_n,
@@ -2108,6 +2204,7 @@ fn elastic_corotational_forces_3d(
         let dy_n = yj_def - yi_def;
         let dz_n = zj_def - zi_def;
         let l_n = (dx_n * dx_n + dy_n * dy_n + dz_n * dz_n).sqrt();
+        let elong = elongation(&[dx0, dy0, dz0], &[u_elem_12[6] - u_elem_12[0], u_elem_12[7] - u_elem_12[1], u_elem_12[8] - u_elem_12[2]], l0, l_n);
 
         if l_n < 1e-15 {
             continue;
@@ -2156,7 +2253,7 @@ fn elastic_corotational_forces_3d(
         // β to the corotated frame, as in `assemble_frame_corotational_3d`.
         let [beta_x, beta_y, beta_z] = project(&[beta_x, beta_y, beta_z]);
 
-        let d_axial = l_n - l0;
+        let d_axial = elong;
         let d_nat = [
             0.0, 0.0, 0.0,
             ti[0] - beta_x, ti[1] - beta_y, ti[2] - beta_z,

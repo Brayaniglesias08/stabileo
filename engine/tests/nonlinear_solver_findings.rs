@@ -752,3 +752,97 @@ fn corotational_3d_member_forces_include_member_loads() {
         assert_eq!((c.q_zi, c.q_zj), (l.q_zi, l.q_zj));
     }
 }
+
+// ==================== unconverged incremental solves ====================
+
+/// Shallow two-bar truss (von Mises truss) loaded at its apex beyond its
+/// limit point under load control: the solve cannot converge past it.
+fn von_mises_truss(p: f64) -> SolverInput {
+    make_input(
+        vec![(1, 0.0, 0.0), (2, 1.0, 0.1), (3, 2.0, 0.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, 0.001, 1e-8)],
+        vec![(1, "truss", 1, 2, 1, 1, false, false), (2, "truss", 2, 3, 1, 1, false, false)],
+        vec![(1, 1, "pinned"), (2, 3, "pinned")],
+        vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: 0.0, fz: -p, my: 0.0 })],
+    )
+}
+
+/// An unconverged co-rotational solve returned the iterate it gave up on (no
+/// equilibrium state at all) with reactions computed against the full load.
+/// It now returns the last converged increment and its load factor, with
+/// reactions and forces under the load that increment carries: the same
+/// state as a converged solve of the model at that load.
+#[test]
+fn corotational_unconverged_reports_last_converged_increment() {
+    let r = corotational::solve_corotational_2d(&von_mises_truss(400.0), 30, 1e-10, 10, false).unwrap();
+    assert!(!r.converged);
+    assert!(r.load_factor > 0.0 && r.load_factor < 1.0, "load factor {}", r.load_factor);
+    let k = (r.load_factor * 10.0).round() as usize;
+    let at = corotational::solve_corotational_2d(&von_mises_truss(400.0 * r.load_factor), 30, 1e-10, k, false).unwrap();
+    assert!(at.converged);
+    close(node_disp(&r.results, 2).uz, node_disp(&at.results, 2).uz, 1e-9, "apex displacement");
+    let rz: f64 = r.results.reactions.iter().map(|x| x.rz).sum();
+    close(rz, 400.0 * r.load_factor, 1e-6, "vertical equilibrium at the converged load");
+    for (a, b) in r.results.element_forces.iter().zip(at.results.element_forces.iter()) {
+        close(a.n_start, b.n_start, 1e-9, "bar force");
+    }
+    // Converged: the whole load.
+    let ok = corotational::solve_corotational_2d(&von_mises_truss(40.0), 30, 1e-10, 10, false).unwrap();
+    assert!(ok.converged);
+    assert_eq!(ok.load_factor, 1.0);
+
+    // 3D: the same truss in the XZ plane, held out of plane.
+    let mk3 = |p: f64| {
+        make_3d_input(
+            vec![(1, 0.0, 0.0, 0.0), (2, 1.0, 0.0, 0.1), (3, 2.0, 0.0, 0.0)],
+            vec![(1, 200_000.0, 0.3)],
+            vec![(1, 0.001, 1e-8, 1e-8, 1e-8)],
+            vec![(1, "truss", 1, 2, 1, 1), (2, "truss", 2, 3, 1, 1)],
+            vec![(1, vec![true, true, true, false, false, false]), (3, vec![true, true, true, false, false, false]), (2, vec![false, true, false, false, false, false])],
+            vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: 0.0, fy: 0.0, fz: -p, mx: 0.0, my: 0.0, mz: 0.0, bw: None })],
+        )
+    };
+    let r = corotational::solve_corotational_3d(&mk3(400.0), 30, 1e-10, 10, false).unwrap();
+    assert!(!r.converged);
+    assert!(r.load_factor > 0.0 && r.load_factor < 1.0);
+    let k = (r.load_factor * 10.0).round() as usize;
+    let at = corotational::solve_corotational_3d(&mk3(400.0 * r.load_factor), 30, 1e-10, k, false).unwrap();
+    assert!(at.converged);
+    let uz = |res: &AnalysisResults3D| res.displacements.iter().find(|d| d.node_id == 2).unwrap().uz;
+    close(uz(&r.results), uz(&at.results), 1e-9, "3D apex displacement");
+    let fz: f64 = r.results.reactions.iter().map(|x| x.fz).sum();
+    close(fz, 400.0 * r.load_factor, 1e-6, "3D vertical equilibrium at the converged load");
+}
+
+/// Under a small load the co-rotational solve could not reach a tight
+/// tolerance: the elongation, a difference of two lengths, carried a rounding
+/// error of order ε·L, i.e. an axial-force residual of order ε·EA (2e-7 kN on
+/// a 0.001 kN load). It now converges and matches the linear solution.
+#[test]
+fn corotational_small_load_converges_to_tight_tolerance() {
+    let s2 = make_input(
+        vec![(1, 0.0, 0.0), (2, 1.5, 0.0), (3, 3.0, 0.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, 0.01, 1e-4)],
+        vec![(1, "frame", 1, 2, 1, 1, false, false), (2, "frame", 2, 3, 1, 1, false, false)],
+        vec![(1, 1, "fixed")],
+        vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 3, fx: 0.0, fz: -0.001, my: 0.0 })],
+    );
+    let r = corotational::solve_corotational_2d(&s2, 50, 1e-10, 1, false).unwrap();
+    assert!(r.converged, "2D did not converge in {} iterations", r.iterations);
+    close(node_disp(&r.results, 3).uz, node_disp(&linear::solve_2d(&s2).unwrap(), 3).uz, 1e-6, "2D tip");
+
+    let s3 = make_3d_input(
+        vec![(1, 0.0, 0.0, 0.0), (2, 3.0, 0.0, 0.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, 0.01, 1e-4, 1e-4, 1e-4)],
+        vec![(1, "frame", 1, 2, 1, 1)],
+        vec![(1, vec![true; 6])],
+        vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: 0.0, fy: 0.0, fz: -0.001, mx: 0.0, my: 0.0, mz: 0.0, bw: None })],
+    );
+    let r = corotational::solve_corotational_3d(&s3, 50, 1e-10, 1, false).unwrap();
+    assert!(r.converged, "3D did not converge in {} iterations", r.iterations);
+    let uz = |res: &AnalysisResults3D| res.displacements.iter().find(|d| d.node_id == 2).unwrap().uz;
+    close(uz(&r.results), uz(&linear::solve_3d(&s3).unwrap()), 1e-6, "3D tip");
+}

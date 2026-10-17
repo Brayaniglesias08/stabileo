@@ -54,6 +54,16 @@ structure expressed without the feature or an analytical value.
   short, and the diagrams showed no load, although the displacements were right. The fixed-end
   forces and the load data are now the linear solver's; member forces match it in the
   small-load limit (uniform, partial, axial and point member loads, with a release).
+- **Unconverged co-rotational solves** returned the iterate they gave up on (no equilibrium state)
+  with reactions taken against the full load, and the Pro panel printed "Not converged" next to
+  its peak displacement. The engine now returns the last converged increment, with reactions
+  and member forces under the load it carries, and a new `loadFactor` (1 when converged); the
+  panel shows only how much of the load reached equilibrium, and no displacements.
+- **Co-rotational solves under small loads did not converge.** The elongation was a difference
+  of two lengths, with a rounding error of order ε·L and so an axial-force residual of order
+  ε·EA (2e-7 kN against a 0.001 kN load): Newton never reached the tolerance and the "answer"
+  was the last iterate, flagged unconverged. The elongation is now computed without
+  cancellation, (2·d0·du + du·du)/(L + L0), in every co-rotational member and connector.
 - **Connectors in the nonlinear solvers** (co-rotational, arc length, displacement control,
   material- and fiber-nonlinear; 2D and 3D) were refused; they are now part of the tangent and
   the internal forces. Small-displacement solvers use the linear connector. Co-rotational ones:
