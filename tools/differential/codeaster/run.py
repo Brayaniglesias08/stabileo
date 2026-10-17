@@ -91,7 +91,7 @@ def collect(a):
 
 # ---------------------------------------------------------------- stages
 
-def prepare(name, model, binary, workdir):
+def prepare(name, model, binary, workdir, flagged=False):
     """stabileo solve + translation. Returns a result dict; status
     'pending' when the job dir is ready for Code_Aster."""
     r = dict(name=name)
@@ -104,8 +104,10 @@ def prepare(name, model, binary, workdir):
         return dict(r, status="stabileo_failed", why=[str(ex)[:200]])
     sres = C.normalize_stabileo(sraw, 3)
     ill = sorted(set(sres["diags"]) & C.ILL_CONDITIONED)
-    if ill:
+    if ill and not flagged:
         return dict(r, status="ill_conditioned", why=ill)
+    if ill:
+        r["flagged"] = ill
     try:
         comm, meta = to_aster.translate(model)
     except to_aster.Unsupported as ex:
@@ -147,6 +149,24 @@ def run_aster(pending, workdir, jobs):
 
     with ThreadPoolExecutor(max_workers=len(chunks)) as pool:
         list(pool.map(one, chunks))
+    # A Code_Aster exception leaks its MUMPS instance; after 50 of them a
+    # session refuses every further solve (FACTOR_60). Rerun those jobs in
+    # fresh sessions.
+    for _ in range(100):
+        again = [r for r in pending if _leaked(r["job"])]
+        if not again:
+            break
+        if len(again) == len(pending):
+            break  # no progress: leave the error in place
+        pending = again
+        chunks = [pending[i::jobs] for i in range(min(jobs, len(pending)))]
+        with ThreadPoolExecutor(max_workers=len(chunks)) as pool:
+            list(pool.map(one, chunks))
+
+
+def _leaked(job):
+    err = os.path.join(job, "error.txt")
+    return os.path.exists(err) and "<FACTOR_60>" in open(err).read()
 
 
 def finish(r, tol, dump_dir, model):
@@ -228,6 +248,9 @@ def main():
     ap.add_argument("--report")
     ap.add_argument("--dump-dir")
     ap.add_argument("--keep", action="store_true", help="keep the job directories (printed)")
+    ap.add_argument("--flagged", action="store_true",
+                    help="also run the models stabileo flags as ill-conditioned (statuses get a flagged- prefix): "
+                         "checks that the warnings are not false alarms")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args()
 
@@ -238,7 +261,7 @@ def main():
     os.makedirs(os.path.join(HERE, ".work"), exist_ok=True)
     workdir = tempfile.mkdtemp(dir=os.path.join(HERE, ".work"), prefix="jobs-")
     with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
-        results = list(pool.map(lambda j: prepare(j[0], j[1], a.bin, workdir), models))
+        results = list(pool.map(lambda j: prepare(j[0], j[1], a.bin, workdir, a.flagged), models))
     pending = [r for r in results if r["status"] == "pending"]
     run_aster(pending, workdir, max(1, a.jobs))
     by_name = dict(models)
@@ -256,6 +279,9 @@ def main():
             return dict(name=r["name"], status="harness_error", why=[traceback.format_exc()[-400:]])
 
     results = [safe_finish(r) if r["status"] == "pending" else r for r in results]
+    for r in results:
+        if r.get("flagged"):
+            r["status"] = "flagged-" + ("silent" if r["status"] == "silent_singular" else r["status"])
     if a.keep:
         print(f"job directories: {workdir}")
     else:
