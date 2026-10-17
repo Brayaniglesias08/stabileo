@@ -104,6 +104,8 @@ fn aisc_blank(fy: f64) -> SteelMemberData {
         g: None,
         depth: None,
         flange_slenderness: None,
+        compression_elements: None,
+        load_position: None,
     }
 }
 

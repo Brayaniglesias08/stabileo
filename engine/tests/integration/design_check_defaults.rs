@@ -287,6 +287,8 @@ fn w14x22_without_depth(lb: f64) -> SteelMemberData {
         g: Some(77e9),
         depth: None,
         flange_slenderness: None,
+        compression_elements: None,
+        load_position: None,
     }
 }
 
