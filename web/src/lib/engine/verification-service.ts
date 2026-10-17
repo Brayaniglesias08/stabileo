@@ -766,6 +766,11 @@ export function checkSteelMember(
         ...(k.Sy !== undefined ? { Sy: k.Sy } : {}),
       };
     })(),
+    // The section family selects the Table B.4.1 classification (Q of §E.7, §F.2–F.6). A shape it
+    // cannot classify ('C' cold-formed, …) comes back NOT EVALUATED rather than as an I-section.
+    // The load height of F.2.2 is not known here, so the checker's conservative default (top
+    // flange) applies.
+    ...(section.shape !== undefined ? { shape: section.shape } : {}),
     // Effective-length factors: stated on the member, or 1,0 (sway-prevented / direct analysis).
     ...(lengths.Kx !== undefined ? { Kx: lengths.Kx } : {}),
     ...(lengths.Ky !== undefined ? { Ky: lengths.Ky } : {}),
