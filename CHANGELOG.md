@@ -39,6 +39,8 @@ regression test.
   each triangle by (2A/P)^2/50 (P including holes, capped at 60 000 triangles): those cases
   read 2.2% and 3.3% low, IPE 300 2.5% (was 3.6%). J stays a lower bound, so the change
   raises J toward the true value and never above it.
+  The example baselines were re-recorded: member torsion and reaction moments in the steel
+  examples move by up to 0.6% (pro-crane-hangar), everything else by under 1e-6.
 - **Bolt bearing used the end bolt's clear distance for every bolt (unsafe).** CIRSOC 301
   §J.3.10 takes `Lc = s - dh` for interior bolts; with a generous edge distance the interior
   bolts are the weaker ones (at `s = 3d` they never reach the `2.4 d t Fu` cap), so both the
