@@ -228,10 +228,14 @@ def write_3dd(model, analysis="static", densities=None, n_modes=6, tol=1e-12):
     if analysis in ("modal", "pdelta"):
         # pdelta: one mode only so that `tol` (read with the modal data) sets
         # the equilibrium tolerance of the geometric-stiffness iteration.
-        nm = n_modes if analysis == "modal" else 1
         # The subspace iteration works on min(nM + 8, 2 nM) vectors, which
-        # must stay below the number of DOFs.
-        nm = max(1, min(nm, (6 * len(nids) - 1) // 2))
+        # must stay below the number of DOFs. With nM just above the modes
+        # compared it does not converge the highest of them and can skip a
+        # mode altogether (modal3d-268: nM = 6 misses the 2.961 Hz mode 5,
+        # nM = 12 returns it as 2.9615 Hz, nM = 20 as 2.96138213459 Hz like
+        # stabileo): ask for as many modes as the subspace allows, at least
+        # 20 more than compared, and return the first n_modes.
+        nm = max(1, min(n_modes + 20, (6 * len(nids) - 1) // 2)) if analysis == "modal" else 1
         out += ["", f"{nm}", "1", "0", _f(tol), "0.0", "1.0", "0", "0", "0", "0", "0"]
     else:
         out += ["", "0", "0"]

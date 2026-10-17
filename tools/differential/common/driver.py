@@ -134,7 +134,8 @@ def _cross_check(adapter, clean, dens, r, limit, status):
     reference solves it with a stiffness condition number below `limit`."""
     try:
         rres = adapter.run(clean, "static", densities=dens)
-    except Exception:  # noqa: unsupported or failed: nothing to compare with
+    except Exception as ex:  # noqa: unsupported or failed: nothing to compare with
+        r["reference"] = f"{type(ex).__name__}: {str(ex)[:120]}"
         return
     kappa = rres.get("kappa")
     r["kappa"] = kappa

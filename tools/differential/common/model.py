@@ -255,7 +255,7 @@ def lift_2d(model, allow_hinges=False):
     if is_3d(model):
         return model
     m3 = {"nodes": {}, "materials": copy.deepcopy(model["materials"]), "sections": {}, "elements": {},
-          "supports": {}, "loads": []}
+          "supports": {}, "loads": [], "_lift2d": True}
     for k, n in model["nodes"].items():
         m3["nodes"][k] = {"id": n["id"], "x": float(n["x"]), "y": 0.0, "z": float(get(n, "z", "y"))}
     for k, sct in model["sections"].items():
@@ -328,7 +328,8 @@ def lower_static_3d(res3, model2d):
     reac = {n: [r[0], r[2], -r[4]] for n, r in res3["reac"].items() if n in supported}
     forces = {e: {"nStart": f["nStart"], "nEnd": f["nEnd"], "vStart": f["vzStart"], "vEnd": f["vzEnd"],
                   "mStart": -f["myStart"], "mEnd": -f["myEnd"]} for e, f in res3["forces"].items()}
-    return dict(dim=2, disp=disp, reac=reac, forces=forces, art_rot=[], kappa=res3.get("kappa"))
+    return dict(dim=2, disp=disp, reac=reac, forces=forces, art_rot=res3.get("art_rot", []), kappa=res3.get("kappa"),
+                min_pivot=res3.get("min_pivot"))
 
 
 def _rank3(vs, tol=1e-9):
@@ -371,6 +372,15 @@ def rotational_rank(model, flags, springs):
                 dirs[nid].append([1.0 if i == k else 0.0 for i in range(3)])
     rank = {nid: _rank3(v) for nid, v in dirs.items()}
     art = {nid for nid, r in rank.items() if r == 0}
+    if model.get("_lift2d"):
+        # A lifted 2D model (lift_2d) restrains rx and rz everywhere; its 2D
+        # rotation is ry. The 2D engine puts the artificial spring on ry of
+        # a node where every frame is hinged (or only trusses meet): such a
+        # node has no ry stiffness from members, restraints or springs.
+        for nid, v in dirs.items():
+            if all(abs(d[1]) < 1e-12 for d in v):
+                art.add(nid)
+                rank[nid] = 0
     bad = [nid for nid, r in rank.items() if 0 < r < 3]
     if bad:
         raise Unsupported(f"rotational mechanism at node {bad[0]}")

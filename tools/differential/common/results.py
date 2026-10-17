@@ -71,7 +71,13 @@ def modal_compare(sres, rres, n_modes, nodes, dofs=(0, 1, 2), ftol=1e-6, stol=1e
         if max(idx) >= len(fs) - 1 and len(fs) > n:
             continue  # the cluster may extend past the computed modes
         v = _vec(rres["shapes"][i], nodes, dofs)
-        res = _lstsq_residual([_vec(sres["shapes"][j], nodes, dofs) for j in idx], v)
+        d = dofs
+        full = _vec(rres["shapes"][i], nodes, range(6))
+        if math.sqrt(sum(x * x for x in v)) <= 1e-8 * math.sqrt(sum(x * x for x in full)):
+            # A purely rotational mode (e.g. a torsion mode of a single
+            # member): its translations are round-off, compare all DOFs.
+            v, d = full, range(6)
+        res = _lstsq_residual([_vec(sres["shapes"][j], nodes, d) for j in idx], v)
         groups["shape"] = max(groups["shape"], res)
         if res > stol:
             bad.append(("shape", i + 1, f"cluster {[j + 1 for j in idx]}", None, None, res))
