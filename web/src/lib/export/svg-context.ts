@@ -31,7 +31,12 @@ interface State {
 export interface Bounds { x0: number; y0: number; x1: number; y1: number }
 
 const fmt = (v: number) => (Math.round(v * 100) / 100).toString();
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+/**
+ * Text as XML: the markup characters escaped, and the control characters XML 1.0 forbids
+ * (everything under U+0020 but tab, line feed and carriage return) dropped. One of them in a
+ * name pasted from elsewhere, and the browser refuses to open the whole file.
+ */
+const esc = (s: string) => s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** Font parts out of a CSS font shorthand ("bold 11px sans-serif"). */
 export function parseFont(font: string): { size: number; weight: string; style: string; family: string } {

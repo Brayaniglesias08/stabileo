@@ -80,6 +80,17 @@ describe('the SVG drawing context', () => {
     expect(parseFont('bold 11px sans-serif')).toMatchObject({ size: 11, weight: 'bold' });
     expect(parseFont('10px monospace')).toMatchObject({ size: 10, weight: 'normal', family: 'monospace' });
   });
+
+  it('drops the control characters XML forbids, so the file still opens', () => {
+    const svg = createSvgContext(100, 100);
+    svg.ctx.fillText(`Viga${String.fromCharCode(11)}1${String.fromCharCode(0)}\tA`, 10, 10);
+    const body = svg.body();
+    for (const c of body) {
+      const k = c.codePointAt(0)!;
+      expect(k < 0x20 && k !== 0x09 && k !== 0x0a && k !== 0x0d).toBe(false);
+    }
+    expect(body).toContain('Viga1');
+  });
 });
 
 describe('the ink context', () => {

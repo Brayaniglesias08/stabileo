@@ -199,6 +199,15 @@ function textScale(): number {
   return TEXT_SCALE * (uiStore.labelScale || 1);
 }
 
+const TITLE_FONT = `bold ${TITLE_PX}px sans-serif`;
+
+/** How wide the title is written: in its font, at the figure's text scale. */
+function titleWidth(title: string, style: InkStyle): number {
+  const ink = inkContext(createSvgContext(1, 1).ctx, style, textScale());
+  ink.font = TITLE_FONT;
+  return ink.measureText(title).width;
+}
+
 /** Plan one 2D figure; null when there is no 2D viewport to draw it. */
 export function plan2D(content: FigureContent, options: FigureOptions): FigurePlan | null {
   const r = rendererNow();
@@ -212,9 +221,14 @@ export function plan2D(content: FigureContent, options: FigureOptions): FigurePl
   if (!(b.x1 > b.x0)) b = { x0: 0, y0: 0, x1: FIT_W, y1: FIT_H };
   const title = options.titles ? figureTitle(content, options) : '';
   const head = title ? Math.round(TITLE_PX * 2.2) : 0;
-  const width = Math.ceil(b.x1 - b.x0 + 2 * PAD);
+  // The title is written above the drawing, outside its box: the page is as wide as the longer
+  // of the two (a single column is a drawing a few pixels wide), the drawing centred under it.
+  const titleW = title ? titleWidth(title, options.style) : 0;
+  const drawingW = b.x1 - b.x0;
+  const width = Math.ceil(Math.max(drawingW, titleW) + 2 * PAD);
   const height = Math.ceil(b.y1 - b.y0 + 2 * PAD + head);
-  const shifted: FrameView = { zoom: view.zoom, panX: view.panX + PAD - b.x0, panY: view.panY + PAD + head - b.y0 };
+  const inset = (width - 2 * PAD - drawingW) / 2;
+  const shifted: FrameView = { zoom: view.zoom, panX: view.panX + PAD + inset - b.x0, panY: view.panY + PAD + head - b.y0 };
   return {
     content, title, width, height,
     paint(ctx) {
@@ -225,7 +239,7 @@ export function plan2D(content: FigureContent, options: FigureOptions): FigurePl
       ink.save();
       if (title) {
         ink.fillStyle = options.style === 'screen' ? '#f4f7fa' : '#c7d3dd';
-        ink.font = `bold ${TITLE_PX}px sans-serif`;
+        ink.font = TITLE_FONT;
         ink.textAlign = 'left';
         ink.textBaseline = 'alphabetic';
         ink.fillText(title, PAD, PAD + TITLE_PX);
@@ -272,8 +286,29 @@ export function toSvg(plan: FigurePlan): string {
 /** Pixels per figure pixel in a PNG: about 300 dpi when the figure is printed 16 cm wide. */
 export const PNG_SCALE = 3;
 
-/** The figure drawn on a canvas, `scale` device pixels per figure pixel. */
-export function toCanvas(plan: FigurePlan, scale = PNG_SCALE): HTMLCanvasElement {
+/**
+ * The largest canvas every browser encodes: iOS Safari gives no picture from one over 16.7 MP
+ * (4096 × 4096), and none takes a side over 32 767 px. Past either `toBlob` hands back null,
+ * and a sheet of seven figures at 3× is 2427 × 10026, 24.3 MP.
+ */
+const MAX_CANVAS_PIXELS = 16_777_216;
+const MAX_CANVAS_SIDE = 32_767;
+
+/**
+ * Device pixels per figure pixel for a figure: `scale`, or less when the canvas would be over
+ * what a browser encodes. Sized with a pixel to spare on each side for the rounding.
+ */
+export function canvasScale(plan: { width: number; height: number }, scale = PNG_SCALE): number {
+  const w = Math.max(1, plan.width) + 1, h = Math.max(1, plan.height) + 1;
+  return Math.min(scale, Math.sqrt(MAX_CANVAS_PIXELS / (w * h)), MAX_CANVAS_SIDE / Math.max(w, h));
+}
+
+/**
+ * The figure drawn on a canvas, `wanted` device pixels per figure pixel, fewer when a large
+ * figure (a sheet of several) would be over what the browser can encode (`canvasScale`).
+ */
+export function toCanvas(plan: FigurePlan, wanted = PNG_SCALE): HTMLCanvasElement {
+  const scale = canvasScale(plan, wanted);
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(plan.width * scale));
   c.height = Math.max(1, Math.round(plan.height * scale));

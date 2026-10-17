@@ -49,4 +49,37 @@ describe('the free-body drawing', () => {
     expect(svg.body()).not.toContain('V = 30');
     expect(svg.body()).toContain('N = 30');
   });
+
+  it('with nothing selected in a large model, the reactions are left out with the rest', () => {
+    // "The rest drawn as pieces only": every support's reaction was still written.
+    const supports = [{ nodeId: 1, actions: [force('Rz', 0, -1, 77)] }, { nodeId: 4, actions: [force('Rz', 0, -1, 88)] }];
+    const draw = (focus: Set<number>) => {
+      const svg = createSvgContext(600, 600);
+      drawFreeBody({ ctx: svg.ctx, toScreen: id, members, nodes: (n) => nodes[n], ends, supports, mode: 'members', sep: 1, planar: true, fmt: (v) => `${v}`, focus, hint: 'select' });
+      return svg.body();
+    };
+    const none = draw(new Set());
+    expect(none).toContain('select');
+    expect(none).not.toContain('Rz = 77');
+    expect(none).not.toContain('Rz = 88');
+    const first = draw(new Set([1]));
+    expect(first).toContain('Rz = 77');
+    expect(first).not.toContain('Rz = 88');
+  });
+
+  it.each(['nodes', 'all'] as const)('a joint of a selected member is drawn whole, its other members\' actions too (%s)', (mode) => {
+    // Joint 2 of member 1: member 2's action on it is part of its free body, though 2 is not selected.
+    const atJoint: FBEnd[] = [
+      { memberId: 1, end: 'J', nodeId: 2, side: 'member', actions: [force('N', 0, -1, 30)] },
+      { memberId: 1, end: 'J', nodeId: 2, side: 'node', actions: [force('N', 0, 1, 30)] },
+      { memberId: 2, end: 'I', nodeId: 2, side: 'node', actions: [force('V', 0, -1, 31)] },
+      { memberId: 2, end: 'J', nodeId: 3, side: 'node', actions: [force('V', 0, -1, 32)] },
+    ];
+    const svg = createSvgContext(600, 600);
+    drawFreeBody({ ctx: svg.ctx, toScreen: id, members, nodes: (n) => nodes[n], ends: atJoint, supports: [], mode, sep: 1, planar: true, fmt: (v) => `${v}`, focus: new Set([1]) });
+    expect(svg.body()).toContain('N = 30');
+    expect(svg.body()).toContain('V = 31');
+    // A joint no selected member reaches stays a piece only.
+    expect(svg.body()).not.toContain('V = 32');
+  });
 });

@@ -116,7 +116,10 @@ interface HeldView {
 }
 
 function createResultsStore() {
-  let results = $state<AnalysisResults | null>(null);
+  // Published result sets are replaced as a whole. Keep their identity when switching from
+  // the case/combination maps: deep $state proxies made the displayed result unequal to its
+  // source, so figures and free bodies could no longer identify its applied loads in browsers.
+  let results = $state.raw<AnalysisResults | null>(null);
   let diagramType = $state<DiagramType>('none');
   /** Remembers last user-visible diagram so live-calc can restore it after clear() */
   let _lastDiagramType: DiagramType = 'none';
@@ -187,10 +190,10 @@ function createResultsStore() {
   let animSpeed = $state<number>(1.0); // animation speed multiplier (0.25 - 3x)
 
   // Combination results
-  let singleResults = $state<AnalysisResults | null>(null); // base solve (all loads, no combination factors)
+  let singleResults = $state.raw<AnalysisResults | null>(null); // base solve (all loads, no combination factors)
   let perCase = $state<Map<number, AnalysisResults>>(new Map());
   let perCombo = $state<Map<number, AnalysisResults>>(new Map());
-  let envelope = $state<FullEnvelope | null>(null);
+  let envelope = $state.raw<FullEnvelope | null>(null);
   let activeView = $state<ResultsView>('single');
   let activeComboId = $state<number | null>(null);
   let activeCaseId = $state<number | null>(null); // individual load case selection
@@ -244,8 +247,8 @@ function createResultsStore() {
   } | null>(null);
 
   // 3D analysis results
-  let results3D = $state<AnalysisResults3D | null>(null);
-  let singleResults3D = $state<AnalysisResults3D | null>(null);
+  let results3D = $state.raw<AnalysisResults3D | null>(null);
+  let singleResults3D = $state.raw<AnalysisResults3D | null>(null);
 
   // The gates' findings describe the model, not the result on screen, so they
   // are read from the single solve: `results` becomes a combination or the
@@ -265,10 +268,10 @@ function createResultsStore() {
   let perCase3D = $state<Map<number, AnalysisResults3D>>(new Map());
   let perCombo3D = $state<Map<number, AnalysisResults3D>>(new Map());
   let unstableCombinations3D = $state<number[]>([]);
-  let envelope3D = $state<FullEnvelope3D | null>(null);
+  let envelope3D = $state.raw<FullEnvelope3D | null>(null);
   /** A named envelope on screen in place of the active one, valid only over the solve it was
    *  built from (`over`): any republish or clear makes it lapse without being reset. */
-  let viewedEnvelope3D = $state<{ env: FullEnvelope3D; name: string; over: FullEnvelope3D } | null>(null);
+  let viewedEnvelope3D = $state.raw<{ env: FullEnvelope3D; name: string; over: FullEnvelope3D } | null>(null);
 
   // Governing-case provenance (which combo governs each element per force component)
   let governing2D = $state<Map<number, GoverningPerElement>>(new Map());

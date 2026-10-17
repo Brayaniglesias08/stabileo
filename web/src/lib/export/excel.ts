@@ -514,6 +514,15 @@ function createCombinationsSheet(): Xlsx.WorkSheet {
   return ws;
 }
 
+/**
+ * Whether the workbook has a Combinations sheet: combinations solved, and shown. Basic with its
+ * load cases switched off keeps the combinations solved before, and shows none of them — not on
+ * screen, not in the report — and the workbook still listed them.
+ */
+export function exportsCombinations(): boolean {
+  return uiStore.showLoadCasePicker && resultsStore.hasCombinations;
+}
+
 /** One row per combination: its name, and its peak displacement (mm), moment, shear and axial force. */
 export function combinationPeakRows(): Array<[string, number, number, number, number]> {
   const is3D = uiStore.is3DWorkspace;
@@ -623,7 +632,7 @@ export async function exportToExcel(options: ExcelExportOptions = {}): Promise<v
     if (includeModel && (modelStore.plates.size > 0 || modelStore.quads.size > 0)) {
       XLSX.utils.book_append_sheet(wb, createShellsSheet(), t('excel.sheetShells'));
     }
-    if (includeResults && resultsStore.hasCombinations) {
+    if (includeResults && exportsCombinations()) {
       XLSX.utils.book_append_sheet(wb, createCombinationsSheet(), t('excel.sheetCombinations'));
     }
   }

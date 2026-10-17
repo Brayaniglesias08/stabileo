@@ -7,8 +7,8 @@
  */
 
 import type { Node, Material, Section, Element, Support } from '../store/model.svelte';
-import type { AnalysisResults } from './types';
-import type { AnalysisResults3D } from './types-3d';
+import type { AnalysisResults, FullEnvelope } from './types';
+import type { AnalysisResults3D, FullEnvelope3D } from './types-3d';
 import { releaseLabel } from '../export/excel';
 import { t, tp, i18n } from '../i18n';
 import { modelFigureSvg } from './report/model-figure';
@@ -61,6 +61,13 @@ export interface CalcReportData {
   // Results (exactly one of these should be present)
   results2D?: AnalysisResults;
   results3D?: AnalysisResults3D;
+  /**
+   * With `provenance` the envelope: its diagrams, which the force tables read along each member.
+   * The envelope's result set alone has each end's largest force and the first combination's
+   * loads, and a diagram rebuilt from those is no combination's.
+   */
+  envelope2D?: FullEnvelope;
+  envelope3D?: FullEnvelope3D;
   /**
    * What goes in. Without it, the report is the fixed set of tables it always was: model, loads,
    * reactions, displacements and the end forces.
@@ -236,14 +243,16 @@ function buildCover(cfg: CalcReportConfig, modeLabel: AnalysisModeLabel, nodeCou
 
 // ─── Section: Model Data ─────────────────────────────────────────
 
-function buildModelSection(data: CalcReportData, num = '1'): string {
+function buildModelSection(data: CalcReportData, num = '1', fig?: ReturnType<typeof figureCounter>): string {
   const h: string[] = ['<div class="page">'];
   h.push(`<h1 id="sec-model">${num}. ${t('app.modelData')}</h1>`);
 
   // The numbered model the tables below refer to.
   const figure = modelFigureSvg({ nodes: data.nodes, elements: data.elements, supports: data.supports, is3D: data.is3D, project2DToXZ: data.project2DToXZ });
   if (figure) {
-    h.push(`<figure class="model-fig">${figure}<figcaption>${t('calcReport.modelFigure')}</figcaption></figure>`);
+    // Numbered with the figures that follow: when there is no model to draw, the next one is Figure 1.
+    const n = fig ? fig.next() : 1;
+    h.push(`<figure class="model-fig">${figure}<figcaption>${esc(tp('calcReport.figureN', { n }))} ${t('calcReport.modelFigure')}</figcaption></figure>`);
   }
 
   const U = unitsOf(data);
@@ -554,14 +563,14 @@ export function generateCalcReportHtml(data: CalcReportData): string {
   const c = data.content;
   const hasResults = !!(data.is3D ? data.results3D : data.results2D);
   const figures = new Map((data.figures ?? []).map((f) => [f.content, f]));
-  // The numbered model figure is Figure 1 when the model data is in.
-  const fig = figureCounter(!c || c.modelData ? 2 : 1);
+  // Figures are numbered as they appear, the model's first when it is drawn.
+  const fig = figureCounter();
 
   /** Each section with its number, in order; the TOC lists the same. */
   const parts: Array<{ title: string; anchor: string; html: (num: string) => string }> = [];
   const add = (title: string, anchor: string, html: (num: string) => string) => parts.push({ title, anchor, html });
 
-  if (!c || c.modelData) add(t('app.modelData'), 'sec-model', (n) => buildModelSection(data, n));
+  if (!c || c.modelData) add(t('app.modelData'), 'sec-model', (n) => buildModelSection(data, n, fig));
   if (!c || c.loads) add(t('file.loads'), 'sec-loads', (n) => buildLoadsSection(data, n, c ? fig.html(figures.get('model')) : ''));
   if (c?.kinematics) add(t('calcReport.kinematics'), 'sec-kinematics', (n) => kinematicsSectionHtml(n, data.kinematics));
 
@@ -628,26 +637,38 @@ function buildChosenForces(data: CalcReportData, num: string, kinds: Array<'mome
     if (!c.rows[k].table) return;
     const unit = k === 'moment' ? um : uf;
     const fmt = k === 'moment' ? M : F;
-    if (data.is3D && data.results3D) h.push(forceTable3D(k, data.results3D, fmt, unit));
-    else if (data.results2D) h.push(forceTable2D(k, data.results2D, fmt, unit, (v) => U.q(v, 'length', 2), U.u('length')));
+    const env = data.provenance.kind === 'envelope';
+    const len = (v: number) => U.q(v, 'length', 2);
+    if (data.is3D && data.results3D) h.push(forceTable3D(k, data.results3D, fmt, unit, len, U.u('length'), env ? data.envelope3D : undefined));
+    else if (data.results2D) h.push(forceTable2D(k, data.results2D, fmt, unit, len, U.u('length'), env ? data.envelope2D : undefined));
   });
   h.push('</div>');
   return h.join('\n');
 }
 
 /**
- * Open the calc-book report in a new browser tab for printing.
+ * Open the calc-book report in a new browser tab for printing, or, when no tab can be had, hand
+ * it over as an HTML file. Says which it did.
  *
  * `win` is a tab opened beforehand, inside the click: the report solves and draws its figures
- * first, and a tab opened after that wait is one a browser's pop-up blocker refuses.
+ * first, and a tab opened after that wait is one a browser's pop-up blocker refuses. When the
+ * blocker refused that one too, or the reader closed it meanwhile, the second try is refused as
+ * well, and nothing opened and nothing said so: the dialog closed on nothing.
  */
-export function openCalcReport(data: CalcReportData, win?: Window | null): void {
+export function openCalcReport(data: CalcReportData, win?: Window | null): 'tab' | 'download' {
   const htmlContent = generateCalcReportHtml(data);
   const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   let tab = win && !win.closed ? win : null;
   if (tab) tab.location.href = url;
   else tab = window.open(url, '_blank');
-  if (tab) setTimeout(() => URL.revokeObjectURL(url), 120_000);
-  else URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  if (tab) return 'tab';
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${(data.config.projectName || 'stabileo').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'stabileo'}.html`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return 'download';
 }

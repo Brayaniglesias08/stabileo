@@ -87,7 +87,9 @@
    * between load cases does not keep yanking the selector around.
    */
   const GOVERNING_ORDER = ['mx', 'my', 'mxy', 'sigma1', 'sigmaXx', 'sigmaYy', 'tauXy', 'sigma2', 'vonMises'] as const;
-  let autoPickedFor = $state<object | null>(null);
+  // The result set last looked at, by identity. Not a $state: that would wrap the (raw) result in
+  // a proxy that never equals it, and the effect, which writes it, would run forever.
+  let autoPickedFor: object | null = null;
   $effect(() => {
     const stats = shellStats;
     const r = resultsStore.results3D;

@@ -13,8 +13,8 @@
  * - despiece: `drawFreeBody`, as on screen;
  * - M, V, N: each member's diagram in its own plane (the side the 3D view draws it on), the
  *   largest value of each member written; both bending planes when both carry load;
- * - deformed: the deflected members, scaled so the largest movement reads at about a twentieth of
- *   the structure, with the largest displacements written;
+ * - deformed: the deflected members, at the reader's scale, or at true scale scaled so the largest
+ *   movement reads at about a twentieth of the structure, with the largest displacements written;
  * - shellMap (PRO): the shells painted by one of their results, each element its own value, with
  *   the scale beside them.
  *
@@ -25,16 +25,19 @@
 import { modelStore, resultsStore, uiStore } from '../store';
 import { computeLocalAxes3D } from '../engine/local-axes-3d';
 import { projectNodeToScene, shouldProjectModelToXZ } from '../geometry/coordinate-system';
-import { computeDiagram3D, computeGlobalMax3D, getDiagramLocalDirection, type Diagram3DKind } from '../engine/diagrams-3d';
+import { computeDiagram3D, computeGlobalMax3D, getDiagramLocalDirection, type Diagram3DKind, type ElementDiagram3D } from '../engine/diagrams-3d';
 import { computeDiagramDisplayDirection } from '../three/diagram-render-3d';
-import { computeDeformedShape3D, type ElementEI } from '../three/deformed-shape-3d';
+import { computeDeformedShape3DPair, type ElementEI } from '../three/deformed-shape-3d';
 import { eiOf } from '../engine/member-deflection';
+import { takesNoBending } from '../engine/member-loads';
+import { displayedLoads3D, despieceNote3D, despieceDrawsActions, despieceNoteText } from '../store/displayed-loads-3d';
 import { drawFreeBody, type P3 } from '../canvas/free-body';
 import { createLabelCollector } from '../canvas/label-layout';
+import { addMemberTags } from '../canvas/member-tags';
 import { freeBodyActions3D } from '../viewport3d/free-body-3d';
 import { fixedQuantity, displacementText } from '../utils/unit-format';
 import type { ExportFrame, Figure2DRenderer, FigureView, FrameView } from './view-figure';
-import type { AnalysisResults3D } from '../engine/types-3d';
+import type { AnalysisResults3D, ElementForces3D, FullEnvelope3D } from '../engine/types-3d';
 import { shellComponentMeta, shellComponentValue, type ShellContourComponent } from '../engine/shell-stress';
 import { shellContourColor } from '../three/stress-heatmap';
 import { RAW_INK } from './paper-ink';
@@ -79,15 +82,68 @@ const COLORS: Record<string, { fill: string; stroke: string }> = {
 };
 const SYM: Record<Diagram3DKind, string> = { momentY: 'My', momentZ: 'Mz', shearY: 'Vy', shearZ: 'Vz', axial: 'N', torsion: 'T' };
 
+/** Match the figure's result, including a named envelope or an export of a set off screen. */
+function envelopeOf(r: AnalysisResults3D): FullEnvelope3D | undefined {
+  return [resultsStore.fullEnvelope3D, resultsStore.envelope3D].find((e) => e?.maxAbsResults3D === r) ?? undefined;
+}
+
+function diagramMax(r: AnalysisResults3D, kind: Diagram3DKind): number {
+  return envelopeOf(r)?.[kind].globalMax ?? computeGlobalMax3D(r.elementForces, kind);
+}
+
+/** Envelope end forces are not a load state: draw both station envelopes directly. */
+function figureDiagrams(r: AnalysisResults3D, ef: ElementForces3D, kind: Diagram3DKind): ElementDiagram3D[] {
+  const env = envelopeOf(r);
+  if (!env) return [computeDiagram3D(ef, kind)];
+  const e = env[kind].elements.find((e) => e.elementId === ef.elementId);
+  if (!e) return [];
+  return [e.posValues, e.negValues].map((values) => {
+    let maxValue = -Infinity, minValue = Infinity, maxAbsValue = 0;
+    const points = e.tPositions.map((t, i) => {
+      const value = values[i] ?? 0;
+      maxValue = Math.max(maxValue, value); minValue = Math.min(minValue, value);
+      if (Math.abs(value) > Math.abs(maxAbsValue)) maxAbsValue = value;
+      return { t, value };
+    });
+    return { elementId: ef.elementId, points, maxValue, minValue, maxAbsValue };
+  }).filter((d) => d.points.length > 0);
+}
+
 /** The diagram components a content draws: both planes when both carry something. */
 export function components3D(content: 'moment' | 'shear' | 'axial', results?: AnalysisResults3D | null): Diagram3DKind[] {
   const r3d = results ?? resultsStore.results3D;
   if (content === 'axial') return ['axial'];
   const pair: Diagram3DKind[] = content === 'moment' ? ['momentZ', 'momentY'] : ['shearY', 'shearZ'];
   if (!r3d) return pair.slice(0, 1);
-  const max = pair.map((k) => computeGlobalMax3D(r3d.elementForces, k));
+  const max = pair.map((k) => diagramMax(r3d, k));
   const top = Math.max(...max);
   return pair.filter((_, i) => max[i]! > 0.1 * top && max[i]! > 1e-9);
+}
+
+/**
+ * The deformed shape's scale in a figure, by the 2D figures' rule: the reader's scale when they
+ * set one; at true scale (1), so the largest movement reads at about a twentieth of the
+ * structure, which is the diagonal of its box (one pass over the nodes: comparing every pair
+ * took seconds on a large model, twice per figure).
+ */
+export function deformedFigureScale(
+  pts: Iterable<{ x: number; y: number; z?: number }>,
+  displacements: Iterable<{ ux: number; uy: number; uz: number }>,
+  user: number,
+  memberDisplacement = 0,
+): number {
+  if (user !== 1) return user;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const p of pts) {
+    const z = p.z ?? 0;
+    if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
+    if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+    if (z < z0) z0 = z; if (z > z1) z1 = z;
+  }
+  const span = Number.isFinite(x0) ? Math.hypot(x1 - x0, y1 - y0, z1 - z0) : 0;
+  let dmax = memberDisplacement;
+  for (const d of displacements) dmax = Math.max(dmax, Math.hypot(d.ux, d.uy, d.uz));
+  return dmax > 1e-12 && span > 0 ? (0.05 * span) / dmax : user;
 }
 
 export function createFigure3DRenderer(): Figure2DRenderer {
@@ -137,8 +193,12 @@ export function createFigure3DRenderer(): Figure2DRenderer {
         elements: modelStore.elements, nodes: modelStore.nodes, forces: r3d?.elementForces ?? [], reactions: r3d?.reactions ?? [],
         sections: modelStore.sections, project2D: flat(), leftHand, basis: uiStore.despieceBasis,
         resultant: uiStore.despieceCombineVectors, showReactions: content === 'reactions' || content === 'despiece',
-        loads: modelStore.loads, loadText: (v, q) => fmtF(v, q), negligible: 0.02,
+        // The loads of the result drawn, which the figure may have chosen, not of the one on screen.
+        loads: content === 'model' ? modelStore.loads : displayedLoads3D(r3d), loadText: (v, q) => fmtF(v, q), negligible: 0.02,
       });
+      // An envelope's or a magnitude's free body is no state of equilibrium: pieces and a note.
+      const fbNote = content === 'despiece' ? despieceNote3D(r3d) : null;
+      const fbActs = despieceDrawsActions(fbNote);
       for (const m of fbData.members) {
         const a = toScreen(m.i), b = toScreen(m.j);
         memberSegs.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
@@ -156,15 +216,21 @@ export function createFigure3DRenderer(): Figure2DRenderer {
           ctx.fill();
         }
       };
-      const drawNumbering = () => {
-        if (!opts.numbering) return;
-        ctx.font = '10px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-        ctx.fillStyle = '#8fa3b3';
-        for (const n of modelStore.nodes.values()) { const c = toScreen(projectNodeToScene(n, flat())); ctx.fillText(String(n.id), c.x + 5, c.y - 5); }
-        ctx.fillStyle = '#7fb0e2';
+      /*
+       * Node numbers, and beside each member its number and its length (the dimension), laid out
+       * with the other labels and off the members (`canvas/member-tags.ts`).
+       */
+      const drawMemberTags = () => {
+        if (opts.numbering) {
+          ctx.font = '10px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+          ctx.fillStyle = '#8fa3b3';
+          for (const n of modelStore.nodes.values()) { const c = toScreen(projectNodeToScene(n, flat())); ctx.fillText(String(n.id), c.x + 5, c.y - 5); }
+        }
+        if (!opts.numbering && !opts.lengths) return;
         for (const m of fbData.members) {
-          const a = toScreen(m.i), b = toScreen(m.j);
-          labels.add({ text: `E${m.id}`, colour: '#7fb0e2', font: '10px sans-serif', box: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 4, width: 0, height: 0, dirX: 0, dirY: -1, priority: 0, anchorX: 'center', sweep: 'any' } });
+          addMemberTags(labels, toScreen(m.i), toScreen(m.j), m.id,
+            opts.numbering ? { text: `E${m.id}`, colour: '#7fb0e2' } : null,
+            opts.lengths ? { text: fixedQuantity(modelStore.getElementLength(m.id), 'length', 2, uiStore.unitSystem), colour: '#88cc88' } : null);
         }
       };
       /**
@@ -216,16 +282,17 @@ export function createFigure3DRenderer(): Figure2DRenderer {
         drawFreeBody({
           ctx, toScreen, towardViewer,
           members: fbData.members, nodes: fbData.nodes,
-          ends: content === 'despiece' ? fbData.ends : [],
-          supports: content === 'model' ? [] : fbData.supports,
+          ends: content === 'despiece' && fbActs ? fbData.ends : [],
+          supports: content === 'model' || !fbActs ? [] : fbData.supports,
           loads: (content === 'despiece' || opts.loads) ? fbData.loads : [],
           mode: opts.dcl ?? 'members',
           sep: content === 'despiece' ? 1 : 0,
           planar: false,
+          note: despieceNoteText(fbNote),
           fmt: (v, q) => fmtF(v, q),
           labels,
         });
-        if (content === 'model') drawNumbering();
+        drawMemberTags();
         labels.flush(ctx, memberSegs);
         return;
       }
@@ -235,36 +302,53 @@ export function createFigure3DRenderer(): Figure2DRenderer {
 
       if (content === 'deformed' && r3d) {
         drawMembers('#8fa3b3', 1.2, [5, 4]);
-        // Scaled so the largest movement reads at about a twentieth of the structure.
-        let span = 0, dmax = 0;
         const pts = [...modelStore.nodes.values()].map((n) => projectNodeToScene(n, flat()));
-        for (const a of pts) for (const b of pts) span = Math.max(span, Math.hypot(a.x - b.x, a.y - b.y, (a.z ?? 0) - (b.z ?? 0)));
         const disp = new Map(r3d.displacements.map((d) => [d.nodeId, d]));
-        for (const d of r3d.displacements) dmax = Math.max(dmax, Math.hypot(d.ux, d.uy, d.uz));
-        const scale = dmax > 1e-12 ? (0.05 * span) / dmax : 1;
+        const efMap = new Map(r3d.elementForces.map((f) => [f.elementId, f]));
+        // Compute the actual member curves once at unit scale. Their interior movement counts
+        // even when all node translations are zero (a simple span or a fixed-fixed beam).
+        const curves: Array<{ p0: P3[]; p1: P3[] }> = [];
+        let memberDisplacement = 0;
+        for (const e of modelStore.elements.values()) {
+          const nI = modelStore.nodes.get(e.nodeI), nJ = modelStore.nodes.get(e.nodeJ);
+          const dI = disp.get(e.nodeI), dJ = disp.get(e.nodeJ), ef = efMap.get(e.id);
+          if (!nI || !nJ || !dI || !dJ) continue;
+          const pI = projectNodeToScene(nI, flat()), pJ = projectNodeToScene(nJ, flat());
+          const ei: ElementEI | undefined = eiOf(modelStore.materials.get(e.materialId), modelStore.sections.get(e.sectionId), modelStore.analysis);
+          const localY = (e.localYx !== undefined && e.localYy !== undefined && e.localYz !== undefined) ? { x: e.localYx, y: e.localYy, z: e.localYz } : undefined;
+          const roll = (e.rollAngle ?? 0) + (modelStore.sections.get(e.sectionId)?.rotation ?? 0);
+          const pair = takesNoBending(e) || !ef || !ei ? {
+            p0: [pI, pJ], p1: [
+              { x: pI.x + dI.ux, y: pI.y + dI.uy, z: (pI.z ?? 0) + dI.uz },
+              { x: pJ.x + dJ.ux, y: pJ.y + dJ.uy, z: (pJ.z ?? 0) + dJ.uz },
+            ],
+          } : computeDeformedShape3DPair(
+            { id: e.nodeI, x: pI.x, y: pI.y, z: pI.z ?? 0 }, { id: e.nodeJ, x: pJ.x, y: pJ.y, z: pJ.z ?? 0 },
+            dI, dJ, ef, ei, localY, roll || undefined,
+          );
+          for (let k = 0; k < pair.p0.length; k++) {
+            const p = pair.p0[k]!, q = pair.p1[k]!;
+            memberDisplacement = Math.max(memberDisplacement, Math.hypot(q.x - p.x, q.y - p.y, (q.z ?? 0) - (p.z ?? 0)));
+          }
+          curves.push(pair);
+        }
+        const scale = deformedFigureScale(pts, r3d.displacements, resultsStore.deformedScale, memberDisplacement);
         drawShells(undefined, (id) => {
           const n = modelStore.nodes.get(id), d = disp.get(id);
           if (!n) return undefined;
           const p = projectNodeToScene(n, flat());
           return d ? { x: p.x + d.ux * scale, y: p.y + d.uy * scale, z: (p.z ?? 0) + d.uz * scale } : p;
         });
-        const efMap = new Map(r3d.elementForces.map((f) => [f.elementId, f]));
         ctx.save();
         ctx.strokeStyle = '#e5482a'; ctx.lineWidth = 2.2;
-        for (const e of modelStore.elements.values()) {
-          const nI = modelStore.nodes.get(e.nodeI), nJ = modelStore.nodes.get(e.nodeJ);
-          const dI = disp.get(e.nodeI), dJ = disp.get(e.nodeJ), ef = efMap.get(e.id);
-          if (!nI || !nJ || !dI || !dJ || !ef) continue;
-          const pI = projectNodeToScene(nI, flat()), pJ = projectNodeToScene(nJ, flat());
-          const ei: ElementEI | undefined = eiOf(modelStore.materials.get(e.materialId), modelStore.sections.get(e.sectionId), modelStore.analysis);
-          const localY = (e.localYx !== undefined && e.localYy !== undefined && e.localYz !== undefined) ? { x: e.localYx, y: e.localYy, z: e.localYz } : undefined;
-          const roll = (e.rollAngle ?? 0) + (modelStore.sections.get(e.sectionId)?.rotation ?? 0);
-          const curve = computeDeformedShape3D(
-            { x: pI.x, y: pI.y, z: pI.z ?? 0 }, { x: pJ.x, y: pJ.y, z: pJ.z ?? 0 }, dI, dJ, ef, scale, ei, localY, roll || undefined,
-          );
-          if (curve.length < 2) continue;
+        for (const { p0, p1 } of curves) {
+          if (p0.length < 2) continue;
           ctx.beginPath();
-          curve.forEach((p, k) => { const s = toScreen({ x: p.x, y: p.y, z: p.z }); if (k) ctx.lineTo(s.x, s.y); else ctx.moveTo(s.x, s.y); });
+          p0.forEach((p, k) => {
+            const q = p1[k]!;
+            const s = toScreen({ x: p.x + scale * (q.x - p.x), y: p.y + scale * (q.y - p.y), z: (p.z ?? 0) + scale * ((q.z ?? 0) - (p.z ?? 0)) });
+            if (k) ctx.lineTo(s.x, s.y); else ctx.moveTo(s.x, s.y);
+          });
           ctx.stroke();
         }
         ctx.restore();
@@ -277,6 +361,7 @@ export function createFigure3DRenderer(): Figure2DRenderer {
             labels.add({ text: displacementText(Math.hypot(d.ux, d.uy, d.uz), 2, uiStore.unitSystem), colour: '#7fd4cc', font: 'bold 10.5px sans-serif', box: { x: s.x + 6, y: s.y - 6, width: 0, height: 0, dirX: 0, dirY: -1, priority: Math.hypot(d.ux, d.uy, d.uz), anchorX: 'left', sweep: 'any' } });
           }
         }
+        drawMemberTags();
         labels.flush(ctx, memberSegs);
         return;
       }
@@ -286,7 +371,7 @@ export function createFigure3DRenderer(): Figure2DRenderer {
         const kinds = components3D(content, r3d);
         // Every member's diagram on one scale per component, standing about 45 px off the member.
         for (const kind of kinds) {
-          const gmax = computeGlobalMax3D(r3d.elementForces, kind);
+          const gmax = diagramMax(r3d, kind);
           if (!(gmax > 1e-9)) continue;
           const pxPerUnit = 45 / gmax;
           const col = COLORS[kind] ?? COLORS.axial!;
@@ -301,7 +386,7 @@ export function createFigure3DRenderer(): Figure2DRenderer {
             let axes;
             try { axes = computeLocalAxes3D({ id: 0, x: pI.x, y: pI.y, z: pI.z ?? 0 }, { id: 0, x: pJ.x, y: pJ.y, z: pJ.z ?? 0 }, localY, roll || undefined, leftHand); } catch { continue; }
             const { perpVec, sign } = computeDiagramDisplayDirection(axes, perpDir, resultsStore.drawPositiveTowardLocalAxes);
-            const dg = computeDiagram3D(ef, kind);
+            const diagrams = figureDiagrams(r3d, ef, kind);
             // The offset in world units that stands `pxPerUnit` px per kN on the page.
             const sI = toScreen(pI), probe = toScreen({ x: pI.x + perpVec.x, y: pI.y + perpVec.y, z: (pI.z ?? 0) + perpVec.z });
             const pxPerMetre = Math.hypot(probe.x - sI.x, probe.y - sI.y);
@@ -309,23 +394,26 @@ export function createFigure3DRenderer(): Figure2DRenderer {
             const k = pxPerUnit / pxPerMetre;
             const base = (t: number): P3 => ({ x: pI.x + (pJ.x - pI.x) * t, y: pI.y + (pJ.y - pI.y) * t, z: (pI.z ?? 0) + ((pJ.z ?? 0) - (pI.z ?? 0)) * t });
             const tip = (t: number, v: number): P3 => { const b = base(t); const o = sign * v * k; return { x: b.x + perpVec.x * o, y: b.y + perpVec.y * o, z: (b.z ?? 0) + perpVec.z * o }; };
-            ctx.beginPath();
-            const b0 = toScreen(base(0)); ctx.moveTo(b0.x, b0.y);
-            for (const p of dg.points) { const s = toScreen(tip(p.t, p.value)); ctx.lineTo(s.x, s.y); }
-            const b1 = toScreen(base(1)); ctx.lineTo(b1.x, b1.y); ctx.closePath();
-            ctx.fillStyle = col.fill; ctx.fill();
-            ctx.beginPath();
-            dg.points.forEach((p, i) => { const s = toScreen(tip(p.t, p.value)); if (i) ctx.lineTo(s.x, s.y); else ctx.moveTo(s.x, s.y); });
-            ctx.strokeStyle = col.stroke; ctx.lineWidth = 1.4; ctx.stroke();
-            if (opts.values && Math.abs(dg.maxAbsValue) > 0.02 * gmax) {
-              const at = dg.points.find((p) => p.value === dg.maxAbsValue) ?? dg.points[0]!;
-              const s = toScreen(tip(at.t, at.value)), sb = toScreen(base(at.t));
-              const dx = s.x - sb.x, dy = s.y - sb.y, l = Math.hypot(dx, dy) || 1;
-              const shown = isMoment ? -dg.maxAbsValue : dg.maxAbsValue;
-              labels.add({ text: `${SYM[kind]} ${fmtF(shown, isMoment ? 'moment' : 'force')}`, colour: col.stroke, font: 'bold 10.5px sans-serif', box: { x: s.x + (dx / l) * 8, y: s.y + (dy / l) * 8 + 4, width: 0, height: 0, dirX: dx / l, dirY: dy / l, priority: Math.abs(dg.maxAbsValue), anchorX: 'center', sweep: 'any' } });
+            for (const dg of diagrams) {
+              ctx.beginPath();
+              const b0 = toScreen(base(0)); ctx.moveTo(b0.x, b0.y);
+              for (const p of dg.points) { const s = toScreen(tip(p.t, p.value)); ctx.lineTo(s.x, s.y); }
+              const b1 = toScreen(base(1)); ctx.lineTo(b1.x, b1.y); ctx.closePath();
+              ctx.fillStyle = col.fill; ctx.fill();
+              ctx.beginPath();
+              dg.points.forEach((p, i) => { const s = toScreen(tip(p.t, p.value)); if (i) ctx.lineTo(s.x, s.y); else ctx.moveTo(s.x, s.y); });
+              ctx.strokeStyle = col.stroke; ctx.lineWidth = 1.4; ctx.stroke();
+              if (opts.values && Math.abs(dg.maxAbsValue) > 0.02 * gmax) {
+                const at = dg.points.find((p) => p.value === dg.maxAbsValue) ?? dg.points[0]!;
+                const s = toScreen(tip(at.t, at.value)), sb = toScreen(base(at.t));
+                const dx = s.x - sb.x, dy = s.y - sb.y, l = Math.hypot(dx, dy) || 1;
+                const shown = isMoment && !r3d.magnitude ? -dg.maxAbsValue : dg.maxAbsValue;
+                labels.add({ text: `${SYM[kind]} ${fmtF(shown, isMoment ? 'moment' : 'force')}`, colour: col.stroke, font: 'bold 10.5px sans-serif', box: { x: s.x + (dx / l) * 8, y: s.y + (dy / l) * 8 + 4, width: 0, height: 0, dirX: dx / l, dirY: dy / l, priority: Math.abs(dg.maxAbsValue), anchorX: 'center', sweep: 'any' } });
+              }
             }
           }
         }
+        drawMemberTags();
         labels.flush(ctx, memberSegs);
       }
     },

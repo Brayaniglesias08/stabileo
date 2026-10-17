@@ -8,6 +8,17 @@ const nodeAt = (id: number) => nodes.find((n) => n.id === id);
 const at = (x: number, y: number, split = true) => resolveNodePlacement2D({ cursor: { x, y }, snapped: { x, y }, pxPerM: 160, nodes, members, nodeAt, split });
 
 describe('where a node-tool click puts its node', () => {
+  it('splits at the grid point even when the raw cursor is outside the member pick radius', () => {
+    const ns = [{ id: 1, x: 0, y: 0 }, { id: 2, x: 4, y: 0 }];
+    const args = { cursor: { x: 2.1, y: 0.2 }, snapped: { x: 2, y: 0 }, pxPerM: 100,
+      nodes: ns, members: [{ id: 1, nodeI: 1, nodeJ: 2 }], nodeAt: (id: number) => ns.find(n => n.id === id) };
+    expect(resolveNodePlacement2D({ ...args, split: true })).toMatchObject({ kind: 'onMember', elementId: 1, t: 0.5 });
+    expect(resolveNodePlacement2D({ ...args, split: false })).toMatchObject({ kind: 'free', x: 2, y: 0 });
+    expect(resolveNodePlacement2D({ ...args, snapped: { x: 2, y: 0.1 }, split: true })).toMatchObject({ kind: 'free' });
+    ns.push({ id: 3, x: 2, y: 0 });
+    expect(resolveNodePlacement2D({ ...args, split: true })).toMatchObject({ kind: 'onNode', nodeId: 3 });
+  });
+
   it('right on a node: there is one already, nothing is made and nothing is grabbed', () => {
     expect(at(0, 1.64 + (ON_NODE_PX - 1) / 160)).toMatchObject({ kind: 'onNode', nodeId: 3 });
   });

@@ -39,6 +39,7 @@
 
 import { computeLoadDirection } from './draw-loads';
 import { transverseSign } from '../engine/transverse-sign-2d';
+import { pointResultants } from '../engine/member-loads';
 
 export interface DespieceNode { x: number; y: number; }
 
@@ -353,6 +354,24 @@ export function distributedResultantVector(
   const fdir = computeLoadDirection(angle ?? 0, isGlobal ?? false, cosT, sinT);
   const s = magnitude >= 0 ? 1 : -1;
   return { wx: s * fdir.dx, wy: s * fdir.dy, magnitude, centroid };
+}
+
+/**
+ * The point forces a distributed member load amounts to, for the 'resultant' load mode: one at the
+ * centroid, or, for a trapezoid that changes sign, one per triangle (`pointResultants`), so the
+ * drawn forces keep the load's moment. A single force at a clamped centroid moved it: −10 → +6
+ * kN/m on 6 m (12 kN·m about I) was drawn as 12 kN at I, and −10 → +10 (a pure couple of 60)
+ * as nothing. Each force pushes the way the load does (`distributedResultantVector`).
+ */
+export function distributedResultantForces(
+  qI: number, qJ: number, a: number, b: number,
+  angle: number, isGlobal: boolean, cosT: number, sinT: number,
+): Array<{ wx: number; wy: number; magnitude: number; at: number }> {
+  const fdir = computeLoadDirection(angle ?? 0, isGlobal ?? false, cosT, sinT);
+  return pointResultants(qI, qJ, a, b).filter((r) => Math.abs(r.mag) > 1e-9).map((r) => {
+    const s = r.mag >= 0 ? 1 : -1;
+    return { wx: s * fdir.dx, wy: s * fdir.dy, magnitude: r.mag, at: r.at };
+  });
 }
 
 // ─── Click inspection (pure aggregation) ────────────────────────────
