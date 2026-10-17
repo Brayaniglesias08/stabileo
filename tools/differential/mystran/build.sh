@@ -51,13 +51,16 @@ perl -pi -e 's/WRITE\(F06,221\) EID_OUT_ARRAY\(I,1\),GID_OUT_ARRAY\(I,J\),\(OGEL
 # eigenvalue summary (LINK4)
 perl -pi -e 's/^(95302 FORMAT\(1X,2I8,)1ES20\.6,A,1ES19\.6,3\(1ES20\.6\)\)/${1}1ES24.16E3,A,1ES24.16E3,3(1ES24.16E3))/' \
   "$src/Source/LK4/EIG_SUMMARY.f90"
+perl -pi -e 's/^95402 FORMAT\(1X,2I8,5\(1ES20\.6\)\)/95402 FORMAT(1X,2I8,5(1ES24.16E3))/' \
+  "$src/Source/LK4/EIG_SUMMARY.f90"
 # eigenvalue table (frequencies)
 perl -pi -e 's/^98004 FORMAT\(1X,2I8,5\(1ES20\.6\)\)/98004 FORMAT(1X,2I8,5(1ES24.16E3))/' "$src/Source/LK5/LINK5.f90"
 grep -q "ES24.16E3))\x27) GID_OUT_ARRAY" "$L91/WRITE_GRD_PRT_OUTPUTS.f90" &&
   [ "$(grep -c "OGEL(L,K),K=1,6" "$L91/WRITE_ELEM_NODE_FORCE.f90")" = 2 ] &&
   [ "$(grep -c "ES24.16E3" "$L91/WRITE_ELEM_NODE_FORCE.f90")" = 2 ] &&
   grep -q "^95302 FORMAT(1X,2I8,1ES24.16E3" "$src/Source/LK4/EIG_SUMMARY.f90" &&
-  grep -q "^98004 FORMAT(1X,2I8,5(1ES24.16E3))" "$src/Source/LK5/LINK5.f90" ||
+  grep -q "^98004 FORMAT(1X,2I8,5(1ES24.16E3))" "$src/Source/LK5/LINK5.f90" &&
+  grep -q "^95402 FORMAT(1X,2I8,5(1ES24.16E3))" "$src/Source/LK4/EIG_SUMMARY.f90" ||
   { echo "mystran: precision patch did not apply" >&2; exit 1; }
 
 rm -rf "$build"
