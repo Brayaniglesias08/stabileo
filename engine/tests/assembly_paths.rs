@@ -677,9 +677,21 @@ fn check_3d(input: &SolverInput3D, densities: &HashMap<String, f64>, seed: u64) 
     }
 
     let u = u_random(n, seed);
+    // `add_geometric_stiffness_3d` includes the shells' Kg (P-Delta uses it,
+    // since the feature-matrix PR); the affine terms and the element-force
+    // builder are frames/trusses only, so they are compared with the members'
+    // part: the same model with its shells removed, on the same numbering.
+    let mut kg_all = vec![0.0; n * n];
+    add_geometric_stiffness_3d(input, &dn, &u, &mut kg_all);
+    c.symmetric("3d.kg.symmetric", &kg_all, n);
+    let mut members_only = input.clone();
+    members_only.plates.clear();
+    members_only.quads.clear();
+    members_only.quad9s.clear();
+    members_only.solid_shells.clear();
+    members_only.curved_shells.clear();
     let mut kg = vec![0.0; n * n];
-    add_geometric_stiffness_3d(input, &dn, &u, &mut kg);
-    c.symmetric("3d.kg.symmetric", &kg, n);
+    add_geometric_stiffness_3d(&members_only, &dn, &u, &mut kg);
     let (kg_terms, axial) = kg_from_terms(&geometric_stiffness_terms_3d(input, &dn), &u, n);
     c.mat("3d.kg.terms", &kg_terms, &kg, n);
     let kg_forces = build_kg_from_forces_3d(input, &dn, &forces_3d(&axial)).into_csc();
@@ -702,11 +714,10 @@ fn check_3d(input: &SolverInput3D, densities: &HashMap<String, f64>, seed: u64) 
             c.vec("3d.certify.rhs", &mid, &reduced_rhs(k, n, nf, &f, &u_of_3d(&dn, &res)));
         }
     }
-    let surfaces = !(input.plates.is_empty() && input.quads.is_empty() && input.quad9s.is_empty()
-        && input.solid_shells.is_empty() && input.curved_shells.is_empty());
     if let Ok(sys) = buckling_system_3d(input) {
         c.mat("3d.buckling.k_ff", &dense(&sys.k_ff), &block(k, n, &free), nf);
-        if !surfaces {
+        {
+            // Members and shells alike (the reference includes the shells' Kg).
             // K_G at the linear solution's displacements (N from elongation,
             // as buckling builds it), over all DOFs, rotated like K.
             let uu = u_of_3d(&sys.dof_num, &sys.linear);
