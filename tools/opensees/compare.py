@@ -1128,7 +1128,9 @@ def analysis_buckling(ctx):
     # K phi = lambda (-Kg) phi  <=>  (-Kg) phi = mu K phi, lambda = 1/mu.
     mu, vec = _gen_eig_spd(-kg, k)
     top = max(abs(mu).max(), 1e-300)
-    order = [i for i in np.argsort(-mu) if mu[i] > 1e-12 * top]
+    # mu below 1e-9 of the largest is the round-off of Kg's null space (no
+    # compressed member along it), lambda ~ 1e10..1e16: not a buckling mode.
+    order = [i for i in np.argsort(-mu) if mu[i] > 1e-9 * top]
     n = int(ctx["spec"].get("numModes", 4))
     return dict(dim=ctx["dim"], kappa=_kappa(k), art_rot=sorted(ctx["art_rot"]), linear=linear,
                 values=[1.0 / float(mu[i]) for i in order[:n]],
@@ -1306,7 +1308,13 @@ def stabileo_job(job, binary):
     elif kind == "modal":
         w = {"analysis": "modal", "numModes": job["numModes"], "densities": job["densities"], "model": d}
     elif kind == "pdelta":
-        w = {"analysis": "pdelta", "maxIter": 200, "tolerance": 1e-11, "model": d}
+        # 1e-11 relative increment; a model whose round-off floor sits above
+        # that (it stalls there, converged to ~1e-9) is retried at 1e-8,
+        # still far inside the 1e-6 comparison tolerance.
+        out = stabileo({"analysis": "pdelta", "maxIter": 200, "tolerance": 1e-11, "model": d}, binary)
+        if out["converged"]:
+            return out
+        w = {"analysis": "pdelta", "maxIter": 200, "tolerance": 1e-8, "model": d}
     elif kind == "th":
         th = {"solver": d, "densities": job["densities"], "timeStep": job["dt"], "nSteps": job["nSteps"],
               "method": "hht" if job.get("alpha") is not None else "newmark",
@@ -1341,7 +1349,7 @@ def normalize_ext(kind, res, dim):
         return dict(values=[m[key] for m in res["modes"]], modes=[node_vec(m["displacements"]) for m in res["modes"]])
     if kind == "pdelta":
         r = normalize_stabileo(res["results"], dim)
-        r["converged"] = res["converged"]
+        r["converged"], r["stable"] = res["converged"], res["isStable"]
         return r
     comps = ("ux", "uz", "ry") if dim == 2 else ("ux", "uy", "uz", "rx", "ry", "rz")
     return dict(hist={h["nodeId"]: [list(u) for u in zip(*(h[c] for c in comps))] for h in res["nodeHistories"]})
@@ -1729,10 +1737,12 @@ def run_ext(name, job, binary, tol, dump_dir=None):
     if ill:
         return dict(base, status="ill_conditioned", why=ill)
     ores = opensees_isolated(job)
-    if kind == "pdelta" and not sres["converged"]:
-        # Beyond the buckling load neither iteration converges: not compared.
-        st = "unstable" if "failed" in ores else "stabileo_failed"
-        return dict(base, status=st, why=["P-Delta not converged"])
+    if kind == "pdelta" and not (sres["converged"] and sres["stable"]):
+        # Beyond the buckling load: no stable equilibrium to compare (the
+        # engine flags it, or neither iteration converges).
+        if sres["converged"] or "failed" in ores:
+            return dict(base, status="unstable", why=["beyond buckling"])
+        return dict(base, status="stabileo_failed", why=["P-Delta not converged"])
     if "unsupported" in ores:
         return dict(base, status="unsupported", why=[ores["unsupported"]])
     if "failed" in ores:
@@ -1839,7 +1849,7 @@ def main():
     cnt = Counter(r["status"] for r in results)
     by_cat = {}
     for r in results:
-        cat = r["name"].rsplit("-", 1)[0] if "-" in r["name"] else "files"
+        cat = "files" if r["name"].endswith(".json") else r["name"].rsplit("-", 1)[0]
         by_cat.setdefault(cat, Counter())[r["status"]] += 1
     print()
     for cat, c_ in sorted(by_cat.items()):
