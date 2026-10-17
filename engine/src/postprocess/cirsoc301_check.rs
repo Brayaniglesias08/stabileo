@@ -136,9 +136,14 @@ pub struct Cirsoc301MemberData {
     /// Weak-axis inertia (CIRSOC Iy).
     #[serde(rename = "Iy")]
     pub i_weak: f64,
+    /// Plate dimensions; absent = 0, which every check that needs them refuses or fails.
+    #[serde(default)]
     pub h: f64,
+    #[serde(default)]
     pub b: f64,
+    #[serde(default)]
     pub tw: f64,
+    #[serde(default)]
     pub tf: f64,
     #[serde(rename = "Zx", default)]
     pub zx: Option<f64>,
