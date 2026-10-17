@@ -1731,24 +1731,6 @@ fn feature_matrix() {
     assert!(on_disk == text, "docs/verification/FEATURE_MATRIX.md is out of date: rerun with UPDATE_FEATURE_MATRIX=1");
 }
 
-#[test]
-#[ignore]
-fn debug_probe() {
-    let cases = cases_3d();
-    let c = cases.iter().find(|c| c.feature == "constraint (diaphragm)").unwrap();
-    for lateral in [true, false] {
-        for (lbl, m) in [("with", &c.with), ("without", &c.without), ("equiv", c.equiv.as_ref().unwrap())] {
-            let mut m = m.clone();
-            if !lateral {
-                m.s.loads = vec![];
-                m.nodal(2, [0.0, 0.0, -200.0, 0.0, 0.0, 0.0]);
-            }
-            let r = buckling::solve_buckling_3d(&m.s, 3).map(|r| r.modes.iter().map(|x| x.load_factor).collect::<Vec<_>>());
-            println!("lateral {lateral} {lbl}: {:?}", r);
-        }
-    }
-}
-
 // ==================== 3D model builder ====================
 
 #[derive(Clone)]
@@ -1895,16 +1877,6 @@ impl M3 {
 fn rot_y(phi: f64) -> [[f64; 3]; 3] {
     let (s, c) = phi.sin_cos();
     [[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]]
-}
-
-fn transpose(r: &[[f64; 3]; 3]) -> [[f64; 3]; 3] {
-    let mut t = [[0.0; 3]; 3];
-    for i in 0..3 {
-        for j in 0..3 {
-            t[i][j] = r[j][i];
-        }
-    }
-    t
 }
 
 fn disp3(r: &AnalysisResults3D, probes: &[usize]) -> Result<Out, String> {
