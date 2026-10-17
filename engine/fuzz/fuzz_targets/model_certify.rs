@@ -6,7 +6,8 @@
 //! Checks: the linear solve, the linear certificate, buckling and modal
 //! certificates return `Err` or finite results; certificates are consistent;
 //! a certified linear result with nodal loads is in global equilibrium; the
-//! JSON round trip the WASM layer does is lossless for the model.
+//! JSON round trip the WASM layer does is lossless for the model; several
+//! supports on one node are rejected unless all are plain rigid restraints.
 #![no_main]
 
 use arbitrary::Arbitrary;
@@ -31,10 +32,16 @@ struct Elem {
     sec: u8,
 }
 
+/// Mask bit that keeps a support on an already supported node (merged if all
+/// are plain rigid restraints, rejected otherwise); without it such supports
+/// are dropped, so most models have one support per node.
+const DUPLICATE_SUPPORT: u8 = 0x80;
+
 #[derive(Arbitrary, Debug)]
 struct Support {
     node: u8,
-    /// Restraint bits (low 3 in 2D, low 6 in 3D).
+    /// Restraint bits (low 2 pick the 2D type, low 6 the 3D flags), plus
+    /// `DUPLICATE_SUPPORT`.
     mask: u8,
     settlement: Option<i8>,
     spring: Option<u8>,
@@ -126,10 +133,12 @@ fn build_2d(m: &Model) -> Option<SolverInput> {
     if elements.is_empty() {
         return None;
     }
+    let mut supported = std::collections::HashSet::new();
     let supports = m
         .supports
         .iter()
         .take(nn)
+        .filter(|s| supported.insert(pick(s.node, nn)) || s.mask & DUPLICATE_SUPPORT != 0)
         .enumerate()
         .map(|(k, s)| {
             let support_type = match (s.spring, s.mask % 4) {
@@ -246,10 +255,12 @@ fn build_3d(m: &Model) -> Option<SolverInput3D> {
     if elements.is_empty() {
         return None;
     }
+    let mut supported = std::collections::HashSet::new();
     let supports = m
         .supports
         .iter()
         .take(nn)
+        .filter(|s| supported.insert(pick(s.node, nn)) || s.mask & DUPLICATE_SUPPORT != 0)
         .enumerate()
         .map(|(k, s)| {
             let b = |bit: u8| s.mask & (1 << bit) != 0;
@@ -358,6 +369,12 @@ fuzz_target!(|m: Model| {
             return;
         }
         round_trips(&input);
+        if ambiguous_shared_node(input.supports.values().map(|s| (s.node_id, plain_3d(s)))) {
+            assert!(linear::solve_3d(&input).is_err(), "solve_3d accepted an ambiguous shared support node");
+            assert!(certify::certify_linear_3d_full(&input).is_err(), "certify_linear_3d accepted an ambiguous shared support node");
+            assert!(cbuck::certify_buckling_3d(&input, n).is_err(), "certify_buckling_3d accepted an ambiguous shared support node");
+            return;
+        }
         if let Ok(r) = linear::solve_3d(&input) {
             check_output("solve_3d", &r);
         }
@@ -380,6 +397,12 @@ fuzz_target!(|m: Model| {
     } else {
         let Some(input) = build_2d(&m) else { return };
         round_trips(&input);
+        if ambiguous_shared_node(input.supports.values().map(|s| (s.node_id, plain_2d(s)))) {
+            assert!(linear::solve_2d(&input).is_err(), "solve_2d accepted an ambiguous shared support node");
+            assert!(certify::certify_linear_2d_full(&input).is_err(), "certify_linear_2d accepted an ambiguous shared support node");
+            assert!(cbuck::certify_buckling_2d(&input, n).is_err(), "certify_buckling_2d accepted an ambiguous shared support node");
+            return;
+        }
         if let Ok(r) = linear::solve_2d(&input) {
             check_output("solve_2d", &r);
         }
@@ -407,4 +430,29 @@ fn only_certified_if_finite(c: &Certificate) {
     if let Certificate::Certified { abs_bound, residual_norm, sigma, .. } = c {
         assert!(abs_bound.is_finite() && residual_norm.is_finite() && sigma.is_finite(), "certified with a non-finite bound: {c:?}");
     }
+}
+
+/// Some node has several supports and one of them is not a plain rigid
+/// restraint (the engine merges plain ones by OR and rejects the rest).
+fn ambiguous_shared_node(sups: impl Iterator<Item = (usize, bool)>) -> bool {
+    let mut at: HashMap<usize, (usize, bool)> = HashMap::new();
+    for (node, plain) in sups {
+        let e = at.entry(node).or_insert((0, true));
+        e.0 += 1;
+        e.1 &= plain;
+    }
+    at.values().any(|&(count, all_plain)| count > 1 && !all_plain)
+}
+
+fn zero(v: Option<f64>) -> bool {
+    v.is_none_or(|x| x == 0.0)
+}
+
+fn plain_2d(s: &SolverSupport) -> bool {
+    s.support_type != "spring" && [s.kx, s.ky, s.kz, s.dx, s.dz, s.dry, s.angle].into_iter().all(zero)
+}
+
+fn plain_3d(s: &SolverSupport3D) -> bool {
+    !s.is_inclined.unwrap_or(false)
+        && [s.kx, s.ky, s.kz, s.krx, s.kry, s.krz, s.kw, s.dx, s.dy, s.dz, s.drx, s.dry, s.drz].into_iter().all(zero)
 }

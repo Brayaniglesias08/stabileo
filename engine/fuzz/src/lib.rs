@@ -29,7 +29,7 @@ pub mod audit;
 pub const ALLOWED_NON_FINITE: &[&str] = &["relBound", "omega2Upper", "uniquenessRadius", "bimoment", "b2Factor"];
 
 /// Caps on the integer knobs that scale the work (time steps, iterations,
-/// subdivisions). Node/element counts are bounded by libFuzzer's `-max_len`.
+/// subdivisions).
 const CAPS: &[(&str, u64)] = &[
     ("nSteps", 400),
     ("numSegments", 64),
@@ -43,6 +43,13 @@ const CAPS: &[(&str, u64)] = &[
 /// frequency lists, …).
 const MAX_ARRAY: usize = 512;
 
+/// Largest JSON object (node, element, support maps) the harness lets through.
+/// The 232-node industrial-hall template (tests/fixtures/ex-3d-nave-industrial)
+/// takes 4–11 s natively for P-Delta, the modal and harmonic certificates, and
+/// over the 60 s timeout in the instrumented fuzz build; models this large are
+/// exercised by the release test suite, and the fuzz budget goes to small ones.
+const MAX_OBJECT: usize = 96;
+
 /// Whether a parsed input is small enough to solve within the fuzz time budget.
 pub fn within_bounds<T: Serialize>(input: &T) -> bool {
     match serde_json::to_value(input) {
@@ -54,7 +61,7 @@ pub fn within_bounds<T: Serialize>(input: &T) -> bool {
 fn value_within_bounds(v: &Value) -> bool {
     match v {
         Value::Array(a) => a.len() <= MAX_ARRAY && a.iter().all(value_within_bounds),
-        Value::Object(m) => m.iter().all(|(k, x)| {
+        Value::Object(m) => m.len() <= MAX_OBJECT && m.iter().all(|(k, x)| {
             let capped = CAPS.iter().find(|(name, _)| name == k);
             match (capped, x.as_u64()) {
                 (Some((_, cap)), Some(n)) if n > *cap => false,
