@@ -80,10 +80,11 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
     // module rather than the call.
     super::linear::validate_input_2d(&input.solver)?;
     // Fiber members are Euler–Bernoulli and continuous at both ends, and the
-    // tangent has no connectors or prescribed displacements. Inclined supports
-    // are solved in their frames (fix/inclined-supports).
+    // tangent has no prescribed displacements. Connectors are supported
+    // (fix/nonlinear-solvers) and inclined supports are solved in their frames
+    // (fix/inclined-supports).
     super::feature_gates::refuse_2d(&input.solver, "Fiber-nonlinear analysis", &[
-        super::feature_gates::Feature::Connectors, super::feature_gates::Feature::PrescribedDisplacements,
+        super::feature_gates::Feature::PrescribedDisplacements,
         super::feature_gates::Feature::ShearDeformation, super::feature_gates::Feature::MomentReleases,
     ])?;
 
@@ -105,7 +106,9 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
     // element state lives; each Newton step is solved in the inclined-roller
     // frames the restraints are numbered in: the tangent and the residual are
     // rotated into them and the correction rotated back.
-    let its = assembly::assemble_stiffness_2d(&input.solver, &dof_num).inclined_transforms_2d;
+    let asm = assembly::assemble_2d(&input.solver, &dof_num);
+    let art = assembly::artificial_stiffness_entries(&asm);
+    let its = asm.inclined_transforms_2d;
     let f_total = assembly::assemble_load_vector_2d(&input.solver, &input.solver.loads, &dof_num, &[]);
 
     // Initialize per-element fiber states
@@ -179,7 +182,7 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
                 );
 
                 // Add spring contributions
-                add_springs(&input.solver, &dof_num, &u_full, &mut f_int, &mut scatter);
+                add_springs(&input.solver, &dof_num, &u_full, &mut f_int, &art, &mut scatter);
             } else {
                 k_t = vec![0.0; n * n];
                 let mut scatter = |gi: usize, gj: usize, v: f64| k_t[gi * n + gj] += v;
@@ -196,7 +199,7 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
                 );
 
                 // Add spring contributions
-                add_springs(&input.solver, &dof_num, &u_full, &mut f_int, &mut scatter);
+                add_springs(&input.solver, &dof_num, &u_full, &mut f_int, &art, &mut scatter);
             }
 
             // Into the inclined-support frames: tangent and residual.
@@ -386,7 +389,7 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
             &input.solver, &input.fiber_sections, &dof_num,
             &u_full, &mut f_int_final, &mut scatter,
         );
-        add_springs(&input.solver, &dof_num, &u_full, &mut f_int_final, &mut scatter);
+        add_springs(&input.solver, &dof_num, &u_full, &mut f_int_final, &art, &mut scatter);
         let free_idx: Vec<usize> = (0..nf).collect();
         let k_ff = extract_submatrix(&k_t_final, n, &free_idx, &free_idx);
         let raw = fcs.compute_constraint_forces(&k_ff, &u_full[..nf], &f_total[..nf]);
@@ -591,12 +594,23 @@ fn add_springs(
     dof_num: &DofNumbering,
     u_full: &[f64],
     f_int: &mut [f64],
+    art: &[(usize, f64)],
     scatter: &mut impl FnMut(usize, usize, f64),
 ) {
     // Shared with the linear assembler (angle, rotational springs on any support).
     for (i, j, k) in super::assembly::support_spring_entries_2d(solver, dof_num) {
         scatter(i, j, k);
         f_int[i] += k * u_full[j];
+    }
+    // Connectors, small displacements as in the linear assembler.
+    for (i, j, k) in crate::element::connector::connector_entries_2d(solver, dof_num) {
+        scatter(i, j, k);
+        f_int[i] += k * u_full[j];
+    }
+    // The linear assembler's artificial stiffness on DOFs nothing else holds.
+    for &(d, k) in art {
+        scatter(d, d, k);
+        f_int[d] += k * u_full[d];
     }
 }
 
@@ -638,7 +652,7 @@ pub fn solve_fiber_nonlinear_3d(input: &FiberNonlinearInput3D) -> Result<FiberNo
     // As in 2D, plus warping and shells, which the fiber tangent has no
     // element for.
     super::feature_gates::refuse_3d(&input.solver, "Fiber-nonlinear analysis", &[
-        super::feature_gates::Feature::Connectors, super::feature_gates::Feature::PrescribedDisplacements,
+        super::feature_gates::Feature::PrescribedDisplacements,
         super::feature_gates::Feature::ShearDeformation, super::feature_gates::Feature::MomentReleases, super::feature_gates::Feature::Warping, super::feature_gates::Feature::Shells,
     ])?;
     // Curved beams are expanded into straight members, as every static path
@@ -976,6 +990,10 @@ fn add_springs_3d(
     scatter: &mut impl FnMut(usize, usize, f64),
 ) {
     for (i, j, k) in super::assembly::support_spring_entries_3d(solver, dof_num) {
+        scatter(i, j, k);
+        f_int[i] += k * u_full[j];
+    }
+    for (i, j, k) in crate::element::connector::connector_entries_3d(solver, dof_num) {
         scatter(i, j, k);
         f_int[i] += k * u_full[j];
     }

@@ -387,26 +387,11 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
     }
 
     // Assemble connector elements
-    if !input.connectors.is_empty() {
-        let node_by_id: std::collections::HashMap<usize, &SolverNode> =
-            input.nodes.values().map(|nd| (nd.id, nd)).collect();
-        for conn in crate::element::connector::sorted_by_id(&input.connectors) {
-            let ni = match node_by_id.get(&conn.node_i) { Some(n) => n, None => continue };
-            let nj = match node_by_id.get(&conn.node_j) { Some(n) => n, None => continue };
-            let (dofs, ke) = crate::element::connector::connector_scatter_2d(conn, ni, nj, dof_num);
-            let ndof = dofs.len();
-            for i in 0..ndof {
-                for j in 0..ndof {
-                    let gi = dofs[i];
-                    let gj = dofs[j];
-                    let v = ke[i * ndof + j];
-                    if gi >= gj {
-                        trip_rows.push(gi); trip_cols.push(gj); trip_vals.push(v);
-                    }
-                }
-                diag_vals[dofs[i]] += ke[i * ndof + i];
-            }
+    for (gi, gj, v) in crate::element::connector::connector_entries_2d(input, dof_num) {
+        if gi >= gj {
+            trip_rows.push(gi); trip_cols.push(gj); trip_vals.push(v);
         }
+        if gi == gj { diag_vals[gi] += v; }
     }
 
     // Add spring stiffness (with rotation support for springs with angle)
@@ -1153,9 +1138,11 @@ pub fn assemble_stiffness_sparse_3d_parallel(input: &SolverInput3D, dof_num: &Do
 
             AnyElement3D::Connector(conn) => {
                 let ni = match node_map.get(&conn.node_i) { Some(n) => n, None => return ElementContribution3D { trip_rows, trip_cols, trip_vals, diag_contributions: diag, diagnostics } };
-                let nj_node = match node_map.get(&conn.node_j) { Some(n) => n, None => return ElementContribution3D { trip_rows, trip_cols, trip_vals, diag_contributions: diag, diagnostics } };
-                let (dofs, ke) = crate::element::connector::connector_scatter_3d(conn, ni, nj_node, dof_num);
-                scatter_triplets(&ke, &dofs, dofs.len(), &mut trip_rows, &mut trip_cols, &mut trip_vals, &mut diag);
+                let nj = match node_map.get(&conn.node_j) { Some(n) => n, None => return ElementContribution3D { trip_rows, trip_cols, trip_vals, diag_contributions: diag, diagnostics } };
+                for (gi, gj, v) in crate::element::connector::one_connector_entries_3d(conn, ni, nj, dof_num) {
+                    if gi >= gj { trip_rows.push(gi); trip_cols.push(gj); trip_vals.push(v); }
+                    if gi == gj { diag.push((gi, v)); }
+                }
             }
 
             AnyElement3D::Plate(plate) => {
