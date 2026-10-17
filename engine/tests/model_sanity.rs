@@ -602,6 +602,13 @@ fn a_node_near_but_off_a_span_or_unused_is_not_flagged() {
     input.supports.push(SanitySupport { node_id: 901, restraint: [true; 6], spring: [None; 6] });
     // A construction point on a beam that nothing uses.
     input.nodes.push(SanityNode { id: 902, x: 3.0, y: 6.0, z: 3.0 });
+    // A beam hung 0.2 m below the first floor by a rigid offset: its end node lies on the column
+    // below, tied to the column's top node by a link, which is a connection.
+    let (top, below) = (node_id(&Spec::steel(), 2, 2, 1), 903);
+    input.nodes.push(SanityNode { id: below, x: 12.0, y: 12.0, z: 2.8 });
+    input.nodes.push(SanityNode { id: 904, x: 18.0, y: 12.0, z: 2.8 });
+    input.members.push(SanityMember { id: 903, node_i: below, node_j: 904, material_id: 1, section_id: 2, truss: false });
+    input.links.push(vec![top, below]);
     let r = review(&input);
     assert!(!r.has(SanityCode::NodeOnSpan), "{:#?}", r.findings);
 }

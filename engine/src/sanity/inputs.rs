@@ -542,11 +542,19 @@ const ON_SPAN_TOL: f64 = 1e-3;
 /// Nodes that lie on a member's span without being one of its ends. The solver connects a member
 /// only at its two end nodes, so a node drawn on it is not connected: what frames into that node
 /// never reaches the member. Only nodes that something structural uses (a member or a shell) are
-/// looked at; a free construction point on a member changes nothing.
+/// looked at; a free construction point on a member changes nothing. A node tied to one of the
+/// member's ends by a link (a rigid offset, a constraint) is connected through it: a beam hung
+/// below a slab by an offset has its end on the column's line, linked to the column's node.
 fn nodes_on_spans(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
     if g.members.is_empty() {
         r.skipped(CheckId::Connectivity, SkipReason::NoMembers, "the model has no members", Params::new());
         return;
+    }
+    let mut linked = Components::new();
+    for l in &input.links {
+        for w in l.windows(2) {
+            linked.union(w[0], w[1]);
+        }
     }
     let mut used: BTreeSet<usize> = BTreeSet::new();
     for m in &g.members {
@@ -578,6 +586,10 @@ fn nodes_on_spans(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
                     let Some(bucket) = grid.get(&[x, y, z]) else { continue };
                     for &(n, p) in bucket {
                         if n == m.i || n == m.j {
+                            continue;
+                        }
+                        let root = linked.find(n);
+                        if root == linked.find(m.i) || root == linked.find(m.j) {
                             continue;
                         }
                         let v = sub(p, m.pi);

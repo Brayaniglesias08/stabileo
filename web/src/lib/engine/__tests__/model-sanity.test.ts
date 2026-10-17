@@ -60,10 +60,8 @@ const summary = (r: SanityReport | null) => (r?.findings ?? []).map((f) => `${f.
 const JUSTIFIED_WARNINGS: Record<string, string[]> = {
   // Nodes on a member's span that are not connected to it, found by the check added with this
   // pin; each model is examined below and either fixed or the warning justified.
-  'pro-steel-building-slabs': ['node_on_span'],
   'cable-stayed-bridge-small': ['node_on_span'],
   'cable-stayed-bridge': ['node_on_span'],
-  'pro-edificio-7p': ['node_on_span'],
   'suspension-bridge': ['node_on_span'],
   // Half the dead and live member loads are given in local Y, which is horizontal for those beams:
   // 1440 kN of the dead case (and 720 kN of the live) push the building sideways, and the columns
