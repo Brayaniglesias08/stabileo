@@ -168,6 +168,35 @@ fn validation_warping_cantilever_end_torque() {
     );
 }
 
+/// The same cantilever against Vlasov's closed form, θ(L) = T/(GJ)·(L − tanh(kL)/k), in four
+/// elements. The element twist is cubic, so its St-Venant part is ½∫GJ·θ'² over the cubic too
+/// (Barsoum–Gallagher 1970): GJ/(30L)·[36, 3L, −36, 3L; …]. It used to be GJ/L on the twist
+/// DOFs alone, a linear-twist St-Venant term beside a cubic warping one, which converged as h²
+/// instead of h⁴: 0.8% off here in four elements, 10% in one. Found by tests/symbolic_elements.rs.
+#[test]
+fn validation_warping_cantilever_end_torque_matches_vlasov() {
+    let l = 3.0;
+    let torque = 1.0;
+    let k = (G_EFF * J_SEC / (E_EFF * CW)).sqrt();
+    let exact = torque / (G_EFF * J_SEC) * (l - (k * l).tanh() / k);
+    for (n, tol) in [(1, 2e-2), (4, 1e-4)] {
+        let input = make_warping_beam(
+            n, l,
+            vec![true, true, true, true, true, true],
+            None,
+            vec![SolverLoad3D::Nodal(SolverNodalLoad3D {
+                node_id: n + 1, fx: 0.0, fy: 0.0, fz: 0.0,
+                mx: torque, my: 0.0, mz: 0.0, bw: None,
+            })],
+            true,
+        );
+        let res = linear::solve_3d(&input).unwrap();
+        let tip = res.displacements.iter().find(|d| d.node_id == n + 1).unwrap().rx;
+        let err = (tip - exact).abs() / exact;
+        assert!(err < tol, "{n} elements: θ(L) = {tip:.9e}, Vlasov {exact:.9e} (relative error {err:.2e})");
+    }
+}
+
 // ================================================================
 // 2. Z-Section Cantilever Under Torsion
 // ================================================================
