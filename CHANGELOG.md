@@ -11,6 +11,17 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Fixes found by fuzzing the WASM entry points (2026-10-17)
+
+Found by the cargo-fuzz targets in `engine/fuzz` (`docs/verification/FUZZ_MUTANTS.md`),
+each with a regression test.
+
+- **Several supports on one node double-counted its reaction.** Linear 2D/3D results listed
+  one reaction per support, each with the node's full restrained-DOF reaction, so ΣR was
+  off by the applied load and a *certified* result failed global equilibrium. Each node now
+  has a single reaction entry with its restrained reactions counted once (spring forces of
+  all its supports still add). `tests/duplicate_support_reactions.rs`.
+
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 
 **BREAKING (results): models with Timoshenko members under member loads, plastic analyses,
