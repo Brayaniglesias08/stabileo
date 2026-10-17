@@ -53,6 +53,11 @@ export function reverseElementInModel(model: ReversibleModel, id: number, is3D =
     if (el.jointJ) next.jointI = { dof: [...el.jointJ.dof] as typeof el.jointJ.dof }; else delete next.jointI;
     if (el.jointI) next.jointJ = { dof: [...el.jointI.dof] as typeof el.jointI.dof }; else delete next.jointJ;
   }
+  // The tension connection is recorded per end, so it swaps with them.
+  if (el.tensionConnection) {
+    const tc = el.tensionConnection;
+    next.tensionConnection = { ...(tc.j ? { i: tc.j } : {}), ...(tc.i ? { j: tc.i } : {}) };
+  }
   // The solver rotates by rollAngle + section.rotation. Compensate on this
   // member so reversing it does not rotate every member sharing the section.
   const sectionRotation = is3D ? (model.sections.get(el.sectionId)?.rotation ?? 0) : 0;
