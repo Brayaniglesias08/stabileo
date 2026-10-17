@@ -121,7 +121,10 @@ export function buildSanityInput(ctx: SanityContext): { input: unknown; shellKey
   for (const c of si.connectors?.values() ?? []) links.push([c.nodeI, c.nodeJ]);
 
   const solved = ctx.perCase.size > 0 || !!ctx.single;
-  const hasShells = shellKeys.length > 0;
+  // Moments close about the origin in the model's own coordinates only: a flat 2D model is
+  // solved turned into the XZ plane, and its moments are then about other axes than its loads'.
+  const planar = shouldEmbedFlat2DModelIn3D(model);
+  const momentsOpen = shellKeys.length > 0 || planar;
   const caseTypes = new Map(model.loadCases.map((c) => [c.id, c.type]));
   const base = model as never;
   const effects = withCaseEffects(base, model.loadCases as never, { includeSelfWeight: ctx.includeSelfWeight, leftHand: ctx.leftHand });
@@ -146,7 +149,7 @@ export function buildSanityInput(ctx: SanityContext): { input: unknown; shellKey
   if (ctx.perCase.size === 0 && ctx.single) {
     // A single solve of every load: one case, of no particular kind.
     const s = summed(singleSolveModel(base, model.loadCases as never), null);
-    cases.push({ id: 0, name: '', kind: 'other', ...s, momentsClose: !hasShells, ...resultsOf(ctx.single) });
+    cases.push({ id: 0, name: '', kind: 'other', ...s, momentsClose: !momentsOpen, ...resultsOf(ctx.single) });
   } else {
     for (const c of model.loadCases) {
       const r = ctx.perCase.get(c.id);
@@ -156,7 +159,7 @@ export function buildSanityInput(ctx: SanityContext): { input: unknown; shellKey
         id: c.id, name: c.name,
         kind: (c.category && KIND_OF_CATEGORY[c.category]) ?? KIND[c.type] ?? 'other',
         ...s,
-        momentsClose: !hasShells && !r?.secondOrder,
+        momentsClose: !momentsOpen && !r?.secondOrder,
         ...(notCheckable ? { notCheckable } : {}),
         ...resultsOf(r),
       });
@@ -165,7 +168,7 @@ export function buildSanityInput(ctx: SanityContext): { input: unknown; shellKey
 
   const input = {
     up: 'z',
-    planar: shouldEmbedFlat2DModelIn3D(model),
+    planar,
     nodes: [...si.nodes.values()].map((n) => ({ id: n.id, x: n.x, y: n.y, z: n.z })),
     materials: [...model.materials.values()].map((m) => {
       const family = m.gradeId ? catalogueGradeFamily(m.gradeId) : null;
@@ -177,11 +180,20 @@ export function buildSanityInput(ctx: SanityContext): { input: unknown; shellKey
     })),
     shells,
     links,
-    supports: [...si.supports.values()].map((s) => ({
-      nodeId: s.nodeId,
-      restraint: [s.rx, s.ry, s.rz, s.rrx, s.rry, s.rrz],
-      spring: [s.kx, s.ky, s.kz, s.krx, s.kry, s.krz].map((k) => (k && k > 0 ? k : null)),
-    })),
+    // The supports the project placed. The solve adds restraint of its own — tiny rotational
+    // springs on rotations nothing holds (`orphan-rotations-3d.ts`) — which is not the
+    // project's and would read as an absurdly soft spring: a spring counts only where the
+    // project's support states one.
+    supports: [...si.supports.values()].flatMap((s) => {
+      const own = [...model.supports.values()].find((m) => m.nodeId === s.nodeId);
+      if (!own) return [];
+      const stated = (['kx', 'ky', 'kz', 'krx', 'kry', 'krz'] as const).some((k) => (own[k] ?? 0) > 0);
+      return [{
+        nodeId: s.nodeId,
+        restraint: [s.rx, s.ry, s.rz, s.rrx, s.rry, s.rrz],
+        spring: [s.kx, s.ky, s.kz, s.krx, s.kry, s.krz].map((k) => (stated && k && k > 0 ? k : null)),
+      }];
+    }),
     cases,
     modal: ctx.modal?.modes?.length
       ? { modes: ctx.modal.modes.map((m) => ({ period: m.period, massX: m.massRatioX ?? 0, massY: m.massRatioY ?? 0 })) }

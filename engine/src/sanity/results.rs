@@ -181,6 +181,24 @@ fn gravity_direction(input: &SanityInput, g: &ModelGeometry, r: &mut Report) {
                     .case(c.id),
             );
         }
+        let horizontal = (a[g.plan[0]].powi(2) + a[g.plan[1]].powi(2)).sqrt();
+        if horizontal > 1.0 && horizontal > 0.1 * v.abs() {
+            let msg = format!(
+                "Case '{}' is a {} case, but its loads add up to {} kN horizontally against {} kN vertically.",
+                case_name(c),
+                if c.kind == CaseKind::Dead { "dead-load" } else { "live-load" },
+                fmt(horizontal),
+                fmt(v.abs())
+            );
+            r.push(
+                finding(SanityCode::GravityCaseHorizontal, CheckId::GravityDirection, Severity::Warning, msg)
+                    .with("case", case_name(c))
+                    .with("kind", if c.kind == CaseKind::Dead { "dead" } else { "live" })
+                    .with("horizontal", horizontal)
+                    .with("vertical", v.abs())
+                    .case(c.id),
+            );
+        }
     }
     r.ran(CheckId::GravityDirection);
 }

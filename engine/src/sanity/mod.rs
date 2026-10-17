@@ -11,7 +11,7 @@
 //! 1. **Equilibrium per case**, component by component: Σ reactions against an applied side the
 //!    caller summed independently from the model (the app's statics check), so a load the solve
 //!    lost or a reaction it did not report shows up.
-//! 2. **Gravity weight per floor area** against a plausible band (4–15 kN/m² by default).
+//! 2. **Gravity weight per floor area** against a plausible band (4–18 kN/m² by default).
 //! 3. **Fundamental period** against the code's empirical Ta = Cr·H^x (CIRSOC 103 Tabla 6.2,
 //!    the same coefficients as ASCE 7 Table 12.8-2).
 //! 4. **Tributary-area column loads** against the FE axial forces, on regular frames only.
@@ -328,7 +328,9 @@ impl PeriodSystem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SanityOptions {
-    /// Plausible service gravity weight per floor area of a building, kN/m².
+    /// Plausible service gravity weight (dead + live) per floor area of a building, kN/m²: a
+    /// light steel frame weighs about 5, a reinforced-concrete one 10–14, a heavy one with
+    /// masonry partitions up to about 17.
     pub weight_band: [f64; 2],
     /// Plausible ratio of the computed fundamental period to the code's Ta.
     pub period_band: [f64; 2],
@@ -345,7 +347,7 @@ pub struct SanityOptions {
 impl Default for SanityOptions {
     fn default() -> Self {
         SanityOptions {
-            weight_band: [4.0, 15.0],
+            weight_band: [4.0, 18.0],
             period_band: [0.5, 2.5],
             period_system: None,
             deflection_ratio: 10.0,
@@ -418,6 +420,7 @@ pub enum SanityCode {
     EquilibriumViolation,
     EquilibriumUncovered,
     GravityUpward,
+    GravityCaseHorizontal,
     SelfWeightMissing,
     WeightPerAreaLow,
     WeightPerAreaHigh,
@@ -643,16 +646,20 @@ pub fn explain(code: SanityCode) -> (&'static str, &'static str) {
             "A gravity case whose loads push the structure up has its sign or direction reversed: every force and reaction in it has the wrong sign, and combinations add it where they should subtract.",
             "Check the load direction (global axis and sign) of the loads in this case; gravity acts downward.",
         ),
+        GravityCaseHorizontal => (
+            "Gravity loads act downward. A dead or live case with a large horizontal resultant usually has member loads in a local axis that is horizontal for some members, or lateral loads filed in the wrong case: those members are loaded sideways and the vertical load they should carry is missing.",
+            "Check the axis (local or global) and direction of the member loads in this case, and that wind or seismic loads are in their own cases.",
+        ),
         SelfWeightMissing => (
             "The structure's own weight is a large share of the permanent load. Left out, every gravity result and every design is unconservative.",
             "Turn on self-weight for the dead-load case (Analysis settings), or include it explicitly as a dead load.",
         ),
         WeightPerAreaLow => (
-            "Buildings weigh between about 4 and 15 kN/m² of floor in service. Far less usually means missing floor loads, missing self-weight or geometry in the wrong units.",
+            "Buildings weigh between about 4 and 18 kN/m² of floor in service (dead plus live). Far less usually means missing floor loads, missing self-weight or geometry in the wrong units.",
             "Check that every floor carries its dead and live loads, that self-weight is on, and that coordinates are in metres.",
         ),
         WeightPerAreaHigh => (
-            "Far more than about 15 kN/m² of floor usually means loads applied twice, a density or load in the wrong units, or area loads applied to members and slabs both.",
+            "Far more than about 18 kN/m² of floor usually means loads applied twice, a density or load in the wrong units, or area loads applied to members and slabs both.",
             "Check densities (kN/m³), area loads (kN/m²) and line loads (kN/m) for unit mix-ups and loads counted twice.",
         ),
         PeriodOutOfRange => (

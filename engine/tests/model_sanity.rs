@@ -688,3 +688,23 @@ fn json_round_trip() {
     assert!(f["why"].as_str().unwrap().len() > 20 && f["fix"].as_str().unwrap().len() > 20);
     assert!(out["checks"].as_array().unwrap().iter().any(|c| c["check"] == "period" && c["status"] == "skipped" && c["reason"] == "no_modal"));
 }
+
+#[test]
+fn a_dead_load_applied_sideways_is_caught() {
+    // Half the floor load typed along a horizontal axis: the mistake of a member load in a local
+    // axis that is horizontal for that member.
+    let s = Spec::steel();
+    let b = building(&s);
+    let mut dead = self_weight_loads(&s, &b);
+    for l in floor_loads(&s, &b, s.dead) {
+        if let SolverLoad3D::Nodal(n) = l {
+            dead.push(nodal(n.node_id, [0.0, n.fz / 2.0, n.fz / 2.0]));
+        }
+    }
+    let input = sanity_input(&b.input, s.rho, s.fy, vec![CaseDef { id: 1, name: "D", kind: CaseKind::Dead, loads: dead, self_weight: true }], true);
+    let r = review(&input);
+    let f = find(&r, SanityCode::GravityCaseHorizontal);
+    assert_eq!((f.severity, f.case_id), (Severity::Warning, Some(1)));
+    // It balances: the reactions are right for the wrong loads, which is why this needs its own check.
+    assert!(!r.has(SanityCode::EquilibriumViolation));
+}
