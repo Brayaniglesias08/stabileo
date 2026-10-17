@@ -61,10 +61,6 @@ const JUSTIFIED_WARNINGS: Record<string, string[]> = {
   // The diagrid's 42 floors carry no floor loads, only the frame's own weight: 0.22 kN/m². True of
   // the example, which models the structure, not a loaded building.
   'xl-diagrid-tower': ['weight_per_area_low'],
-  // A three-level pipe rack reads as a three-storey frame (floors with members across them, on a
-  // regular column grid), and carries pipes, not floors: 2.4 kN/m². The band is for buildings and
-  // the review cannot tell a rack from one; the warning says what it compared.
-  'pipe-rack': ['weight_per_area_low'],
 };
 
 /*

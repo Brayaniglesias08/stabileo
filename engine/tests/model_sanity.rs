@@ -574,6 +574,28 @@ fn a_floating_part_is_caught() {
 }
 
 #[test]
+fn a_pipe_rack_is_not_read_as_a_building() {
+    // Six bays long, one bay wide, three levels with beams across every frame: its levels close
+    // panels and have members across them, but a rack's level is not a floor, and the weight per
+    // floor area of a building does not apply to it.
+    let (input, _) = reviewed(&Spec { nx: 6, ny: 1, dead: 1.0, live: 0.0, ..Spec::steel() });
+    let r = review(&input);
+    let s = r.status(CheckId::GravityWeight).unwrap();
+    assert_eq!((s.status, s.reason), (CheckStatusKind::Skipped, Some(SkipReason::NotABuilding)), "{:#?}", r.findings);
+    assert!(!r.has(SanityCode::WeightPerAreaLow));
+}
+
+#[test]
+fn a_two_by_one_bay_building_is_still_a_building() {
+    // Two bays by one has no node inside its floors either; it is not long and narrow, so it is
+    // a building, and a light one is caught.
+    let (input, _) = reviewed(&Spec { nx: 2, ny: 1, dead: 0.5, live: 0.0, ..Spec::steel() });
+    let r = review(&input);
+    assert_eq!(r.status(CheckId::GravityWeight).unwrap().status, CheckStatusKind::Ran);
+    assert!(r.has(SanityCode::WeightPerAreaLow), "{:#?}", r.findings);
+}
+
+#[test]
 fn a_node_on_a_span_without_a_connection_is_caught() {
     // A secondary beam drawn between the midspans of two parallel first-floor beams, whose nodes
     // were placed on those beams but the beams were never split there.
