@@ -1726,7 +1726,9 @@ pub fn assemble_load_vector_3d_sparse_parallel(
                                 }
                             }
                             SolverLoad3D::QuadSelfWeight(sw) => {
-                                let f_sw = element::quad::quad_self_weight_load(&coords, sw.density, quad.thickness, sw.gx, sw.gy, sw.gz);
+                                // Local axes out, like the sequential path transforms it.
+                                let f_sw_local = element::quad::quad_self_weight_load(&coords, sw.density, quad.thickness, sw.gx, sw.gy, sw.gz);
+                                let f_sw = transform_force(&f_sw_local, &element::quad::quad_transform_3d(&coords), 24);
                                 for (i, &dof) in quad_dofs.iter().enumerate() {
                                     if i < f_sw.len() { f_global[dof] += f_sw[i]; }
                                 }
@@ -1768,7 +1770,8 @@ pub fn assemble_load_vector_3d_sparse_parallel(
                                 }
                             }
                             SolverLoad3D::Quad9SelfWeight(sw) => {
-                                let f_sw = element::quad9::quad9_self_weight_load(&coords, sw.density, q9.thickness, sw.gx, sw.gy, sw.gz);
+                                let f_sw_local = element::quad9::quad9_self_weight_load(&coords, sw.density, q9.thickness, sw.gx, sw.gy, sw.gz);
+                                let f_sw = transform_force(&f_sw_local, &element::quad9::quad9_transform_3d(&coords), 54);
                                 for (i, &dof) in q9_dofs.iter().enumerate() {
                                     if i < f_sw.len() { f_global[dof] += f_sw[i]; }
                                 }

@@ -1520,3 +1520,20 @@ fn curved_beams_reach_every_3d_solver() {
     let cm = dedaliano_engine::certify::modal::certify_modal_3d(&a, &steel(), 3).unwrap();
     assert!(cm.certificate.is_certified(), "modal certificate: {:?}", cm.certificate);
 }
+
+/// The parallel sparse load vector (`--features parallel`) left the quad and
+/// quad9 self-weight in the element's local axes. Without the feature both
+/// names resolve to the sequential assembler and this passes trivially.
+#[test]
+fn parallel_load_vector_self_weight_in_global_axes() {
+    let mut m = model_3d_from(
+        &[(1, [0.0, 0.0, 0.0]), (2, [2.0, 0.0, 1.0]), (3, [2.0, 2.0, 1.5]), (4, [0.0, 2.0, 0.5])],
+        &[],
+        vec![sup_3d(1, [true; 6])],
+        vec![SolverLoad3D::QuadSelfWeight(SolverQuadSelfWeightLoad { element_id: 1, density: 2500.0, gx: 1.0, gy: -2.0, gz: -9.81 })],
+    );
+    m.quads.insert("1".into(), SolverQuadElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2 });
+    let dn = DofNumbering::build_3d(&m);
+    let f = assemble_load_vector_3d_dense(&m, &m.loads, &dn, &[]);
+    assert_agree("sparse_3d (parallel) vs dense load vector", &assemble_load_vector_sparse_3d(&m, &m.loads, &dn, &[]), &f, 1);
+}

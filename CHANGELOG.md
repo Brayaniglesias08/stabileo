@@ -41,6 +41,8 @@ test there.
   does, `expand_curved_beams_3d`), so an arch made of a curved beam had no stiffness or mass,
   and 3D buckling panicked on the segments' element forces. They now expand first, and the
   modal and harmonic certificates check the expanded model.
+- **The parallel sparse 3D load vector left quad and MITC9 self-weight in local axes.** Only
+  builds with the `parallel` feature were affected (the sequential and dense paths transform it).
 
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 
