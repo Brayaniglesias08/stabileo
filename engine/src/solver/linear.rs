@@ -4470,6 +4470,28 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
         }
     }
 
+    // 7b. Torsion constant J <= 0 on a member that carries torsion. Checked
+    // here, by name, before assembly: the artificial stiffness the assembler
+    // puts on DOFs no element is meant to stiffen (the rotations of a node
+    // only solid shells or trusses reach, a fully released joint) would
+    // otherwise hold the twist of a member whose own J is missing, and the
+    // model would solve with a meaningless rotation instead of being refused.
+    let torsion_section_ids: std::collections::HashSet<usize> = input.elements.values()
+        .filter(|e| e.elem_type == "frame" && !e.release_t_start && !e.release_t_end)
+        .map(|e| e.section_id)
+        .collect();
+    for sec in input.sections.values() {
+        if torsion_section_ids.contains(&sec.id) && sec.j <= 0.0 {
+            return Err(format!(
+                "Section {}: torsion constant J must be > 0 (got {}) for a member that is not released in torsion",
+                sec.id, sec.j
+            ));
+        }
+        if sec.cw.is_some_and(|cw| cw < 0.0) {
+            return Err(format!("Section {}: warping constant Cw must be >= 0", sec.id));
+        }
+    }
+
     // 8. Connectors: end nodes, finite stiffness, and the DOFs they need.
     let node_xyz: std::collections::HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
     crate::element::connector::validate_connectors(

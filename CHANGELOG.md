@@ -28,7 +28,12 @@ refused.** Reproductions and references in `tests/solid_shell_analyses.rs`.
   diagonal is a zero row: the DOF is decoupled and the rest of the answer is unchanged —
   the strip with a frame elsewhere matches the strip alone to 1e-9). A frame free to spin
   about a single solid-shell node is still refused as a mechanism, by the linear solver and
-  the kinematic check.
+  the kinematic check. The artificial stiffness never stands in for a member's own missing
+  property: a frame not released in torsion with J <= 0 (or a section with Cw < 0) is
+  refused by name before assembly, and nodes a constraint references are left out (an
+  artificial spring on a tied rotation would become a real spring once the constraint is
+  imposed). Truss-only and fully released nodes in a frame model, which the analysis solver
+  refused raw while the app added its own vanishing springs, now solve in the engine too.
 - **A nodal moment on a node without rotational stiffness was lost.** In a model of solid
   shells and trusses only there are no rotation DOFs and the moment was dropped from the
   load vector; on an orphan rotation it would have produced a meaningless rotation. It is

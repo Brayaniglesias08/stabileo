@@ -1339,7 +1339,7 @@ pub fn assemble_stiffness_sparse_3d_parallel(input: &SolverInput3D, dof_num: &Do
     let mut artificial_dofs_3d = Vec::new();
     {
         let artificial_k = if max_diag > 0.0 { max_diag * 1e-10 } else { 1e-6 };
-        for d in super::assembly::orphan_rotation_dofs_3d(dof_num, |d| diag_vals[d], max_diag) {
+        for d in super::assembly::orphan_rotation_dofs_3d(input, dof_num, |d| diag_vals[d], max_diag) {
             trip_rows.push(d); trip_cols.push(d); trip_vals.push(artificial_k);
             artificial_dofs_3d.push(d);
         }

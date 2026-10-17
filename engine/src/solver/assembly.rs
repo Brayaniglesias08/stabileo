@@ -43,13 +43,32 @@ pub fn artificial_stiffness_entries(asm: &AssemblyResult) -> Vec<(usize, f64)> {
 /// with frames or shells was refused as "a mechanism" on every path). A load
 /// on such a DOF would be lost; `validate_loads_3d` and the linear solver
 /// refuse that.
-pub(crate) fn orphan_rotation_dofs_3d(dof_num: &DofNumbering, diag: impl Fn(usize) -> f64, max_diag: f64) -> Vec<usize> {
+///
+/// Nodes a constraint references are left out: there a rotation without
+/// element stiffness may be tied to another node's (an eccentric arm, an
+/// EqualDOF), and once the constraint is imposed an artificial spring on it
+/// would become a real spring to ground on the structure. If such a tied
+/// rotation has no stiffness anywhere the model stays singular and is refused.
+pub(crate) fn orphan_rotation_dofs_3d(input: &SolverInput3D, dof_num: &DofNumbering, diag: impl Fn(usize) -> f64, max_diag: f64) -> Vec<usize> {
     let mut out = Vec::new();
     if dof_num.dofs_per_node < 6 {
         return out;
     }
+    let mut tied: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for c in &input.constraints {
+        match c {
+            Constraint::RigidLink(r) => { tied.insert(r.master_node); tied.insert(r.slave_node); }
+            Constraint::Diaphragm(d) => { tied.insert(d.master_node); tied.extend(d.slave_nodes.iter().copied()); }
+            Constraint::LinearMPC(m) => tied.extend(m.terms.iter().map(|t| t.node_id)),
+            Constraint::EqualDOF(e) => { tied.insert(e.master_node); tied.insert(e.slave_node); }
+            Constraint::EccentricConnection(e) => { tied.insert(e.master_node); tied.insert(e.slave_node); }
+        }
+    }
     let tol = if max_diag > 0.0 { max_diag * 1e-12 } else { 1e-14 };
     for &node_id in &dof_num.node_order {
+        if tied.contains(&node_id) {
+            continue;
+        }
         for local in 3..6 {
             if let Some(&d) = dof_num.map.get(&(node_id, local)) {
                 if d < dof_num.n_free && diag(d).abs() <= tol {
@@ -1072,7 +1091,7 @@ pub fn assemble_stiffness_3d(input: &SolverInput3D, dof_num: &DofNumbering) -> S
     let mut artificial_dofs_3d = Vec::new();
     {
         let artificial_k = if max_diag > 0.0 { max_diag * 1e-10 } else { 1e-6 };
-        for d in orphan_rotation_dofs_3d(dof_num, |d| k_global[d * n + d], max_diag) {
+        for d in orphan_rotation_dofs_3d(input, dof_num, |d| k_global[d * n + d], max_diag) {
             k_global[d * n + d] += artificial_k;
             artificial_dofs_3d.push(d);
         }
@@ -2535,7 +2554,7 @@ pub fn assemble_stiffness_sparse_3d(input: &SolverInput3D, dof_num: &DofNumberin
     let mut artificial_dofs_3d = Vec::new();
     {
         let artificial_k = if max_diag > 0.0 { max_diag * 1e-10 } else { 1e-6 };
-        for d in orphan_rotation_dofs_3d(dof_num, |d| diag_vals[d], max_diag) {
+        for d in orphan_rotation_dofs_3d(input, dof_num, |d| diag_vals[d], max_diag) {
             trip_rows.push(d); trip_cols.push(d); trip_vals.push(artificial_k);
             artificial_dofs_3d.push(d);
         }

@@ -448,3 +448,27 @@ fn kinematic_check_with_solid_shells_and_frames() {
     let k = kinematic::analyze_kinematics_3d(&s);
     assert!(!k.is_solvable, "{k:?}");
 }
+
+/// The artificial stiffness covers only DOFs no element is meant to stiffen.
+/// A member whose own torsion constant is zero is an input error, refused by
+/// name before assembly — not a twist held by the artificial spring.
+#[test]
+fn frame_with_zero_torsion_constant_is_refused() {
+    let mut s = empty();
+    s.materials.insert("1".into(), SolverMaterial { id: 1, e: E, nu: 0.3 });
+    s.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 5e-5, iz: 1e-4, j: 0.0, cw: None, as_y: None, as_z: None });
+    node(&mut s, 1, 0.0, 0.0, 0.0);
+    node(&mut s, 2, 5.0, 0.0, 0.0);
+    frame(&mut s, 1, 1, 2);
+    sup(&mut s, 1, [true; 6]);
+    nodal(&mut s, 2, [0.0, -10.0, 0.0, 0.0, 0.0, 0.0]);
+    let err = linear::solve_3d(&s).expect_err("J = 0");
+    assert!(err.contains("torsion constant J must be > 0"), "{err}");
+    let err = modal::solve_modal_3d(&s, &densities(), 2).expect_err("J = 0");
+    assert!(err.contains("torsion constant"), "{err}");
+    // Released in torsion at an end, the member has no torsional stiffness and
+    // J is not used: no refusal on that account.
+    s.elements.get_mut("1").unwrap().release_t_end = true;
+    let r = linear::solve_3d(&s);
+    assert!(r.as_ref().err().map_or(true, |e| !e.contains("torsion constant")), "{r:?}");
+}
