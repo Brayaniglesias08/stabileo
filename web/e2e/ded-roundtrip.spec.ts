@@ -176,10 +176,11 @@ test.describe('@slow the 7-storey project survives the file', () => {
     const census = fileCensus(path);
     expect(census.version).toBe('2.0');
     expect(census.appMode).toBe('pro');
-    // `includeSelfWeight` is saved with the project: it decides what the analysis weighs.
+    // `includeSelfWeight` and `selfWeightCaseId` (the case the self-weight goes in) are saved
+    // with the project: they decide what the analysis weighs and where.
     expect(census.keys).toEqual([
-      'analysisMode', 'appMode', 'axisConvention3D', 'includeSelfWeight', 'name', 'snapshot', 'timestamp',
-      'version', 'viewportPresentation3D',
+      'analysisMode', 'appMode', 'axisConvention3D', 'includeSelfWeight', 'name', 'selfWeightCaseId',
+      'snapshot', 'timestamp', 'version', 'viewportPresentation3D',
     ]);
     expect(census.elements).toBe(preparedProject.elements);
     expect(census.reinforced, 'the design is in the file').toBe(preparedProject.reinforced);
