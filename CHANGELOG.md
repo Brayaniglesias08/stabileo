@@ -11,6 +11,21 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Assembly-path fixes found by the cross-path oracle (2026-10-17)
+
+**BREAKING (results): 2D buckling and P-Delta of models with hinges, 3D buckling with inclined
+supports, 3D modal, buckling, harmonic and reduction analyses of models with curved beams, and
+regularized sparse 3D solves solve differently.** Each was found by
+`engine/tests/assembly_paths.rs`, which compares every path that assembles the same K, load
+vector, M or K_G entry by entry (`docs/verification/ASSEMBLY.md`), and each has a regression
+test there.
+
+- **The sparse 3D assemblers took the largest diagonal over the free DOFs only.** The dense
+  assembler takes it over all DOFs, and it scales both the artificial stiffness of warping DOFs
+  no element stiffens and the diagonal shift that regularizes a failed sparse Cholesky, so the
+  two paths disagreed whenever a restrained DOF held the largest diagonal (the usual case: a
+  stiff member into a support). Serial and parallel sparse assembly now track all DOFs.
+
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 
 **BREAKING (results): models with Timoshenko members under member loads, plastic analyses,

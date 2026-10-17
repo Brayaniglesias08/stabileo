@@ -897,15 +897,6 @@ const REPORTED: &[(&str, &str)] = &[
     ("2d.mass.inclined_frame", "NEW, reported: M is never rotated at inclined supports (modal, harmonic, time history, reduction use it with the rotated K)"),
     ("3d.mass.inclined_frame", "NEW, reported: M is never rotated at inclined supports (modal, harmonic, time history, reduction use it with the rotated K)"),
     ("2d3d.kg", "NEW: 2D geometric stiffness ignores hinges (3D condenses releases)"),
-    ("3d.sparse.k_full", "NEW: sparse 3D max diagonal over free DOFs only"),
-    ("3d.sparse.k_ff", "NEW: sparse 3D max diagonal over free DOFs only"),
-    ("3d.sparse.max_diag", "NEW: sparse 3D max diagonal over free DOFs only"),
-    ("3d.parallel.k_full", "NEW: sparse 3D max diagonal over free DOFs only"),
-    ("3d.parallel.k_ff", "NEW: sparse 3D max diagonal over free DOFs only"),
-    ("3d.parallel.max_diag", "NEW: sparse 3D max diagonal over free DOFs only"),
-    ("3d.certify.k_ff", "NEW: sparse 3D max diagonal over free DOFs only"),
-    ("3d.constrained.k", "NEW: sparse 3D max diagonal over free DOFs only"),
-    ("3d.buckling.k_ff", "NEW: sparse 3D max diagonal over free DOFs only"),
     ("3d.buckling.kg", "NEW: 3D buckling K_G is not rotated at inclined supports"),
 ];
 
@@ -1435,7 +1426,6 @@ fn hinged_members_geometric_stiffness_2d() {
 /// Warping DOFs no element stiffens get artificial stiffness scaled by the
 /// largest diagonal; the sparse paths took it over the free DOFs only.
 #[test]
-#[ignore = "NEW: sparse 3D max diagonal over free DOFs only"]
 fn sparse_3d_artificial_warping_stiffness_matches_dense() {
     // Element 2 has no warping, so node 3's warping DOF is bare; element 3,
     // stiff and between fixed nodes, holds the largest diagonal.
