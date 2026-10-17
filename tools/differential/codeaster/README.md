@@ -72,8 +72,9 @@ Statuses:
 |---|---|
 | `ok` | agrees within tolerance |
 | `mismatch` | disagrees: a stabileo bug or a translation error, to be triaged |
-| `silent_singular` | Code_Aster finds the stiffness singular (a pivot lost more than 10 digits) where stabileo solved without a warning |
-| `ill_conditioned` | stabileo flags it (`stiffness_not_positive_definite`, `residual_high`, ...), or MUMPS cannot reach its residual check (FACTOR_57) |
+| `silent_singular` | Code_Aster finds the stiffness singular (a pivot lost more than 10 digits) where stabileo solved without a warning, and with the check off Code_Aster's solution disagrees with stabileo or cannot be computed |
+| `near_singular` | Code_Aster's singularity check trips, but with the check off (`NPREC=-1`) its solution agrees with stabileo: an ill-conditioned model, not a mechanism |
+| `ill_conditioned` | stabileo flags it (`stiffness_not_positive_definite`, `residual_high`, ...), or MUMPS cannot reach its residual check (FACTOR_57, also after a FACTOR_11 rerun with the check off) |
 | `stabileo_failed` | stabileo refuses the model (mechanism, or an unsupported combination) |
 | `unsupported` | uses a feature with no clean Code_Aster equivalent here (shells, warping, ...) |
 | `aster_failed` | Code_Aster fails for another reason: a harness bug |

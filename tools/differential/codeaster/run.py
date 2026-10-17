@@ -177,9 +177,10 @@ def finish(r, tol, dump_dir, model):
         msg = open(err).read() if os.path.exists(err) else "no result (Code_Aster session died?)"
         why = [_first_error(msg)]
         if "<FACTOR_11>" in msg:
-            # Code_Aster finds the stiffness singular (a pivot lost more than
-            # NPREC = 10 digits) where stabileo solved without a warning.
+            # Singular even with the check off (a null pivot), where stabileo
+            # solved without a warning.
             return dict(r, status="silent_singular", why=why)
+        r.pop("near_singular", None)
         if "<FACTOR_57>" in msg:
             # MUMPS could not reach RESI_RELA = 1e-6: the model is too
             # ill-conditioned for Code_Aster to give a reference.
@@ -206,7 +207,10 @@ def finish(r, tol, dump_dir, model):
     bad, groups = C.compare(model, sres, ares, tol)
     if bad is None:
         return dict(r, status="unloaded")
-    r = dict(r, status="mismatch" if bad else "ok", max_err=groups, tol=tol, n_bad=len(bad),
+    st = "mismatch" if bad else "ok"
+    if r.pop("near_singular", False):
+        st = "silent_singular" if bad else "near_singular"
+    r = dict(r, status=st, max_err=groups, tol=tol, n_bad=len(bad),
              worst=sorted(bad, key=lambda b: -b[5])[:8])
     if bad and dump_dir:
         os.makedirs(dump_dir, exist_ok=True)
@@ -264,6 +268,22 @@ def main():
         results = list(pool.map(lambda j: prepare(j[0], j[1], a.bin, workdir, a.flagged), models))
     pending = [r for r in results if r["status"] == "pending"]
     run_aster(pending, workdir, max(1, a.jobs))
+    # Code_Aster calls a matrix singular when a pivot loses NPREC = 10
+    # digits. Rerun those with the check off (NPREC = -1): if the results
+    # then agree with stabileo the model is merely ill-conditioned
+    # (near_singular); if not, stabileo solved a singular system silently.
+    near = []
+    for r in pending:
+        err = os.path.join(r["job"], "error.txt")
+        if os.path.exists(err) and "<FACTOR_11>" in open(err).read():
+            comm = os.path.join(r["job"], "model.comm")
+            with open(comm) as f:
+                text = f.read()
+            with open(comm, "w") as f:
+                f.write(text.replace("NPREC=10", "NPREC=-1"))
+            r["near_singular"] = True
+            near.append(r)
+    run_aster(near, workdir, max(1, a.jobs))
     by_name = dict(models)
     def safe_finish(r):
         job = r["job"]
@@ -291,7 +311,7 @@ def main():
         if a.verbose or r["status"] in ("mismatch", "aster_failed", "silent_singular", "harness_error"):
             extra = r.get("why") or {k: f"{v:.1e}" for k, v in r.get("max_err", {}).items()}
             print(f"{r['status']:16} {r['name']}  {extra}")
-            for w in r.get("worst", [])[:5] if r["status"] == "mismatch" else []:
+            for w in r.get("worst", [])[:5] if r["status"] in ("mismatch", "silent_singular") else []:
                 q, i, c, s_, o, e = w
                 print(f"    {q} {i} {c}: stabileo={s_!r} code_aster={o!r} err={e:.2e}")
     cnt = Counter(r["status"] for r in results)
