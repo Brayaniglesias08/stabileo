@@ -36,15 +36,18 @@ pub struct ElementBucklingData {
 
 /// The matrices of the 2D linear buckling problem K·φ = λ·(−Kg)·φ: the linear
 /// solution whose axial forces define Kg, the sparse free-DOF K, and −Kg.
-/// Shared by `solve_buckling_2d` and the buckling certificate.
-pub(crate) struct BucklingSystem2D {
+/// Shared by `solve_buckling_2d` and the buckling certificate (public, hidden,
+/// for the assembly-path oracle in tests/assembly_paths.rs).
+#[doc(hidden)]
+pub struct BucklingSystem2D {
     pub linear: AnalysisResults,
     pub dof_num: DofNumbering,
     pub k_ff: CscMatrix,
     pub neg_kg_csc: CscMatrix,
 }
 
-pub(crate) fn buckling_system_2d(input: &SolverInput) -> Result<BucklingSystem2D, String> {
+#[doc(hidden)]
+pub fn buckling_system_2d(input: &SolverInput) -> Result<BucklingSystem2D, String> {
     // 1. Linear solve to get axial forces
     let linear = super::linear::solve_2d(input)?;
     let dof_num = DofNumbering::build_2d(input);
@@ -203,14 +206,16 @@ pub fn solve_buckling_2d(
 
 /// The matrices of the 3D linear buckling problem (see `BucklingSystem2D`),
 /// including surface-element geometric stiffness.
-pub(crate) struct BucklingSystem3D {
+#[doc(hidden)]
+pub struct BucklingSystem3D {
     pub linear: AnalysisResults3D,
     pub dof_num: DofNumbering,
     pub k_ff: CscMatrix,
     pub neg_kg_csc: CscMatrix,
 }
 
-pub(crate) fn buckling_system_3d(input: &SolverInput3D) -> Result<BucklingSystem3D, String> {
+#[doc(hidden)]
+pub fn buckling_system_3d(input: &SolverInput3D) -> Result<BucklingSystem3D, String> {
     let linear = super::linear::solve_3d(input)?;
     let dof_num = DofNumbering::build_3d(input);
     let nf = dof_num.n_free;
