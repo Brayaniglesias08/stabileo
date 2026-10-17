@@ -902,8 +902,13 @@ mod tests {
         let f = Ec3DesignForces { element_id: 1, n_ed: Some(-1e5), my_ed: Some(5e4), mz_ed: None, v_ed: None };
         assert!(ec3_ratio_enclosures(&m, &f, &DemandBound { n: f64::NAN, ..ZERO_BOUND }).is_err());
         let mut bad = m.clone();
-        bad.lb = 0.0; // Mcr = ∞·… → chi_LT not finite
+        bad.iz = 0.0; // Mcr = 0·(Iw/0) → chi_LT not finite
         assert!(ec3_ratio_enclosures(&bad, &f, &ZERO_BOUND).is_err());
+        // Lb = 0 used to be the refusal case here; it is a continuously
+        // restrained member and now certifies with chi_LT = 1.
+        let mut braced = m.clone();
+        braced.lb = 0.0;
+        assert!(ec3_ratio_enclosures(&braced, &f, &ZERO_BOUND).is_ok());
         let mut bad = m.clone();
         bad.fy = 0.0;
         let res = certify_ec3_members(&CertifiedEc3CheckInput {
