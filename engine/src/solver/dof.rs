@@ -22,13 +22,12 @@ impl DofNumbering {
         let mut node_ids: Vec<usize> = input.nodes.values().map(|n| n.id).collect();
         node_ids.sort();
 
-        // Build support lookup: node_id → support, sorted by ID for determinism.
-        // When multiple supports target the same node, the last (highest ID) wins.
-        let mut sorted_supports_2d: Vec<&SolverSupport> = input.supports.values().collect();
-        sorted_supports_2d.sort_by_key(|s| s.id);
-        let mut support_map: HashMap<usize, &SolverSupport> = HashMap::new();
-        for s in &sorted_supports_2d {
-            support_map.insert(s.node_id, s);
+        // Supports per node. Several on one node merge by OR (any of them
+        // restraining a DOF restrains it); validate_input_2d only lets plain
+        // rigid restraints share a node, so the merge is unambiguous.
+        let mut supports_at: HashMap<usize, Vec<&SolverSupport>> = HashMap::new();
+        for s in input.supports.values() {
+            supports_at.entry(s.node_id).or_default().push(s);
         }
 
         // Classify DOFs as free or restrained
@@ -37,11 +36,9 @@ impl DofNumbering {
 
         for &node_id in &node_ids {
             for local_dof in 0..dofs_per_node {
-                let is_fixed = if let Some(sup) = support_map.get(&node_id) {
-                    is_dof_restrained_2d(sup, local_dof)
-                } else {
-                    false
-                };
+                let is_fixed = supports_at
+                    .get(&node_id)
+                    .is_some_and(|sups| sups.iter().any(|sup| is_dof_restrained_2d(sup, local_dof)));
 
                 if is_fixed {
                     fixed_dofs.push((node_id, local_dof));

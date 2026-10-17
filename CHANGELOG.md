@@ -21,6 +21,13 @@ each with a regression test.
   off by the applied load and a *certified* result failed global equilibrium. Each node now
   has a single reaction entry with its restrained reactions counted once (spring forces of
   all its supports still add). `tests/duplicate_support_reactions.rs`.
+- **Several supports on one node could silently drop a restraint.** 2D DOF numbering kept
+  only the highest-id support of a node, so `fixed` (id 1) plus `pinned` (id 2) solved as a
+  pinned end; 3D ORed the restraint flags but took springs and the inclined flag from one
+  support picked in hash order. Plain rigid restraints on one node now merge by OR in 2D and
+  3D; any other combination (springs, prescribed displacements, inclined directions) is
+  rejected with an error naming the node. The web app already keeps one support per node.
+  `tests/duplicate_support_reactions.rs`.
 - **Harmonic certificates reported NaN enclosures for a zero response.** When the target DOF
   was not excited (or the reported value equalled the candidate), the outward-rounded sum of
   squares had a lower end of −5e−324 and its interval square root was NaN, so a *certified*

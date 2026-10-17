@@ -3923,6 +3923,59 @@ pub(crate) fn build_reactions_3d_inclined(
 
 // ── Input validation helpers ──
 
+/// Several supports on one node. Plain rigid restraints merge: a DOF is
+/// restrained if any of them restrains it (DofNumbering ORs them in 2D and 3D,
+/// and the node gets one reaction entry). Anything else is ambiguous (which
+/// spring, which settlement, which inclined direction?) and the solver used to
+/// read it differently per path: 2D kept only the highest-id support, so a
+/// `fixed` support followed by a `spring` left the node on the spring alone; 3D
+/// took springs and the inclined flag from one support picked in hash order.
+/// Such a model is rejected with an error naming the node. The web app keeps
+/// one support per node.
+///
+/// `sups` are (node id, support key in the input map, plain rigid restraint?).
+fn reject_ambiguous_shared_supports<'a>(sups: impl Iterator<Item = (usize, &'a str, bool)>) -> Result<(), String> {
+    let mut by_node: std::collections::BTreeMap<usize, Vec<(&str, bool)>> = std::collections::BTreeMap::new();
+    for (node, key, plain) in sups {
+        by_node.entry(node).or_default().push((key, plain));
+    }
+    for (node, mut sups) in by_node {
+        if sups.len() < 2 || sups.iter().all(|&(_, plain)| plain) {
+            continue;
+        }
+        sups.sort();
+        let keys: Vec<&str> = sups.iter().map(|&(k, _)| k).collect();
+        return Err(format!(
+            "Node {node} has several supports ({}) and not all are plain rigid restraints \
+             (springs, prescribed displacements or inclined directions); merge them into a single support",
+            keys.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+fn zero_or_none(v: Option<f64>) -> bool {
+    v.is_none_or(|x| x == 0.0)
+}
+
+/// A 2D support that only restrains DOFs rigidly (no spring, settlement or angle).
+fn plain_rigid_2d(s: &SolverSupport) -> bool {
+    matches!(
+        s.support_type.as_str(),
+        "fixed" | "pinned" | "rollerX" | "rollerY" | "rollerZ" | "guidedX" | "guidedY" | "guidedZ"
+    ) && [s.kx, s.ky, s.kz, s.dx, s.dz, s.dry, s.angle].into_iter().all(zero_or_none)
+}
+
+/// A 3D support that only restrains DOFs rigidly (no spring, settlement or
+/// inclined direction).
+fn plain_rigid_3d(s: &SolverSupport3D) -> bool {
+    !s.is_inclined.unwrap_or(false)
+        && [s.normal_x, s.normal_y, s.normal_z].iter().all(Option::is_none)
+        && [s.kx, s.ky, s.kz, s.krx, s.kry, s.krz, s.kw, s.dx, s.dy, s.dz, s.drx, s.dry, s.drz]
+            .into_iter()
+            .all(zero_or_none)
+}
+
 pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
     // 0. Non-finite input rejection (NaN/Inf). Note: JSON cannot carry NaN, so
     // this primarily protects native/Rust API callers and internally-built inputs.
@@ -3948,6 +4001,7 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
             }
         }
     }
+    reject_ambiguous_shared_supports(input.supports.iter().map(|(k, s)| (s.node_id, k.as_str(), plain_rigid_2d(s))))?;
     for load in &input.loads {
         let finite = match load {
             SolverLoad::Nodal(l) => l.fx.is_finite() && l.fz.is_finite() && l.my.is_finite(),
@@ -4144,6 +4198,7 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
             return Err(format!("Support on node {}: numeric fields must be finite", sup.node_id));
         }
     }
+    reject_ambiguous_shared_supports(input.supports.iter().map(|(k, s)| (s.node_id, k.as_str(), plain_rigid_3d(s))))?;
     for load in &input.loads {
         let finite = match load {
             SolverLoad3D::Nodal(l) => l.fx.is_finite() && l.fy.is_finite() && l.fz.is_finite()
