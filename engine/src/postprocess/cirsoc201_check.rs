@@ -28,11 +28,19 @@
 //!   exemption taken is the shallow member, h ≤ 250 mm (Tabla 9.6.3.1; [11.5.6.1(b)]); the
 //!   others need data this checker does not receive, so it asks for the minimum.
 //!
+//! Every formula is generic over `Real` (`certify::real`): the f64 instantiation is the
+//! checker, the interval one is the certified check (`certify::design`), so both evaluate the
+//! same clauses. A compression bar is net of the concrete it displaces whenever it is in
+//! compression (c > d'), which keeps the force residual monotone in c (one neutral axis, which
+//! the certificate needs); a bar on the compression side that is in tension (c < d') is not
+//! credited. Both choices can only lower Mn.
+//!
 //! Units: Pa, N, N·m, m, m². Axial force is POSITIVE IN COMPRESSION, the sign Tabla 22.5.5.1
 //! (nota 1) uses; the field is named for it.
 
 use serde::{Deserialize, Serialize};
 
+use crate::certify::real::{branch, Real, Tri};
 use crate::postprocess::check_ledger::{CheckLedger, Unevaluated};
 
 // ==================== Types ====================
@@ -168,123 +176,181 @@ const PHI_V: f64 = 0.75;
 const SQRT_FC_MAX_MPA: f64 = 8.3;
 const FYT_MAX_PA: f64 = 420e6;
 
+/// Ledger names of the four checks (also the certified check names).
+pub(crate) const CIRSOC201_FLEXURE: &str = "Flexure";
+pub(crate) const CIRSOC201_DUCTILITY: &str = "Ductility";
+pub(crate) const CIRSOC201_SHEAR: &str = "Shear";
+pub(crate) const CIRSOC201_MIN_SHEAR: &str = "Minimum shear reinforcement";
+
+fn not(t: Tri) -> Tri {
+    match t {
+        Tri::True => Tri::False,
+        Tri::False => Tri::True,
+        Tri::Unknown => Tri::Unknown,
+    }
+}
+
+fn decided(t: Tri) -> bool {
+    // f64 comparisons are always decided.
+    t == Tri::True
+}
+
 /// β1, 22.2.2.4.3 [10.2.7.3]: 0,85 to 28 MPa, minus 0,05 per 7 MPa, not below 0,65.
+pub(crate) fn beta1_r<T: Real>(fc: f64) -> T {
+    let fc_mpa = T::exact(fc).dv(T::exact(1e6));
+    branch(
+        fc_mpa.le(T::exact(28.0)),
+        || T::lit(0.85),
+        || (T::lit(0.85) - T::lit(0.05) * (fc_mpa - T::exact(28.0)).dv(T::exact(7.0))).max(T::lit(0.65)),
+    )
+}
+
 pub fn beta1(fc: f64) -> f64 {
-    let fc_mpa = fc / 1e6;
-    if fc_mpa <= 28.0 {
-        0.85
-    } else {
-        (0.85 - 0.05 * (fc_mpa - 28.0) / 7.0).max(0.65)
+    beta1_r::<f64>(fc)
+}
+
+/// εty = fy/Es (21.2.2.1 [10.3.3]). The 0,002 that 10.3.3 permits for fy = 420 MPa is not
+/// used: fy/Es = 0,0021 there, the stricter limit.
+fn epsilon_ty<T: Real>(fy: f64, es: f64) -> T {
+    T::exact(fy).dv(T::exact(es))
+}
+
+pub(crate) fn tension_controlled_strain_r<T: Real>(edition: Cirsoc201Edition, fy: f64, es: f64) -> T {
+    match edition {
+        Cirsoc201Edition::E2025 => epsilon_ty::<T>(fy, es) + T::lit(0.003),
+        Cirsoc201Edition::E2005 => T::lit(0.005),
     }
 }
 
 /// The εt at and above which a section is tension-controlled.
 pub fn tension_controlled_strain(edition: Cirsoc201Edition, fy: f64, es: f64) -> f64 {
-    match edition {
-        Cirsoc201Edition::E2025 => fy / es + 0.003,
-        Cirsoc201Edition::E2005 => 0.005,
-    }
+    tension_controlled_strain_r::<f64>(edition, fy, es)
+}
+
+pub(crate) fn phi_flexure_r<T: Real>(edition: Cirsoc201Edition, epsilon_t: T, fy: f64, es: f64) -> T {
+    let ety = epsilon_ty::<T>(fy, es);
+    let etc = tension_controlled_strain_r::<T>(edition, fy, es);
+    branch(
+        etc.le(epsilon_t),
+        || T::lit(0.90),
+        || branch(epsilon_t.le(ety), || T::lit(0.65), || T::lit(0.65) + T::lit(0.25) * (epsilon_t - ety).dv(etc - ety)),
+    )
 }
 
 /// φ for moment and axial force from εt (tied sections), Tabla 21.2.2 (d), (b), (f)
 /// [9.3.2.1, 9.3.2.2(b) with 10.3.3–10.3.4].
 pub fn phi_flexure(edition: Cirsoc201Edition, epsilon_t: f64, fy: f64, es: f64) -> f64 {
-    let ety = fy / es;
-    let etc = tension_controlled_strain(edition, fy, es);
-    if epsilon_t >= etc {
-        0.90
-    } else if epsilon_t <= ety {
-        0.65
-    } else {
-        0.65 + 0.25 * (epsilon_t - ety) / (etc - ety)
+    phi_flexure_r::<f64>(edition, epsilon_t, fy, es)
+}
+
+pub(crate) fn ductility_strain_r<T: Real>(edition: Cirsoc201Edition, fy: f64, es: f64) -> T {
+    match edition {
+        Cirsoc201Edition::E2025 => tension_controlled_strain_r::<T>(edition, fy, es),
+        Cirsoc201Edition::E2005 => T::lit(0.004),
     }
 }
 
 /// The least εt a flexural member may have, 9.3.3.1 [10.3.5].
 pub fn ductility_strain(edition: Cirsoc201Edition, fy: f64, es: f64) -> f64 {
-    match edition {
-        Cirsoc201Edition::E2025 => tension_controlled_strain(edition, fy, es),
-        Cirsoc201Edition::E2005 => 0.004,
-    }
+    ductility_strain_r::<f64>(edition, fy, es)
 }
 
 // ==================== Flexure ====================
 
 /// Section state at nominal flexural strength.
 #[derive(Debug, Clone, Copy)]
-pub struct FlexureState {
-    pub mn: f64,
-    pub a: f64,
-    pub c: f64,
-    pub epsilon_t: f64,
-    pub fs_tension: f64,
-    pub fs_compression: f64,
+pub struct FlexureStateR<T> {
+    pub mn: T,
+    pub a: T,
+    pub c: T,
+    pub epsilon_t: T,
+    pub fs_tension: T,
+    pub fs_compression: T,
+}
+
+pub type FlexureState = FlexureStateR<f64>;
+
+/// The data under which the flexural formulas apply (and the residual is monotone).
+pub(crate) fn flexure_inputs_valid(m: &Cirsoc201MemberData) -> bool {
+    let es = m.es.unwrap_or(200e9);
+    let as_c = m.as_compression.unwrap_or(0.0).max(0.0);
+    let d_p = m.d_prime.unwrap_or(0.0);
+    [m.fc, m.fy, es, m.b, m.h, m.d, m.as_tension].iter().all(|v| v.is_finite() && *v > 0.0)
+        && as_c.is_finite()
+        && d_p.is_finite()
+        && m.d <= m.h
+}
+
+/// (residual C − T, moment about the tension steel, a, εt, fs, fs') at neutral axis depth c.
+///
+/// The residual is continuous and non-decreasing in c: the block min(β1·c, h) grows, the
+/// compression bar's net force As'·max(0, fs' − 0,85·f'c) grows, the tension steel strain
+/// falls. It is −As·fy as c → 0, so the root is unique where it is strictly increasing.
+fn flexure_at<T: Real>(m: &Cirsoc201MemberData, b1: T, c: T) -> (T, T, T, T, T, T) {
+    let es = T::exact(m.es.unwrap_or(200e9));
+    let fy = T::exact(m.fy);
+    let as_c = m.as_compression.unwrap_or(0.0).max(0.0);
+    let d_p = m.d_prime.unwrap_or(0.0);
+    let doubly = as_c > 0.0 && d_p > 0.0 && d_p < m.d;
+    let ecu = T::lit(EPSILON_CU);
+    let fs = |eps: T| (es * eps).max(-fy).min(fy);
+    let k = T::lit(0.85) * T::exact(m.fc);
+    let (h, d, b) = (T::exact(m.h), T::exact(m.d), T::exact(m.b));
+    let a = (b1 * c).min(h);
+    let cc = k * a * b;
+    let (cs, fsc) = if doubly {
+        let fsc = fs(ecu * (T::exact(1.0) - T::exact(d_p).dv(c)));
+        (T::exact(as_c) * (fsc - k).max(T::exact(0.0)), fsc.max(T::exact(0.0)))
+    } else {
+        (T::exact(0.0), T::exact(0.0))
+    };
+    let eps_t = ecu * (d.dv(c) - T::exact(1.0));
+    let fst = fs(eps_t);
+    let t = T::exact(m.as_tension) * fst;
+    let mn = cc * (d - a.dv(T::exact(2.0))) + cs * (d - T::exact(d_p));
+    (cc + cs - t, mn, a, eps_t, fst, fsc)
+}
+
+/// Nominal flexural strength by strain compatibility, generic over `Real`. None when the
+/// inputs describe no section (no tension steel, a non-positive dimension or strength) or the
+/// neutral axis cannot be found (enclosed, for intervals).
+pub(crate) fn nominal_flexure_r<T: Real>(m: &Cirsoc201MemberData) -> Option<FlexureStateR<T>> {
+    if !flexure_inputs_valid(m) {
+        return None;
+    }
+    let b1_f = beta1(m.fc);
+    let b1 = beta1_r::<T>(m.fc);
+    let c = T::increasing_root(
+        |c| flexure_at::<f64>(m, b1_f, c).0,
+        |c| flexure_at::<T>(m, b1, c).0,
+        1e-9,
+        m.h / b1_f + m.d,
+    );
+    // A root that is not bracketed (f64) or not certified (interval) is NaN, and so is
+    // everything computed from it: the callers refuse non-finite results.
+    let (_, mn, a, epsilon_t, fs_tension, fs_compression) = flexure_at::<T>(m, b1, c);
+    Some(FlexureStateR { mn, a, c, epsilon_t, fs_tension, fs_compression })
 }
 
 /// Nominal flexural strength by strain compatibility. None when the inputs describe no
 /// section (no tension steel, a non-positive dimension or strength).
 pub fn nominal_flexure(m: &Cirsoc201MemberData) -> Option<FlexureState> {
-    let es = m.es.unwrap_or(200e9);
-    let as_c = m.as_compression.unwrap_or(0.0).max(0.0);
-    let d_p = m.d_prime.unwrap_or(0.0);
-    let valid = [m.fc, m.fy, es, m.b, m.h, m.d, m.as_tension]
-        .iter()
-        .all(|v| v.is_finite() && *v > 0.0)
-        && as_c.is_finite()
-        && d_p.is_finite()
-        && m.d <= m.h;
-    if !valid {
-        return None;
-    }
-    let doubly = as_c > 0.0 && d_p > 0.0 && d_p < m.d;
-    let b1 = beta1(m.fc);
-    let fs = |eps: f64| (es * eps).clamp(-m.fy, m.fy);
-
-    // Net compression minus tension at a trial neutral axis depth c, and the moment of the
-    // internal forces about the tension steel.
-    let state = |c: f64| {
-        let a = (b1 * c).min(m.h);
-        let cc = 0.85 * m.fc * a * m.b;
-        let (cs, fsc) = if doubly && c > d_p {
-            let fsc = fs(EPSILON_CU * (c - d_p) / c);
-            let displaced = if d_p <= a { 0.85 * m.fc } else { 0.0 };
-            (as_c * (fsc - displaced).max(0.0), fsc)
-        } else {
-            (0.0, 0.0)
-        };
-        let eps_t = EPSILON_CU * (m.d - c) / c;
-        let fst = fs(eps_t);
-        let t = m.as_tension * fst;
-        (cc + cs - t, cc * (m.d - a / 2.0) + cs * (m.d - d_p), a, eps_t, fst, fsc)
-    };
-
-    // The residual rises monotonically with c: the block and the compression steel grow, the
-    // tension steel strain falls. It is −As·fy as c → 0 and positive by c = h/β1 + d, so the
-    // root is bracketed and unique.
-    let mut lo = 1e-9_f64;
-    let mut hi = m.h / b1 + m.d;
-    if state(lo).0 >= 0.0 || state(hi).0 <= 0.0 {
-        return None;
-    }
-    for _ in 0..200 {
-        let mid = 0.5 * (lo + hi);
-        if state(mid).0 < 0.0 {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-        if hi - lo <= 1e-12 * m.h {
-            break;
-        }
-    }
-    let c = 0.5 * (lo + hi);
-    let (_, mn, a, epsilon_t, fs_tension, fs_compression) = state(c);
-    Some(FlexureState { mn, a, c, epsilon_t, fs_tension, fs_compression })
+    let f = nominal_flexure_r::<f64>(m)?;
+    if f.c.is_finite() && f.mn.is_finite() { Some(f) } else { None }
 }
 
 // ==================== Shear ====================
 
 /// Shear strength of the section with the stirrups it has.
+#[derive(Debug, Clone, Copy)]
+pub struct ShearStateR<T> {
+    pub vc: T,
+    pub vs: T,
+    pub av_min: T,
+    pub av_below_min: Tri,
+    pub vs_capped: Tri,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ShearState {
     pub vc: f64,
@@ -294,73 +360,120 @@ pub struct ShearState {
     pub vs_capped: bool,
 }
 
-pub fn shear_strength(m: &Cirsoc201MemberData, axial_compression: f64) -> Option<ShearState> {
+pub(crate) fn shear_inputs_valid(m: &Cirsoc201MemberData) -> bool {
     let lambda = m.lambda.unwrap_or(1.0);
     let ag = m.ag.unwrap_or(m.b * m.h);
-    let valid = [m.fc, m.fy, m.b, m.h, m.d, ag, lambda, m.fyt.unwrap_or(m.fy)]
-        .iter()
-        .all(|v| v.is_finite() && *v > 0.0)
-        && axial_compression.is_finite()
+    [m.fc, m.fy, m.b, m.h, m.d, ag, lambda, m.fyt.unwrap_or(m.fy)].iter().all(|v| v.is_finite() && *v > 0.0)
         && m.as_tension.is_finite()
-        && m.as_tension >= 0.0;
-    if !valid {
+        && m.as_tension >= 0.0
+}
+
+/// Shear strength, generic over `Real`; `axial_compression` (N, compression positive).
+pub(crate) fn shear_strength_r<T: Real>(m: &Cirsoc201MemberData, axial_compression: T) -> Option<ShearStateR<T>> {
+    if !shear_inputs_valid(m) {
         return None;
     }
-    let fc_mpa = m.fc / 1e6;
-    let sqrt_fc = fc_mpa.sqrt().min(SQRT_FC_MAX_MPA);
-    let bw_mm = m.b * 1000.0;
-    let d_mm = m.d * 1000.0;
+    let lambda = T::exact(m.lambda.unwrap_or(1.0));
+    let ag = T::exact(m.ag.unwrap_or(m.b * m.h));
+    let mpa = T::exact(1e6);
+    let fc_mpa = T::exact(m.fc).dv(mpa);
+    let sqrt_fc = fc_mpa.sqrt().min(T::lit(SQRT_FC_MAX_MPA));
+    let bw_mm = T::exact(m.b) * T::exact(1000.0);
+    let d_mm = T::exact(m.d) * T::exact(1000.0);
     // 22.5.3.3 limits the fyt used for Vs. Av,min (9.6.3.4) reads the stirrup's own fyt: a
     // capped fyt there raises Av,min, which can move a member into row (c) of Tabla 22.5.5.1,
     // and row (c) exceeds row (a) when ρw is large, so "conservative" would not be.
     let fyt_actual = m.fyt.unwrap_or(m.fy);
-    let fyt = fyt_actual.min(FYT_MAX_PA);
+    let fyt = T::exact(fyt_actual.min(FYT_MAX_PA));
     let (av, s) = match (m.av, m.s_stirrup) {
         (Some(av), Some(s)) if av > 0.0 && s > 0.0 && av.is_finite() && s.is_finite() => (av, s),
         _ => (0.0, 0.0),
     };
-    let fyt_mpa = fyt_actual / 1e6;
-    let av_min_mm2 = |s_mm: f64| match m.edition {
-        Cirsoc201Edition::E2025 => (0.062 * sqrt_fc).max(0.35) * bw_mm * s_mm / fyt_mpa,
-        Cirsoc201Edition::E2005 => (sqrt_fc / 16.0).max(0.33) * bw_mm * s_mm / fyt_mpa,
+    let fyt_mpa = T::exact(fyt_actual).dv(mpa);
+    let s_mm = T::exact(s) * T::exact(1000.0);
+    let av_min = if s > 0.0 {
+        let coef = match m.edition {
+            Cirsoc201Edition::E2025 => (T::lit(0.062) * sqrt_fc).max(T::lit(0.35)),
+            Cirsoc201Edition::E2005 => sqrt_fc.dv(T::exact(16.0)).max(T::lit(0.33)),
+        };
+        (coef * bw_mm * s_mm).dv(fyt_mpa).dv(mpa)
+    } else {
+        T::exact(0.0)
     };
-    let av_min = if s > 0.0 { av_min_mm2(s * 1000.0) / 1e6 } else { 0.0 };
-    let av_below_min = s == 0.0 || av < av_min;
+    let av_below_min = if s == 0.0 { Tri::True } else { T::exact(av).lt(av_min) };
 
     // Nu/Ag in MPa, compression positive.
-    let nu_ag = axial_compression / (ag * 1e6);
+    let nu_ag = axial_compression.dv(ag * mpa);
     let vc_mpa = match m.edition {
         Cirsoc201Edition::E2025 => {
-            let axial = (nu_ag / 6.0).min(0.05 * fc_mpa);
-            let base = if av_below_min {
-                let lambda_s = (2.0 / (1.0 + 0.004 * d_mm)).sqrt().min(1.0);
-                let rho_w = m.as_tension / (m.b * m.d);
-                0.66 * lambda_s * lambda * rho_w.cbrt() * sqrt_fc
-            } else {
-                0.17 * lambda * sqrt_fc
-            };
-            (base + axial).clamp(0.0, 0.42 * lambda * sqrt_fc)
+            let axial = nu_ag.dv(T::exact(6.0)).min(T::lit(0.05) * fc_mpa);
+            let base = branch(
+                av_below_min,
+                || {
+                    let lambda_s = (T::exact(2.0).dv(T::exact(1.0) + T::lit(0.004) * d_mm)).sqrt().min(T::exact(1.0));
+                    let rho_w = T::exact(m.as_tension).dv(T::exact(m.b) * T::exact(m.d));
+                    T::lit(0.66) * lambda_s * lambda * rho_w.powf(T::lit(1.0 / 3.0)) * sqrt_fc
+                },
+                || T::lit(0.17) * lambda * sqrt_fc,
+            );
+            (base + axial).max(T::exact(0.0)).min(T::lit(0.42) * lambda * sqrt_fc)
         }
         Cirsoc201Edition::E2005 => {
-            let factor = if axial_compression >= 0.0 {
-                1.0 + nu_ag / 14.0
-            } else {
-                1.0 + 0.3 * nu_ag
-            };
-            (factor * lambda * sqrt_fc / 6.0).max(0.0)
+            let factor = branch(
+                T::exact(0.0).le(axial_compression),
+                || T::exact(1.0) + nu_ag.dv(T::exact(14.0)),
+                || T::exact(1.0) + T::lit(0.3) * nu_ag,
+            );
+            (factor * lambda * sqrt_fc.dv(T::exact(6.0))).max(T::exact(0.0))
         }
     };
-    let vc = vc_mpa * bw_mm * d_mm;
+    // ≥ 0 by construction; the max keeps an interval's outward rounding from straddling 0.
+    let vc = (vc_mpa * bw_mm * d_mm).max(T::exact(0.0));
 
-    let vs_raw = if s > 0.0 { av * fyt * m.d / s } else { 0.0 };
+    let vs_raw = if s > 0.0 { (T::exact(av) * fyt * T::exact(m.d)).dv(T::exact(s)) } else { T::exact(0.0) };
     let vs_max = match m.edition {
-        Cirsoc201Edition::E2025 => 0.66 * sqrt_fc * bw_mm * d_mm,
-        Cirsoc201Edition::E2005 => 2.0 / 3.0 * sqrt_fc * bw_mm * d_mm,
+        Cirsoc201Edition::E2025 => T::lit(0.66) * sqrt_fc * bw_mm * d_mm,
+        Cirsoc201Edition::E2005 => T::exact(2.0).dv(T::exact(3.0)) * sqrt_fc * bw_mm * d_mm,
     };
-    let vs_capped = vs_raw > vs_max;
-    Some(ShearState { vc, vs: vs_raw.min(vs_max), av_min, av_below_min, vs_capped })
+    let vs_capped = vs_max.lt(vs_raw);
+    Some(ShearStateR { vc, vs: vs_raw.min(vs_max), av_min, av_below_min, vs_capped })
 }
 
+pub fn shear_strength(m: &Cirsoc201MemberData, axial_compression: f64) -> Option<ShearState> {
+    if !axial_compression.is_finite() {
+        return None;
+    }
+    let s = shear_strength_r::<f64>(m, axial_compression)?;
+    Some(ShearState { vc: s.vc, vs: s.vs, av_min: s.av_min, av_below_min: decided(s.av_below_min), vs_capped: decided(s.vs_capped) })
+}
+
+/// The Vu above which the clause requires Av,min (9.6.3.1 [11.5.6.1]).
+pub(crate) fn min_shear_threshold<T: Real>(m: &Cirsoc201MemberData, vc: T) -> T {
+    let lambda = T::exact(m.lambda.unwrap_or(1.0));
+    let sqrt_fc = T::exact(m.fc).dv(T::exact(1e6)).sqrt().min(T::lit(SQRT_FC_MAX_MPA));
+    match m.edition {
+        Cirsoc201Edition::E2025 => {
+            T::lit(PHI_V) * T::lit(0.085) * lambda * sqrt_fc * (T::exact(m.b) * T::exact(1000.0)) * (T::exact(m.d) * T::exact(1000.0))
+        }
+        Cirsoc201Edition::E2005 => T::lit(0.5) * T::lit(PHI_V) * vc,
+    }
+    .max(T::exact(0.0))
+}
+
+/// Whether the minimum shear reinforcement is required at `vu` and missing.
+pub(crate) fn min_shear_missing<T: Real>(m: &Cirsoc201MemberData, s: &ShearStateR<T>, vu: T) -> Tri {
+    let shallow = m.h <= 0.25;
+    if shallow {
+        return Tri::False;
+    }
+    min_shear_threshold(m, s.vc).lt(vu).and(s.av_below_min)
+}
+
+/// Whether the ductility clause applies: a moment and little compression (9.3.3.1).
+pub(crate) fn ductility_applies<T: Real>(m: &Cirsoc201MemberData, mu: T, nu: T) -> Tri {
+    let ag = T::exact(m.ag.unwrap_or(m.b * m.h));
+    T::exact(0.0).lt(mu).and(nu.lt(T::lit(0.10) * T::exact(m.fc) * ag))
+}
 
 // ==================== Numeric batch boundary ====================
 
@@ -458,7 +571,6 @@ pub fn check_single_cirsoc201(m: &Cirsoc201MemberData, f: &Cirsoc201DesignForces
     let mu = f.mu.unwrap_or(0.0).abs();
     let vu = f.vu.unwrap_or(0.0).abs();
     let nu = f.axial_compression.unwrap_or(0.0);
-    let ag = m.ag.unwrap_or(m.b * m.h);
     let mut ledger = CheckLedger::new();
 
     // ── Flexure ──
@@ -470,54 +582,49 @@ pub fn check_single_cirsoc201(m: &Cirsoc201MemberData, f: &Cirsoc201DesignForces
         }
         None => (0.0, 0.0),
     };
-    let flexure_ratio = ledger.ratio_if_loaded("Flexure", mu, phi_mn);
+    // A section without flexural capacity is not evaluated even when no moment reaches it
+    // (an As = 0 beam used to pass).
+    let flexure_ratio = ledger.ratio(CIRSOC201_FLEXURE, mu, phi_mn);
 
     // Ductility of a flexural member: only where it carries a moment and little compression.
-    let applies = mu > 0.0 && nu < 0.10 * m.fc * ag;
+    let applies = decided(ductility_applies::<f64>(m, mu, nu));
     let (epsilon_t_min, ductility_ratio) = match (applies, flex) {
         (true, Some(s)) => {
             let lim = ductility_strain(m.edition, m.fy, es);
             (lim, if s.epsilon_t > 0.0 { lim / s.epsilon_t } else { f64::INFINITY })
         }
         (true, None) => {
-            ledger.flag("Ductility");
+            ledger.flag(CIRSOC201_DUCTILITY);
             (ductility_strain(m.edition, m.fy, es), 0.0)
         }
         (false, _) => (0.0, 0.0),
     };
 
     // ── Shear ──
-    let shear = shear_strength(m, nu);
-    let (vc, vs, av_min, av_below_min, vs_capped) = match shear {
-        Some(s) => (s.vc, s.vs, s.av_min, s.av_below_min, s.vs_capped),
+    let shear_r = if nu.is_finite() { shear_strength_r::<f64>(m, nu) } else { None };
+    let (vc, vs, av_min, av_below_min, vs_capped) = match &shear_r {
+        Some(s) => (s.vc, s.vs, s.av_min, decided(s.av_below_min), decided(s.vs_capped)),
         None => (0.0, 0.0, 0.0, true, false),
     };
     let phi_vn = PHI_V * (vc + vs);
-    let shear_ratio = ledger.ratio_if_loaded("Shear", vu, phi_vn);
+    let shear_ratio = ledger.ratio_if_loaded(CIRSOC201_SHEAR, vu, phi_vn);
 
     // Where the clause asks for the minimum shear reinforcement.
-    let lambda = m.lambda.unwrap_or(1.0);
-    let sqrt_fc = (m.fc / 1e6).sqrt().min(SQRT_FC_MAX_MPA);
-    let threshold = match m.edition {
-        Cirsoc201Edition::E2025 => PHI_V * 0.085 * lambda * sqrt_fc * m.b * 1000.0 * m.d * 1000.0,
-        Cirsoc201Edition::E2005 => 0.5 * PHI_V * vc,
-    };
-    let shallow = m.h <= 0.25;
-    let min_shear_reinforcement_missing = shear.is_some() && !shallow && vu > threshold && av_below_min;
-    if shear.is_none() && vu > 0.0 {
-        ledger.flag("Shear");
+    let min_shear_reinforcement_missing = shear_r.as_ref().is_some_and(|s| decided(min_shear_missing::<f64>(m, s, vu)));
+    if shear_r.is_none() && vu > 0.0 {
+        ledger.flag(CIRSOC201_SHEAR);
     }
 
     let checks = [
-        (flexure_ratio, "Flexure"),
-        (ductility_ratio, "Ductility"),
-        (shear_ratio, "Shear"),
-        (if min_shear_reinforcement_missing { f64::INFINITY } else { 0.0 }, "Minimum shear reinforcement"),
+        (flexure_ratio, CIRSOC201_FLEXURE),
+        (ductility_ratio, CIRSOC201_DUCTILITY),
+        (shear_ratio, CIRSOC201_SHEAR),
+        (if min_shear_reinforcement_missing { f64::INFINITY } else { 0.0 }, CIRSOC201_MIN_SHEAR),
     ];
     let (mut unity_ratio, mut governing) = ledger.governing(&checks);
     if min_shear_reinforcement_missing || ductility_ratio.is_infinite() {
         unity_ratio = f64::INFINITY;
-        governing = if min_shear_reinforcement_missing { "Minimum shear reinforcement" } else { "Ductility" };
+        governing = if min_shear_reinforcement_missing { CIRSOC201_MIN_SHEAR } else { CIRSOC201_DUCTILITY };
     }
     let pass = ledger.all_evaluated()
         && checks.iter().all(|(r, _)| *r <= 1.0)

@@ -42,7 +42,8 @@ function oraclePhi(ed: Edition, et: number, fy: number): number {
   return 0.65 + (0.25 * (et - ety)) / (etc - ety);
 }
 
-/** Strain compatibility, both steels elastic–plastic, block 0,85·f'c over β1·c ≤ h. */
+/** Strain compatibility, both steels elastic–plastic, block 0,85·f'c over β1·c ≤ h; a compression
+ *  bar is net of 0,85·f'c while c > d' and not credited while it is in tension. */
 function oracleFlexure(q: BeamSectionQuery) {
   const b1 = oracleBeta1(q.fc);
   const Asc = q.AsComp ?? 0, dp = q.dPrime ?? 0;
@@ -54,7 +55,10 @@ function oracleFlexure(q: BeamSectionQuery) {
     let Cs = 0, fsc = 0;
     if (doubly && c > dp) {
       fsc = steel((0.003 * (c - dp)) / c);
-      Cs = Asc * Math.max(0, fsc - (dp <= a ? 0.85 * q.fc : 0));
+      // Net of the displaced concrete whenever the bar is in compression (c > d'), not only
+      // inside the block: the force residual then stays monotone in c (one neutral axis, which
+      // the certified check needs), and Mn can only be lower (integration/safety-wave).
+      Cs = Asc * Math.max(0, fsc - 0.85 * q.fc);
     }
     const et = (0.003 * (q.d - c)) / c;
     const fst = steel(et);

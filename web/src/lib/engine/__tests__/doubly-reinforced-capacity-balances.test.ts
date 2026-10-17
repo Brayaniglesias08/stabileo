@@ -47,10 +47,11 @@ function equilibriumResidual(
   const Cc = ALPHA1 * fc * 1000 * r.a * b;
   const eps = r.c > dPrime ? 0.003 * (r.c - dPrime) / r.c : 0;
   const fs = Math.min(ES_KPA * eps, fy * 1000);
-  // Net of displaced concrete only where the bar sits inside the stress block (d' ≤ a): a bar
-  // between the block and the neutral axis displaces no block concrete. The engine checker
-  // follows the clause here; this helper used to deduct it regardless.
-  const Cs = AsCompCm2 * 1e-4 * Math.max(0, fs - (dPrime <= r.a ? ALPHA1 * fc * 1000 : 0));
+  // Net of 0,85·f'c whenever the bar is in compression (c > d'), as the engine checker does
+  // since integration/safety-wave: deducting it only inside the block (d' ≤ a) made the force
+  // residual jump down at a = d', so it could have more than one root (and the certified check
+  // needs exactly one). Deducting it between the block and the neutral axis can only lower Mn.
+  const Cs = AsCompCm2 * 1e-4 * Math.max(0, fs - ALPHA1 * fc * 1000);
   return Math.abs(Cc + Cs - T) / T;
 }
 

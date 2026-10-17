@@ -227,3 +227,110 @@ fn cirsoc201_multiple_members() {
     assert!(results[0].phi_mn > 0.0);
     assert!(results[1].phi_mn > 0.0);
 }
+
+// ==================== Regression tests (certification review) ====================
+
+fn beam(fc: f64, fy: f64, b: f64, d: f64, as_t: f64) -> Cirsoc201MemberData {
+    Cirsoc201MemberData {
+        element_id: 1,
+        fc,
+        fy,
+        es: None,
+        b,
+        h: d + 0.05,
+        d,
+        as_tension: as_t,
+        as_compression: None,
+        d_prime: None,
+        av: None,
+        s_stirrup: None,
+        fyt: None,
+        ag: None,
+        lambda: None,
+        // These regressions follow the CIRSOC 201-2005 clauses they cite.
+        edition: Cirsoc201Edition::E2005,
+    }
+}
+
+fn run(m: Cirsoc201MemberData, mu: Option<f64>, vu: Option<f64>) -> Cirsoc201CheckResult {
+    check_cirsoc201_members(&Cirsoc201CheckInput {
+        members: vec![m],
+        forces: vec![Cirsoc201DesignForces { element_id: 1, mu, vu, axial_compression: None }],
+    })
+    .remove(0)
+}
+
+/// A section with no tension steel has no flexural capacity. phi·Mn was 0,
+/// read as ratio 0, and the member passed any moment.
+#[test]
+fn cirsoc201_zero_capacity_does_not_pass() {
+    let r = run(beam(25e6, 420e6, 0.3, 0.45, 0.0), Some(100_000.0), None);
+    assert!(!r.pass, "{r:?}");
+    assert!(r.unevaluated.iter().any(|n| n.contains("Flexure")), "{r:?}");
+}
+
+/// Over-reinforced beam (test 6 section): εt < εy, so the tension steel does
+/// not yield. Strain compatibility (independent bisection): c = 0.25184 m,
+/// fs = 383.63 MPa, Mn = 249 947 N·m, εt = 0.001918 → phi = 0.65.
+/// Assuming fs = fy gave Mn = 264 564 N·m (+5.8%).
+#[test]
+fn cirsoc201_over_reinforced_uses_steel_strain() {
+    let r = run(beam(25e6, 420e6, 0.25, 0.35, 2.513e-3), Some(100_000.0), None);
+    let expected = 0.65 * 249_947.42;
+    assert!((r.phi - 0.65).abs() < 1e-12, "phi {}", r.phi);
+    assert!((r.phi_mn - expected).abs() / expected < 1e-6, "phi·Mn {} vs {expected}", r.phi_mn);
+}
+
+/// Doubly reinforced, c < d' (the "compression" bars are in tension). The
+/// bar stress was taken from the singly reinforced c (fs' = −385.6 MPa):
+/// Mn 125.6 kN·m. Full strain compatibility crediting the top bars' tension
+/// gives 120.5 kN·m (c = 0.060840 m, fs' = −139.64 MPa). The merged checker
+/// (integration/safety-wave) does not credit bars on the compression side
+/// while they are in tension, which can only lower Mn: here the section acts
+/// as singly reinforced, Mn = As·fy·(d − a/2) = 115.1 kN·m, below both.
+#[test]
+fn cirsoc201_doubly_reinforced_uses_strain_compatibility() {
+    let mut m = beam(40e6, 420e6, 0.40, 0.26, 1.13e-3);
+    m.as_compression = Some(1.13e-3);
+    m.d_prime = Some(0.075);
+    let r = run(m, Some(100_000.0), None);
+    let a = 1.13e-3 * 420e6 / (0.85 * 40e6 * 0.40);
+    let expected = 0.90 * 1.13e-3 * 420e6 * (0.26 - a / 2.0);
+    assert!((r.phi_mn - expected).abs() / expected < 1e-6, "phi·Mn {} vs {expected}", r.phi_mn);
+    assert!(r.phi_mn < 0.90 * 120_527.496, "never above full strain compatibility");
+    assert!(r.c < 0.075 && r.fs_compression == 0.0, "{r:?}");
+}
+
+/// ADN 500: the compression-controlled limit is fy/Es = 0.0025, not 0.002.
+/// At εt = 0.00247 the section is compression-controlled (phi = 0.65); the
+/// fixed 0.002 limit gave phi ≈ 0.68.
+#[test]
+fn cirsoc201_adn500_compression_controlled_limit() {
+    let r = run(beam(30e6, 500e6, 0.3, 0.45, 3.1966e-3), Some(100_000.0), None);
+    assert!((r.phi - 0.65).abs() < 1e-12, "phi {}", r.phi);
+}
+
+/// ADN 420: 10.3.3 permits εty = 0.002, which gives a higher φ than fy/Es =
+/// 0.0021 (0.775 vs 0.7707 at εt = 0.0035). The merged checker takes the
+/// stricter fy/Es for every grade.
+#[test]
+fn cirsoc201_adn420_uses_fy_over_es() {
+    let (fc, fy, b, d) = (25e6, 420e6, 0.3, 0.45);
+    let c: f64 = 0.003 * d / 0.0065;
+    let as_t = 0.85 * fc * 0.85 * c * b / fy;
+    let r = run(beam(fc, fy, b, d, as_t), Some(1.0), None);
+    let ety = 420e6 / 200e9;
+    let expected = 0.65 + 0.25 * (0.0035 - ety) / (0.005 - ety);
+    assert!((r.phi - expected).abs() < 1e-9, "phi {} vs {expected}", r.phi);
+    assert!(r.phi < 0.775);
+}
+
+/// 11.1.2: sqrt(f'c) is capped in Vc. 2005 writes 25/3 MPa, 2025 8.3 MPa;
+/// the checker uses the lower 8.3 in both editions. Vc = (1/6)·√f'c·bw·d (11.3.1.1).
+#[test]
+fn cirsoc201_vc_caps_sqrt_fc() {
+    let r = run(beam(80e6, 420e6, 0.3, 0.45, 1.257e-3), None, Some(50_000.0));
+    let expected = 8.3 / 6.0 * 300.0 * 450.0;
+    assert!((r.vc - expected).abs() / expected < 1e-12, "Vc {} vs {expected}", r.vc);
+    assert!(r.vc < (25.0 / 3.0) / 6.0 * 300.0 * 450.0);
+}
