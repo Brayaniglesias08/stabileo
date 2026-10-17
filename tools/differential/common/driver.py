@@ -14,8 +14,26 @@ An adapter (tools/differential/<program>/adapter.py) provides:
 
 Statuses: ok, mismatch, unsupported, stabileo_failed, ill_conditioned,
 unstable (P-Delta beyond the first buckling load: no unique answer),
-reference_failed, unloaded.
+reference_failed, unloaded, and three that point at stabileo's own
+singularity checks (dumped like mismatches):
+
+  silent_singular  the reference's stiffness is singular (kappa > 1e14) and
+                   stabileo solved it without a warning;
+  false_reject     stabileo refused a static model whose reference stiffness
+                   is regular (kappa < 1e10);
+  false_warning    stabileo flagged a static model ill-conditioned whose
+                   reference stiffness is well conditioned (kappa < 1e8).
+
+The last two need a reference that reports kappa (the Jacobi-scaled
+condition number of its free stiffness); otherwise they stay
+stabileo_failed / ill_conditioned.
 """
+
+# kappa limits for the cross-checks of stabileo's singularity diagnostics.
+KAPPA_SINGULAR = 1e14
+KAPPA_REGULAR = 1e10
+KAPPA_WELL = 1e8
+FLAGGED = ("mismatch", "silent_singular", "false_reject", "false_warning")
 
 import copy
 import json
@@ -67,11 +85,17 @@ def run_case(adapter, model, analysis, tol, n_modes=6, mode_tol=None):
         else:
             sres = M.normalize_static(M.stabileo(clean, "static"), dim)
     except RuntimeError as ex:
-        return dict(status="stabileo_failed", why=[str(ex)[:200]])
+        r = dict(status="stabileo_failed", why=[str(ex)[:200]])
+        if analysis == "static":
+            _cross_check(adapter, clean, dens, r, KAPPA_REGULAR, "false_reject")
+        return r
     if analysis != "modal":
         ill = sorted(set(sres["diags"]) & M.ILL_CONDITIONED)
         if ill:
-            return dict(status="ill_conditioned", why=ill)
+            r = dict(status="ill_conditioned", why=ill)
+            if analysis == "static":
+                _cross_check(adapter, clean, dens, r, KAPPA_WELL, "false_warning")
+            return r
     try:
         rres = adapter.run(clean, analysis, densities=dens, n_modes=2 * n_modes if analysis == "modal" else n_modes)
     except M.Unsupported as ex:
@@ -89,7 +113,7 @@ def run_case(adapter, model, analysis, tol, n_modes=6, mode_tol=None):
             # The reference finds the stiffness singular (or nearly): stabileo
             # must have said so (the ILL_CONDITIONED diagnostics were checked
             # above, so here it solved silently).
-            if kappa > 1e14:
+            if kappa > KAPPA_SINGULAR:
                 return dict(status="silent_singular", why=[f"kappa={kappa:.1e} min_pivot={rres.get('min_pivot')}"],
                             kappa=kappa, min_pivot=rres.get("min_pivot"))
             return dict(status="ill_conditioned", why=[f"kappa={kappa:.1e}"])
@@ -103,6 +127,20 @@ def run_case(adapter, model, analysis, tol, n_modes=6, mode_tol=None):
         status = "known"
     return dict(status=status, known=why, max_err=groups, tol=tol, kappa=kappa, n_bad=len(bad),
                 worst=sorted(bad, key=lambda b: -b[5])[:8])
+
+
+def _cross_check(adapter, clean, dens, r, limit, status):
+    """Turn r (stabileo refused or flagged the model) into `status` when the
+    reference solves it with a stiffness condition number below `limit`."""
+    try:
+        rres = adapter.run(clean, "static", densities=dens)
+    except Exception:  # noqa: unsupported or failed: nothing to compare with
+        return
+    kappa = rres.get("kappa")
+    r["kappa"] = kappa
+    if kappa is not None and kappa < limit:
+        r["status"] = status
+        r["why"] = r["why"] + [f"reference kappa={kappa:.1e}"]
 
 
 # ---------------------------------------------------------------- shrinking
@@ -205,7 +243,7 @@ def run_all(adapter, cases, tol, jobs=4, dump_dir=None, do_shrink=False, verbose
         except Exception as ex:  # noqa: harness bug: report, keep going
             r = dict(status="harness_error", why=[traceback.format_exc()[-600:]])
         r.update(name=case.name, analysis=case.analysis)
-        if r["status"] in ("mismatch", "silent_singular") and dump_dir:
+        if r["status"] in FLAGGED and dump_dir:
             os.makedirs(dump_dir, exist_ok=True)
             base = os.path.join(dump_dir, f"{adapter.NAME}-{case.analysis}-{case.name}".replace("/", "_"))
             with open(base + ".json", "w") as f:
@@ -231,7 +269,7 @@ def run_all(adapter, cases, tol, jobs=4, dump_dir=None, do_shrink=False, verbose
 def summarize(results, verbose=False, out=print):
     from collections import Counter
     for r in results:
-        if verbose or r["status"] in ("mismatch", "harness_error", "silent_singular"):
+        if verbose or r["status"] in FLAGGED + ("harness_error",):
             extra = r.get("why") or {k: f"{v:.1e}" for k, v in r.get("max_err", {}).items()}
             out(f"{r['status']:16} {r['analysis']:8} {r['name']}  {extra}")
             for w in r.get("worst", [])[:5] if r["status"] == "mismatch" else []:
@@ -248,7 +286,8 @@ def summarize(results, verbose=False, out=print):
                 g[k] = max(g.get(k, 0.0), v)
     if g:
         out("max normalized error over compared models: " + json.dumps({k: f"{v:.2e}" for k, v in sorted(g.items())}))
-    for st in ("known", "silent_singular", "unsupported", "reference_failed", "stabileo_failed", "unstable"):
+    for st in ("known", "silent_singular", "false_reject", "false_warning", "unsupported", "reference_failed",
+               "stabileo_failed", "ill_conditioned", "unstable"):
         reasons = Counter(w[:120] for r in results if r["status"] == st
                           for w in ([r["known"]] if st == "known" else r["why"]))
         if reasons:

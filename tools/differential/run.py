@@ -9,7 +9,8 @@ PROGRAM: frame3dd, pynite, mystran, kratos, calculix (see README.md).
 Generators (common/gen.py and the program's own gen.py): rich3d, frame3d,
 building, modal3d, pdelta3d, plus per-program ones.
 
-Exit status: 0 = no mismatch, 1 = mismatches, 2 = harness error.
+Exit status: 0 = nothing flagged, 1 = a mismatch, silent_singular, false_reject
+or false_warning (common/driver.py), 2 = harness error.
 """
 
 import argparse
@@ -93,7 +94,7 @@ def main():
             json.dump(results, f, indent=1, default=str)
     if cnt.get("harness_error"):
         return 2
-    return 1 if cnt.get("mismatch") else 0
+    return 1 if any(cnt.get(s) for s in driver.FLAGGED) else 0
 
 
 if __name__ == "__main__":
