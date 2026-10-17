@@ -477,3 +477,37 @@ fn polygonised_circles_match_the_exact_regular_polygon() {
     let i = n * th.sin() * (2.0 + th.cos()) / 24.0 * (ro.powi(4) - ri.powi(4));
     assert!((p.a / a - 1.0).abs() < 1e-12 && (p.iy / i - 1.0).abs() < 1e-12);
 }
+
+// ─── Reinforced-concrete section integration ────────────────────────
+
+/// `rc_section_kernel` against a hand calculation (ACI 318 / CIRSOC 201
+/// equivalent rectangular block, strain compatibility), 300 x 500 mm, four
+/// 3 cm² bars at 50 mm cover to their centres, c = 150 mm, compression on top:
+///   a = beta1 c = 127.5 mm;   C = 0.85 f'c b a = 812.8125 kN at y = 186.25 mm
+///   top bars:    eps = 0.003 (200-100)/150 = 0.002 -> 400 MPa, less the
+///                displaced concrete 0.85 f'c -> 113.625 kN each
+///   bottom bars: eps = -0.006 -> -420 MPa (yield) -> -126 kN each
+///   Pn = 812.8125 + 2(113.625) - 2(126) = 788.0625 kN
+///   Mx = -(812.8125)(0.18625) - 2(113.625)(0.20) - 2(-126)(-0.20) = -247.236328125 kNm
+/// (the kernel's sign: Mx = -sum F y), My = 0 by symmetry, eps_t = 0.006.
+#[test]
+fn rc_section_kernel_matches_a_hand_strain_compatibility_calculation() {
+    use dedaliano_engine::rc_section_kernel::RcSectionGeometry;
+    let ring = [-0.15, -0.25, 0.15, -0.25, 0.15, 0.25, -0.15, 0.25];
+    let bars = [-0.10, -0.20, 3e-4, 0.10, -0.20, 3e-4, -0.10, 0.20, 3e-4, 0.10, 0.20, 3e-4];
+    let k = RcSectionGeometry::new(&ring, &[0, 4], &bars, &[25000.0, 420.0, 200000.0, 0.003, 0.85], true)
+        .unwrap_or_else(|_| panic!("valid section"));
+    let out = k.evaluate(0.0, 1.0, &[0.15]).unwrap_or_else(|_| panic!("valid query"));
+    let want = [788.0625, -247.236328125, 0.0, 0.006, 0.15];
+    for (i, (g, w)) in out.iter().zip(want).enumerate() {
+        assert!((g - w).abs() < 1e-9 * (1.0 + w.abs()), "component {i}: {g} vs {w}");
+    }
+    // Same section, wound clockwise and turned 90 degrees (compression on +x):
+    // the kernel must give the same axial force.
+    let turned: Vec<f64> = [0.25, -0.15, 0.25, 0.15, -0.25, 0.15, -0.25, -0.15].to_vec();
+    let tb = [0.20, -0.10, 3e-4, 0.20, 0.10, 3e-4, -0.20, -0.10, 3e-4, -0.20, 0.10, 3e-4];
+    let k2 = RcSectionGeometry::new(&turned, &[0, 4], &tb, &[25000.0, 420.0, 200000.0, 0.003, 0.85], true)
+        .unwrap_or_else(|_| panic!("valid section"));
+    let o2 = k2.evaluate(1.0, 0.0, &[0.15]).unwrap_or_else(|_| panic!("valid query"));
+    assert!((o2[0] - 788.0625).abs() < 1e-9 && (o2[2] - 247.236328125).abs() < 1e-9, "{o2:?}");
+}
