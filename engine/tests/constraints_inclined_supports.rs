@@ -725,8 +725,6 @@ fn certificates_linear_static_constraints_on_inclined_supports() {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn modal_2d_constraints_on_inclined_roller_match_rotated_model() {
     for sub in [1, 12] {
         for (name, c) in analysis_cases_2d() {
@@ -746,8 +744,6 @@ fn modal_2d_constraints_on_inclined_roller_match_rotated_model() {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn modal_3d_constraints_on_inclined_support_match_rotated_model() {
     for sub in [1, 6] {
         for (name, c) in analysis_cases_3d() {
@@ -776,8 +772,6 @@ fn assert_buckling_certified(what: &str, c: &BucklingCertificate) {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn buckling_2d_constraints_on_inclined_roller_match_rotated_model() {
     for sub in [1, 12] {
         for (name, c) in analysis_cases_2d() {
@@ -797,8 +791,6 @@ fn buckling_2d_constraints_on_inclined_roller_match_rotated_model() {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn buckling_3d_constraints_on_inclined_support_match_rotated_model() {
     for sub in [1, 6] {
         for (name, c) in analysis_cases_3d() {
@@ -840,8 +832,12 @@ fn corotational_2d_constraints_on_inclined_roller_match_rotated_model() {
     use dedaliano_engine::solver::corotational::solve_corotational_2d;
     for sub in [1, 12] {
         for (name, c) in analysis_cases_2d() {
-            let a = solve_corotational_2d(&model_2d(Sup::Inclined, sub, &c), 50, 1e-10, 4, false).expect(name);
-            let b = solve_corotational_2d(&model_2d(Sup::Rotated, sub, &c), 50, 1e-10, 4, false).expect(name);
+            // 1e-8: the subdivided model's increment norm stalls on roundoff just
+            // above 1e-10, and since #297 an unconverged co-rotational solve
+            // reports the last converged increment, not the abandoned iterate.
+            let a = solve_corotational_2d(&model_2d(Sup::Inclined, sub, &c), 50, 1e-8, 4, false).expect(name);
+            let b = solve_corotational_2d(&model_2d(Sup::Rotated, sub, &c), 50, 1e-8, 4, false).expect(name);
+            assert!(a.converged && b.converged, "sub {sub} {name}: converged {} {}", a.converged, b.converged);
             assert_static_2d(&format!("sub {sub} {name}"), &a.results, &b.results, 1e-6);
         }
     }
@@ -888,8 +884,6 @@ fn cable_constraints_on_inclined_supports_match_rotated_model() {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn time_history_2d_constraints_on_inclined_roller_match_rotated_model() {
     for sub in [1, 12] {
         for (name, c) in analysis_cases_2d() {
@@ -923,8 +917,6 @@ fn time_history_2d_constraints_on_inclined_roller_match_rotated_model() {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn time_history_3d_constraints_on_inclined_support_match_rotated_model() {
     let q = q3();
     for sub in [1, 6] {
@@ -963,8 +955,6 @@ const FREQS: [f64; 4] = [0.5, 2.0, 4.0, 9.0];
 // constraint makes dependent ("Target DOF is dependent"), as node 7's are.
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn harmonic_2d_constraints_on_inclined_roller_match_rotated_model() {
     let (s, c) = THETA.sin_cos();
     for sub in [1, 12] {
@@ -991,8 +981,6 @@ fn harmonic_2d_constraints_on_inclined_roller_match_rotated_model() {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn harmonic_3d_constraints_on_inclined_support_match_rotated_model() {
     let q = q3();
     let axes = ["x", "y", "z"];
@@ -1030,8 +1018,6 @@ fn spectrum() -> DesignSpectrum {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn spectral_2d_constraints_on_inclined_roller_match_rotated_model() {
     // A quarter turn maps the original's X excitation onto the rotated
     // model's Y (spectral analysis excites one global axis at a time).
@@ -1080,8 +1066,6 @@ fn assert_cb_same(what: &str, a: &CraigBamptonResult, b: &CraigBamptonResult) {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn craig_bampton_constraints_on_inclined_supports_match_rotated_model() {
     for sub in [1, 12] {
         for (name, c) in analysis_cases_2d() {
@@ -1154,8 +1138,6 @@ fn extra(s: &str) -> Value {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn contact_constraints_on_inclined_supports_match_rotated_model() {
     use dedaliano_engine::solver::contact::{solve_contact_2d, solve_contact_3d, ContactInput, ContactInput3D};
     for (name, c) in analysis_cases_2d() {
@@ -1169,8 +1151,6 @@ fn contact_constraints_on_inclined_supports_match_rotated_model() {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn fiber_constraints_on_inclined_supports_match_rotated_model() {
     use dedaliano_engine::solver::fiber_nonlinear::{solve_fiber_nonlinear_2d, solve_fiber_nonlinear_3d, FiberNonlinearInput, FiberNonlinearInput3D};
     for (name, c) in analysis_cases_2d() {
@@ -1184,8 +1164,6 @@ fn fiber_constraints_on_inclined_supports_match_rotated_model() {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn ssi_constraints_on_inclined_supports_match_rotated_model() {
     use dedaliano_engine::solver::ssi::{solve_ssi_2d, solve_ssi_3d, SSIInput, SSIInput3D};
     for (name, c) in analysis_cases_2d() {
@@ -1199,8 +1177,6 @@ fn ssi_constraints_on_inclined_supports_match_rotated_model() {
 }
 
 #[test]
-#[ignore = "needs #287 (#279): this analysis pairs K in the inclined-support frames with M, Kg, \
-            influence vectors or tangents in global axes, constraints or not; passes with #287 merged"]
 fn arc_length_2d_constraints_on_inclined_roller_match_rotated_model() {
     use dedaliano_engine::solver::arc_length::{solve_arc_length, ArcLengthInput};
     for (name, c) in analysis_cases_2d() {
