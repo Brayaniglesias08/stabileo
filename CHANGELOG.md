@@ -11,6 +11,27 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Section properties and connections verified against exact forms and published values (2026-10-17)
+
+**BREAKING (results): asymmetric sections wound clockwise, the shear centre, shear areas and
+warping constant of sections with a product of inertia, and models using the IRAM steels
+solve differently.** Each was found by `docs/verification/SECTIONS_CONNECTIONS.md` and has a
+regression test.
+
+- **Product of inertia ignored the winding.** `analyze_section` fixed the sign of `Iy`/`Iz`
+  with `abs()` but not of `Iyz`, so a clockwise outline, or a hole wound clockwise, returned
+  its centroidal product with the wrong sign and mirrored the principal axes of any
+  asymmetric custom or drawn section wound that way. Now corrected by the sign of the signed
+  area; checked exactly (rational arithmetic) on random polygons with holes.
+- **Shear fields ignored the product of inertia (unsafe).** The transverse-shear solve drove
+  the field with `z/Iy` and `y/Iz`, which on non-principal axes carries a spurious resultant
+  `Iyz/Iy` along the other axis. Shear centre, shear areas, shear stresses and the warping
+  constant (whose pole is the shear centre) were wrong for angles, Z and lipped or unequal
+  sections and rotated outlines: an equal angle 100x100x10 had its shear centre 13.8 mm
+  outside the heel and a warping constant 24 times too large. The field now uses the
+  unsymmetric-bending gradient `(Iz z - Iyz y)/D`, and agrees with an independent
+  quadratic-element solution (sectionproperties) to 0.2% on shear centre and Cw.
+
 #### Solver fixes found by result certificates and OpenSees differential testing (2026-10-15)
 
 **BREAKING (results): models with Timoshenko members under member loads, plastic analyses,

@@ -2027,7 +2027,7 @@ pub fn analyze_section_shear(json: &str) -> Result<String, JsValue> {
     let res = section::shear::solve_shear(
         &mesh,
         [props.yc * scale, props.zc * scale],
-        ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4) },
+        ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4), iyz: props.iyz * scale.powi(4) },
         SolveStrategy::Sparse,
     )
     .map_err(|e| JsValue::from_str(&e))?;
@@ -2103,7 +2103,7 @@ pub fn analyze_section_shear_field(json: &str) -> Result<String, JsValue> {
     let res = section::shear::solve_shear(
         &mesh,
         [props.yc * scale, props.zc * scale],
-        ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4) },
+        ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4), iyz: props.iyz * scale.powi(4) },
         SolveStrategy::Sparse,
     )
     .map_err(|e| JsValue::from_str(&e))?;
@@ -2180,7 +2180,7 @@ pub fn analyze_section_plastic(json: &str) -> Result<String, JsValue> {
         let c = [props.yc * scale, props.zc * scale];
         let sh = solve_shear(
             &mesh, c,
-            ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4) },
+            ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4), iyz: props.iyz * scale.powi(4) },
             section::poisson::SolveStrategy::Sparse,
         )
         .map_err(|e| JsValue::from_str(&format!("shear solve failed on the way to Cw: {e}")))?;
