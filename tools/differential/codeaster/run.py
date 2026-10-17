@@ -33,6 +33,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
@@ -234,15 +235,27 @@ def main():
     pending = [r for r in results if r["status"] == "pending"]
     run_aster(pending, workdir, max(1, a.jobs))
     by_name = dict(models)
-    results = [finish(r, a.tol, a.dump_dir, by_name[r["name"]]) if r["status"] == "pending" else r
-               for r in results]
+    def safe_finish(r):
+        job = r["job"]
+        try:
+            return finish(r, a.tol, a.dump_dir, by_name[r["name"]])
+        except Exception:  # noqa: a harness bug on one model must not hide the others
+            if a.dump_dir:
+                os.makedirs(a.dump_dir, exist_ok=True)
+                base = os.path.join(a.dump_dir, r["name"].replace("/", "_"))
+                with open(base + ".json", "w") as f:
+                    json.dump(by_name[r["name"]], f, indent=1)
+                shutil.copy(os.path.join(job, "model.comm"), base + ".comm")
+            return dict(name=r["name"], status="harness_error", why=[traceback.format_exc()[-400:]])
+
+    results = [safe_finish(r) if r["status"] == "pending" else r for r in results]
     if a.keep:
         print(f"job directories: {workdir}")
     else:
         shutil.rmtree(workdir, ignore_errors=True)
 
     for r in results:
-        if a.verbose or r["status"] in ("mismatch", "aster_failed", "silent_singular"):
+        if a.verbose or r["status"] in ("mismatch", "aster_failed", "silent_singular", "harness_error"):
             extra = r.get("why") or {k: f"{v:.1e}" for k, v in r.get("max_err", {}).items()}
             print(f"{r['status']:16} {r['name']}  {extra}")
             for w in r.get("worst", [])[:5] if r["status"] == "mismatch" else []:
@@ -263,7 +276,7 @@ def main():
     if a.report:
         with open(a.report, "w") as f:
             json.dump(results, f, indent=1, default=str)
-    if cnt.get("aster_failed"):
+    if cnt.get("aster_failed") or cnt.get("harness_error"):
         return 2
     return 1 if cnt.get("mismatch") or cnt.get("silent_singular") else 0
 
