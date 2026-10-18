@@ -25,8 +25,8 @@ mod tally;
 
 use tally::Tally;
 
-pub const INV_2D: &[&str] = &["rotation", "mirror", "relabel", "units", "superposition", "reciprocity", "energy"];
-pub const INV_3D: &[&str] = &["rotation", "relabel", "units", "superposition", "reciprocity", "energy"];
+pub const INV_2D: &[&str] = &["rotation", "mirror", "relabel", "units", "superposition", "reciprocity", "energy", "symmetry"];
+pub const INV_3D: &[&str] = &["rotation", "relabel", "units", "superposition", "reciprocity", "energy", "symmetry"];
 
 fn seed() -> u64 {
     std::env::var("METAMORPHIC_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(20261018)
@@ -50,6 +50,13 @@ fn run_2d(name: &str, cases: Vec<case::Case2>, only: Option<&str>) {
     for c in &cases {
         checks2::check_case(&ctx, c, &anas, INV_2D);
     }
+    for c in &cases {
+        for anti in [false, true] {
+            if let Some(sym) = symmetry::symmetrize_2d(&c.name, &c.s, anti) {
+                symmetry::check_2d(&t, &sym, anti, &anas);
+            }
+        }
+    }
     finish(name, &t);
 }
 
@@ -59,6 +66,13 @@ fn run_3d(name: &str, cases: Vec<case::Case3>, only: Option<&str>) {
     let anas: Vec<ana3::Ana3> = ana3::rows().into_iter().filter(|a| only.map_or(true, |o| a.name.contains(o))).collect();
     for c in &cases {
         checks3::check_case(&ctx, c, &anas, INV_3D);
+    }
+    for c in &cases {
+        for anti in [false, true] {
+            if let Some(sym) = symmetry::symmetrize_3d(&c.name, &c.s, anti) {
+                symmetry::check_3d(&t, &sym, anti, &anas);
+            }
+        }
     }
     finish(name, &t);
 }
