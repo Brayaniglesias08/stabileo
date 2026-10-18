@@ -192,6 +192,11 @@ const CASES: &[&str] = &[
     "asce_shm_120dof_damage_i",
     "asce_shm_120dof_damage_ii",
     "bathe_wilson_10bay_9storey",
+    "asce_shm_12dof_undamaged",
+    "asce_shm_12dof_damage_i",
+    "asce_shm_12dof_damage_ii",
+    "asce_shm_12dof_storey_stiffness_undamaged",
+    "asce_shm_12dof_storey_stiffness_damage_i",
 ];
 
 macro_rules! cases {
@@ -206,4 +211,9 @@ cases!(
     asce_shm_120dof_damage_i,
     asce_shm_120dof_damage_ii,
     bathe_wilson_10bay_9storey,
+    asce_shm_12dof_undamaged,
+    asce_shm_12dof_damage_i,
+    asce_shm_12dof_damage_ii,
+    asce_shm_12dof_storey_stiffness_undamaged,
+    asce_shm_12dof_storey_stiffness_damage_i,
 );

@@ -26,7 +26,7 @@
   "independence": "Published by the benchmark authors from their own MATLAB model (HKUST code); not computed by stabileo or by this generator."
  },
  "modelling": [
-  "Columns/beams Euler-Bernoulli 3D frames oriented by cal_model's k-nodes (localY = k - i); braces are trusses; G = E/2.6.",
+  "Columns/beams Euler-Bernoulli 3D frames; columns oriented by cal_model's k-nodes (localY = k - i), beams with local y horizontal (see below); braces are trusses; G = E/2.6.",
   "Rigid floors: XY diaphragm on each floor's centre node (cal_model's reference point).",
   "Member masses lumped (mbar*L/2 per end, 3 translations; 967.213 kg above the base) and floor panel masses (x, y, theta only) carried by mass-only truss stubs; see generator docstring.",
   "Member torsional rotary inertia (Io/A*mbar*L/2 about each member axis) carried by rotary-inertia frame stubs (torsion mass only).",

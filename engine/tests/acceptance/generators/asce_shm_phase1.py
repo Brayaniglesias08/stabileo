@@ -134,6 +134,17 @@ REFERENCE_HZ = {  # Table 2, "120DOF lumped mass" columns, with mode direction
     "damage_i": "5.47 y 7.37 x 9.69 θ 19.31 y 22.77 x 34.18 θ 35.29 y 40.66 x 46.73 y 56.38 x 60.43 θ 80.53 θ",
     "damage_ii": "4.96 y 6.68 x 8.70 θ 12.34 y 17.79 x 21.56 θ 34.79 y 38.75 y 40.62 x 49.47 x 59.98 θ 68.57 θ",
 }
+REFERENCE_12DOF_HZ = {  # Table 2, "12DOF lumped mass" columns
+    "undamaged": "9.41 y 11.79 x 16.38 θ 25.54 y 32.01 x 38.66 y 44.64 θ 48.01 y 48.44 x 60.15 x 67.48 θ 83.62 θ",
+    "damage_i": "6.24 y 9.91 x 11.73 θ 21.53 y 28.92 x 37.37 y 38.28 θ 47.34 x 47.83 y 59.99 x 65.31 θ 83.31 θ",
+    "damage_ii": "5.82 y 9.51 x 11.01 θ 14.89 y 24.91 x 28.41 θ 36.06 y 41.35 y 46.79 x 54.34 x 63.64 θ 72.61 θ",
+}
+# Table 3: horizontal storey stiffnesses of the 12DOF model [MN/m, MN m/rad],
+# storeys 1..4, (x, y, theta)
+STOREY_K = {
+    "undamaged": [("106.60", "67.90", "232.02")] * 4,
+    "damage_i": [("58.37", "19.67", "81.30")] + [("106.60", "67.90", "232.02")] * 3,
+}
 TITLES = {
     "undamaged": "IASC-ASCE SHM benchmark 4-storey braced frame, 120DOF model, undamaged",
     "damage_i": "IASC-ASCE SHM benchmark 4-storey braced frame, 120DOF model, damage (i): no 1st-storey braces",
@@ -173,7 +184,12 @@ def floor_points(f):
     return pts
 
 
-def stabileo_case(name, tie_rz):
+def stabileo_case(name, tie_rz, variant="120dof"):
+    """variant: "120dof" (modal), "12dof" (modal) or "12dof_static"
+    (storey stiffness). The 12DOF model of the source is the same frame with
+    every floor node's uz, rx and ry fixed (cal_model cal_T, StructID = 0)."""
+    dof12 = variant.startswith("12dof")
+    static = variant == "12dof_static"
     nd = nodes()
     mm = member_masses(nd)
     j_nodes = {str(n): {"id": n, "x": round(x, 9), "y": round(y, 9), "z": round(z, 9)} for n, (x, y, z) in nd.items()}
@@ -202,6 +218,11 @@ def stabileo_case(name, tie_rz):
     for n in range(1, 10):
         sid += 1
         j_sup[str(sid)] = {"nodeId": n, "rx": True, "ry": True, "rz": True, "rrx": True, "rry": True, "rrz": True}
+    if dof12:
+        for n in range(10, 46):
+            sid += 1
+            j_sup[str(sid)] = {"nodeId": n, "rx": False, "ry": False, "rz": True, "rrx": True, "rry": True,
+                               "rrz": False}
     densities = {"1": 0.0}
     stub_sec = 4
     j_sec[str(stub_sec)] = {"id": stub_sec, "name": "mass stub", "a": 1.0, "iy": 1e-12, "iz": 1e-12, "j": 1e-12}
@@ -227,7 +248,7 @@ def stabileo_case(name, tie_rz):
         sid += 1
         j_sup[str(sid)] = {"nodeId": g, "rx": True, "ry": True, "rz": True, "rrx": True, "rry": True, "rrz": True}
 
-    for n in range(10, 46):
+    for n in range(10, 46) if not static else []:
         stub(n, mm[n], nd[n])
     # rotary-inertia stubs: a 1 m frame along the global axis, A = 1e-9 m^2,
     # Iy + Iz = 1 m^4, E = 1e-6 MPa, fixed far end. stabileo's consistent
@@ -237,7 +258,7 @@ def stabileo_case(name, tie_rz):
     rot_sec = 5
     j_sec[str(rot_sec)] = {"id": rot_sec, "name": "rotary stub", "a": 1e-9, "iy": 0.5, "iz": 0.5, "j": 1e-12}
     J = rotary_inertias(nd)
-    for n in range(10, 46):
+    for n in range(10, 46) if not static else []:
         for ax in range(3):
             if J[n][ax] <= 0.0:
                 continue
@@ -264,7 +285,7 @@ def stabileo_case(name, tie_rz):
     for f in range(1, 5):
         master = 9 * f + 5  # centre node = cal_model's reference point (L, L, f*H)
         slaves = [9 * f + i for i in range(1, 10) if i != 5]
-        for (x, y, m) in floor_points(f):
+        for (x, y, m) in floor_points(f) if not static else []:
             p = next_node
             next_node += 1
             j_nodes[str(p)] = {"id": p, "x": round(x, 9), "y": round(y, 9), "z": round(f * H, 9)}
@@ -281,34 +302,69 @@ def stabileo_case(name, tie_rz):
         if tie_rz:
             for s in slaves[:8]:
                 constraints.append({"type": "equalDOF", "masterNode": master, "slaveNode": s, "dofs": [5]})
-    model = {"nodes": j_nodes, "materials": j_mat, "sections": j_sec, "elements": j_elems,
-             "supports": j_sup, "loads": [], "constraints": constraints}
-    toks = REFERENCE_HZ[name].split()
+    loads = []
     refs = []
-    for i in range(0, len(toks), 2):
-        printed, direction = toks[i], toks[i + 1]
-        refs.append({"quantity": "frequency", "mode": i // 2 + 1, "value": float(printed),
-                     "tolAbs": 0.005, "direction": direction,
-                     "tolBasis": f"Table 2 prints {printed} Hz; half a unit in the last printed digit"})
+    if static:
+        # unit-ish storey shears: Fx, Fy (kN) and Mz (kN m) at the roof
+        # master; every storey carries them, so floor k moves by
+        # F * sum_{i<=k} 1/K_i. Checked at floor 1 and at the roof.
+        F = 100.0
+        loads.append({"type": "nodal", "data": {"nodeId": 41, "fx": F, "fy": F, "fz": 0.0,
+                                                "mx": 0.0, "my": 0.0, "mz": F}})
+        ks = STOREY_K[name]
+        for comp, j, unit in (("ux", 0, "MN/m"), ("uy", 1, "MN/m"), ("rz", 2, "MN m/rad")):
+            for floor, master in ((1, 14), (4, 41)):
+                printed = [ks[i][j] for i in range(floor)]
+                flex = sum(1.0 / (float(k) * 1000.0) for k in printed)
+                # half a unit in the last printed digit of each stiffness
+                dflex = sum(0.005 / (float(k) - 0.005) / (float(k) * 1000.0) for k in printed)
+                refs.append({"quantity": "displacement", "node": master, "component": comp,
+                             "value": F * flex, "tolAbs": F * dflex,
+                             "sourceValue": " + ".join(f"1/{k}" for k in printed), "sourceUnit": unit,
+                             "tolBasis": "F * sum of 1/K over storeys 1.." + str(floor) + " with Table 3's K printed "
+                                         "to 0.01; tolerance propagates half a unit in each printed K"})
+    else:
+        table = REFERENCE_12DOF_HZ if dof12 else REFERENCE_HZ
+        toks = table[name].split()
+        for i in range(0, len(toks), 2):
+            printed, direction = toks[i], toks[i + 1]
+            refs.append({"quantity": "frequency", "mode": i // 2 + 1, "value": float(printed),
+                         "tolAbs": 0.005, "direction": direction,
+                         "tolBasis": f"Table 2 prints {printed} Hz; half a unit in the last printed digit"})
+    model = {"nodes": j_nodes, "materials": j_mat, "sections": j_sec, "elements": j_elems,
+             "supports": j_sup, "loads": loads, "constraints": constraints}
     total_member = sum(mm[n] for n in range(10, 46))
+    if static:
+        cid = f"asce_shm_12dof_storey_stiffness_{name}"
+        title = TITLES[name].replace("120DOF model", "12DOF model, storey stiffness (Table 3)")
+        where = "Report_bldg_shm_ana1.pdf Table 1 (members) and Table 3 (horizontal storey stiffnesses, 12DOF model)"
+    else:
+        cid = f"asce_shm_{variant}_{name}"
+        title = TITLES[name].replace("120DOF", variant.upper())
+        where = ("Report_bldg_shm_ana1.pdf Table 1 (members) and Table 2 (natural frequencies, "
+                 f"{variant.upper()} lumped mass)")
+    extra = []
+    if dof12:
+        extra.append("12DOF model: uz, rx, ry of every floor node fixed (cal_model cal_T with StructID = 0).")
+    if static:
+        extra.append("Static case: no masses; roof loads Fx = Fy = 100 kN, Mz = 100 kN m on the centre node.")
     return {
-        "id": f"asce_shm_120dof_{name}",
-        "title": TITLES[name],
+        "id": cid,
+        "title": title,
         "dimension": "3d",
-        "analysis": "modal",
-        "numModes": 14,
-        "densities": densities,
+        "analysis": "linear" if static else "modal",
+        **({} if static else {"numModes": 14, "densities": densities}),
         "source": {
             "citation": "Johnson, Lam, Katafygiotis, Beck (2004). Phase I IASC-ASCE Structural Health Monitoring "
                         "Benchmark Problem Using Simulated Data. J. Eng. Mech. 130(1):3-15.",
-            "where": "Report_bldg_shm_ana1.pdf Table 1 (members) and Table 2 (natural frequencies, 120DOF lumped "
-                     "mass); model DataGen/cal_model.m in Files_bldg_shm_ana1.zip, NEES database doi:10.4231/D3Q52FC7T",
+            "where": where + "; model DataGen/cal_model.m in Files_bldg_shm_ana1.zip, NEES database "
+                             "doi:10.4231/D3Q52FC7T",
             "independence": "Published by the benchmark authors from their own MATLAB model (HKUST code); "
                             "not computed by stabileo or by this generator.",
         },
         "modelling": [
-            "Columns/beams Euler-Bernoulli 3D frames oriented by cal_model's k-nodes (localY = k - i); "
-            "braces are trusses; G = E/2.6.",
+            "Columns/beams Euler-Bernoulli 3D frames; columns oriented by cal_model's k-nodes (localY = k - i), "
+            "beams with local y horizontal (see below); braces are trusses; G = E/2.6.",
             "Rigid floors: XY diaphragm on each floor's centre node (cal_model's reference point)"
             + ("; slave rz tied to the master by equalDOF as in cal_model's T." if tie_rz else "."),
             f"Member masses lumped (mbar*L/2 per end, 3 translations; {total_member:.3f} kg above the base) "
@@ -317,13 +373,14 @@ def stabileo_case(name, tie_rz):
             "frame stubs (torsion mass only).",
             "Floor beams oriented with the strong axis in vertical bending (paper p. 10: Table 2 is from the "
             "HKUST code with corrected floor-beam orientation; the archived cal_model.m has the old one).",
-        ] + (["Damaged braces removed (cal_model sets their E to 0 and keeps their mass)."] if DAMAGE[name] else []),
+        ] + (["Damaged braces removed (cal_model sets their E to 0 and keeps their mass)."] if DAMAGE[name] else [])
+          + extra,
         "references": refs,
         "model": model,
     }
 
 
-def replay(name, rot_inertia=True, tie_rz=True):
+def replay(name, rot_inertia=True, tie_rz=True, dof12=False):
     """cal_model.m (caseid 2) with numpy: lowest 12 frequencies in Hz."""
     import numpy as np
     import scipy.linalg
@@ -378,9 +435,8 @@ def replay(name, rot_inertia=True, tie_rz=True):
             r = [np.zeros(0)] * 0
             rows.append(("rig", vv, [1, 0, L - y]))
             rows.append(("rig", vv, [0, 1, -(L - x)]))
-            rows.append(("own",))
-            rows.append(("own",))
-            rows.append(("own",))
+            for _ in range(3):
+                rows.append(("zero",) if dof12 else ("own",))
             rows.append(("rig", vv, [0, 0, 1]) if tie_rz else ("own",))
     nown = sum(1 for r in rows if r[0] == "own")
     T = np.zeros((len(rows), cols + nown))
@@ -389,7 +445,7 @@ def replay(name, rot_inertia=True, tie_rz=True):
         if r[0] == "rig":
             for j, v in zip(r[1], r[2]):
                 T[i, j] = v
-        else:
+        elif r[0] == "own":
             T[i, c] = 1
             c += 1
     Kr, Mr = T.T @ K @ T, T.T @ M @ T
@@ -418,13 +474,15 @@ TIE_RZ = "--tie-rz" in sys.argv  # default: stabileo's own diaphragm (slave rz f
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    for name in DAMAGE:
-        case = stabileo_case(name, TIE_RZ)
+    def write(case):
         path = os.path.join(here, "..", "models", case["id"] + ".json")
         with open(path, "w") as f:
             json.dump(case, f, indent=1, ensure_ascii=False)
             f.write("\n")
         print("wrote", os.path.relpath(path))
+
+    for name in DAMAGE:
+        write(stabileo_case(name, TIE_RZ))
         if "--replay" in sys.argv:
             ref = [float(t) for t in REFERENCE_HZ[name].split()[0::2]]
             a = replay(name)
@@ -433,6 +491,14 @@ def main():
             for i in range(12):
                 print(f"  mode {i+1:2}: Table 2 {ref[i]:6.2f}  replay {a[i]:9.5f}  "
                       f"(no rotary inertia {b[i]:9.5f}, slave rz not tied {c[i]:9.5f})")
+        write(stabileo_case(name, TIE_RZ, "12dof"))
+        if "--replay" in sys.argv:
+            ref = [float(t) for t in REFERENCE_12DOF_HZ[name].split()[0::2]]
+            a = replay(name, dof12=True)
+            for i in range(12):
+                print(f"  12DOF mode {i+1:2}: Table 2 {ref[i]:6.2f}  replay {a[i]:9.5f}")
+        if name in STOREY_K:
+            write(stabileo_case(name, TIE_RZ, "12dof_static"))
 
 
 if __name__ == "__main__":
