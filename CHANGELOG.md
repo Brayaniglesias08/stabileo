@@ -26,6 +26,47 @@ unchanged: the engine agrees with the previous checker to 1e-9 on 4 000 random m
   the E.5 end condition or the E.6 connectors. Angles in flexure (F.9, F.10) are refused by name.
 - Steel results screen: every check per member, ratio, governing check, status with the reason,
   proven-bound badge, the calculation with clause references, in en/es/pt.
+||||||| 333cbc54
+#### Solid shells meshed with frames or shells; spectral analysis checked (2026-10-17)
+
+**BREAKING (results): 3D models that mix solid shells (or trusses) with frames or shells now
+solve instead of being refused; nodal moments on nodes without rotational stiffness are
+refused.** Reproductions and references in `tests/solid_shell_analyses.rs`.
+
+- **A solid-shell model meshed with frames or shells was singular on every path.** A
+  solid-shell node carries translations only, but any frame or shell gives every node six
+  DOFs, and nothing stiffened the rotations of a node only solid shells reach: K had zero
+  rows and the linear solver answered "Singular stiffness matrix — structure is a
+  mechanism" on the dense and the sparse path alike (the feature matrix showed it on the
+  sparse path, where its padding frame put six DOFs on the strip). The dense, sparse and
+  parallel 3D assemblers now give a free rotation DOF whose summed diagonal is zero the same
+  artificial stiffness the orphan warping DOFs get (K is positive semi-definite, so a zero
+  diagonal is a zero row: the DOF is decoupled and the rest of the answer is unchanged —
+  the strip with a frame elsewhere matches the strip alone to 1e-9). A frame free to spin
+  about a single solid-shell node is still refused as a mechanism, by the linear solver and
+  the kinematic check. The artificial stiffness never stands in for a member's own missing
+  property: a frame not released in torsion with J <= 0 (or a section with Cw < 0) is
+  refused by name before assembly, and nodes a constraint references are left out (an
+  artificial spring on a tied rotation would become a real spring once the constraint is
+  imposed). Truss-only and fully released nodes in a frame model, which the analysis solver
+  refused raw while the app added its own vanishing springs, now solve in the engine too.
+- **A nodal moment on a node without rotational stiffness was lost.** In a model of solid
+  shells and trusses only there are no rotation DOFs and the moment was dropped from the
+  load vector; on an orphan rotation it would have produced a meaningless rotation. It is
+  now refused by node (static load cases, harmonic loads and time-history force histories),
+  as is a harmonic response read from such a rotation.
+- **Time history: the initial acceleration of a model with massless DOFs replaced the
+  consistent mass by its diagonal for every DOF.** When M is singular (the orphan rotations
+  above, lumped rotational masses) the massless DOFs now get no initial acceleration and the
+  massive ones solve their own block of M exactly; the solid-shell strip with a frame
+  elsewhere now matches the strip alone step by step (its first steps were up to twice too
+  large).
+- **Spectral analysis of solid shells was right; the feature-matrix reference was not.**
+  The response matches the one-mode hand calculation Γ₁φ₁(L)·Sa/ω₁² within 1.5 %. The
+  matrix compared the bottom-layer probe's ux (θ·t/2, a real displacement of that fibre)
+  with the beam centreline's ux ≈ 0 component by component, and called it a spurious
+  response (7.8e7). The beam reference now carries its probes on rigid stubs at the bottom
+  fibre, and every solid-shell cell is supported or refused by name.
 
 #### Connectors: shear–moment coupling and the model's own DOFs (2026-10-17)
 
