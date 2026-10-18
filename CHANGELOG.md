@@ -25,6 +25,10 @@ now estimates the second one, and never presents it as certified (docs/verificat
 - Results panel: "algebraic error: certified ≤ X · discretization error: estimated ~Y% (not
   certified)", a warning above 5 %, an element error map and an on-demand convergence check
   (en/es/pt).
+- Degenerate cases are reported as such, never as "no error": a loaded mesh that carries no
+  strain (one simply supported element under pressure) is "cannot be estimated — refine the
+  mesh", not 0 %; members with warping torsion, curved beams and members of variable section
+  (solved as prismatic pieces) are not claimed exact.
 - **Fix (results): curved-shell self-weight was 1000× too heavy** (density taken in kN/m³
   instead of kg/m³ like every other shell). Not reachable from the web app.
 - Found, not fixed: the SHB8 solid-shell is ≈ 18 % too stiff in thin-plate bending (Poisson

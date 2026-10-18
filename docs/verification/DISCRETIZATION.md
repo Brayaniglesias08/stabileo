@@ -27,8 +27,14 @@ Timoshenko "interdependent interpolation", `element/fef.rs`) and member loads en
 fixed-end forces, with diagrams integrated exactly between the ends. For linear static analysis
 the nodal displacements and member forces of a frame model are therefore exact for beam theory
 however few members are used, and the estimate says so (`framesExact`) instead of reporting a
-number. Exceptions, which the estimate also names or does not cover:
+number — only when that holds for every member. Exceptions, named and not estimated:
 
+* members with warping torsion (section Cw > 0), whose warping field is a cubic Hermite
+  approximation: a cantilever's tip twist changes when it is split (`warpingMembersNotEstimated`,
+  listed in `inexactMembers`);
+* members of variable section, which the web app solves as chains of prismatic pieces
+  (`web/src/lib/engine/variable-members.ts`): the engine sees prismatic members, so the panel
+  withholds the claim itself when the model has any;
 * curved beams, which the engine replaces by straight segments (`curvedBeamsSegmented`);
 * nonlinear analyses (P-Δ, buckling, corotational), whose geometric stiffness is approximate per
   member, so the number of members matters there;
@@ -66,6 +72,15 @@ thin shell's. For solid-shells only the in-plane stresses in the mid-surface fra
 thickness strain and transverse shears are ANS fields). Point loads and re-entrant corners have
 singular stresses: the estimate concentrates there and stays large under refinement, which is
 the honest answer.
+
+**Never 0/0 as "no error".** When the shells store no strain above round-off (less than a
+strain of 10⁻¹² everywhere would), the ratio is 0/0 and no percentage is reported:
+`unestimableReason` is `unloaded` (nothing loads the model) or `noStrainEnergy` (it is loaded,
+but the load goes straight into the supports — one simply supported element under pressure is
+the simplest case; the mesh is too coarse to say anything and the panel warns to refine it). The
+element map is not drawn for an estimate that could not be made. In the convergence study a
+governing quantity that is zero on the model as drawn is kept (zero is a value): a one-element
+plate's zero moment against the refined meshes' non-zero ones is an estimated error of 100 %.
 
 A result whose estimated relative error exceeds 5 % is flagged (`exceedsThreshold`) and the UI
 shows a warning.
