@@ -1184,6 +1184,34 @@ that the certificates' own reduced systems (`reduced_sparse_2d/3d`, `buckling_sy
 equal them, is checked separately by the cross-path assembly oracle,
 [ASSEMBLY.md](ASSEMBLY.md).
 
+## Non-finite numbers
+
+A certificate never reports success on a NaN or an infinity (issue #335). `f64::max`,
+`min` and every comparison drop or misread NaN, so a single NaN can turn into an error
+bound of 0: the spectral certificate once reported `certified` with error 0 for results
+that were all NaN. `certify::finite` walks any input, result or certificate with a serde
+serializer (as the fuzz harness does, FUZZ_MUTANTS.md) and every entry point the WASM
+layer exposes uses it:
+
+- a non-finite number anywhere in the input, or in the solver's results, is an `Err`
+  (`check_input`, `check_results`); the solvers should refuse first, this is the
+  backstop;
+- the `certify_*_results` functions, which take results from the caller, return
+  `Uncertified` instead;
+- a certificate that claims anything while carrying a non-finite number is withdrawn
+  (`guard`): the enum certificates become `Uncertified`, the time-history certificate
+  drops its stability and residual claims, a plastic certificate its bounds, a design
+  member its utilization, a linear certificate its force, station, deflection and
+  reaction bounds, and a combination its bounds (and then the envelope too, since it
+  maximizes over the combinations);
+- the bundles are refused if they would carry one.
+
+The only exception is +∞ in a field that documents it (`DOCUMENTED_INFINITE`:
+`relBound`, `omega2Upper`, `uniquenessRadius`, the `bimoment` of combined force bounds,
+`b2Factor`); NaN is never allowed. `tests/certify_nonfinite.rs` sets every number of a
+valid input for each certificate kind to NaN and +∞, and random ones to NaN, ±∞, ±1e308,
+1e-300 or a subnormal, and requires an `Err` or a fully finite `Ok`.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.

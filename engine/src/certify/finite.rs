@@ -36,7 +36,7 @@ pub const DOCUMENTED_INFINITE: &[&str] = &["relBound", "omega2Upper", "uniquenes
 /// Paths (`$.results.displacements[3].ux`) of every non-finite `f32`/`f64` in
 /// `value`, with `NaN` or `inf` appended (`$.x=NaN`).
 pub fn non_finite_paths<T: Serialize + ?Sized>(value: &T) -> Vec<String> {
-    let mut a = Audit { path: vec!["$".to_string()], bad: Vec::new() };
+    let mut a = Audit { path: vec!["$".to_string()], bad: Vec::new(), range: None };
     // Serialization errors (e.g. non-string map keys) only stop the walk.
     let _ = value.serialize(&mut a);
     a.bad.into_iter().map(|(p, x)| format!("{p}={x}")).collect()
@@ -44,13 +44,30 @@ pub fn non_finite_paths<T: Serialize + ?Sized>(value: &T) -> Vec<String> {
 
 /// Paths of the non-finite numbers in `value` that are not a documented +∞.
 pub fn undocumented_non_finite<T: Serialize + ?Sized>(value: &T) -> Vec<String> {
-    let mut a = Audit { path: vec!["$".to_string()], bad: Vec::new() };
+    let mut a = Audit { path: vec!["$".to_string()], bad: Vec::new(), range: None };
     let _ = value.serialize(&mut a);
     a.bad
         .into_iter()
         .filter(|(p, x)| !(*x == f64::INFINITY && DOCUMENTED_INFINITE.iter().any(|f| p.ends_with(&format!(".{f}")))))
         .map(|(p, x)| format!("{p}={x}"))
         .collect()
+}
+
+/// `Err` naming the numbers of `value` that are non-finite, or non-zero with
+/// a magnitude outside `[min_abs, max_abs]`. A resource cap for the exact
+/// (rational) certificates, whose work grows with the bit length of the data.
+pub fn check_magnitudes<T: Serialize + ?Sized>(value: &T, min_abs: f64, max_abs: f64) -> Result<(), String> {
+    let mut a = Audit { path: vec!["$".to_string()], bad: Vec::new(), range: Some((min_abs, max_abs)) };
+    let _ = value.serialize(&mut a);
+    if a.bad.is_empty() {
+        return Ok(());
+    }
+    let bad: Vec<String> = a.bad.into_iter().map(|(p, x)| format!("{p}={x:e}")).collect();
+    let shown: Vec<&str> = bad.iter().take(3).map(String::as_str).collect();
+    Err(format!(
+        "number out of the range [{min_abs:e}, {max_abs:e}] the exact certificate accepts at {}",
+        shown.join(", ")
+    ))
 }
 
 fn describe(what: &str, bad: &[String]) -> String {
@@ -141,6 +158,8 @@ pub(crate) use guarded_enum;
 struct Audit {
     path: Vec<String>,
     bad: Vec<(String, f64)>,
+    /// Also record finite non-zero numbers outside `[lo, hi]` in magnitude.
+    range: Option<(f64, f64)>,
 }
 
 #[derive(Debug)]
@@ -162,7 +181,11 @@ impl ser::Error for Error {
 
 impl Audit {
     fn float(&mut self, x: f64) {
-        if !x.is_finite() {
+        let out_of_range = match self.range {
+            Some((lo, hi)) => x != 0.0 && !(lo..=hi).contains(&x.abs()),
+            None => false,
+        };
+        if !x.is_finite() || out_of_range {
             self.bad.push((self.path.concat(), x));
         }
     }

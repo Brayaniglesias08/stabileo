@@ -223,8 +223,18 @@ pub(super) fn lm_pieces(loads: &[ElemLoad], l: Option<&Q>, l2: &Q, bps: &[Q]) ->
     Ok(pieces)
 }
 
+/// Magnitude range of the input numbers the exact certificates accept
+/// (zero is always accepted).
+pub const EXACT_MIN_ABS: f64 = 1e-30;
+pub const EXACT_MAX_ABS: f64 = 1e30;
+
 /// Translate the solver input into the exact rigid-plastic model, or refuse.
 pub fn build_model(input: &PlasticInput) -> Result<PlasticModel, String> {
+    // Exact rational arithmetic: its cost grows with the bit length of the
+    // data, and an input value of ±1e300 or a subnormal made it run for
+    // minutes (issue #335 property tests). Models in any unit system stay far
+    // inside this range; outside it the certificate is refused, not slow.
+    super::finite::check_magnitudes(input, EXACT_MIN_ABS, EXACT_MAX_ABS)?;
     let s = &input.solver;
     if !s.constraints.is_empty() {
         return Err("constraints are not supported by the plastic certificate".into());

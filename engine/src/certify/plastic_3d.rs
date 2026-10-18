@@ -211,6 +211,13 @@ fn mp_3d(sec: &PlasticSectionData3D, fy: f64, over: Option<[f64; 2]>) -> Result<
 fn exact_axes(el: &SolverElement3D, d: &V3, l2: &Q, left_hand: bool) -> Result<(V3, V3), String> {
     let df = vf(d);
     let ex = crate::element::unit_direction(df[0], df[1], df[2]);
+    // The f64 direction only picks the reference axis; on overflow (huge
+    // coordinates) it is 0 or NaN and could pick an axis parallel to the
+    // member.
+    let n2: f64 = ex.iter().map(|x| x * x).sum();
+    if n2.is_nan() || n2 <= 0.5 {
+        return Err(format!("element {}: direction not representable in f64", el.id));
+    }
     let axis = |k: usize| {
         let mut v = v0();
         v[k] = Q::one();
@@ -254,6 +261,11 @@ fn exact_axes(el: &SolverElement3D, d: &V3, l2: &Q, left_hand: bool) -> Result<(
 
 /// Translate the solver input into the exact rigid-plastic model, or refuse.
 pub fn build_model_3d(input: &PlasticInput3D) -> Result<PlasticModel3, String> {
+    // Exact rational arithmetic: its cost grows with the bit length of the
+    // data, and an input value of ±1e300 or a subnormal made it run for
+    // minutes (issue #335 property tests). Models in any unit system stay far
+    // inside this range; outside it the certificate is refused, not slow.
+    super::finite::check_magnitudes(input, super::plastic::EXACT_MIN_ABS, super::plastic::EXACT_MAX_ABS)?;
     let s = &input.solver;
     if !s.constraints.is_empty() {
         return Err("constraints are not supported by the plastic certificate".into());
@@ -340,6 +352,9 @@ pub fn build_model_3d(input: &PlasticInput3D) -> Result<PlasticModel3, String> {
         }
         let (uy, uz) = exact_axes(el, &d, &l2, left_hand)?;
         let (ny, nz) = (dot(&uy, &uy), dot(&uz, &uz));
+        if ny.is_zero() || nz.is_zero() {
+            return Err(format!("element {}: degenerate local axes (reference axis parallel to the member)", el.id));
+        }
         let l = sqrt_exact(&l2);
         let frame = match (&l, sqrt_exact(&ny), sqrt_exact(&nz)) {
             (Some(l), Some(a), Some(b)) => Some([scale(&(Q::one() / l), &d), scale(&(Q::one() / &a), &uy), scale(&(Q::one() / &b), &uz)]),

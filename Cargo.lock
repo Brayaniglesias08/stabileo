@@ -383,6 +383,7 @@ dependencies = [
 name = "dedaliano-engine"
 version = "0.2.0"
 dependencies = [
+ "ciborium",
  "console_error_panic_hook",
  "criterion",
  "num-bigint",

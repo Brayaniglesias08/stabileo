@@ -39,6 +39,8 @@ pub struct PerModeResult {
 /// factors > 0. A negative ω made the CQC ratio ω_j/ω_i negative, r^1.5 NaN,
 /// and every combined displacement and force NaN; ω ≤ 0 also dropped the
 /// mode silently (S_d = 0).
+// `!(x > 0.0)` is deliberate: it also rejects NaN.
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn validate_spectral(
     modes: &[(f64, f64, Vec<f64>)],
     spectrum: &DesignSpectrum,
