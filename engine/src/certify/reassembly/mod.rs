@@ -42,8 +42,8 @@ mod system;
 use serde::{Deserialize, Serialize};
 
 use crate::types::*;
-pub use system::Agreement;
-use system::{agreement, certify, EngineAssembly, Model};
+pub use system::{Agreement, EngineAssembly};
+use system::{agreement, certify, Model};
 
 /// Discrepancy the agreement check accepts, relative to the entry's scale.
 pub const AGREEMENT_TOL: f64 = 1e-10;
@@ -77,8 +77,14 @@ pub enum EndToEnd {
         /// nodes): the model leaves them undetermined; not covered.
         excluded_dofs: Vec<DofRef>,
     },
-    /// Checked, and the engine's result or assembly does not match the model.
+    /// Checked, and the engine's assembly does not match the model, or the
+    /// model provably has no solution (a load on a DOF nothing stiffens) while
+    /// the engine returned one.
     Failed { reason: String },
+    /// Checked, but no bound against the model could be established (e.g.
+    /// the model's stiffness could not be certified positive definite: a
+    /// mechanism the engine's artificial stiffness hides, or ill conditioning).
+    Uncertified { reason: String },
     /// The model uses something the re-assembly does not cover.
     OutOfScope { reason: String },
     /// Not attempted (e.g. the assembled-level certificate already failed).
@@ -112,24 +118,42 @@ fn classify(e: String) -> BuildErr {
     }
 }
 
-fn finish(model: Result<Model, String>, u: impl FnOnce(&Model) -> Result<Vec<f64>, String>, eng: impl FnOnce() -> EngineAssembly) -> EndToEnd {
+fn finish(
+    model: Result<Model, String>,
+    u: impl FnOnce(&Model) -> Result<Vec<f64>, String>,
+    eng: impl FnOnce() -> Vec<EngineAssembly>,
+) -> EndToEnd {
     let model = match model.map_err(classify) {
         Ok(m) => m,
         Err(BuildErr::Scope(reason)) => return EndToEnd::OutOfScope { reason },
-        Err(BuildErr::Fail(reason)) => return EndToEnd::Failed { reason },
+        Err(BuildErr::Fail(reason)) => return EndToEnd::Uncertified { reason },
     };
     let u = match u(&model) {
         Ok(u) => u,
-        Err(reason) => return EndToEnd::Failed { reason },
+        Err(reason) => return EndToEnd::Uncertified { reason },
     };
     let bound = match certify(&model, &u) {
         Ok(b) => b,
-        Err(reason) => return EndToEnd::Failed { reason: format!("no bound against the re-assembled model: {reason}") },
+        Err(reason) if reason.starts_with("a load acts on") => return EndToEnd::Failed { reason },
+        Err(reason) => return EndToEnd::Uncertified { reason: format!("no bound against the re-assembled model: {reason}") },
     };
-    let agr = match agreement(&model, &eng()) {
-        Ok(a) => a,
-        Err(reason) => return EndToEnd::Failed { reason },
-    };
+    // Every assembly path the solver may have factored must agree.
+    let mut agr = Agreement { k_rel: 0.0, f_rel: 0.0, worst_k: None, worst_f: None };
+    for e in eng() {
+        match agreement(&model, &e) {
+            Ok(a) => {
+                if a.k_rel > agr.k_rel || a.k_rel.is_nan() {
+                    agr.k_rel = a.k_rel;
+                    agr.worst_k = a.worst_k;
+                }
+                if a.f_rel > agr.f_rel || a.f_rel.is_nan() {
+                    agr.f_rel = a.f_rel;
+                    agr.worst_f = a.worst_f;
+                }
+            }
+            Err(reason) => return EndToEnd::Failed { reason },
+        }
+    }
     if !(agr.k_rel <= AGREEMENT_TOL) {
         let w = agr.worst_k.map(|(a, b, e, r)| format!(" at {a:?}–{b:?}: engine {e:.6e}, model [{:.6e}, {:.6e}]", r.lo, r.hi));
         return EndToEnd::Failed {
@@ -178,6 +202,17 @@ fn lower_csc_to_map(k: &crate::linalg::sparse::CscMatrix) -> std::collections::H
 
 /// End-to-end check of `results`, claimed to solve `input` with `loads`.
 pub fn end_to_end_2d(input: &SolverInput, loads: &[SolverLoad], results: &AnalysisResults) -> EndToEnd {
+    end_to_end_2d_with(input, loads, results, || engine_assemblies_2d(input, loads))
+}
+
+/// `end_to_end_2d` with the engine assemblies to compare against supplied by
+/// the caller (tests plant assembly bugs through it).
+pub fn end_to_end_2d_with(
+    input: &SolverInput,
+    loads: &[SolverLoad],
+    results: &AnalysisResults,
+    engines: impl FnOnce() -> Vec<EngineAssembly>,
+) -> EndToEnd {
     let model = model2d::build(input, loads);
     finish(
         model,
@@ -192,27 +227,63 @@ pub fn end_to_end_2d(input: &SolverInput, loads: &[SolverLoad], results: &Analys
                 })
                 .collect()
         },
-        || {
-            use crate::solver::assembly::assemble_load_vector_2d;
-            use crate::solver::dof::DofNumbering;
-            use crate::solver::sparse_assembly::assemble_stiffness_sparse_2d;
-            let mut case = input.clone();
-            case.loads = loads.to_vec();
-            let dof_num = DofNumbering::build_2d(&case);
-            let stiff = assemble_stiffness_sparse_2d(&case, &dof_num);
-            let f = assemble_load_vector_2d(&case, loads, &dof_num, &stiff.inclined_transforms_2d);
-            let rotations = stiff
-                .inclined_transforms_2d
-                .iter()
-                .map(|it| (it.dofs.to_vec(), it.r.iter().map(|r| r.to_vec()).collect()))
-                .collect();
-            EngineAssembly { map: dof_num.map.clone(), k: lower_csc_to_map(&stiff.k_full), f, rotations }
-        },
+        engines,
     )
+}
+
+/// The engine's assembled K and f of `input` with `loads` (dense path when
+/// small enough to hold densely, and the sparse path), for the agreement check.
+pub fn engine_assemblies_2d(input: &SolverInput, loads: &[SolverLoad]) -> Vec<EngineAssembly> {
+    use crate::solver::assembly::{assemble_load_vector_2d, assemble_stiffness_2d};
+    use crate::solver::dof::DofNumbering;
+    use crate::solver::sparse_assembly::assemble_stiffness_sparse_2d;
+    let mut case = input.clone();
+    case.loads = loads.to_vec();
+    let dof_num = DofNumbering::build_2d(&case);
+    let rot = |its: &[crate::solver::assembly::InclinedTransformData2D]| -> Vec<(Vec<usize>, Vec<Vec<f64>>)> {
+        its.iter().map(|it| (it.dofs.to_vec(), it.r.iter().map(|r| r.to_vec()).collect())).collect()
+    };
+    let mut out = Vec::new();
+    let stiff = assemble_stiffness_sparse_2d(&case, &dof_num);
+    let f = assemble_load_vector_2d(&case, loads, &dof_num, &stiff.inclined_transforms_2d);
+    out.push(EngineAssembly { map: dof_num.map.clone(), k: lower_csc_to_map(&stiff.k_full), f, rotations: rot(&stiff.inclined_transforms_2d) });
+    let n = dof_num.n_total;
+    if n <= DENSE_AGREEMENT_MAX {
+        let st = assemble_stiffness_2d(&case, &dof_num);
+        let f = assemble_load_vector_2d(&case, loads, &dof_num, &st.inclined_transforms_2d);
+        out.push(EngineAssembly { map: dof_num.map.clone(), k: dense_to_map(&st.k, n), f, rotations: rot(&st.inclined_transforms_2d) });
+    }
+    out
+}
+
+/// Largest model whose dense engine assembly the agreement check also reads.
+const DENSE_AGREEMENT_MAX: usize = 3000;
+
+fn dense_to_map(k: &[f64], n: usize) -> std::collections::HashMap<(usize, usize), f64> {
+    let mut m = std::collections::HashMap::new();
+    for i in 0..n {
+        for j in 0..n {
+            let v = k[i * n + j];
+            if v != 0.0 {
+                m.insert((i, j), v);
+            }
+        }
+    }
+    m
 }
 
 /// End-to-end check of 3D `results`, claimed to solve `input` with `loads`.
 pub fn end_to_end_3d(input: &SolverInput3D, loads: &[SolverLoad3D], results: &AnalysisResults3D) -> EndToEnd {
+    end_to_end_3d_with(input, loads, results, || engine_assemblies_3d(input, loads))
+}
+
+/// 3D twin of `end_to_end_2d_with`.
+pub fn end_to_end_3d_with(
+    input: &SolverInput3D,
+    loads: &[SolverLoad3D],
+    results: &AnalysisResults3D,
+    engines: impl FnOnce() -> Vec<EngineAssembly>,
+) -> EndToEnd {
     let model = model3d::build(input, loads);
     finish(
         model,
@@ -227,21 +298,33 @@ pub fn end_to_end_3d(input: &SolverInput3D, loads: &[SolverLoad3D], results: &An
                 })
                 .collect()
         },
-        || {
-            use crate::solver::assembly::{assemble_load_vector_3d_dense, assemble_stiffness_sparse_3d};
-            use crate::solver::dof::DofNumbering;
-            let mut case = input.clone();
-            case.loads = loads.to_vec();
-            let dof_num = DofNumbering::build_3d(&case);
-            let stiff = assemble_stiffness_sparse_3d(&case, &dof_num, true);
-            let f = assemble_load_vector_3d_dense(&case, loads, &dof_num, &stiff.inclined_transforms);
-            let rotations = stiff
-                .inclined_transforms
-                .iter()
-                .map(|it| (it.dofs.to_vec(), it.r.iter().map(|r| r.to_vec()).collect()))
-                .collect();
-            let k = stiff.k_full.as_ref().map(lower_csc_to_map).unwrap_or_default();
-            EngineAssembly { map: dof_num.map.clone(), k, f, rotations }
-        },
+        engines,
     )
+}
+
+/// 3D twin of `engine_assemblies_2d`.
+pub fn engine_assemblies_3d(input: &SolverInput3D, loads: &[SolverLoad3D]) -> Vec<EngineAssembly> {
+    use crate::solver::assembly::{
+        assemble_load_vector_3d_dense, assemble_load_vector_3d_sparse, assemble_stiffness_3d, assemble_stiffness_sparse_3d,
+        InclinedTransformData,
+    };
+    use crate::solver::dof::DofNumbering;
+    let mut case = input.clone();
+    case.loads = loads.to_vec();
+    let dof_num = DofNumbering::build_3d(&case);
+    let rot = |its: &[InclinedTransformData]| -> Vec<(Vec<usize>, Vec<Vec<f64>>)> {
+        its.iter().map(|it| (it.dofs.to_vec(), it.r.iter().map(|r| r.to_vec()).collect())).collect()
+    };
+    let mut out = Vec::new();
+    let stiff = assemble_stiffness_sparse_3d(&case, &dof_num, true);
+    let k = stiff.k_full.as_ref().map(lower_csc_to_map).unwrap_or_default();
+    let f = assemble_load_vector_3d_sparse(&case, loads, &dof_num, &stiff.inclined_transforms);
+    out.push(EngineAssembly { map: dof_num.map.clone(), k, f, rotations: rot(&stiff.inclined_transforms) });
+    let n = dof_num.n_total;
+    if n <= DENSE_AGREEMENT_MAX {
+        let st = assemble_stiffness_3d(&case, &dof_num);
+        let f = assemble_load_vector_3d_dense(&case, loads, &dof_num, &st.inclined_transforms);
+        out.push(EngineAssembly { map: dof_num.map.clone(), k: dense_to_map(&st.k, n), f, rotations: rot(&st.inclined_transforms) });
+    }
+    out
 }

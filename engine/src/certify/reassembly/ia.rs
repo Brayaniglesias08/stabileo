@@ -46,11 +46,6 @@ pub fn mid(x: I) -> f64 {
 }
 
 #[inline]
-pub fn hull(a: I, b: I) -> I {
-    I::new(a.lo.min(b.lo), a.hi.max(b.hi))
-}
-
-#[inline]
 pub fn scale(s: f64, x: I) -> I {
     c(s) * x
 }
@@ -197,11 +192,6 @@ pub fn pint01(p: &Poly) -> I {
         acc = if k == 0 { term } else { acc + term };
     }
     acc
-}
-
-/// Derivative.
-pub fn pder(p: &Poly) -> Poly {
-    p.iter().enumerate().skip(1).map(|(k, &x)| scale(k as f64, x)).collect()
 }
 
 // ---------------- sin / cos ----------------

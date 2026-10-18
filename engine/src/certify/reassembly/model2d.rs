@@ -156,7 +156,8 @@ pub(super) fn build(input: &SolverInput, loads: &[SolverLoad]) -> Result<Model, 
             blocks.push(Block { local: vec![5], global: vec![gd(el.node_j, 2)], r: None });
         }
         let (dofs, kg, fg) = to_global(&k, &f, &blocks);
-        model.scatter(&dofs, &kg, &fg);
+        let rigid = Rigid { ntrans: 2, nrot: if dpn == 3 { 1 } else { 0 }, delta: vec![dx, dz], handed: 1.0 };
+        model.scatter(&dofs, &kg, &fg, Some(rigid));
     }
 
     // Nodal loads.
@@ -264,22 +265,20 @@ fn supports(input: &SolverInput, model: &mut Model, kin: &mut Kinematics, dpn: u
             let kzz = kxi * sn.square() + kyi * cs.square();
             let kxz = (kxi - kyi) * sn * cs;
             let (d0, d1) = (dof(0).unwrap(), dof(1).unwrap());
-            model.add_k(d0, d0, kxx);
-            model.add_k(d1, d1, kzz);
-            model.add_k(d0, d1, kxz);
+            model.spring(&[d0, d1], vec![kxx, kxz, kxz, kzz]);
         } else {
             if kx > 0.0 {
                 let d = dof(0).unwrap();
-                model.add_k(d, d, inp(kx));
+                model.spring(&[d], vec![inp(kx)]);
             }
             if ky > 0.0 {
                 let d = dof(1).unwrap();
-                model.add_k(d, d, inp(ky));
+                model.spring(&[d], vec![inp(ky)]);
             }
         }
         if kz > 0.0 && dpn >= 3 {
             let d = dof(2).unwrap();
-            model.add_k(d, d, inp(kz));
+            model.spring(&[d], vec![inp(kz)]);
         }
         if t == "spring" || t == "free" {
             continue;

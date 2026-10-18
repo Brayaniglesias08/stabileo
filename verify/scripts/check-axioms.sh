@@ -14,6 +14,9 @@ theorems=(
 	Certify.posDef_of_interval_cholesky
 	Certify.coercive_solution
 	Certify.certified_error_bound_gram
+	Certify.end_to_end_bound
+	Certify.virtual_work
+	Certify.vnorm_mulVec_le_of_rows
 	Certify.buckling_enclosure
 	Certify.buckling_criticalFactor_mem
 	Certify.count_le_of_pos_on

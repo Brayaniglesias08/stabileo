@@ -327,7 +327,8 @@ pub(super) fn build(input: &SolverInput3D, loads: &[SolverLoad3D]) -> Result<Mod
             }
         }
         let (dofs, kg, fg) = to_global(&k, &f, &blocks);
-        model.scatter(&dofs, &kg, &fg);
+        let rigid = Rigid { ntrans: 3, nrot: if dpn == 6 { 3 } else { 0 }, delta: sub3(&xj, &xi).to_vec(), handed: if left_hand && needs_axes { -1.0 } else { 1.0 } };
+        model.scatter(&dofs, &kg, &fg, Some(rigid));
     }
 
     for ld in loads {
@@ -390,7 +391,7 @@ fn supports(input: &SolverInput3D, model: &mut Model, kin: &mut Kinematics, dpn:
                 }
                 if k > 0.0 && d < dpn {
                     let i = dof(d).unwrap();
-                    model.add_k(i, i, inp(k));
+                    model.spring(&[i], vec![inp(k)]);
                 }
             }
         }

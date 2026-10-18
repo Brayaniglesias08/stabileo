@@ -45,6 +45,29 @@ pub struct Model {
     /// Kinematics, filled by `Kinematics`; `None` until then.
     pub rows: Vec<Row>,
     pub owners: Vec<Owner>,
+    /// Element (and spring) matrices in global axes, for the residual.
+    pub elems: Vec<ElemRec>,
+}
+
+/// An element's global-axis matrix over `dofs`, and the rigid-body motion it
+/// annihilates (springs to ground have none).
+pub struct ElemRec {
+    pub dofs: Vec<usize>,
+    pub k: Vec<Option<I>>,
+    pub rigid: Option<Rigid>,
+}
+
+/// DOF layout `[i translations, i rotations, j translations, j rotations]`
+/// of a two-node element, the node offset `Δ = x_j − x_i`, and the
+/// handedness `s = det R` of its local frame: the element matrix `Tᵀ k T`
+/// annihilates the motions `u_i = t`, `u_j = t + s·θ × Δ`, rotations `θ`
+/// (`k` annihilates the local rigid motions, and `R(θ × Δ) = det R ·
+/// (Rθ) × (RΔ)` for orthogonal `R`).
+pub struct Rigid {
+    pub ntrans: usize,
+    pub nrot: usize,
+    pub delta: Vec<I>,
+    pub handed: f64,
 }
 
 impl Model {
@@ -60,7 +83,7 @@ impl Model {
         }
         let index = keys.iter().enumerate().map(|(i, &k)| (k, i)).collect();
         let n = keys.len();
-        Model { keys, index, k: vec![BTreeMap::new(); n], f: vec![None; n], rows: Vec::new(), owners: Vec::new() }
+        Model { keys, index, k: vec![BTreeMap::new(); n], f: vec![None; n], rows: Vec::new(), owners: Vec::new(), elems: Vec::new() }
     }
 
     pub fn n(&self) -> usize {
@@ -72,7 +95,7 @@ impl Model {
     }
 
     /// Add `v` to K_ij and K_ji (i ≠ j) or K_ii.
-    pub fn add_k(&mut self, i: usize, j: usize, v: I) {
+    fn add_k(&mut self, i: usize, j: usize, v: I) {
         let s = v.mag();
         let mut put = |a: usize, b: usize| {
             let e = self.k[a].entry(b).or_insert(Entry { v: I::ZERO, scale: 0.0 });
@@ -99,18 +122,28 @@ impl Model {
 
     /// Scatter an element (global-axis matrix over `dofs`, upper triangle
     /// used) and its load vector.
-    pub fn scatter(&mut self, dofs: &[usize], k: &[Option<I>], f: &[Option<I>]) {
+    pub fn scatter(&mut self, dofs: &[usize], k: &[Option<I>], f: &[Option<I>], rigid: Option<Rigid>) {
         let m = dofs.len();
+        let mut sym = vec![None; m * m];
         for a in 0..m {
             for b in a..m {
                 if let Some(v) = k[a * m + b] {
                     self.add_k(dofs[a], dofs[b], v);
+                    sym[a * m + b] = Some(v);
+                    sym[b * m + a] = Some(v);
                 }
             }
             if let Some(v) = f[a] {
                 self.add_f(dofs[a], v);
             }
         }
+        self.elems.push(ElemRec { dofs: dofs.to_vec(), k: sym, rigid });
+    }
+
+    /// A spring (symmetric `k` over `dofs`, row-major) to ground.
+    pub fn spring(&mut self, dofs: &[usize], k: Vec<I>) {
+        let k: Vec<Option<I>> = k.into_iter().map(Some).collect();
+        self.scatter(dofs, &k, &vec![None; dofs.len()], None);
     }
 }
 
@@ -420,34 +453,88 @@ pub fn certify(model: &Model, u: &[f64]) -> Result<E2eBound, String> {
         }
     }
     // w = C q̃ + p over every DOF.
+    // (A unit coefficient with no offset gives the exact point q̃.)
     let w: Vec<I> = model
         .rows
         .iter()
         .map(|r| {
-            let mut acc = r.p;
+            let mut acc: Option<I> = (r.p != I::ZERO).then_some(r.p);
             for &(q, v) in &r.terms {
-                if !orphan[q] && qt[q] != 0.0 {
-                    acc = acc + v * c(qt[q]);
+                if orphan[q] || qt[q] == 0.0 {
+                    continue;
                 }
+                let t = if v == c(1.0) { c(qt[q]) } else { v * c(qt[q]) };
+                acc = Some(match acc {
+                    Some(a) => a + t,
+                    None => t,
+                });
             }
-            acc
+            acc.unwrap_or(I::ZERO)
         })
         .collect();
-    // r_full = f − K w on rows that carry a kept parameter; r_q = Cᵀ r_full.
+    // r_full = f − K w, element by element: K_e w_e = K_e (w_e − ρ_e) for
+    // the rigid-body motion ρ_e that matches node i (exact: K_e annihilates
+    // it), so a stiff short member contributes its small deformation times
+    // its stiffness rather than its displacement times its stiffness.
     let mut r_q = vec![I::ZERO; m];
-    let mut rf: Vec<Option<I>> = vec![None; n];
-    for &q in &kept {
-        for &(i, _) in &ccols[q] {
-            if rf[i].is_some() {
-                continue;
+    let mut rf: Vec<I> = model.f.iter().map(|e| e.map(|e| e.v).unwrap_or(I::ZERO)).collect();
+    for el in &model.elems {
+        let md = el.dofs.len();
+        let mut v: Vec<I> = el.dofs.iter().map(|&d| w[d]).collect();
+        if let Some(rg) = &el.rigid {
+            let (nt, nr) = (rg.ntrans, rg.nrot);
+            let t: Vec<I> = (0..nt).map(|a| v[a]).collect();
+            let th: Vec<I> = (0..nr).map(|a| v[nt + a]).collect();
+            // rigid translation at node j: t + θ × Δ
+            let at_j: Vec<I> = match (nt, nr) {
+                (2, 1) => vec![t[0] - th[0] * rg.delta[1], t[1] + th[0] * rg.delta[0]],
+                (3, 3) => {
+                    let cr = cross(&[th[0], th[1], th[2]], &[rg.delta[0], rg.delta[1], rg.delta[2]]);
+                    let s = c(rg.handed);
+                    vec![t[0] + s * cr[0], t[1] + s * cr[1], t[2] + s * cr[2]]
+                }
+                _ => t.clone(),
+            };
+            for a in 0..nt + nr {
+                v[a] = I::ZERO;
             }
-            let mut acc = model.f[i].map(|e| e.v).unwrap_or(I::ZERO);
-            for (&j, e) in &model.k[i] {
-                acc = acc - e.v * w[j];
+            for a in 0..nt {
+                v[nt + nr + a] = v[nt + nr + a] - at_j[a];
             }
-            rf[i] = Some(acc);
+            for a in 0..nr {
+                v[2 * nt + nr + a] = v[2 * nt + nr + a] - th[a];
+            }
+        }
+        for a in 0..md {
+            let mut acc: Option<I> = None;
+            for b in 0..md {
+                if let Some(kab) = el.k[a * md + b] {
+                    if v[b] != I::ZERO {
+                        let t = kab * v[b];
+                        acc = Some(match acc {
+                            Some(x) => x + t,
+                            None => t,
+                        });
+                    }
+                }
+            }
+            if let Some(x) = acc {
+                rf[el.dofs[a]] = rf[el.dofs[a]] - x;
+            }
         }
     }
+    // Tripwire: the plain residual f − K w encloses the same exact values, so
+    // the two enclosures must intersect (a wrong rigid motion would not).
+    for i in 0..n {
+        let mut plain = model.f[i].map(|e| e.v).unwrap_or(I::ZERO);
+        for (&j, e) in &model.k[i] {
+            plain = plain - e.v * w[j];
+        }
+        if plain.is_finite() && rf[i].is_finite() && (plain.hi < rf[i].lo || rf[i].hi < plain.lo) {
+            return Err(format!("internal: element-wise residual inconsistent at DOF {:?}", model.keys[i]));
+        }
+    }
+    let rf: Vec<Option<I>> = rf.into_iter().map(Some).collect();
     for &q in &kept {
         let mut acc = I::ZERO;
         for &(i, v) in &ccols[q] {
@@ -501,33 +588,25 @@ pub fn certify(model: &Model, u: &[f64]) -> Result<E2eBound, String> {
     if !e_q.is_finite() {
         return Err("non-finite parameter error bound".into());
     }
-    // ‖C‖₂ over kept columns and non-excluded rows:
-    // min(√(‖C‖₁‖C‖∞), √(max_a Σ_b |(CᵀC)_ab|)).
-    let mut row_abs = 0.0f64;
-    let mut col_abs = vec![0.0f64; m];
+    // ‖C x‖₂ ≤ √g ‖x‖₂ with g ≥ every row sum of |CᵀC| (Gershgorin on
+    // g I − CᵀC; Lean `vnorm_mulVec_le_of_rows`), over kept columns and
+    // non-excluded rows.
     let mut ctc: Vec<BTreeMap<usize, I>> = vec![BTreeMap::new(); m];
     for (i, r) in model.rows.iter().enumerate() {
         if excluded_dof[i] {
             continue;
         }
-        let mut s = 0.0f64;
         for &(q, v) in &r.terms {
             let a = newq[q];
-            s = up(s + v.mag());
-            col_abs[a] = up(col_abs[a] + v.mag());
             for &(q2, v2) in &r.terms {
                 let b = newq[q2];
                 let t = v * v2;
                 ctc[a].entry(b).and_modify(|x| *x = *x + t).or_insert(t);
             }
         }
-        row_abs = row_abs.max(s);
     }
-    let col_max = col_abs.iter().copied().fold(0.0, f64::max);
-    let b1 = norm_up(up(row_abs * col_max));
     let gers = ctc.iter().map(|r| r.values().fold(0.0, |acc, v| up(acc + v.mag()))).fold(0.0, f64::max);
-    let b2 = norm_up(gers);
-    let c_norm = b1.min(b2);
+    let c_norm = norm_up(gers);
     // ‖C q̃ + p − ũ‖₂ over non-excluded DOFs.
     let mut d2 = 0.0f64;
     let mut u2 = 0.0f64;
@@ -659,15 +738,15 @@ pub fn agreement(model: &Model, eng: &EngineAssembly) -> Result<Agreement, Strin
     }
     let mut out = Agreement { k_rel: 0.0, f_rel: 0.0, worst_k: None, worst_f: None };
     for &(i, j) in &pairs {
-        if !has_k[i] || !has_k[j] {
+        if i == j && !has_k[i] {
             // DOF nothing stiffens in the model: the engine may hold it with
-            // an artificial spring; not part of the model.
+            // an artificial spring, which is not part of the model. Its
+            // couplings (0 in the model) are still compared.
             continue;
         }
         let refv = model.k[i].get(&j).map(|e| e.v).unwrap_or(I::ZERO);
         let sc = model.k[i].get(&j).map(|e| e.scale).unwrap_or(0.0).max((diag_scale[i] * diag_scale[j]).sqrt());
         let ev = kglob(g[i], g[j]);
-        let excess = (ev.hi - refv.lo).max(refv.lo - ev.hi).max(ev.lo - refv.hi).max(refv.hi - ev.lo);
         // distance between the engine value and the reference enclosure
         let dist = if ev.hi < refv.lo {
             refv.lo - ev.hi
@@ -676,7 +755,6 @@ pub fn agreement(model: &Model, eng: &EngineAssembly) -> Result<Agreement, Strin
         } else {
             0.0
         };
-        let _ = excess;
         let rel = if dist == 0.0 { 0.0 } else if sc > 0.0 { dist / sc } else { f64::INFINITY };
         if rel > out.k_rel {
             out.k_rel = rel;
