@@ -129,7 +129,9 @@ would put a wrong number in front of an engineer:
     cargo mutants --package dedaliano-engine -f engine/src/certify/interval.rs -- --lib
 
 Each scope runs the library unit tests plus the integration tests that target it (listed
-in the script). Results land in `mutants.out/`: `caught.txt`, `missed.txt`,
+in the script). The end-to-end certificate tests (`certify_end_to_end*`, CERTIFY.md) run
+in the `solver` and `element` scopes too: a mutant in an element kernel or in the
+assembly makes the engine's `K` or `f` disagree with the independent re-assembly. Results land in `mutants.out/`: `caught.txt`, `missed.txt`,
 `timeout.txt`, `unviable.txt`. CI (job `mutants`, sharded 8 ways) runs nightly and fails
 on any missed mutant.
 
