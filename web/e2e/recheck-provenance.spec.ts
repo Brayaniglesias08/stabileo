@@ -99,12 +99,17 @@ test.describe('@smoke reproducible results', () => {
   test('worker and main thread, and two solves, give the same bits; reproduce confirms it', async ({ pro: page }) => {
     await page.evaluate(() => window.__stabileoActions.loadExample('3d-portal-frame'));
     await page.evaluate(() => window.__stabileoActions.solve());
-    const worker = await page.evaluate(() => (window.__stabileo.resultProvenance() as { resultsHash: string | null }).resultsHash);
+    // The base solve's hash, whatever result the view settled on after the solve.
+    const baseHash = () => page.evaluate(() => {
+      const p = window.__stabileo.resultProvenance() as { scope: string; resultsHash: string | null; baseResultsHash: string | null };
+      return p.scope === 'single' ? p.resultsHash : p.baseResultsHash;
+    });
+    const worker = await baseHash();
     expect(worker).toMatch(/^[0-9a-f]{64}$/);
     const main = await page.evaluate(() => window.__stabileoActions.solveOnMainThread());
     expect(main).toBe(worker);
     await page.evaluate(() => window.__stabileoActions.solve());
-    const again = await page.evaluate(() => (window.__stabileo.resultProvenance() as { resultsHash: string | null }).resultsHash);
+    const again = await baseHash();
     expect(again).toBe(worker);
 
     const record = await page.evaluate(() => JSON.stringify(window.__stabileo.resultProvenance()));

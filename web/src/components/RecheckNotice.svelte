@@ -162,9 +162,10 @@
   .rc-banner {
     position: fixed;
     left: 50%;
-    top: 8px;
+    bottom: 44px;
     transform: translateX(-50%);
-    z-index: 190;
+    /* Above the app's own bars and drawers, below the notice itself. */
+    z-index: 250;
     display: flex;
     gap: 8px;
     align-items: center;
