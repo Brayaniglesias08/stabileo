@@ -83,14 +83,15 @@ fn staged_3d(s: &SolverInput3D, stages: serde_json::Value) -> Result<StagedAnaly
         "supports": s.supports, "loads": s.loads, "constraints": s.constraints,
         "plates": s.plates, "quads": s.quads, "quad9s": s.quad9s,
         "solidShells": s.solid_shells, "curvedShells": s.curved_shells, "curvedBeams": s.curved_beams, "connectors": s.connectors,
+        "leftHand": s.left_hand,
     });
     v["stages"] = stages;
     staged::solve_staged_3d(&staged::parse_staged_3d(&v.to_string())?)
 }
 
 fn stage_all(s: &SolverInput3D, loads: Vec<usize>) -> serde_json::Value {
-    // 3D supports are referenced by their key.
-    let sup: Vec<serde_json::Value> = s.supports.keys().map(|k| k.parse::<usize>().map(|x| serde_json::json!(x)).unwrap_or(serde_json::json!(k))).collect();
+    // 3D stages name supports by node id (as the app does).
+    let sup: Vec<usize> = s.supports.values().map(|x| x.node_id).collect();
     serde_json::json!({
         "name": "all",
         "elementsAdded": s.elements.values().map(|e| e.id).collect::<Vec<_>>(),

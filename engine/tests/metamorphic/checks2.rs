@@ -196,7 +196,7 @@ pub fn check_case(ctx: &Ctx, c: &Case2, anas: &[Ana2], invariants: &[&str]) {
                     // (one or several stages with the full structure, no
                     // foundation, no gaps, no soil springs, t = t0, a single
                     // combination, other solver paths) must agree with it.
-                    if !REDUCES_TO_crate::response::static_2d(&dedaliano_engine::solver::linear::solve_2d(&c.s)?)EAR.iter().any(|n| a.name == *n) {
+                    if !REDUCES_TO_LINEAR.iter().any(|n| a.name == *n) {
                         Verdict::NotApplicable
                     } else {
                         match guarded(|| Ok(crate::response::static_2d(&dedaliano_engine::solver::linear::solve_2d(&c.s)?))) {

@@ -1082,6 +1082,11 @@ pub struct StagedInput3D {
     pub stages: Vec<ConstructionStage3D>,
     #[serde(default)]
     pub constraints: Vec<Constraint>,
+    /// Model-wide left-handed member axes, as on `SolverInput3D`. Without the
+    /// field serde dropped the app's `leftHand` and a left-handed model was
+    /// staged with right-handed member axes.
+    #[serde(default)]
+    pub left_hand: Option<bool>,
     /*
      * Shells. These had no field here at all, and the caller sends them:
      * `input3DToWireObject` emits `plates` and `quads` for every 3D payload,

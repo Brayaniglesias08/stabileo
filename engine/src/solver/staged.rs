@@ -109,6 +109,7 @@ pub fn solve_staged_2d(input: &StagedInput) -> Result<StagedAnalysisResults, Str
 
     // Track cumulative state
     let mut cumulative_u = vec![0.0; n];
+    let mut prev_u_r = vec![0.0; n - dof_num.n_free];
     let mut active_elements: HashSet<usize> = HashSet::new();
     let mut active_supports: HashSet<usize> = HashSet::new();
     let mut cumulative_loads: Vec<SolverLoad> = Vec::new();
@@ -188,7 +189,12 @@ pub fn solve_staged_2d(input: &StagedInput) -> Result<StagedAnalysisResults, Str
             }
         }
 
-        // Extract Kff, Ff and apply F_f_modified = F_f - K_fr * u_r.
+        // Only the change of the prescribed displacements since the last
+        // stage drives this stage's increment: the full u_r re-applied every
+        // stage counted a settlement once per stage (found by the metamorphic
+        // linear-agreement check: two load stages gave twice the settlement).
+        let du_r: Vec<f64> = u_r.iter().zip(&prev_u_r).map(|(a, b)| a - b).collect();
+        // Extract Kff, Ff and apply F_f_modified = F_f - K_fr * du_r.
         // Sparse path: the full-K CSC (built once from the stage triplets)
         // provides the K_fr·u_r cross-block matvec and is reused for the
         // reaction computation at the end of the stage; the free×free CSC
@@ -200,7 +206,7 @@ pub fn solve_staged_2d(input: &StagedInput) -> Result<StagedAnalysisResults, Str
         if let Some(ref t) = asm_trips {
             let k_full = CscMatrix::from_triplets(n, &t.rows, &t.cols, &t.vals);
             let mut ff = t.f[..nf].to_vec();
-            let k_fr_ur = k_full.sparse_cross_block_matvec(&u_r, nf);
+            let k_fr_ur = k_full.sparse_cross_block_matvec(&du_r, nf);
             for i in 0..nf {
                 ff[i] -= k_fr_ur[i];
             }
@@ -216,7 +222,7 @@ pub fn solve_staged_2d(input: &StagedInput) -> Result<StagedAnalysisResults, Str
 
             // F_f_modified = F_f - K_fr * u_r
             let k_fr = extract_submatrix(&asm.k, n, &free_idx, &rest_idx);
-            let k_fr_ur = mat_vec_rect(&k_fr, &u_r, nf, nr);
+            let k_fr_ur = mat_vec_rect(&k_fr, &du_r, nf, nr);
             for i in 0..nf {
                 ff[i] -= k_fr_ur[i];
             }
@@ -293,6 +299,7 @@ pub fn solve_staged_2d(input: &StagedInput) -> Result<StagedAnalysisResults, Str
         for i in 0..nr {
             cumulative_u[nf + i] = u_r[i]; // prescribed displacements override
         }
+        prev_u_r = u_r.clone();
 
         // Cable iteration: if stage has cable elements, iterate with Ernst modulus
         let has_cables = stage_solver_input.elements.values()
@@ -1281,6 +1288,7 @@ pub fn solve_staged_3d(input: &StagedInput3D) -> Result<StagedAnalysisResults3D,
 
     // Track cumulative state
     let mut cumulative_u = vec![0.0; n];
+    let mut prev_u_r = vec![0.0; n - dof_num.n_free];
     let mut active_elements: HashSet<usize> = HashSet::new();
     let mut active_supports: HashSet<usize> = HashSet::new(); // node_ids
     // Shells track their own active sets: their ids are their own, and a plate
@@ -1370,7 +1378,12 @@ pub fn solve_staged_3d(input: &StagedInput3D) -> Result<StagedAnalysisResults3D,
             }
         }
 
-        // Extract Kff, Ff and apply F_f_modified = F_f - K_fr * u_r.
+        // Only the change of the prescribed displacements since the last
+        // stage drives this stage's increment: the full u_r re-applied every
+        // stage counted a settlement once per stage (found by the metamorphic
+        // linear-agreement check: two load stages gave twice the settlement).
+        let du_r: Vec<f64> = u_r.iter().zip(&prev_u_r).map(|(a, b)| a - b).collect();
+        // Extract Kff, Ff and apply F_f_modified = F_f - K_fr * du_r.
         // Sparse path: the full-K CSC (from the stage triplets) provides the
         // K_fr·u_r cross-block matvec; the free×free CSC for the solve is
         // filtered from the same triplets further below.
@@ -1380,7 +1393,7 @@ pub fn solve_staged_3d(input: &StagedInput3D) -> Result<StagedAnalysisResults3D,
         if let Some(ref t) = asm_trips {
             let k_full = CscMatrix::from_triplets(n, &t.rows, &t.cols, &t.vals);
             let mut ff = t.f[..nf].to_vec();
-            let k_fr_ur = k_full.sparse_cross_block_matvec(&u_r, nf);
+            let k_fr_ur = k_full.sparse_cross_block_matvec(&du_r, nf);
             for i in 0..nf {
                 ff[i] -= k_fr_ur[i];
             }
@@ -1395,7 +1408,7 @@ pub fn solve_staged_3d(input: &StagedInput3D) -> Result<StagedAnalysisResults3D,
 
             // F_f_modified = F_f - K_fr * u_r
             let k_fr = extract_submatrix(&asm.k, n, &free_idx, &rest_idx);
-            let k_fr_ur = mat_vec_rect(&k_fr, &u_r, nf, nr);
+            let k_fr_ur = mat_vec_rect(&k_fr, &du_r, nf, nr);
             for i in 0..nf {
                 ff[i] -= k_fr_ur[i];
             }
@@ -1461,6 +1474,7 @@ pub fn solve_staged_3d(input: &StagedInput3D) -> Result<StagedAnalysisResults3D,
         for i in 0..nr {
             cumulative_u[nf + i] = u_r[i];
         }
+        prev_u_r = u_r.clone();
 
         // Reactions (K·u − F_cumulative)_r with this stage's stiffness.
         let cum_input = SolverInput3D { loads: cumulative_loads.clone(), ..stage_input.clone() };
@@ -1522,7 +1536,7 @@ fn staged_to_full_solver_input_3d(input: &StagedInput3D) -> SolverInput3D {
         supports: input.supports.clone(),
         loads: input.loads.clone(),
         constraints: input.constraints.clone(),
-        left_hand: None,
+        left_hand: input.left_hand,
         /*
          * EVERY shell, active or not, because this input decides the DOF LAYOUT
          * and the shells are what widen it.
@@ -1598,7 +1612,7 @@ fn build_stage_solver_input_3d(
         supports,
         loads,
         constraints: input.constraints.clone(),
-        left_hand: None,
+        left_hand: input.left_hand,
         plates,
         quads,
         // quad9s carry no per-stage list yet, and `solve_staged_3d` refuses an
