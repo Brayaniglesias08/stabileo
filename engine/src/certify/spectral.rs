@@ -37,7 +37,7 @@ use crate::solver::dof::DofNumbering;
 use crate::solver::linear::{compute_internal_forces_2d_with_loads, compute_internal_forces_3d_with_loads};
 use crate::solver::mass_matrix::{assemble_mass_matrix_2d_sparse, assemble_mass_matrix_3d_sparse};
 use crate::solver::sparse_assembly::assemble_stiffness_sparse_2d;
-use crate::solver::spectral::{solve_spectral_2d, solve_spectral_3d, SpectralResult, SpectralResult3D};
+use crate::solver::spectral::{solve_spectral_2d, solve_spectral_3d, CombinationRule, SpectralResult, SpectralResult3D};
 use crate::types::*;
 
 #[inline]
@@ -217,7 +217,7 @@ fn certify_2d_inner(input: &SpectralInput, results: &SpectralResult) -> Result<S
         r: influence(&dof, dir),
         spectrum: &input.spectrum,
         scale: scale(&input.spectrum, input.importance_factor, input.reduction_factor),
-        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi),
+        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi)?,
     };
     let cores = mode_cores(&p)?;
     let n_comp = 3;
@@ -230,14 +230,7 @@ fn certify_2d_inner(input: &SpectralInput, results: &SpectralResult) -> Result<S
         compute_internal_forces_2d_with_loads(solver, &[], &dof, &full(u))
             .iter()
             .map(|f| {
-                (
-                    f.element_id,
-                    vec![
-                        f.n_start.abs().max(f.n_end.abs()),
-                        f.v_start.abs().max(f.v_end.abs()),
-                        f.m_start.abs().max(f.m_end.abs()),
-                    ],
-                )
+                (f.element_id, vec![f.n_start, f.v_start, f.m_start, f.n_end, f.v_end, f.m_end])
             })
             .collect()
     };
@@ -298,7 +291,7 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
         r: influence(&dof, dir),
         spectrum: &input.spectrum,
         scale: scale(&input.spectrum, input.importance_factor, input.reduction_factor),
-        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi),
+        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi)?,
     };
     let cores = mode_cores(&p)?;
     let full = |u: &[f64]| {
@@ -310,16 +303,11 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
         compute_internal_forces_3d_with_loads(solver, &[], &dof, &full(u))
             .iter()
             .map(|f| {
-                let mx = |a: f64, b: f64| a.abs().max(b.abs());
                 (
                     f.element_id,
                     vec![
-                        mx(f.n_start, f.n_end),
-                        mx(f.vy_start, f.vy_end),
-                        mx(f.vz_start, f.vz_end),
-                        mx(f.mx_start, f.mx_end),
-                        mx(f.my_start, f.my_end),
-                        mx(f.mz_start, f.mz_end),
+                        f.n_start, f.vy_start, f.vz_start, f.mx_start, f.my_start, f.mz_start,
+                        f.n_end, f.vy_end, f.vz_end, f.mx_end, f.my_end, f.mz_end,
                     ],
                 )
             })
@@ -367,11 +355,12 @@ fn scale(spectrum: &DesignSpectrum, importance: Option<f64>, reduction: Option<f
     (Interval::point(g) * Interval::point(i)).div(Interval::point(r))
 }
 
-fn cqc_xi(rule: Option<&str>, xi: Option<f64>) -> Option<f64> {
-    match rule.unwrap_or("CQC") {
-        "SRSS" => None,
-        _ => Some(xi.unwrap_or(0.05)),
-    }
+/// The CQC damping ratio for the rule the solver applies, None for SRSS.
+fn cqc_xi(rule: Option<&str>, xi: Option<f64>) -> Result<Option<f64>, String> {
+    Ok(match CombinationRule::parse(rule)? {
+        CombinationRule::Srss => None,
+        CombinationRule::Cqc => Some(xi.unwrap_or(0.05)),
+    })
 }
 
 /// Exact range of the piecewise-linear spectrum (constant beyond its ends, as
@@ -572,7 +561,8 @@ fn combine(vals: &[Interval], rho: Option<&Vec<Vec<Interval>>>) -> Interval {
     abs.sqrt()
 }
 
-/// Per-member force components (max |start|, |end|) at a modal displacement.
+/// Per-member signed end-force components at a modal displacement:
+/// `[start components…, end components…]` (`2·n_comp` values).
 type ForcesFn<'a> = dyn Fn(&[f64]) -> Vec<(usize, Vec<f64>)> + 'a;
 /// Per-member force error bounds for a displacement error bound.
 type BoundsFn<'a> = dyn Fn(f64) -> HashMap<usize, Vec<f64>> + 'a;
@@ -649,10 +639,17 @@ fn finish(
             let Some(db) = fb.get(&id) else {
                 return Err(format!("no force bound for element {id}"));
             };
+            if vals.len() != 2 * n_comp || db.len() != n_comp {
+                return Err(format!("element {id}: force component count mismatch"));
+            }
+            // The bound of each component holds at both ends (max over the end rows).
             let encl: Vec<Interval> = vals
                 .iter()
-                .zip(db)
-                .map(|(&v, &d)| Interval::new(down(v - d).max(0.0), up(v + d)))
+                .enumerate()
+                .map(|(k, &v)| {
+                    let d = db[k % n_comp];
+                    Interval::new(down(v - d), up(v + d))
+                })
                 .collect();
             per_elem.entry(id).or_default().push(encl);
         }
@@ -668,8 +665,11 @@ fn finish(
         }
         let mut values = Vec::with_capacity(n_comp);
         for comp in 0..n_comp {
-            let vals: Vec<Interval> = modes.iter().map(|m| m[comp]).collect();
-            let iv = combine(&vals, rho.as_ref());
+            // Each end's signed value is combined, then the envelope of the two ends.
+            let start: Vec<Interval> = modes.iter().map(|m| m[comp]).collect();
+            let end: Vec<Interval> = modes.iter().map(|m| m[n_comp + comp]).collect();
+            let (cs, ce) = (combine(&start, rho.as_ref()), combine(&end, rho.as_ref()));
+            let iv = Interval::new(cs.lo.max(ce.lo), cs.hi.max(ce.hi));
             if !iv.is_finite() {
                 return Err(format!("non-finite force enclosure for element {id}"));
             }
@@ -685,9 +685,9 @@ fn finish(
         element_forces.push(ItemEnclosure { id, values });
     }
 
-    // Base shear: SRSS of meff_i·Sa_i (the solver always uses SRSS here).
+    // Base shear: meff_i·Sa_i combined with the requested rule, as the solver does.
     let shear_vals: Vec<Interval> = cores.iter().map(|c| c.meff * c.sa).collect();
-    let bs = combine(&shear_vals, None);
+    let bs = combine(&shear_vals, rho.as_ref());
     if !bs.is_finite() {
         return Err("non-finite base shear enclosure".into());
     }
