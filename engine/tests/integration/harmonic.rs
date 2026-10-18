@@ -42,12 +42,12 @@ fn make_ss_beam_2d_with_load() -> SolverInput {
 
     let mut supports = HashMap::new();
     supports.insert("1".to_string(), SolverSupport {
-        id: 1, node_id: 1, support_type: "pin".to_string(),
+        id: 1, node_id: 1, support_type: "pinned".to_string(),
         kx: None, ky: None, kz: None,
         dx: None, dz: None, dry: None, angle: None,
     });
     supports.insert("2".to_string(), SolverSupport {
-        id: 2, node_id: 3, support_type: "roller".to_string(),
+        id: 2, node_id: 3, support_type: "rollerX".to_string(),
         kx: None, ky: None, kz: None,
         dx: None, dz: None, dry: None, angle: None,
     });
@@ -345,12 +345,12 @@ fn make_large_ss_beam_2d_constrained() -> SolverInput {
 
     let mut supports = HashMap::new();
     supports.insert("1".to_string(), SolverSupport {
-        id: 1, node_id: 1, support_type: "pin".to_string(),
+        id: 1, node_id: 1, support_type: "pinned".to_string(),
         kx: None, ky: None, kz: None,
         dx: None, dz: None, dry: None, angle: None,
     });
     supports.insert("2".to_string(), SolverSupport {
-        id: 2, node_id: 31, support_type: "roller".to_string(),
+        id: 2, node_id: 31, support_type: "rollerX".to_string(),
         kx: None, ky: None, kz: None,
         dx: None, dz: None, dry: None, angle: None,
     });

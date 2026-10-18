@@ -350,7 +350,11 @@ fn cable_3d_simple() {
 }
 
 /// Harp-stayed deck: fixed pylon at x=0 (12 m tall), deck fixed at x=0 and
-/// roller at x=L, cable stays from the pylon top to the deck quarter points.
+/// free at x=L, cable stays from the pylon top to the deck quarter points.
+/// (The far end used to be a "roller", a type the engine did not know and
+/// silently left unrestrained, so this test has always run the cantilevered
+/// deck. With a real rollerX there the iteration does not converge — one stay
+/// alternates between slack and taut — and reports `converged: false`.)
 /// nf = 3 * n_elem + 3 (free deck nodes + pylon top): n_elem=20 gives 63
 /// (dense path), n_elem=24 gives 75 (sparse path).
 fn make_stayed_deck(n_elem: usize) -> SolverInput {
@@ -406,7 +410,7 @@ fn make_stayed_deck(n_elem: usize) -> SolverInput {
         dx: None, dz: None, dry: None, angle: None,
     });
     supports.insert("2".to_string(), SolverSupport {
-        id: 2, node_id: n_elem + 1, support_type: "roller".to_string(),
+        id: 2, node_id: n_elem + 1, support_type: "free".to_string(),
         kx: None, ky: None, kz: None,
         dx: None, dz: None, dry: None, angle: None,
     });

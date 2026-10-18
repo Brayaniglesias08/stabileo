@@ -64,6 +64,20 @@ Checked on every input by `engine/fuzz/src/lib.rs`:
 | `json_dynamics` | Harmonic certificate with a response DOF the load does not excite: the interval sum of squares had a −5e−324 lower end, its square root was NaN, and a "certified" result carried NaN enclosures. | Clamp the sum of squares at zero before the square root (sound: it is ≥ 0 exactly). | `fuzz_regressions.rs::harmonic_zero_response_is_finite` |
 | `json_dynamics` | Time-history certificate of a structure at rest: relative residuals divided by max‖u‖ = 0 and reported +∞. | Divide by `max(‖u‖, MIN_POSITIVE)`, and report 0 for a zero residual. | `fuzz_regressions.rs::time_history_zero_solution_residuals_are_finite` |
 
+Found while triaging surviving mutants (below), each with a regression test:
+
+| Bug | Fix | Test |
+|---|---|---|
+| An unknown 2D support type (a typo, `"pin"`, `"roller"`, a 3D type in a 2D model) restrained nothing, silently. Five engine tests used `"pin"`/`"roller"` and so ran unsupported models. | Rejected with the list of accepted types; `"free"` stays as the explicit no-restraint type. The tests now use `"pinned"`/`"rollerX"`. | `solver_mutation_kills.rs::unknown_2d_support_type_is_rejected` |
+| A 3D `isInclined` support with a missing or zero normal fell back to its restraint flags. | Rejected. | `solver_mutation_kills.rs::inclined_support_without_normal_is_rejected` |
+| The 2D and 3D cable solvers (WASM entry points) skipped input validation entirely. | They call `validate_input_2d/3d` like every other analysis. | `solver_mutation_kills.rs::cable_solver_validates_its_input` |
+| The certificate's final step (`finish`, dense and sparse) would return a negative bound for a negative σ/μ; only its callers checked. | `check_sigma`/`check_mu` inside `finish` and at every entry. | `certify.rs::linear_certificate_rejects_nonpositive_or_infinite_sigma`, `sparse.rs::finish_rejects_nonpositive_or_infinite_mu` |
+
+Not fixed, reported: with a real `rollerX` at the far end of the stayed-deck model in
+`tests/integration/cable_solver.rs`, the 2D cable iteration never converges (one stay
+alternates between slack and taut) and returns `converged: false`. The test keeps the
+cantilevered deck it always ran (its "roller" never restrained anything).
+
 Slow but correct (not bugs, recorded so nobody re-triages them):
 
 - The exact 3D plastic collapse certificate runs for over 25 minutes on the 24-member
@@ -134,8 +148,10 @@ For each line of `missed.txt`:
 3. **Dead or diagnostics-only code**: timings, log text, diagnostics that do not gate a
    result. Exclude by name with the reason, or delete the code.
 
-Never exclude a mutant because a test is hard to write; a hard-to-test mutant in the
-certificate code is exactly the one that matters.
+Never exclude a mutant that could make a result or a certificate wrong because a test is
+hard to write; a hard-to-test mutant in the certificate code is exactly the one that
+matters. Resource caps, search heuristics and the choice between two sound paths can be
+excluded, with the reason next to the pattern.
 
 ### Last local run
 

@@ -775,6 +775,15 @@ each with a regression test.
   `isInclined: true` with a missing or zero normal fell back to the support's restraint
   flags. It is now rejected; the web app always sends the normal. Found while triaging
   surviving mutants of the DOF numbering. `tests/solver_mutation_kills.rs`.
+- **An unknown 2D support type restrained nothing, silently.** A type the engine did not
+  know (a typo, or `"pin"`/`"roller"`) left the node free. Every 2D analysis now rejects it,
+  naming the accepted types (`"free"` stays as an explicit no-restraint type). Five engine
+  tests had used `"pin"`/`"roller"` and so ran unsupported models; they now use
+  `"pinned"`/`"rollerX"`, except the stayed-deck cable test, which keeps the cantilevered
+  deck it always ran (`"free"`): with a real end roller the 2D cable iteration does not
+  converge (a stay alternates between slack and taut) and says so. The 2D and 3D cable
+  solvers also skipped input validation entirely; they now validate like every other
+  analysis. `tests/solver_mutation_kills.rs`.
 - **Harmonic certificates reported NaN enclosures for a zero response.** When the target DOF
   was not excited (or the reported value equalled the candidate), the outward-rounded sum of
   squares had a lower end of −5e−324 and its interval square root was NaN, so a *certified*
