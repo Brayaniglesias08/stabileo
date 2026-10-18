@@ -104,7 +104,7 @@
   <ExportSection title={t('viewExport.sectionDrawing')} summary={drawingSummary}>
     <label class="xs-check"><input type="checkbox" bind:checked={options.loads} onchange={save} />{t('viewExport.optLoadsLong')}</label>
     <label class="xs-check"><input type="checkbox" bind:checked={options.numbering} onchange={save} />{t('viewExport.optNumberingLong')}</label>
-    <label class="xs-check" class:off={is3D}><input type="checkbox" bind:checked={options.lengths} onchange={save} disabled={is3D} />{t('viewExport.optLengthsLong')}</label>
+    <label class="xs-check"><input type="checkbox" bind:checked={options.lengths} onchange={save} data-testid="view-opt-lengths" />{t('viewExport.optLengthsLong')}</label>
     <label class="xs-check"><input type="checkbox" bind:checked={options.values} onchange={save} />{t('viewExport.optValuesLong')}</label>
     <label class="xs-check"><input type="checkbox" bind:checked={options.titles} onchange={save} />{t('viewExport.optTitlesLong')}</label>
     {#if contents.includes('despiece')}

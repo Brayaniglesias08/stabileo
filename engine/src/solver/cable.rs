@@ -169,6 +169,9 @@ pub fn solve_cable_2d(
     max_iter: usize,
     tolerance: f64,
 ) -> Result<CableAnalysisResult2D, String> {
+    // The same input checks as every other analysis (non-finite values,
+    // dangling ids, unknown support types, ambiguous shared supports).
+    linear::validate_input_2d(input)?;
     let dof_num = DofNumbering::build_2d(input);
 
     if dof_num.n_free == 0 {
@@ -179,7 +182,7 @@ pub fn solve_cable_2d(
     let nf = dof_num.n_free;
 
     // Build constraint system (if constraints present)
-    let cs = FreeConstraintSystem::build_2d(&input.constraints, &dof_num, &input.nodes);
+    let cs = FreeConstraintSystem::build_2d(&input, &dof_num)?;
     let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
 
     // Identify cable elements
@@ -541,7 +544,7 @@ pub fn solve_cable_2d(
             let k_ff = extract_submatrix(&dense_asm.as_ref().unwrap().k, n, &free_idx, &free_idx);
             fcs.compute_constraint_forces(&k_ff, &u_f, &f_global[..nf])
         };
-        super::constraints::map_dof_forces_to_constraint_forces(&raw, &dof_num)
+        fcs.constraint_forces(&raw, &dof_num)
     } else {
         vec![]
     };
@@ -597,6 +600,7 @@ pub fn solve_cable_3d(
 ) -> Result<CableAnalysisResult3D, String> {
     // Expand curved beams before DOF numbering and assembly.
     let input = &super::linear::expand_curved_beams_3d(input);
+    linear::validate_input_3d(input)?;
     let dof_num = DofNumbering::build_3d(input);
 
     if dof_num.n_free == 0 {
@@ -607,7 +611,7 @@ pub fn solve_cable_3d(
     let nf = dof_num.n_free;
 
     // Build constraint system (if constraints present)
-    let cs = FreeConstraintSystem::build_3d(&input.constraints, &dof_num, &input.nodes);
+    let cs = FreeConstraintSystem::build_3d(&input, &dof_num)?;
     let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
 
     let has_cables = input.elements.values().any(|e| e.elem_type == "cable");
@@ -946,7 +950,7 @@ pub fn solve_cable_3d(
             let k_ff = extract_submatrix(&dense_asm.as_ref().unwrap().k, n, &free_idx, &free_idx);
             fcs.compute_constraint_forces(&k_ff, &u_f, &f_global[..nf])
         };
-        super::constraints::map_dof_forces_to_constraint_forces(&raw, &dof_num)
+        fcs.constraint_forces(&raw, &dof_num)
     } else {
         vec![]
     };

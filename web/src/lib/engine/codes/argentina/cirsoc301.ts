@@ -1,14 +1,27 @@
 /**
- * Verificacion de elementos de acero segun CIRSOC 301 (basado en AISC 360 LRFD).
+ * Verificacion de elementos de acero segun CIRSOC 301-2018 — the app's boundary to the engine.
  *
- * Este modulo NO toca el solver — recibe solicitaciones y propiedades de seccion
- * y devuelve resultados de verificacion.
+ * Every number here comes from the engine (`engine/src/postprocess/cirsoc301_check.rs`, reached
+ * through `cirsoc301-kernel.ts`): tension D.2 with Ae = An·U, compression E.3/E.4/E.7, single and
+ * double angles E.5/E.6, flexure F.2–F.6 with load height and Cb, shear G.2/G.4, interaction H.1.
+ * This module holds no clause. It maps `SteelDesignParams` to the engine's input, and the engine's
+ * result back to the shapes the app reads, rendering the calculation's messages as Spanish `steps`
+ * (the UI localises the `messages` themselves).
  *
- * Unidades: kN, m, MPa (N/mm²) salvo donde se indique.
+ * The TypeScript statement of the clauses this file used to hold lives on as the oracle of the
+ * differential test (`__tests__/differential/cirsoc301-oracle.ts`).
+ *
+ * No engine, no verdict: when the kernel is not registered every check FAILS with
+ * «el motor de cálculo no está cargado», and `engine.available` is false.
+ *
+ * Unidades: kN, m, MPa (N/mm²).
  */
 
 import type { SolverDiagnostic } from '../../types';
 import type { VerifStatus } from './cirsoc201';
+import type { EngineMessage } from '../../../codes/message';
+import steelEs from '../../../i18n/locales/steel/es';
+import { engineCheckMembers, type EngineCheck, type EngineMemberResult } from './cirsoc301-kernel';
 
 // ---------------------------------------------------------------------------
 // Types & Interfaces
@@ -48,6 +61,109 @@ export interface SteelDesignParams {
    * NO aplica — voladizo con extremo libre, o simple simetria en doble curvatura (§F.1(4)).
    */
   Cb?: number;
+  /**
+   * Seccion armada (soldada) en lugar de laminada. Solo cambia `d` en Aw = d·tw de §G.2.2:
+   * altura del alma en una armada, altura total en una laminada. Ausente => laminada.
+   */
+  builtUp?: boolean;
+  /**
+   * Familia de la seccion para la clasificacion (Tabla B.4.1): 'I' (tambien 'H'), 'U', 'T',
+   * 'box', 'RHS', 'CHS', 'rect'/'solid'. Ausente => 'I'. Una forma que la clasificacion no
+   * conoce (p. ej. 'C' conformada en frio, CIRSOC 303) se rechaza: NO EVALUADO, nunca verifica.
+   * En 'box'/'RHS'/'CHS', `tw` es el espesor de las almas (de la pared en tubos), `tf` el de las alas.
+   */
+  shape?: string;
+  /** Altura libre del alma h de B.4.1(b), m. Ausente => h − 2·tf (sin radio: ≥ la real, conservador). */
+  hw?: number;
+  /**
+   * Posicion de la carga para F.2.2: 'web' — en el alma o el ala inferior (F.2.4a/F.2.5a/F.2.6a);
+   * 'topFlange' — en el ala superior (F.2.4b/F.2.5b/F.2.6b). Ausente => 'topFlange', las
+   * expresiones menores, porque el verificador no sabe donde se aplica la carga.
+   */
+  loadPosition?: 'web' | 'topFlange';
+  /** Modulo de elasticidad transversal G (MPa). Ausente => 77 200 MPa (A.3.5). */
+  G?: number;
+  /** Elementos comprimidos para Q (§E.7), si se quieren dar explicitamente en vez de derivarlos. */
+  compressionElements?: CompressionElement[];
+  /**
+   * Pandeo torsional y flexo-torsional, §E.4: factor kz (default 1,0 — torsion impedida y alabeo
+   * libre en los extremos) y longitud no arriostrada a torsion Lz (m, default L).
+   */
+  Kz?: number;
+  Lz?: number;
+  /**
+   * Distancia del centro de corte al baricentro sobre el eje de simetria (m), para 'U' y 'T'
+   * (xo, yo de E.4.10/E.4.11). Ausente => la de la seccion de chapas delgadas a partir de h, b,
+   * tw, tf.
+   */
+  shearCentreOffset?: number;
+  /**
+   * La union extrema de un miembro traccionado, para el area neta efectiva Ae = An·U de D.2(b)
+   * y D.3. Ausente => la rotura en la seccion neta NO se evalua y la traccion queda NO EVALUADA:
+   * An depende de los agujeros y U de como se une la barra, datos que la seccion no tiene.
+   */
+  tensionConnection?: TensionConnection;
+  /**
+   * Single angle (`shape: 'L'`) or double angle (`shape: '2L'`): legs, thickness and how it is
+   * loaded and connected (§E.5, §E.6). See `AngleParams`.
+   */
+  angle?: AngleParams;
+}
+
+/**
+ * Angle data, m. One thickness. A double angle is two equal angles back to back with `gap`
+ * between the backs (0 = continuous contact) and intermediate connectors every `connectorSpacing`.
+ */
+export interface AngleParams {
+  legLong: number;
+  legShort: number;
+  t: number;
+  /** Catalogue properties of ONE angle (m², m⁴), when known: the check scales its own down to them. */
+  area?: number;
+  iParLong?: number;
+  iParShort?: number;
+  /** E.5: 'concentric' | 'e5aLong' | 'e5aShort' | 'e5bLong' | 'e5bShort'. Absent: compression refused. */
+  endCondition?: string;
+  backToBack?: 'long' | 'short';
+  gap?: number;
+  connectorSpacing?: number;
+  connector?: 'snugBolts' | 'welded';
+}
+
+/**
+ * The end connection of a tension member (D.3, B.4.2.2). Lengths in m, areas in m².
+ *
+ * Net area An: `An` as given, else Ag − Σ holes·(d + 2 mm)·t + Σ s²·t/(4g) over the chain
+ * (B.4.2.2), else Ag (no holes: `holes` empty or absent).
+ * Shear lag U, in this order:
+ *   · `U` as given (0 < U ≤ 1);
+ *   · `allElementsConnected` — D.3(1): every element of the section is connected, U = 1;
+ *   · `plateWeld` {L, w} — D.3(2)(d), a flat plate welded along both edges: L ≥ 2w → 1,
+ *     2w > L ≥ 1,5w → 0,87, 1,5w > L ≥ w → 0,75, L < w refused; applied to Ag (D.3.5);
+ *   · `xBar` and `length` — D.3.2, U = 1 − x̄/L ≤ 0,9, never below `connectedArea`/Ag
+ *     when that is given (D.3, open sections). Applied to An if bolted, to Ag if welded
+ *     (`welded`, D.3.3).
+ * Without any of them U is unknown and the rupture limit state is refused.
+ */
+export interface TensionConnection {
+  /**
+   * Ae already resolved from the model's end connections (`engine/steel/tension-connection.ts`),
+   * m², with the steps that produced it — printed verbatim. Takes precedence over every field below.
+   */
+  resolved?: { Ae: number; steps: string[]; messages?: EngineMessage[] };
+  /** The model's end connections could not give Ae: the reason, printed and returned as NOT EVALUATED. */
+  refused?: string;
+  /** The same refusal as a localisable message (`c301.refuse.*`); the engine reports it as is. */
+  refusedMessage?: EngineMessage;
+  An?: number;
+  holes?: { count: number; d: number; t: number; staggers?: { s: number; g: number; t: number }[] };
+  U?: number;
+  allElementsConnected?: boolean;
+  plateWeld?: { L: number; w: number };
+  xBar?: number;
+  length?: number;
+  connectedArea?: number;
+  welded?: boolean;
 }
 
 export interface SteelTensionResult {
@@ -56,6 +172,14 @@ export interface SteelTensionResult {
   ratio: number;
   status: VerifStatus;
   steps: string[];
+  /** Why the check could not be evaluated (no connection for D.2(b)). */
+  notEvaluated?: string;
+  /** The calculation as the engine reports it, one localisable message per line (`c301.*`). */
+  messages: EngineMessage[];
+  /** The governing clause (e.g. 'F.2', 'E.4', 'D.2(b)'). */
+  clauseRef?: string;
+  /** Why it was not evaluated, as a message (the same reason as `notEvaluated`). */
+  notEvaluatedMessage?: EngineMessage;
 }
 
 export interface SteelCompressionResult {
@@ -64,9 +188,19 @@ export interface SteelCompressionResult {
   Fe: number;      // tension de Euler (MPa)
   Fcr: number;     // tension critica (MPa)
   phiPn: number;   // capacidad (kN)
+  /** Factor de reduccion por elementos esbeltos Q = Qs·Qa (§E.7); 1 sin elementos esbeltos. */
+  Q: number;
   ratio: number;
   status: VerifStatus;
   steps: string[];
+  /** Presente cuando la resistencia no se pudo evaluar: el motivo. Nunca es un «verifica». */
+  notEvaluated?: string;
+  /** The calculation as the engine reports it, one localisable message per line (`c301.*`). */
+  messages: EngineMessage[];
+  /** The governing clause (e.g. 'F.2', 'E.4', 'D.2(b)'). */
+  clauseRef?: string;
+  /** Why it was not evaluated, as a message (the same reason as `notEvaluated`). */
+  notEvaluatedMessage?: EngineMessage;
 }
 
 export interface SteelFlexureResult {
@@ -76,9 +210,19 @@ export interface SteelFlexureResult {
   phiMn: number;   // capacidad de diseno (kN·m)
   Lp: number;      // limite compacto (m)
   Lr: number;      // limite no compacto (m)
+  /** Seccion del Capitulo F aplicada: 'F.2' … 'F.6'. */
+  clause?: string;
   ratio: number;
   status: VerifStatus;
   steps: string[];
+  /** Presente cuando la resistencia no se pudo evaluar: el motivo. Nunca es un «verifica». */
+  notEvaluated?: string;
+  /** The calculation as the engine reports it, one localisable message per line (`c301.*`). */
+  messages: EngineMessage[];
+  /** The governing clause (e.g. 'F.2', 'E.4', 'D.2(b)'). */
+  clauseRef?: string;
+  /** Why it was not evaluated, as a message (the same reason as `notEvaluated`). */
+  notEvaluatedMessage?: EngineMessage;
 }
 
 export interface SteelShearResult {
@@ -88,6 +232,12 @@ export interface SteelShearResult {
   ratio: number;
   status: VerifStatus;
   steps: string[];
+  /** The calculation as the engine reports it, one localisable message per line (`c301.*`). */
+  messages: EngineMessage[];
+  /** The governing clause (e.g. 'F.2', 'E.4', 'D.2(b)'). */
+  clauseRef?: string;
+  /** Why it was not evaluated, as a message (the same reason as `notEvaluated`). */
+  notEvaluatedMessage?: EngineMessage;
 }
 
 export interface SteelInteractionResult {
@@ -96,6 +246,14 @@ export interface SteelInteractionResult {
   ratio: number;
   status: VerifStatus;
   steps: string[];
+  /** Presente cuando una capacidad que la interaccion usa no se pudo evaluar. */
+  notEvaluated?: string;
+  /** The calculation as the engine reports it, one localisable message per line (`c301.*`). */
+  messages: EngineMessage[];
+  /** The governing clause (e.g. 'F.2', 'E.4', 'D.2(b)'). */
+  clauseRef?: string;
+  /** Why it was not evaluated, as a message (the same reason as `notEvaluated`). */
+  notEvaluatedMessage?: EngineMessage;
 }
 
 export interface SteelVerificationInput {
@@ -122,6 +280,11 @@ export interface SteelVerification {
   diagnostics?: SolverDiagnostic[];
   steps: string[];
   /** Governing combination per force component (from combo-driven verification). */
+  /**
+   * The engine's own verdict on this exact input. `available: false` — the engine was not loaded,
+   * and every check is a failure, never the absence of one.
+   */
+  engine: { available: boolean; pass: boolean; unityRatio: number; governingCheck: string; unevaluated: string[] };
   governingCombos?: {
     flexure?: { comboId: number; comboName: string };
     shear?: { comboId: number; comboName: string };
@@ -129,678 +292,273 @@ export interface SteelVerification {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
-function fmt(v: number, decimals = 2): string {
-  return v.toFixed(decimals);
-}
-
-function statusFromRatio(ratio: number): VerifStatus {
-  if (ratio <= 1.0) return 'ok';
-  if (ratio <= 1.05) return 'warn';
-  return 'fail';
-}
-
-function worstStatus(...statuses: VerifStatus[]): VerifStatus {
-  if (statuses.includes('fail')) return 'fail';
-  if (statuses.includes('warn')) return 'warn';
-  return 'ok';
-}
-
-/** Radio de giro r = sqrt(I / A) */
-function radiusOfGyration(I: number, A: number): number {
-  return Math.sqrt(I / A);
-}
-
-/**
- * Calcula Zx (modulo plastico eje fuerte) para secciones I si no se provee.
- * Zx ≈ b·tf·(h - tf) + tw·(h - 2·tf)² / 4
- */
-function computeZx(p: SteelDesignParams): number {
-  const { b, tf, h, tw } = p;
-  const hw = h - 2 * tf;
-  return b * tf * (h - tf) + tw * hw * hw / 4;
-}
-
-/**
- * Calcula Zy (modulo plastico eje debil) para secciones I.
- * Zy ≈ tf·b²/2 + hw·tw²/4  (simplificado)
- */
-function computeZy(p: SteelDesignParams): number {
-  const { b, tf, h, tw } = p;
-  const hw = h - 2 * tf;
-  return tf * b * b / 2 + hw * tw * tw / 4;
-}
-
-/**
- * Calcula Sx (modulo elastico eje fuerte) = Iz / (h/2)
- */
-function computeSx(p: SteelDesignParams): number {
-  return p.Iz / (p.h / 2);
-}
-
-/**
- * Sy — modulo elastico eje debil = Iy / (b/2).
- *
- * El espejo exacto de `computeSx`, y hace falta porque F.6.1 impone el mismo tope que F.2.1 en el
- * eje debil:
- *
- *     Mn = Mp = Fy Zy (10)-3 ≤ 1,5 Fy Sy (10)-3                                (F.6.1)
- *
- * Antes no existia, asi que el tope no se podia aplicar. Es aritmetica sobre datos que la seccion
- * ya trae — no un dato nuevo.
- */
-function computeSy(p: SteelDesignParams): number {
-  return p.Sy ?? p.Iy / (p.b / 2);
+/** A compression element for Q (§E.7). `b`, `t` in m. Kinds as Tabla B.4.1a, see the engine. */
+export interface CompressionElement {
+  kind: 'unstiffenedRolled' | 'unstiffenedWelded' | 'angle' | 'teeStem' | 'stiffened' | 'tubeWall';
+  b: number;
+  t: number;
+  /** How many such elements the section has. */
+  count: number;
 }
 
 // ---------------------------------------------------------------------------
-// §D — Traccion
+// Messages → Spanish steps
 // ---------------------------------------------------------------------------
+
+/** Engine params that name a word the locales translate (`c301.word.*`). */
+const WORD_PARAMS = new Set(['cls', 'name', 'which', 'cw']);
+
+/** Turn the engine's word params into nested messages, so every surface can translate them. */
+function localisable(m: EngineMessage): EngineMessage {
+  if (!m.params) return m;
+  const params: Record<string, EngineMessage['params'] extends Readonly<Record<string, infer V>> | undefined ? V : never> = {};
+  for (const [k, v] of Object.entries(m.params)) {
+    if (WORD_PARAMS.has(k) && typeof v === 'string') params[k] = { key: `c301.word.${v}` };
+    else if (k === 'reason' && v && typeof v === 'object') params[k] = localisable(v as EngineMessage);
+    else params[k] = v as never;
+  }
+  return { key: m.key, params };
+}
+
+function fmtNum(v: number): string {
+  if (!Number.isFinite(v)) return String(v);
+  return Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
+}
+
+/** A message in Spanish, from the steel dictionary (no i18n store: this module stays pure). */
+export function renderEs(m: EngineMessage): string {
+  const raw = steelEs[m.key] ?? m.key;
+  if (!m.params) return raw;
+  return raw.replace(/\{(\w+)\}/g, (whole, name: string) => {
+    const v = m.params![name];
+    if (v === undefined || v === null) return whole;
+    if (typeof v === 'object') return renderEs(v as EngineMessage);
+    return typeof v === 'number' ? fmtNum(v) : String(v);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Engine call
+// ---------------------------------------------------------------------------
+
+/** A ratio above 1,0 fails: CIRSOC 301 grants no overstress band. A warning is never a failure. */
+export function statusFromRatio(ratio: number): VerifStatus {
+  return ratio <= 1.0 ? 'ok' : 'fail';
+}
+
+/** Section family the engine classifies. Absent => 'I'. */
+export type SteelShape = 'I' | 'U' | 'T' | 'box' | 'RHS' | 'CHS' | 'solid' | 'L' | '2L';
+
+/** Map an app shape name to the checker's family, or null for one it cannot classify. */
+export function steelShapeOf(shape: string | undefined): SteelShape | null {
+  switch (shape) {
+    case undefined: case 'I': case 'H': return 'I';
+    case 'U': return 'U';
+    case 'T': return 'T';
+    case 'box': return 'box';
+    case 'RHS': return 'RHS';
+    case 'CHS': return 'CHS';
+    case 'rect': case 'solid': return 'solid';
+    case 'L': return 'L';
+    case '2L': return '2L';
+    default: return null; // 'C' (cold-formed, CIRSOC 303) and anything else
+  }
+}
+
+/** The input the engine reads: the params themselves, with the resolved Ae's messages as steps. */
+function engineMember(elementId: number, p: SteelDesignParams): object {
+  const tc = p.tensionConnection;
+  const tensionConnection = tc?.resolved
+    ? { ...tc, resolved: { Ae: tc.resolved.Ae, steps: tc.resolved.steps, messages: tc.resolved.messages ?? [] } }
+    : tc;
+  return { ...p, elementId, ...(tensionConnection ? { tensionConnection } : {}) };
+}
+
+const UNAVAILABLE: EngineMessage = { key: 'c301.refuse.engineUnavailable' };
+
+/** One engine run for one demand, or null when the engine is not available. */
+function run(p: SteelDesignParams, f: { Nu: number; Muz: number; Muy: number; Vu: number }, elementId = 0, steps = true): EngineMemberResult | null {
+  const out = engineCheckMembers([engineMember(elementId, p)], [{ elementId, ...f }], { steps });
+  return out?.[0] ?? null;
+}
+
+interface Common {
+  ratio: number; status: VerifStatus; steps: string[]; messages: EngineMessage[];
+  clauseRef?: string; notEvaluated?: string; notEvaluatedMessage?: EngineMessage;
+}
+
+function common(c: EngineCheck): Common {
+  const messages = c.steps.map(localisable);
+  const ne = c.notEvaluated ? localisable(c.notEvaluated) : undefined;
+  return {
+    ratio: c.ratio,
+    status: c.pass ? 'ok' : 'fail',
+    steps: messages.map(renderEs),
+    messages,
+    clauseRef: c.clause,
+    ...(ne ? { notEvaluated: renderEs(ne), notEvaluatedMessage: ne } : {}),
+  };
+}
+
+function unavailable(): Common {
+  const m = { key: 'c301.notEvaluated', params: { reason: UNAVAILABLE } };
+  return {
+    ratio: Infinity, status: 'fail', steps: [renderEs(m)], messages: [m],
+    notEvaluated: renderEs(UNAVAILABLE), notEvaluatedMessage: UNAVAILABLE,
+  };
+}
+
+const v = (c: EngineCheck, k: string): number => {
+  const x = c.values[k];
+  return typeof x === 'number' ? x : NaN;
+};
+
+/** A check asked for with no demand: the engine is run at a unit demand and the ratio is zero. */
+function unloaded<T extends Common>(r: T): T {
+  if (r.notEvaluated && r.notEvaluatedMessage?.key === UNAVAILABLE.key) return r;
+  const keep = r.messages.filter((m) => m.key !== 'c301.demand');
+  return { ...r, ratio: 0, status: 'ok', messages: keep, steps: keep.map(renderEs) };
+}
+
+// ---------------------------------------------------------------------------
+// §D, §E, §F, §G, §H — one limit state at a time
+// ---------------------------------------------------------------------------
+
+function tensionOf(c: EngineCheck, p?: SteelDesignParams): SteelTensionResult {
+  const r: SteelTensionResult = { Pu: c.demand, phiPn: c.capacity, ...common(c) };
+  // The model's end-connection refusal keeps its Spanish sentence in the log (the UI reads the message).
+  const legacy = p?.tensionConnection?.refused;
+  if (legacy && r.notEvaluatedMessage?.key.startsWith('c301.refuse.end')) {
+    r.notEvaluated = legacy;
+    r.steps = r.steps.map((x) => (x.includes(renderEs(r.notEvaluatedMessage!)) ? `  NO EVALUADO — ${legacy}` : x));
+  }
+  return r;
+}
 
 export function checkSteelTension(params: SteelDesignParams, Pu: number): SteelTensionResult {
-  const steps: string[] = [];
-  const { Fy, Fu, A } = params;
-
-  // A en m², Fy en MPa = N/mm² => convertir A a mm² para la multiplicacion
-  // Pn = Fy * Ag  (N) => / 1000 => kN
-  // A (m²) * 1e6 = mm²
-  const Ag_mm2 = A * 1e6;
-  const Ae_mm2 = Ag_mm2; // area neta efectiva = area bruta (sin agujeros)
-
-  const phiY = 0.90;
-  const phiR = 0.75;
-
-  // Fluencia en seccion bruta
-  const PnY = Fy * Ag_mm2 / 1000; // kN
-  const phiPnY = phiY * PnY;
-
-  steps.push(`§D2 — Fluencia en seccion bruta:`);
-  steps.push(`  Ag = ${fmt(Ag_mm2, 0)} mm²`);
-  steps.push(`  Pn = Fy·Ag = ${fmt(Fy)}·${fmt(Ag_mm2, 0)} = ${fmt(PnY)} kN`);
-  steps.push(`  φPn = ${fmt(phiY)}·${fmt(PnY)} = ${fmt(phiPnY)} kN`);
-
-  // Rotura en seccion neta
-  const PnR = Fu * Ae_mm2 / 1000; // kN
-  const phiPnR = phiR * PnR;
-
-  steps.push(`§D2 — Rotura en seccion neta:`);
-  steps.push(`  Ae = ${fmt(Ae_mm2, 0)} mm² (sin agujeros)`);
-  steps.push(`  Pn = Fu·Ae = ${fmt(Fu)}·${fmt(Ae_mm2, 0)} = ${fmt(PnR)} kN`);
-  steps.push(`  φPn = ${fmt(phiR)}·${fmt(PnR)} = ${fmt(phiPnR)} kN`);
-
-  const phiPn = Math.min(phiPnY, phiPnR);
-  const governing = phiPn === phiPnY ? 'fluencia' : 'rotura';
-  steps.push(`  Gobierna: ${governing}, φPn = ${fmt(phiPn)} kN`);
-
-  const absPu = Math.abs(Pu);
-  const ratio = phiPn > 0 ? absPu / phiPn : (absPu > 0 ? Infinity : 0);
-
-  steps.push(`  Pu = ${fmt(absPu)} kN`);
-  steps.push(`  Ratio = ${fmt(ratio, 3)}`);
-
-  return {
-    Pu: absPu,
-    phiPn,
-    ratio,
-    status: statusFromRatio(ratio),
-    steps,
-  };
+  const zero = Math.abs(Pu) === 0;
+  const r = run(params, { Nu: zero ? -1 : -Math.abs(Pu), Muz: 0, Muy: 0, Vu: 0 });
+  if (!r?.tension) return { Pu: Math.abs(Pu), phiPn: 0, ...unavailable() };
+  const t = tensionOf(r.tension, params);
+  return zero ? { ...unloaded(t), Pu: 0, phiPn: t.notEvaluated ? v(r.tension, 'phiPnYield') || t.phiPn : t.phiPn } : t;
 }
 
-// ---------------------------------------------------------------------------
-// §E — Compresion
-// ---------------------------------------------------------------------------
+function compressionOf(c: EngineCheck): SteelCompressionResult {
+  const refused = !!c.notEvaluated;
+  return {
+    Pu: c.demand, KLr: v(c, 'KLr'), Fe: v(c, 'Fe'), Fcr: refused ? NaN : v(c, 'Fcr'),
+    phiPn: c.capacity, Q: refused ? NaN : v(c, 'Q'), ...common(c),
+  };
+}
 
 export function checkSteelCompression(params: SteelDesignParams, Pu: number): SteelCompressionResult {
-  const steps: string[] = [];
-  const { Fy, E, A, Iz, Iy, L } = params;
-  const Kx = params.Kx ?? 1.0;
-  const Ky = params.Ky ?? 1.0;
+  const zero = Math.abs(Pu) === 0;
+  const r = run(params, { Nu: zero ? 1 : Math.abs(Pu), Muz: 0, Muy: 0, Vu: 0 });
+  if (!r?.compression) return { Pu: Math.abs(Pu), KLr: NaN, Fe: NaN, Fcr: NaN, phiPn: 0, Q: NaN, ...unavailable() };
+  const c = compressionOf(r.compression);
+  return zero ? { ...unloaded(c), Pu: 0 } : c;
+}
 
-  const Ag_mm2 = A * 1e6;
-
-  // Radios de giro
-  const rx = radiusOfGyration(Iz, A); // m
-  const ry = radiusOfGyration(Iy, A); // m
-
-  // Esbelteces
-  const KLrx = (Kx * L) / rx;
-  const KLry = (Ky * L) / ry;
-  const KLr = Math.max(KLrx, KLry);
-  const governingAxis = KLr === KLrx ? 'fuerte (x)' : 'debil (y)';
-
-  steps.push(`§E — Compresion:`);
-  steps.push(`  rx = √(Iz/A) = ${fmt(rx * 1000, 1)} mm`);
-  steps.push(`  ry = √(Iy/A) = ${fmt(ry * 1000, 1)} mm`);
-  steps.push(`  KL/r (eje fuerte) = ${fmt(Kx)}·${fmt(L, 3)} / ${fmt(rx * 1000, 1)}mm = ${fmt(KLrx, 1)}`);
-  steps.push(`  KL/r (eje debil)  = ${fmt(Ky)}·${fmt(L, 3)} / ${fmt(ry * 1000, 1)}mm = ${fmt(KLry, 1)}`);
-  steps.push(`  KL/r gobernante = ${fmt(KLr, 1)} (eje ${governingAxis})`);
-
-  // Tension critica de Euler
-  const Fe = (Math.PI * Math.PI * E) / (KLr * KLr); // MPa
-
-  steps.push(`  Fe = π²·E / (KL/r)² = ${fmt(Fe, 1)} MPa`);
-
-  // Limite de esbeltez
-  const limit = 4.71 * Math.sqrt(E / Fy);
-  steps.push(`  4.71·√(E/Fy) = ${fmt(limit, 1)}`);
-
-  let Fcr: number;
-  if (KLr <= limit) {
-    // Pandeo inelastico
-    Fcr = Math.pow(0.658, Fy / Fe) * Fy;
-    steps.push(`  KL/r ≤ ${fmt(limit, 1)} → pandeo inelastico`);
-    steps.push(`  Fcr = 0.658^(Fy/Fe)·Fy = 0.658^(${fmt(Fy / Fe, 3)})·${fmt(Fy)} = ${fmt(Fcr, 1)} MPa`);
-  } else {
-    // Pandeo elastico
-    Fcr = 0.877 * Fe;
-    steps.push(`  KL/r > ${fmt(limit, 1)} → pandeo elastico`);
-    steps.push(`  Fcr = 0.877·Fe = 0.877·${fmt(Fe, 1)} = ${fmt(Fcr, 1)} MPa`);
-  }
-
-  // E.1: φc = 0,85. It read 0,90, the AISC 360 value, which the CIRSOC 301 text does not
-  // adopt; the clause map already stated 0,85, so the check was 5,9 % on the unsafe side of it.
-  const phi = 0.85;
-  const Pn = Fcr * Ag_mm2 / 1000; // kN
-  const phiPn = phi * Pn;
-
-  steps.push(`  Pn = Fcr·Ag = ${fmt(Fcr, 1)}·${fmt(Ag_mm2, 0)} = ${fmt(Pn)} kN`);
-  steps.push(`  φPn = ${fmt(phi)}·${fmt(Pn)} = ${fmt(phiPn)} kN`);
-
-  const absPu = Math.abs(Pu);
-  const ratio = phiPn > 0 ? absPu / phiPn : (absPu > 0 ? Infinity : 0);
-
-  steps.push(`  Pu = ${fmt(absPu)} kN`);
-  steps.push(`  Ratio = ${fmt(ratio, 3)}`);
-
+function flexureOf(c: EngineCheck): SteelFlexureResult {
   return {
-    Pu: absPu,
-    KLr,
-    Fe,
-    Fcr,
-    phiPn,
-    ratio,
-    status: statusFromRatio(ratio),
-    steps,
+    Mu: c.demand, Mp: v(c, 'Mp'), Mn: c.notEvaluated ? 0 : v(c, 'Mn'), phiMn: c.capacity,
+    Lp: v(c, 'Lp'), Lr: v(c, 'Lr'), clause: c.clause, ...common(c),
   };
 }
 
-// ---------------------------------------------------------------------------
-// §F — Flexion
-// ---------------------------------------------------------------------------
-
-export function checkSteelFlexure(
-  params: SteelDesignParams,
-  Mu: number,
-  axis: 'strong' | 'weak',
-): SteelFlexureResult {
-  const steps: string[] = [];
-  const { Fy, E, Iy, h, tf, Lb } = params;
-  const phi = 0.90;
-
-  const axisLabel = axis === 'strong' ? 'fuerte (z)' : 'debil (y)';
-  steps.push(`§F — Flexion, eje ${axisLabel}:`);
-
-  if (axis === 'weak') {
-    // Eje debil: no hay pandeo lateral-torsional
-    /*
-     * F.6.1 — plastificacion en el eje debil, con el mismo tope de 1,5 que F.2.1:
-     *
-     *     Mn = Mp = Fy Zy (10)-3 ≤ 1,5 Fy Sy (10)-3                            (F.6.1)
-     *
-     * Faltaba, por la misma razon que faltaba el de F.2.1: `Sy` no se calculaba. Ahora si.
-     */
-    const Zy = params.Zy ?? computeZy(params);  // m³
-    const Sy = computeSy(params);               // m³
-    const Zy_mm3 = Zy * 1e9;
-    const Sy_mm3 = Sy * 1e9;
-    const MpUncapped = Fy * Zy_mm3 / 1e6;
-    const MyWeak = Fy * Sy_mm3 / 1e6;
-    const Mp = Math.min(MpUncapped, 1.5 * MyWeak);
-
-    steps.push(`  Zy = ${fmt(Zy_mm3, 0)} mm³, Sy = ${fmt(Sy_mm3, 0)} mm³`);
-    steps.push(`  Fy·Zy = ${fmt(MpUncapped)} kN·m ; 1,5·Fy·Sy = ${fmt(1.5 * MyWeak)} kN·m  (F.6.1)`);
-    steps.push(`  Mp = ${fmt(Mp)} kN·m`);
-    /*
-     * Correcto: no hay pandeo lateral-torsional en flexion respecto del eje menor. Pero F.6.2 SI
-     * define un estado limite de pandeo local del ala para este caso, y no esta implementado —
-     * queda declarado como limitacion, no como ausencia.
-     */
-    steps.push(`  Eje debil: no se considera pandeo lateral-torsional (F.6 no lo tiene)`);
-    steps.push(`  F.6.2 (pandeo local del ala) no implementado`);
-
-    const Mn = Mp;
-    const phiMn = phi * Mn;
-
-    steps.push(`  Mn = Mp = ${fmt(Mn)} kN·m`);
-    steps.push(`  φMn = ${fmt(phi)}·${fmt(Mn)} = ${fmt(phiMn)} kN·m`);
-
-    const absMu = Math.abs(Mu);
-    const ratio = phiMn > 0 ? absMu / phiMn : (absMu > 0 ? Infinity : 0);
-
-    steps.push(`  Mu = ${fmt(absMu)} kN·m`);
-    steps.push(`  Ratio = ${fmt(ratio, 3)}`);
-
-    return {
-      Mu: absMu,
-      Mp,
-      Mn,
-      phiMn,
-      Lp: 0,
-      Lr: 0,
-      ratio,
-      status: statusFromRatio(ratio),
-      steps,
-    };
-  }
-
-  // Eje fuerte
-  const Zx = params.Zx ?? computeZx(params);  // m³
-  const Sx = params.Sx ?? computeSx(params);    // m³
-  const Zx_mm3 = Zx * 1e9;
-  const Sx_mm3 = Sx * 1e9;
-
-  /*
-   * ── F.2.1, including the cap this used to omit ─────────────────────
-   *
-   * The clause, verbatim from the shipped text
-   * (`docs/codes/CIRSOC/markdown/cirsoc-301-2018/capitulo-f-...`):
-   *
-   *     Mn = Mp = Fy Zx(10-3) ≤ 1,5 My                                     (F.2.1)
-   *
-   * with «My el momento elástico; momento para el cual alcanza la fluencia la fibra más alejada
-   * del eje neutro (= Fy Sx (10-3) para secciones homogéneas)».
-   *
-   * The cap was missing: `Mp` was `Fy·Zx` with no upper bound, which is unconservative for a shape
-   * whose factor `Zx/Sx` exceeds 1,5. It needed no new input — `Sx` was already being computed two
-   * lines up and only ever used for `Lr`.
-   *
-   * For a rolled I-section `Zx/Sx` is about 1,1–1,2 and the cap does not bind; it binds on shapes
-   * with a high plastic-to-elastic ratio, and a rectangular solid (1,5 exactly) sits on the
-   * boundary.
-   */
-  const MpUncapped = Fy * Zx_mm3 / 1e6;   // kN·m
-  const My = Fy * Sx_mm3 / 1e6;           // kN·m — F.2.1's definition for a homogeneous section
-  const MpCap = 1.5 * My;
-  const Mp = Math.min(MpUncapped, MpCap);
-  const capGoverns = MpCap < MpUncapped;
-
-  steps.push(`  Zx = ${fmt(Zx_mm3, 0)} mm³`);
-  steps.push(`  Sx = ${fmt(Sx_mm3, 0)} mm³`);
-  steps.push(`  Fy·Zx = ${fmt(Fy)}·${fmt(Zx_mm3, 0)} / 1e6 = ${fmt(MpUncapped)} kN·m`);
-  steps.push(`  My = Fy·Sx = ${fmt(My)} kN·m  →  1,5·My = ${fmt(MpCap)} kN·m  (F.2.1)`);
-  steps.push(capGoverns
-    ? `  Mp = 1,5·My = ${fmt(Mp)} kN·m — el tope de F.2.1 gobierna (Zx/Sx = ${fmt(Zx_mm3 / Sx_mm3, 3)} > 1,5)`
-    : `  Mp = Fy·Zx = ${fmt(Mp)} kN·m — el tope de F.2.1 no gobierna (Zx/Sx = ${fmt(Zx_mm3 / Sx_mm3, 3)} ≤ 1,5)`);
-
-  // Radio de giro eje debil
-  const A = params.A;
-  const ry = radiusOfGyration(Iy, A); // m
-  const ry_mm = ry * 1000;
-
-  // Lp = 1.76·ry·√(E/Fy)
-  const Lp = 1.76 * ry * Math.sqrt(E / Fy); // m
-
-  steps.push(`  ry = ${fmt(ry_mm, 1)} mm`);
-  steps.push(`  Lp = 1.76·ry·√(E/Fy) = 1.76·${fmt(ry_mm, 1)}·√(${E}/${Fy}) = ${fmt(Lp * 1000, 0)} mm = ${fmt(Lp, 3)} m`);
-
-  // Lr: longitud limite para pandeo lateral-torsional inelastico
-  // Lr = 1.95·rts·(E / (0.7·Fy))·√(J·c/(Sx·ho) + √((J·c/(Sx·ho))² + 6.76·(0.7·Fy/E)²))
-  // Simplificacion para perfiles I laminados:
-  // rts² ≈ √(Iy·Cw) / Sx   o bien   rts ≈ b / (2·√(12)) para ala rectangular
-  // Usamos una formula simplificada con J y Cw si estan disponibles
-
-  steps.push(params.Cb != null
-    ? `  Cb = ${fmt(params.Cb, 3)} (F.1.1, calculado del diagrama)`
-    : `  Cb = 1,000 (F.1.1 permite adoptarlo conservadoramente)`);
-
-  const ho = h - tf; // distancia entre centroides de alas (m)
-  const ho_mm = ho * 1000;
-
-  let Lr: number;
-  let Mn: number;
-
-  const J = params.J;
-  const Cw = params.Cw;
-
-  if (J != null && Cw != null && J > 0) {
-    // Formula completa con constantes torsionales
-    const J_mm4 = J * 1e12;
-    const Cw_mm6 = Cw * 1e18;
-    const c = params.c ?? 1.0; // 1 en secciones I doblemente simetricas; en una U, (h0/2)·√(Iy/Cw)
-
-    // rts² = √(Iy·Cw) / Sx
-    const Iy_mm4 = Iy * 1e12;
-    const rts2 = Math.sqrt(Iy_mm4 * Cw_mm6) / Sx_mm3;
-    const rts = Math.sqrt(rts2); // mm
-
-    const term = (J_mm4 * c) / (Sx_mm3 * ho_mm);
-    const fRatio = 0.7 * Fy / E;
-
-    Lr = (1.95 * rts * (E / (0.7 * Fy)) *
-      Math.sqrt(term + Math.sqrt(term * term + 6.76 * fRatio * fRatio))) / 1000; // m
-
-    steps.push(`  J = ${fmt(J_mm4, 0)} mm⁴, Cw = ${fmt(Cw_mm6, 0)} mm⁶`);
-    steps.push(`  rts = ${fmt(rts, 1)} mm`);
-    steps.push(`  Lr = ${fmt(Lr * 1000, 0)} mm = ${fmt(Lr, 3)} m`);
-  } else {
-    // Aproximacion simplificada para perfiles I laminados sin J/Cw
-    // Lr ≈ π·ry·√(E / (0.7·Fy)) (simplificado, conservador)
-    Lr = Math.PI * ry * Math.sqrt(E / (0.7 * Fy)); // m
-
-    steps.push(`  J y Cw no provistos — se usa formula simplificada para Lr`);
-    steps.push(`  Lr ≈ π·ry·√(E/(0.7·Fy)) = ${fmt(Lr * 1000, 0)} mm = ${fmt(Lr, 3)} m`);
-  }
-
-  steps.push(`  Lb = ${fmt(Lb * 1000, 0)} mm = ${fmt(Lb, 3)} m`);
-
-  if (Lb <= Lp) {
-    // Zona 1: plastificacion completa
-    Mn = Mp;
-    steps.push(`  Lb ≤ Lp → zona plastica, Mn = Mp = ${fmt(Mn)} kN·m`);
-  } else if (Lb <= Lr) {
-    // Zona 2: pandeo lateral-torsional inelastico (interpolacion lineal)
-    const Mr = 0.7 * Fy * Sx_mm3 / 1e6; // kN·m
-    // F.2-2 multiplica por Cb: Mn = Cb·[Mp − (Mp − Mr)·(Lb − Lp)/(Lr − Lp)] ≤ Mp. Sin Cb el tramo
-    // inelastico quedaba del lado conservador hasta un 22 % aun con el diagrama leido.
-    const CbInel = params.Cb ?? 1.0;
-    Mn = CbInel * (Mp - (Mp - Mr) * ((Lb - Lp) / (Lr - Lp)));
-    Mn = Math.min(Mn, Mp);
-
-    steps.push(`  Lp < Lb ≤ Lr → pandeo lateral-torsional inelastico`);
-    steps.push(`  Mr = 0.7·Fy·Sx = ${fmt(Mr)} kN·m`);
-    steps.push(`  Mn = Cb·[Mp - (Mp - Mr)·(Lb - Lp)/(Lr - Lp)] ≤ Mp = ${fmt(Mn)} kN·m`);
-  } else {
-    // Zona 3: pandeo lateral-torsional elastico
-    // Fcr = (Cb·π²·E / (Lb/rts)²) · √(1 + 0.078·(J·c/(Sx·ho))·(Lb/rts)²)
-    /*
-     * F.1.1, cuando el llamador lo aporta. Ausente => 1,0, la opcion conservadora que el propio
-     * reglamento ofrece. Ya no es una «simplificacion»: es el valor calculado, o el permitido.
-     */
-    const Cb = params.Cb ?? 1.0;
-
-    if (J != null && Cw != null && J > 0) {
-      const J_mm4 = J * 1e12;
-      const Cw_mm6 = Cw * 1e18;
-      const Iy_mm4 = Iy * 1e12;
-      const rts2 = Math.sqrt(Iy_mm4 * Cw_mm6) / Sx_mm3;
-      const rts = Math.sqrt(rts2);
-      const Lb_mm = Lb * 1000;
-      const LbRts2 = (Lb_mm / rts) * (Lb_mm / rts);
-      const c = params.c ?? 1.0;
-      const term = (J_mm4 * c) / (Sx_mm3 * ho_mm);
-
-      const Fcr = (Cb * Math.PI * Math.PI * E / LbRts2) *
-        Math.sqrt(1 + 0.078 * term * LbRts2);
-
-      Mn = Math.min(Fcr * Sx_mm3 / 1e6, Mp);
-      steps.push(`  Lb > Lr → pandeo lateral-torsional elastico`);
-      steps.push(`  Fcr = ${fmt(Fcr, 1)} MPa`);
-      steps.push(`  Mn = min(Fcr·Sx, Mp) = ${fmt(Mn)} kN·m`);
-    } else {
-      // Sin J/Cw: usar Fe basado en ry
-      const Lb_mm = Lb * 1000;
-      const Fcr = (Cb * Math.PI * Math.PI * E) / ((Lb_mm / ry_mm) * (Lb_mm / ry_mm));
-      Mn = Math.min(Fcr * Sx_mm3 / 1e6, Mp);
-
-      steps.push(`  Lb > Lr → pandeo lateral-torsional elastico (simplificado)`);
-      steps.push(`  Fcr = Cb·π²·E / (Lb/ry)² = ${fmt(Fcr, 1)} MPa`);
-      steps.push(`  Mn = min(Fcr·Sx, Mp) = ${fmt(Mn)} kN·m`);
-    }
-  }
-
-  const phiMn = phi * Mn;
-
-  steps.push(`  φMn = ${fmt(phi)}·${fmt(Mn)} = ${fmt(phiMn)} kN·m`);
-
+export function checkSteelFlexure(params: SteelDesignParams, Mu: number, axis: 'strong' | 'weak'): SteelFlexureResult {
   const absMu = Math.abs(Mu);
-  const ratio = phiMn > 0 ? absMu / phiMn : (absMu > 0 ? Infinity : 0);
-
-  steps.push(`  Mu = ${fmt(absMu)} kN·m`);
-  steps.push(`  Ratio = ${fmt(ratio, 3)}`);
-
-  return {
-    Mu: absMu,
-    Mp,
-    Mn,
-    phiMn,
-    Lp,
-    Lr,
-    ratio,
-    status: statusFromRatio(ratio),
-    steps,
-  };
+  // The weak-axis check runs only above 1e-6 kN·m; below it, ask at a unit moment.
+  const small = axis === 'weak' ? absMu <= 1e-6 : absMu === 0;
+  const m = small ? 1 : absMu;
+  const r = run(params, { Nu: 0, Muz: axis === 'strong' ? m : 0, Muy: axis === 'weak' ? m : 0, Vu: 0 });
+  const c = r && (axis === 'strong' ? r.flexureStrong : r.flexureWeak);
+  if (!c) return { Mu: absMu, Mp: NaN, Mn: 0, phiMn: 0, Lp: NaN, Lr: NaN, ...unavailable() };
+  const f = flexureOf(c);
+  if (!small) return f;
+  const u = unloaded(f);
+  return { ...u, Mu: absMu, ratio: f.phiMn > 0 ? absMu / f.phiMn : 0, status: 'ok' };
 }
 
-// ---------------------------------------------------------------------------
-// §G — Corte
-// ---------------------------------------------------------------------------
+function shearOf(c: EngineCheck): SteelShearResult {
+  return { Vu: c.demand, phiVn: c.capacity, Cv: v(c, 'Cv'), ...common(c) };
+}
 
 export function checkSteelShear(params: SteelDesignParams, Vu: number): SteelShearResult {
-  const steps: string[] = [];
-  const { Fy, E, h, tw, tf } = params;
-  const phi = 0.90;
-
-  // Area del alma Aw = d·tw (en mm²)
-  const d_mm = h * 1000;
-  const tw_mm = tw * 1000;
-  const tf_mm = tf * 1000;
-  const Aw_mm2 = d_mm * tw_mm;
-
-  // Altura del alma
-  const hw_mm = d_mm - 2 * tf_mm;
-
-  steps.push(`§G — Corte:`);
-  steps.push(`  d = ${fmt(d_mm, 1)} mm, tw = ${fmt(tw_mm, 1)} mm`);
-  steps.push(`  Aw = d·tw = ${fmt(Aw_mm2, 0)} mm²`);
-  steps.push(`  h/tw (alma) = ${fmt(hw_mm / tw_mm, 1)}`);
-
-  // Coeficiente Cv
-  const htw = hw_mm / tw_mm;
-  const limit = 2.24 * Math.sqrt(E / Fy);
-  let Cv: number;
-
-  if (htw <= limit) {
-    Cv = 1.0;
-    steps.push(`  h/tw = ${fmt(htw, 1)} ≤ 2.24·√(E/Fy) = ${fmt(limit, 1)} → Cv = 1.0`);
-  } else {
-    // Para almas esbeltas (poco comun en perfiles laminados)
-    const kv = 5.34; // sin rigidizadores
-    const limit2 = 1.10 * Math.sqrt(kv * E / Fy);
-
-    if (htw <= limit2) {
-      Cv = 1.0;
-      steps.push(`  Cv = 1.0 (alma con rigidez suficiente)`);
-    } else {
-      Cv = (1.10 * Math.sqrt(kv * E / Fy)) / htw;
-      steps.push(`  Alma esbelta: Cv = 1.10·√(kv·E/Fy) / (h/tw) = ${fmt(Cv, 3)}`);
-    }
-  }
-
-  // Vn = 0.6·Fy·Aw·Cv
-  const Vn = 0.6 * Fy * Aw_mm2 * Cv / 1000; // kN
-  const phiVn = phi * Vn;
-
-  steps.push(`  Vn = 0.6·Fy·Aw·Cv = 0.6·${fmt(Fy)}·${fmt(Aw_mm2, 0)}·${fmt(Cv, 3)} = ${fmt(Vn)} kN`);
-  steps.push(`  φVn = ${fmt(phi)}·${fmt(Vn)} = ${fmt(phiVn)} kN`);
-
-  const absVu = Math.abs(Vu);
-  const ratio = phiVn > 0 ? absVu / phiVn : (absVu > 0 ? Infinity : 0);
-
-  steps.push(`  Vu = ${fmt(absVu)} kN`);
-  steps.push(`  Ratio = ${fmt(ratio, 3)}`);
-
-  return {
-    Vu: absVu,
-    phiVn,
-    Cv,
-    ratio,
-    status: statusFromRatio(ratio),
-    steps,
-  };
+  const r = run(params, { Nu: 0, Muz: 0, Muy: 0, Vu: Math.abs(Vu) });
+  if (!r) return { Vu: Math.abs(Vu), phiVn: 0, Cv: NaN, ...unavailable() };
+  return shearOf(r.shear);
 }
 
-// ---------------------------------------------------------------------------
-// §H — Interaccion (H1-1)
-// ---------------------------------------------------------------------------
+function interactionOf(c: EngineCheck): SteelInteractionResult {
+  const equation = c.clause === 'H.1.1a' ? 'H1-1a' : 'H1-1b';
+  return { equation, value: c.ratio, ...common(c) };
+}
 
-export function checkSteelInteraction(
-  params: SteelDesignParams,
-  Pu: number,
-  Mux: number,
-  Muy: number,
-): SteelInteractionResult {
-  const steps: string[] = [];
-
-  // Capacidades axiales
-  const absPu = Math.abs(Pu);
-  let phiPn: number;
-
-  if (Pu >= 0) {
-    // Compresion
-    const comp = checkSteelCompression(params, Pu);
-    phiPn = comp.phiPn;
-    steps.push(`  Capacidad axial (compresion): φPn = ${fmt(phiPn)} kN`);
-  } else {
-    // Traccion
-    const tens = checkSteelTension(params, Pu);
-    phiPn = tens.phiPn;
-    steps.push(`  Capacidad axial (traccion): φPn = ${fmt(phiPn)} kN`);
-  }
-
-  // Capacidades a flexion
-  const flexZ = checkSteelFlexure(params, Mux, 'strong');
-  const flexY = checkSteelFlexure(params, Muy, 'weak');
-  const phiMnx = flexZ.phiMn;
-  const phiMny = flexY.phiMn;
-
-  steps.push(`  φMnx (eje fuerte) = ${fmt(phiMnx)} kN·m`);
-  steps.push(`  φMny (eje debil)  = ${fmt(phiMny)} kN·m`);
-
-  const axialRatio = phiPn > 0 ? absPu / phiPn : 0;
-  const absMux = Math.abs(Mux);
-  const absMuy = Math.abs(Muy);
-
-  steps.push(`§H1-1 — Interaccion:`);
-  steps.push(`  Pu/φPn = ${fmt(absPu)}/${fmt(phiPn)} = ${fmt(axialRatio, 3)}`);
-
-  let equation: 'H1-1a' | 'H1-1b';
-  let value: number;
-
-  if (axialRatio >= 0.2) {
-    // H1-1a: Pu/(φPn) + 8/9·(Mux/(φMnx) + Muy/(φMny)) ≤ 1.0
-    equation = 'H1-1a';
-    const momentTerm =
-      (phiMnx > 0 ? absMux / phiMnx : 0) +
-      (phiMny > 0 ? absMuy / phiMny : 0);
-    value = axialRatio + (8 / 9) * momentTerm;
-
-    steps.push(`  Pu/φPn ≥ 0.2 → ecuacion H1-1a`);
-    steps.push(`  H1-1a = Pu/φPn + 8/9·(Mux/φMnx + Muy/φMny)`);
-    steps.push(`        = ${fmt(axialRatio, 3)} + 8/9·(${fmt(absMux)}/${fmt(phiMnx)} + ${fmt(absMuy)}/${fmt(phiMny)})`);
-    steps.push(`        = ${fmt(value, 3)}`);
-  } else {
-    // H1-1b: Pu/(2·φPn) + (Mux/(φMnx) + Muy/(φMny)) ≤ 1.0
-    equation = 'H1-1b';
-    const momentTerm =
-      (phiMnx > 0 ? absMux / phiMnx : 0) +
-      (phiMny > 0 ? absMuy / phiMny : 0);
-    value = axialRatio / 2 + momentTerm;
-
-    steps.push(`  Pu/φPn < 0.2 → ecuacion H1-1b`);
-    steps.push(`  H1-1b = Pu/(2·φPn) + (Mux/φMnx + Muy/φMny)`);
-    steps.push(`        = ${fmt(absPu)}/(2·${fmt(phiPn)}) + (${fmt(absMux)}/${fmt(phiMnx)} + ${fmt(absMuy)}/${fmt(phiMny)})`);
-    steps.push(`        = ${fmt(value, 3)}`);
-  }
-
-  const ratio = value;
-  const status = statusFromRatio(ratio);
-
-  steps.push(`  Resultado: ${value <= 1.0 ? 'VERIFICA' : 'NO VERIFICA'} (${fmt(value, 3)} ${value <= 1.0 ? '≤' : '>'} 1.0)`);
-
-  return {
-    equation,
-    value,
-    ratio,
-    status,
-    steps,
-  };
+/** H.1 for the given demand (Pu + compression). */
+export function checkSteelInteraction(params: SteelDesignParams, Pu: number, Mux: number, Muy: number): SteelInteractionResult {
+  const r = run(params, { Nu: Pu, Muz: Mux, Muy, Vu: 0 });
+  if (!r) return { equation: 'H1-1b', value: Infinity, ...unavailable() };
+  if (r.interaction) return interactionOf(r.interaction);
+  // H.1 does not apply (one moment, no axial force): H.1.1b reduces to that flexure ratio.
+  const f = r.flexureWeak && Math.abs(Muy) > 0 ? r.flexureWeak : r.flexureStrong;
+  return { equation: 'H1-1b', value: f.ratio, ...common(f) };
 }
 
 // ---------------------------------------------------------------------------
 // Verificacion completa de un elemento
 // ---------------------------------------------------------------------------
 
-export function verifySteelElement(input: SteelVerificationInput): SteelVerification {
+/**
+ * The whole member. `opts.trace: false` skips the calculation (no `steps`, no `messages`): for a
+ * search that screens many candidates and reports only the verdict.
+ */
+export function verifySteelElement(input: SteelVerificationInput, opts: { trace?: boolean } = {}): SteelVerification {
   const { elementId, Nu, Muy, Muz, Vu, params } = input;
-  const steps: string[] = [];
+  const r = run(params, { Nu, Muz, Muy, Vu }, elementId, opts.trace ?? true);
 
-  steps.push(`=== Verificacion CIRSOC 301 — Elemento ${elementId} ===`);
-  steps.push(`Solicitaciones: Nu=${fmt(Nu)} kN, Muz=${fmt(Muz)} kN·m, Muy=${fmt(Muy)} kN·m, Vu=${fmt(Vu)} kN`);
-  steps.push('');
+  const header = [
+    `=== Verificacion CIRSOC 301 — Elemento ${elementId} ===`,
+    `Solicitaciones: Nu=${Nu.toFixed(2)} kN, Muz=${Muz.toFixed(2)} kN·m, Muy=${Muy.toFixed(2)} kN·m, Vu=${Vu.toFixed(2)} kN`,
+    '',
+  ];
 
-  // Tension o compresion
-  let tension: SteelTensionResult | undefined;
-  let compression: SteelCompressionResult | undefined;
-
-  if (Nu < 0) {
-    // Traccion (convencion: + = compresion)
-    tension = checkSteelTension(params, Nu);
-    steps.push(...tension.steps);
-    steps.push('');
-  } else if (Nu > 0) {
-    compression = checkSteelCompression(params, Nu);
-    steps.push(...compression.steps);
-    steps.push('');
+  if (!r) {
+    const u = unavailable();
+    const diag: SolverDiagnostic = {
+      severity: 'error', code: 'VERIF_ENGINE_UNAVAILABLE', message: 'diag.verifEngineUnavailable',
+      elementIds: [elementId], source: 'verification',
+    };
+    return {
+      elementId, Nu, Muy, Muz, Vu,
+      flexureZ: { Mu: Math.abs(Muz), Mp: NaN, Mn: 0, phiMn: 0, Lp: NaN, Lr: NaN, ...u },
+      shear: { Vu: Math.abs(Vu), phiVn: 0, Cv: NaN, ...u },
+      ...(Nu < 0 ? { tension: { Pu: Math.abs(Nu), phiPn: 0, ...u } } : {}),
+      ...(Nu > 0 ? { compression: { Pu: Nu, KLr: NaN, Fe: NaN, Fcr: NaN, phiPn: 0, Q: NaN, ...u } } : {}),
+      overallStatus: 'fail',
+      diagnostics: [diag],
+      steps: [...header, ...u.steps],
+      engine: { available: false, pass: false, unityRatio: Infinity, governingCheck: 'none', unevaluated: ['engine'] },
+    };
   }
 
-  // Flexion eje fuerte
-  const flexureZ = checkSteelFlexure(params, Muz, 'strong');
-  steps.push(...flexureZ.steps);
-  steps.push('');
+  const tension = r.tension && tensionOf(r.tension, params);
+  const compression = r.compression && compressionOf(r.compression);
+  const flexureZ = flexureOf(r.flexureStrong);
+  const flexureY = r.flexureWeak && flexureOf(r.flexureWeak);
+  const shear = shearOf(r.shear);
+  const interaction = r.interaction && interactionOf(r.interaction);
 
-  // Flexion eje debil (solo si hay momento)
-  let flexureY: SteelFlexureResult | undefined;
-  if (Math.abs(Muy) > 1e-6) {
-    flexureY = checkSteelFlexure(params, Muy, 'weak');
-    steps.push(...flexureY.steps);
-    steps.push('');
+  const steps = [...header];
+  for (const c of [tension, compression, flexureZ, flexureY, shear, interaction]) {
+    if (c) steps.push(...c.steps, '');
   }
-
-  // Corte
-  const shear = checkSteelShear(params, Vu);
-  steps.push(...shear.steps);
-  steps.push('');
-
-  // Interaccion (si hay carga axial y flexion simultanea)
-  let interaction: SteelInteractionResult | undefined;
-  const hasAxial = Math.abs(Nu) > 1e-6;
-  const hasMoment = Math.abs(Muz) > 1e-6 || Math.abs(Muy) > 1e-6;
-
-  if (hasAxial && hasMoment) {
-    interaction = checkSteelInteraction(params, Nu, Muz, Muy);
-    steps.push(...interaction.steps);
-    steps.push('');
-  }
-
-  // Estado general
-  const allStatuses: VerifStatus[] = [flexureZ.status, shear.status];
-  if (tension) allStatuses.push(tension.status);
-  if (compression) allStatuses.push(compression.status);
-  if (flexureY) allStatuses.push(flexureY.status);
-  if (interaction) allStatuses.push(interaction.status);
-
-  const overallStatus = worstStatus(...allStatuses);
-
+  const overallStatus: VerifStatus = r.pass ? 'ok' : 'fail';
   steps.push(`=== Resultado global: ${overallStatus.toUpperCase()} ===`);
 
-  // Build diagnostics for sub-checks that fail or warn
   const diags: SolverDiagnostic[] = [];
-
-  const checks: { name: string; result?: { status: VerifStatus; ratio: number } }[] = [
+  const checks: { name: string; result?: Common }[] = [
     { name: 'TENSION', result: tension },
     { name: 'COMPRESSION', result: compression },
     { name: 'FLEXURE_Z', result: flexureZ },
@@ -808,45 +566,30 @@ export function verifySteelElement(input: SteelVerificationInput): SteelVerifica
     { name: 'SHEAR', result: shear },
     { name: 'INTERACTION', result: interaction },
   ];
-
   for (const check of checks) {
     if (!check.result) continue;
-    const { status, ratio } = check.result;
-    if (status === 'fail') {
+    const { status, ratio, notEvaluated } = check.result;
+    if (notEvaluated && ratio > 0) {
       diags.push({
-        severity: 'error',
-        code: `VERIF_STEEL_FAIL_${check.name}`,
-        message: `Steel ${check.name.toLowerCase().replace('_', ' ')} check failed (ratio ${ratio.toFixed(3)})`,
-        elementIds: [elementId],
-        source: 'verification',
-        details: { ratio },
+        severity: 'error', code: `VERIF_STEEL_NOT_EVALUATED_${check.name}`,
+        message: `Steel ${check.name.toLowerCase().replace('_', ' ')} check not evaluated: ${notEvaluated}`,
+        elementIds: [elementId], source: 'verification', details: { ratio },
       });
-    } else if (status === 'warn') {
+    } else if (status === 'fail') {
       diags.push({
-        severity: 'warning',
-        code: `VERIF_STEEL_WARN_${check.name}`,
-        message: `Steel ${check.name.toLowerCase().replace('_', ' ')} check marginal (ratio ${ratio.toFixed(3)})`,
-        elementIds: [elementId],
-        source: 'verification',
-        details: { ratio },
+        severity: 'error', code: `VERIF_STEEL_FAIL_${check.name}`,
+        message: `Steel ${check.name.toLowerCase().replace('_', ' ')} check failed (ratio ${ratio.toFixed(3)})`,
+        elementIds: [elementId], source: 'verification', details: { ratio },
       });
     }
   }
 
   return {
-    elementId,
-    Nu,
-    Muy,
-    Muz,
-    Vu,
-    tension,
-    compression,
-    flexureZ,
-    flexureY,
-    shear,
-    interaction,
+    elementId, Nu, Muy, Muz, Vu,
+    tension, compression, flexureZ, flexureY, shear, interaction,
     overallStatus,
     diagnostics: diags.length > 0 ? diags : undefined,
     steps,
+    engine: { available: true, pass: r.pass, unityRatio: r.unityRatio, governingCheck: r.governingCheck, unevaluated: r.unevaluated },
   };
 }

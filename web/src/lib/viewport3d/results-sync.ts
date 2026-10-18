@@ -284,7 +284,7 @@ export function syncDeformed(ctx: ResultsSyncContext, scaleOverride?: number): v
   if (staticDeformed && exact) {
     eiMap = new Map<number, ElementEI>();
     for (const [id, elem] of modelStore.elements) {
-      const ei = eiOf(modelStore.materials.get(elem.materialId), modelStore.sections.get(elem.sectionId));
+      const ei = eiOf(modelStore.materials.get(elem.materialId), modelStore.sections.get(elem.sectionId), modelStore.analysis);
       if (ei) eiMap.set(id, ei);
     }
   }
@@ -1012,6 +1012,35 @@ export function syncConstraintForces(ctx: ResultsSyncContext): void {
 
 // ─── Labels (node/element IDs, lengths) ─────────────────────
 
+/** A member nearer the vertical (scene Z) than the horizontal: its labels go beside it, not over and under. */
+function isUpright(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): boolean {
+  return Math.abs(b.z - a.z) > Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+const viewDir = new THREE.Vector3();
+
+/**
+ * Puts a member's label beside the member as the camera shows it, frame by frame: beside it
+ * (`beside`, the sprite's anchor) when the member runs up the screen, over or under it (`across`)
+ * when it runs across. Judged once by the world's Z, a beam along Y seen in plan runs up the
+ * screen and had its number and length written across its line. A member seen end-on keeps
+ * the world's rule.
+ */
+export function keepLabelBeside(
+  sprite: THREE.Sprite, a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number },
+  beside: [number, number], across: [number, number],
+): void {
+  const d = new THREE.Vector3(b.x - a.x, b.y - a.y, b.z - a.z);
+  const world = isUpright(a, b);
+  const place = (upright: boolean) => { const c = upright ? beside : across; sprite.center.set(c[0], c[1]); };
+  place(world);
+  if (d.lengthSq() < 1e-18) return;
+  sprite.onBeforeRender = (_renderer, _scene, camera) => {
+    viewDir.copy(d).transformDirection(camera.matrixWorldInverse);
+    place(Math.hypot(viewDir.x, viewDir.y) < 0.2 ? world : Math.abs(viewDir.y) > Math.abs(viewDir.x));
+  };
+}
+
 export function syncLabels3D(ctx: ResultsSyncContext): void {
   if (!ctx.initialized) return;
 
@@ -1087,7 +1116,9 @@ export function syncLabels3D(ctx: ResultsSyncContext): void {
 
       const sprite = createTextSpriteCached(memberLabelText(viewState.memberLabel, elem, modelStore.sections, modelStore.materials), '#88ccff', 24, true);
       sprite.position.set(mx, my, mz);
-      sprite.center.set(0.5, -0.1);
+      // Above a beam; beside a column, to its left (its length goes to the right): centred on
+      // the midpoint, the text crossed the column's line.
+      keepLabelBeside(sprite, sceneI, sceneJ, [1.12, 0.5], [0.5, -0.1]);
       sprite.scale.set(LABEL_SCREEN * 0.85, LABEL_SCREEN * 0.85, 1);
       ctx.elementLabelsGroup.add(sprite);
     }
@@ -1117,7 +1148,8 @@ export function syncLabels3D(ctx: ResultsSyncContext): void {
 
       const sprite = createTextSpriteCached(fixedQuantity(len, 'length', 2, canvasUnitSystem()), '#88cc88', 22, true);
       sprite.position.set(mx, my, mz);
-      sprite.center.set(0.5, 1.1);
+      // Under a beam; to the right of a column, clear of its line and of its number.
+      keepLabelBeside(sprite, sceneI, sceneJ, [-0.12, 0.5], [0.5, 1.1]);
       sprite.scale.set(LABEL_SCREEN * 0.75, LABEL_SCREEN * 0.75, 1);
       ctx.lengthLabelsGroup.add(sprite);
     }

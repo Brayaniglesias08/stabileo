@@ -6,7 +6,7 @@
  * remembered between sessions; the clock and the texts are not.
  */
 import type { BuildOrder } from '../viewport3d/build-timelapse';
-import type { TimelapseSound } from '../viewport3d/timelapse-sound';
+import { timelapseSound, type TimelapseSound } from '../viewport3d/timelapse-sound';
 
 /** Seconds the finished structure is held before a loop starts again. */
 export const HOLD_S = 3;
@@ -108,7 +108,8 @@ function createBuildTimelapse() {
     get time() { return time; },
 
     open() { active = true; time = 0; shownTime = 0; lastNow = -1; playing = true; },
-    close() { active = false; playing = false; recording = false; },
+    /** Off, and its sound with it (`timelapseSound.release`). */
+    close() { active = false; playing = false; recording = false; timelapseSound.release(); },
     play() { if (time >= total + HOLD_S) time = 0; lastNow = -1; playing = true; },
     pause() { playing = false; },
     restart() { time = 0; shownTime = 0; lastNow = -1; playing = true; },

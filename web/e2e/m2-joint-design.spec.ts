@@ -231,6 +231,10 @@ test.describe('@slow the states a user can actually reach', () => {
    */
   test('an under-sized group reads exceeded', async ({ page }) => {
     await solvedJoint(page);
+    // One 6 mm bolt: some 8 kN in shear against the 25 kN this joint carries. (Before the
+    // shed's eaves chords were connected to the column chords they cross, its shear was large
+    // enough to exceed one bolt of the default diameter; it no longer is, so the size is given.)
+    await page.getByTestId('jd-diameter').selectOption('6');
     await page.getByTestId('jd-count').fill('1');
     await page.getByTestId('jd-count').blur();
     await page.getByTestId('jd-rows').fill('1');

@@ -7,6 +7,7 @@
 
 import { drawMomentSymbol } from '../canvas/draw-loads';
 import type { LabelCollector } from '../canvas/label-layout';
+import { addMemberTags } from '../canvas/member-tags';
 import {
   TWO_D_DISPLACEMENT_LABELS,
   TWO_D_NODAL_LOAD_LABELS,
@@ -195,6 +196,12 @@ export interface DrawElementOpts {
   diagramType: string;
   /** Pre-computed world length of the element */
   worldLength: number;
+  /**
+   * The frame's label collector. With it, the member's number and its length are laid out with
+   * every other label, off the members; without it (a caller that has none) they are written
+   * beside the member's midpoint as before.
+   */
+  labels?: LabelCollector;
 }
 
 export function drawElement(
@@ -295,6 +302,15 @@ export function drawElement(
   // Normal offset to avoid overlapping the line
   const nx = -dy / len * 14;
   const ny = dx / len * 14;
+
+  if (opts.labels && (opts.showElementLabels || opts.showLengths)) {
+    // Laid out with every other label, off the members: written straight at the midpoint they
+    // crossed a column's line and sat on the loads' values.
+    addMemberTags(opts.labels, si, sj, elem.id,
+      opts.showElementLabels ? { text: `E${elem.id}`, colour: '#aaf' } : null,
+      opts.showLengths ? { text: fixedQuantity(opts.worldLength, 'length', 2, canvasUnitSystem()), colour: '#8c8' } : null);
+    return;
+  }
 
   if (opts.showElementLabels) {
     ctx.fillStyle = '#aaf';

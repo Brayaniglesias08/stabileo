@@ -41,9 +41,11 @@ export interface FBSupport { nodeId: number; actions: FBAction[] }
 
 /** An applied load, for drawings that draw their own loads (3D). */
 export type FBLoad =
-  | { kind: 'nodal'; nodeId: number; dir: P3; label: string }
-  | { kind: 'point'; memberId: number; t: number; dir: P3; label: string }
-  | { kind: 'dist'; memberId: number; t0: number; t1: number; dir: P3; label: string };
+  | { kind: 'nodal'; nodeId: number; action?: 'force' | 'moment'; dir: P3; label: string }
+  // A point moment on a member is `action: 'moment'`, `dir` its axis (the right-hand rule).
+  | { kind: 'point'; memberId: number; t: number; action?: 'force' | 'moment'; dir: P3; label: string }
+  // Endpoint intensities in world coordinates, not unit directions: retain the load profile.
+  | { kind: 'dist'; memberId: number; t0: number; t1: number; qI: P3; qJ: P3; label: string };
 
 export interface FreeBodyInput {
   ctx: CanvasRenderingContext2D;
@@ -76,6 +78,11 @@ export interface FreeBodyInput {
   focus?: ReadonlySet<number>;
   /** Said at the top of the drawing when the focus is empty (what to do to see the values). */
   hint?: string;
+  /**
+   * Said at the top of the drawing whatever is selected: what the free body is not (an envelope's
+   * or a magnitude's is no state of equilibrium, and the caller draws it without its actions).
+   */
+  note?: string;
   colors?: { member: string; joint: string; link: string; leader: string; load: string; text?: string };
 }
 
@@ -92,6 +99,39 @@ export function freeBodyGap(mode: FreeBodyInput['mode'], sep: number): number {
 }
 /** Above this many members only the selected ones show their actions. */
 export const FB_FOCUS_ABOVE = 40;
+
+/**
+ * Below this share of `negligible` of the largest action of its kind in the whole drawing, a
+ * component is round-off whatever it acts on: hundredths of a kN where the structure carries
+ * nothing (a 3D solve leaves them), which "T = 0.0 kN·m" at every cut would bury the rest under.
+ */
+export const FB_NOISE_SHARE = 0.05;
+
+/**
+ * Whether the despiece draws an end action's or a reaction's component, the same rule in 2D and
+ * 3D. A free body drawn without a component it needs does not balance, so the share is taken of
+ * the piece's own actions, not of the largest in the model: a fixed portal with 1000 kN on each
+ * column and 15 kN of sway lost its 7.5 kN column shears and reactions (0.75 % of 1000 kN) at 2 %
+ * of the model, and every column and joint was out of balance by them.
+ *
+ *   noise        below `share · FB_NOISE_SHARE` of the model's largest of its kind: left out;
+ *   own          at least `share` of the largest of its kind on the same piece (a member's two
+ *                ends; for a reaction, the same component at every support): drawn;
+ *   lever        a force whose arm across the member (`lever`, m) makes it at least `share` of the
+ *                member's largest end moment: drawn, the member's moments do not balance without
+ *                it (a column's shear against its end moments, small beside its axial force).
+ */
+export function freeBodyKeeps(
+  value: number, kind: 'force' | 'moment', share: number,
+  base: { own: { force: number; moment: number }; model: { force: number; moment: number } },
+  lever = 0,
+): boolean {
+  const v = Math.abs(value);
+  if (share <= 0) return true;
+  if (v < share * FB_NOISE_SHARE * base.model[kind]) return false;
+  if (v >= share * base.own[kind]) return true;
+  return kind === 'force' && lever > 0 && v * lever >= share * base.own.moment;
+}
 
 /** The members a large model details: the selected ones and those at selected nodes. */
 export function freeBodyFocus(
@@ -140,19 +180,21 @@ const area = (a: Obstacle, b: Obstacle) => Math.max(0, Math.min(a.x + a.width, b
 
 function arrow(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, color: string, double = false): void {
   const a = Math.atan2(y1 - y0, x1 - x0);
-  if (!Number.isFinite(a) || Math.hypot(x1 - x0, y1 - y0) < 0.5) return;
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  if (!Number.isFinite(a) || len < 0.5) return;
+  const headSize = Math.min(HEAD, len / (double ? 2 : 1));
   ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.8;
-  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1 - Math.cos(a) * HEAD * 0.6, y1 - Math.sin(a) * HEAD * 0.6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1 - Math.cos(a) * headSize * 0.6, y1 - Math.sin(a) * headSize * 0.6); ctx.stroke();
   const head = (hx: number, hy: number) => {
     ctx.beginPath();
     ctx.moveTo(hx, hy);
-    ctx.lineTo(hx - HEAD * Math.cos(a - 0.38), hy - HEAD * Math.sin(a - 0.38));
-    ctx.lineTo(hx - HEAD * Math.cos(a + 0.38), hy - HEAD * Math.sin(a + 0.38));
+    ctx.lineTo(hx - headSize * Math.cos(a - 0.38), hy - headSize * Math.sin(a - 0.38));
+    ctx.lineTo(hx - headSize * Math.cos(a + 0.38), hy - headSize * Math.sin(a + 0.38));
     ctx.closePath(); ctx.fill();
   };
   head(x1, y1);
   // A moment vector: the second head a little behind the first.
-  if (double) head(x1 - Math.cos(a) * HEAD * 0.9, y1 - Math.sin(a) * HEAD * 0.9);
+  if (double) head(x1 - Math.cos(a) * headSize * 0.9, y1 - Math.sin(a) * headSize * 0.9);
 }
 
 /** An in-plane moment: a 270° arc with its head, counter-clockwise when `ccw`. */
@@ -248,7 +290,7 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
   const lineOf = (a: FBAction) => ({ text: `${a.name} = ${d.fmt(a.magnitude, a.kind)}`, color: a.color });
 
   /** Draw one action standing at screen point `at` (world `w`), the piece lying along `inward`. */
-  function drawAction(a: FBAction, at: S2, w: P3, inward: S2 | null, external: boolean, slot: number, onJoint = false): { x: number; y: number } | null {
+  function drawAction(a: Pick<FBAction, 'kind' | 'dir' | 'ccw' | 'color'>, at: S2, w: P3, inward: S2 | null, external: boolean, slot: number, onJoint = false): { x: number; y: number } | null {
     if (a.kind === 'moment' && d.planar) {
       const r = external ? 18 : 12;
       arc(ctx, at.x, at.y, r, !!a.ccw, a.color);
@@ -303,7 +345,9 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
   const focusNodes = new Set<number>();
   if (d.focus) for (const m of d.members) if (d.focus.has(m.id)) { focusNodes.add(m.nodeI); focusNodes.add(m.nodeJ); }
   for (const e of d.ends) {
-    if (!inFocus(e.memberId)) continue;
+    // A joint a selected member reaches is drawn whole: every member's action on it, or its free
+    // body does not balance. The other members' own pieces stay without their values.
+    if (!inFocus(e.memberId) && !(e.side === 'node' && focusNodes.has(e.nodeId))) continue;
     if ((val.get(e.nodeId) ?? 0) < 2) continue;
     if (e.side === 'member' && !wantMember) continue;
     if (e.side === 'node' && !wantNode) continue;
@@ -339,7 +383,7 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
       }
     });
     // The joint's actions are the member's, opposite: written once, on the member's side.
-    if (e.side === 'node' && wantMember) continue;
+    if (e.side === 'node' && wantMember && inFocus(e.memberId)) continue;
     const perp = { x: -inward.y, y: inward.x };
     const out = (perp.x * (at.x - centre.x) + perp.y * (at.y - centre.y)) >= 0 ? 1 : -1;
     const side: S2 = shear ?? { x: perp.x * out, y: perp.y * out };
@@ -350,7 +394,8 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
 
   // ── The supports ──
   for (const s of d.supports) {
-    if (d.focus && d.focus.size > 0 && !focusNodes.has(s.nodeId)) continue;
+    // Nothing selected in a large model: the rest is drawn as pieces only, reactions included.
+    if (d.focus && !focusNodes.has(s.nodeId)) continue;
     const n = d.nodes(s.nodeId); if (!n) continue;
     const at = d.toScreen(n);
     s.actions.forEach((a, k) => drawAction(a, at, n, null, true, k));
@@ -364,33 +409,67 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
       const n = d.nodes(ld.nodeId); if (!n) continue;
       const at = d.toScreen(n);
       const sd = screenDir(n, ld.dir);
-      if (sd.shown < 0.28) { pointing(ctx, at.x + 14, at.y - 14, toward(ld.dir) > 0, C.load, false); continue; }
-      const x0 = at.x - sd.x * L * 1.2, y0 = at.y - sd.y * L * 1.2;
-      arrow(ctx, x0, y0, at.x, at.y, C.load);
-      blockSeg(x0, y0, at.x, at.y);
-      blocks.push({ anchor: { x: x0, y: y0 }, inward: { x: -sd.x, y: -sd.y }, side: { x: -sd.y, y: sd.x }, lines: [{ text: ld.label, color: C.load }] });
+      const moment = ld.action === 'moment';
+      drawAction({ kind: ld.action ?? 'force', dir: ld.dir, color: C.load }, at, n, null, true, moment ? 1 : 0);
+      const out = sd.shown < 0.28 ? { x: 1, y: 0 } : { x: sd.x * (moment ? 1 : -1), y: sd.y * (moment ? 1 : -1) };
+      blocks.push({ anchor: at, inward: out, side: { x: -out.y, y: out.x }, lines: [{ text: ld.label, color: C.load }] });
       continue;
     }
     const p = pieces.get(ld.memberId); const m = d.members.find((x) => x.id === ld.memberId);
     if (!p || !m) continue;
     const pointAt = (t: number) => ({ x: p.a.x + (p.b.x - p.a.x) * t, y: p.a.y + (p.b.y - p.a.y) * t });
     const worldAt = (t: number): P3 => ({ x: m.i.x + (m.j.x - m.i.x) * t, y: m.i.y + (m.j.y - m.i.y) * t, z: (m.i.z ?? 0) + ((m.j.z ?? 0) - (m.i.z ?? 0)) * t });
-    const sd = screenDir(worldAt(0.5), ld.dir);
-    if (sd.shown < 0.28) continue;
+    if (ld.kind === 'point' && ld.action === 'moment') {
+      // A moment on the member, drawn as a nodal one is: a vector with a double head, or ⊙ / ⊗.
+      const at = pointAt(ld.t);
+      const along = { x: p.b.x - p.a.x, y: p.b.y - p.a.y }, l = Math.hypot(along.x, along.y) || 1;
+      drawAction({ kind: 'moment', dir: ld.dir, color: C.load }, at, worldAt(ld.t), { x: along.x / l, y: along.y / l }, true, 1);
+      const sd = screenDir(worldAt(ld.t), ld.dir);
+      const out = sd.shown < 0.28 ? { x: -along.y / l, y: along.x / l } : { x: sd.x, y: sd.y };
+      blocks.push({ anchor: at, inward: out, side: { x: -out.y, y: out.x }, lines: [{ text: ld.label, color: C.load }] });
+      continue;
+    }
     const ts = ld.kind === 'point' ? [ld.t] : Array.from({ length: 6 }, (_, k) => ld.t0 + ((ld.t1 - ld.t0) * k) / 5);
+    const norm = (v: P3) => Math.hypot(v.x, v.y, v.z ?? 0);
+    const maxQ = ld.kind === 'dist' ? Math.max(norm(ld.qI), norm(ld.qJ)) : 1;
+    if (maxQ <= 1e-12) continue;
     const tails: S2[] = [];
-    for (const t of ts) {
-      const h = pointAt(t), x0 = h.x - sd.x * L * 0.8, y0 = h.y - sd.y * L * 0.8;
-      arrow(ctx, x0, y0, h.x, h.y, C.load);
-      blockSeg(x0, y0, h.x, h.y, 2);
-      tails.push({ x: x0, y: y0 });
+    let labelSide: S2 = { x: 0, y: -1 };
+    for (const [k, t] of ts.entries()) {
+      const f = ts.length === 1 ? 0 : k / (ts.length - 1);
+      const q = ld.kind === 'point' ? ld.dir : {
+        x: ld.qI.x + (ld.qJ.x - ld.qI.x) * f,
+        y: ld.qI.y + (ld.qJ.y - ld.qI.y) * f,
+        z: (ld.qI.z ?? 0) + ((ld.qJ.z ?? 0) - (ld.qI.z ?? 0)) * f,
+      };
+      const mag = norm(q), h = pointAt(t);
+      if (mag <= 1e-12) { tails.push(h); continue; }
+      const dir = { x: q.x / mag, y: q.y / mag, z: (q.z ?? 0) / mag };
+      const sd = screenDir(worldAt(t), dir);
+      if (sd.shown < 0.28) {
+        pointing(ctx, h.x, h.y, toward(dir) > 0, C.load, false);
+        taken.push({ x: h.x - 8, y: h.y - 8, width: 16, height: 16 });
+        tails.push(h);
+      } else {
+        const len = L * 0.8 * mag / maxQ;
+        const tail = { x: h.x - sd.x * len, y: h.y - sd.y * len };
+        arrow(ctx, tail.x, tail.y, h.x, h.y, C.load);
+        blockSeg(tail.x, tail.y, h.x, h.y, 2);
+        tails.push(tail);
+        labelSide = { x: -sd.x, y: -sd.y };
+      }
     }
     if (tails.length > 1) {
       ctx.strokeStyle = C.load; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(tails[0]!.x, tails[0]!.y); ctx.lineTo(tails[tails.length - 1]!.x, tails[tails.length - 1]!.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(tails[0]!.x, tails[0]!.y);
+      for (let k = 1; k < tails.length; k++) {
+        ctx.lineTo(tails[k]!.x, tails[k]!.y);
+        blockSeg(tails[k - 1]!.x, tails[k - 1]!.y, tails[k]!.x, tails[k]!.y, 2);
+      }
+      ctx.stroke();
     }
     const mid = tails[Math.floor(tails.length / 2)]!;
-    blocks.push({ anchor: mid, inward: { x: -sd.x, y: -sd.y }, side: { x: -sd.x, y: -sd.y }, lines: [{ text: ld.label, color: C.load }] });
+    blocks.push({ anchor: mid, inward: labelSide, side: labelSide, lines: [{ text: ld.label, color: C.load }] });
   }
 
   // ── The values: one block per cut, beside its piece, with its leader ──
@@ -435,11 +514,12 @@ export function drawFreeBody(d: FreeBodyInput): Map<number, ScreenPiece> {
       ctx.fillText(l.text, r.x + 2, r.y + (k + 1) * lineH - 2);
     });
   }
-  if (d.hint && d.focus && d.focus.size === 0) {
+  const said = [d.note, d.hint && d.focus && d.focus.size === 0 ? d.hint : undefined].filter((x): x is string => !!x);
+  if (said.length) {
     ctx.save();
     ctx.font = `${fontPx + 1}px sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillStyle = C.text ?? C.member;
-    ctx.fillText(d.hint, 14, 12);
+    said.forEach((text, k) => ctx.fillText(text, 14, 12 + k * (fontPx + 6)));
     ctx.restore();
   }
   return pieces;

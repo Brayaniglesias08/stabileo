@@ -6,6 +6,8 @@
   import { modelStore, uiStore, resultsStore } from '../../lib/store';
   import ProResultScopes from './ProResultScopes.svelte';
   import ProNonlinearReport from './ProNonlinearReport.svelte';
+  import CertificateStatus from '../CertificateStatus.svelte';
+  import { certificateStore, formatBound } from '../../lib/store/certificate.svelte';
   import ProResultTableModes, { type TableMode } from './ProResultTableModes.svelte';
   import ProDeflectionTable from './ProDeflectionTable.svelte';
   import ProStoryDriftTable from './ProStoryDriftTable.svelte';
@@ -85,7 +87,9 @@
    * between load cases does not keep yanking the selector around.
    */
   const GOVERNING_ORDER = ['mx', 'my', 'mxy', 'sigma1', 'sigmaXx', 'sigmaYy', 'tauXy', 'sigma2', 'vonMises'] as const;
-  let autoPickedFor = $state<object | null>(null);
+  // The result set last looked at, by identity. Not a $state: that would wrap the (raw) result in
+  // a proxy that never equals it, and the effect, which writes it, would run forever.
+  let autoPickedFor: object | null = null;
   $effect(() => {
     const stats = shellStats;
     const r = resultsStore.results3D;
@@ -389,6 +393,13 @@
   const DIAGRAM_KINDS = ['axial', 'momentY', 'momentZ', 'shearY', 'shearZ', 'torsion'];
 </script>
 
+<!-- The certified bound on a shell resultant's error (`store/certificate.svelte.ts`), when there is one. -->
+{#snippet shellPm(type: string, id: number, k: 'sigmaXx' | 'sigmaYy' | 'tauXy' | 'mx' | 'my' | 'mxy')}
+  {@const b = certificateStore.shellBound(type === 'Plate' ? 'plate' : 'quad', id)}
+  {#if b}<span class="cert-pm" title={t('certificate.shellTooltip')}> ± {formatBound(b[k])}</span>{/if}
+{/snippet}
+
+
 <div class="pro-res">
   <div class="pro-res-header">
     <!--
@@ -583,6 +594,7 @@
 
     <ProResultScopes />
     <ProNonlinearReport />
+    <CertificateStatus />
 
     <!-- View mode selector -->
     {#if hasCombinations}
@@ -892,9 +904,9 @@
                   <tr class:selected={uiStore.selectedShells.has(r.key)} onclick={() => { uiStore.selectMode = 'shells'; uiStore.selectShell(r.key, false); }} style="cursor:pointer">
                     <td class="col-id">{r.id}</td>
                     <td class="col-type">{r.type}</td>
-                    <td class="col-num" class:gov={shellGov.sigmaXx === r.key}>{fmtNum(r.sigmaXx)}</td>
-                    <td class="col-num" class:gov={shellGov.sigmaYy === r.key}>{fmtNum(r.sigmaYy)}</td>
-                    <td class="col-num" class:gov={shellGov.tauXy === r.key}>{fmtNum(r.tauXy)}</td>
+                    <td class="col-num" class:gov={shellGov.sigmaXx === r.key}>{fmtNum(r.sigmaXx)}{@render shellPm(r.type, r.id, 'sigmaXx')}</td>
+                    <td class="col-num" class:gov={shellGov.sigmaYy === r.key}>{fmtNum(r.sigmaYy)}{@render shellPm(r.type, r.id, 'sigmaYy')}</td>
+                    <td class="col-num" class:gov={shellGov.tauXy === r.key}>{fmtNum(r.tauXy)}{@render shellPm(r.type, r.id, 'tauXy')}</td>
                     <td class="col-num" class:gov={shellGov.sigma1 === r.key}>{fmtNum(r.sigma1)}</td>
                     <td class="col-num" class:gov={shellGov.sigma2 === r.key}>{fmtNum(r.sigma2)}</td>
                     <td class="col-num col-max" class:gov={shellGov.vonMises === r.key}>{fmtNum(r.vonMises)}</td>
@@ -922,9 +934,9 @@
                   <tr class:selected={uiStore.selectedShells.has(r.key)} onclick={() => { uiStore.selectMode = 'shells'; uiStore.selectShell(r.key, false); }} style="cursor:pointer">
                     <td class="col-id">{r.id}</td>
                     <td class="col-type">{r.type}</td>
-                    <td class="col-num" class:gov={shellGov.mx === r.key}>{fmtNum(r.mx)}</td>
-                    <td class="col-num" class:gov={shellGov.my === r.key}>{fmtNum(r.my)}</td>
-                    <td class="col-num" class:gov={shellGov.mxy === r.key}>{fmtNum(r.mxy)}</td>
+                    <td class="col-num" class:gov={shellGov.mx === r.key}>{fmtNum(r.mx)}{@render shellPm(r.type, r.id, 'mx')}</td>
+                    <td class="col-num" class:gov={shellGov.my === r.key}>{fmtNum(r.my)}{@render shellPm(r.type, r.id, 'my')}</td>
+                    <td class="col-num" class:gov={shellGov.mxy === r.key}>{fmtNum(r.mxy)}{@render shellPm(r.type, r.id, 'mxy')}</td>
                   </tr>
                 {/each}
               </tbody>
@@ -1478,4 +1490,5 @@
     border: 1px solid var(--st-hair-strong); border-radius: 3px; cursor: pointer;
   }
   .pro-res-hint { margin: 2px 8px 6px; font-size: 0.62rem; color: var(--st-text-3); }
+  .cert-pm { opacity: 0.7; font-size: 0.85em; cursor: help; white-space: nowrap; }
 </style>

@@ -1,5 +1,6 @@
 // Results store
 
+import { carryCertifyJob } from '../engine/certify-tags';
 import type { AnalysisResults, InfluenceLineResult, Section, Material } from './model.svelte';
 import type { ElementForces, FullEnvelope, ConstraintForce, SolverDiagnostic, SolveTimings } from '../engine/types';
 import { modelFindings } from '../engine/model-findings';
@@ -115,7 +116,10 @@ interface HeldView {
 }
 
 function createResultsStore() {
-  let results = $state<AnalysisResults | null>(null);
+  // Published result sets are replaced as a whole. Keep their identity when switching from
+  // the case/combination maps: deep $state proxies made the displayed result unequal to its
+  // source, so figures and free bodies could no longer identify its applied loads in browsers.
+  let results = $state.raw<AnalysisResults | null>(null);
   let diagramType = $state<DiagramType>('none');
   /** Remembers last user-visible diagram so live-calc can restore it after clear() */
   let _lastDiagramType: DiagramType = 'none';
@@ -186,10 +190,10 @@ function createResultsStore() {
   let animSpeed = $state<number>(1.0); // animation speed multiplier (0.25 - 3x)
 
   // Combination results
-  let singleResults = $state<AnalysisResults | null>(null); // base solve (all loads, no combination factors)
+  let singleResults = $state.raw<AnalysisResults | null>(null); // base solve (all loads, no combination factors)
   let perCase = $state<Map<number, AnalysisResults>>(new Map());
   let perCombo = $state<Map<number, AnalysisResults>>(new Map());
-  let envelope = $state<FullEnvelope | null>(null);
+  let envelope = $state.raw<FullEnvelope | null>(null);
   let activeView = $state<ResultsView>('single');
   let activeComboId = $state<number | null>(null);
   let activeCaseId = $state<number | null>(null); // individual load case selection
@@ -243,8 +247,8 @@ function createResultsStore() {
   } | null>(null);
 
   // 3D analysis results
-  let results3D = $state<AnalysisResults3D | null>(null);
-  let singleResults3D = $state<AnalysisResults3D | null>(null);
+  let results3D = $state.raw<AnalysisResults3D | null>(null);
+  let singleResults3D = $state.raw<AnalysisResults3D | null>(null);
 
   // The gates' findings describe the model, not the result on screen, so they
   // are read from the single solve: `results` becomes a combination or the
@@ -264,10 +268,10 @@ function createResultsStore() {
   let perCase3D = $state<Map<number, AnalysisResults3D>>(new Map());
   let perCombo3D = $state<Map<number, AnalysisResults3D>>(new Map());
   let unstableCombinations3D = $state<number[]>([]);
-  let envelope3D = $state<FullEnvelope3D | null>(null);
+  let envelope3D = $state.raw<FullEnvelope3D | null>(null);
   /** A named envelope on screen in place of the active one, valid only over the solve it was
    *  built from (`over`): any republish or clear makes it lapse without being reset. */
-  let viewedEnvelope3D = $state<{ env: FullEnvelope3D; name: string; over: FullEnvelope3D } | null>(null);
+  let viewedEnvelope3D = $state.raw<{ env: FullEnvelope3D; name: string; over: FullEnvelope3D } | null>(null);
 
   // Governing-case provenance (which combo governs each element per force component)
   let governing2D = $state<Map<number, GoverningPerElement>>(new Map());
@@ -287,6 +291,10 @@ function createResultsStore() {
   // verificationStore can stamp a solve-generation counter without this store
   // importing verificationStore (mirrors modelStore's `_onMutation` wiring).
   let _onResultsPublish: (() => void) | null = null;
+  /** Told of every base static solve published (as the solver returned it) and of every clear; see `certificate.svelte.ts`. */
+  let _onStaticPublish: ((r: object | null, dim: '2d' | '3d') => void) | null = null;
+  /** Told of every combination bundle published (as the solver returned it); see `certificate.svelte.ts`. */
+  let _onComboPublish: ((perCase: Map<number, object>, perCombo: Map<number, object>, dim: '2d' | '3d') => void) | null = null;
   /**
    * What a 3D result is put through before it is published: members of variable section back to
    * one member each (`engine/variable-members.ts`), whichever analysis produced it. Idempotent.
@@ -407,6 +415,8 @@ function createResultsStore() {
      *  its solve-generation counter — including a plain re-solve with no
      *  structural mutation (self-weight / axis-convention toggle). */
     _setOnResultsPublish(fn: () => void) { _onResultsPublish = fn; },
+    _setOnStaticPublish(fn: (r: object | null, dim: '2d' | '3d') => void) { _onStaticPublish = fn; },
+    _setOnComboPublish(fn: (perCase: Map<number, object>, perCombo: Map<number, object>, dim: '2d' | '3d') => void) { _onComboPublish = fn; },
     _setNormalise3D(r: (x: AnalysisResults3D) => AnalysisResults3D, e: (x: FullEnvelope3D) => FullEnvelope3D, adv?: Normalise3DAdvanced) {
       _normalise3D = r; _normaliseEnvelope3D = e; _normaliseAdvanced3D = adv ?? null;
     },
@@ -727,7 +737,7 @@ function createResultsStore() {
 
     get pdeltaResult() { return pdeltaResult; },
     setPDeltaResult(r: PDeltaResult) {
-      r = { ...r, results: drawn(r.results), ...(r.linearResults ? { linearResults: drawn(r.linearResults) } : {}) };
+      r = carryCertifyJob(r, { ...r, results: drawn(r.results), ...(r.linearResults ? { linearResults: drawn(r.linearResults) } : {}) });
       hold();
       this.clearAdvanced();
       pdeltaResult = r;
@@ -789,11 +799,11 @@ function createResultsStore() {
     get plasticStep() { return plasticStep; },
     set plasticStep(v: number) { plasticStep = v; },
     setPlasticResult(r: PlasticResult) {
-      r = {
+      r = carryCertifyJob(r, {
         ...r,
         steps: (r.steps ?? []).map((st) => ({ ...st, results: st.results && drawn(st.results) })),
         hinges: (r.hinges ?? []).map((h) => ((h as { kind?: string }).kind === 'axial' ? h : { ...h, moment: _signOf(h.elementId) * h.moment })),
-      };
+      });
       hold();
       this.clearAdvanced();
       plasticResult = r;
@@ -820,7 +830,7 @@ function createResultsStore() {
     // ─── 3D Advanced Analysis Results ─────────────────────────────
     get pdeltaResult3D() { return pdeltaResult3D; },
     setPDeltaResult3D(r: PDeltaResult3D) {
-      if (_normaliseAdvanced3D) r = _normaliseAdvanced3D.pdelta(r);
+      if (_normaliseAdvanced3D) r = carryCertifyJob(r, _normaliseAdvanced3D.pdelta(r));
       hold();
       this.clearAdvanced();
       pdeltaResult3D = r;
@@ -834,7 +844,7 @@ function createResultsStore() {
 
     get modalResult3D() { return modalResult3D; },
     setModalResult3D(r: ModalResult3D) {
-      if (_normaliseAdvanced3D) r = _normaliseAdvanced3D.modes(r);
+      if (_normaliseAdvanced3D) r = carryCertifyJob(r, _normaliseAdvanced3D.modes(r));
       hold();
       this.clearAdvanced();
       staticUnder3D();
@@ -926,6 +936,7 @@ function createResultsStore() {
     },
 
     setResults(r: AnalysisResults, preserveDiagram = false) {
+      _onStaticPublish?.(r, '2d');
       r = drawn(r);
       results = r;
       singleResults = r; // Save base solve for "Cargas simples" option
@@ -961,6 +972,7 @@ function createResultsStore() {
     },
 
     setCombinationResults(pc: Map<number, AnalysisResults>, pco: Map<number, AnalysisResults>, env: FullEnvelope) {
+      _onComboPublish?.(pc, pco, '2d');
       pc = new Map([...pc].map(([k, v]) => [k, drawn(v)]));
       pco = new Map([...pco].map(([k, v]) => [k, drawn(v)]));
       env = envelopeToDrawnAxes(env, _signOf);
@@ -1015,6 +1027,7 @@ function createResultsStore() {
       }
       // The held view described the results this clear throws away.
       _held = null;
+      _onStaticPublish?.(null, '2d');
       results = null;
       singleResults = null;
       diagramType = 'none';
@@ -1115,6 +1128,7 @@ function createResultsStore() {
     get results3D() { return results3D; },
 
     setResults3D(r: AnalysisResults3D, preserveDiagram = false) {
+      _onStaticPublish?.(r, '3d');
       if (_normalise3D) r = _normalise3D(r);
       noteStructuralSolve();
       _onResultsPublish?.();
@@ -1153,6 +1167,7 @@ function createResultsStore() {
     },
 
     clear3D() {
+      _onStaticPublish?.(null, '3d');
       _held = null;
       results3D = null;
       singleResults3D = null;
@@ -1202,6 +1217,7 @@ function createResultsStore() {
     setGoverning3D(g: Map<number, GoverningPerElement3D>) { governing3D = g; },
 
     setCombinationResults3D(pc: Map<number, AnalysisResults3D>, pco: Map<number, AnalysisResults3D>, env: FullEnvelope3D, unstable: readonly number[] = []) {
+      _onComboPublish?.(pc, pco, '3d');
       if (_normalise3D) {
         const n = _normalise3D;
         pc = new Map([...pc].map(([k, r]) => [k, n(r)]));

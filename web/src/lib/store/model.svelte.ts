@@ -560,6 +560,19 @@ export interface Element extends Element3DMetadata {
    */
   kStrong?: number;
   kWeak?: number;
+  /**
+   * How each end is joined, for tension rupture on Ae = An·U (CIRSOC 301 D.3, B.4.2.2): bolted or
+   * welded, which elements are connected, bolts and lines (`engine/steel/tension-connection.ts`).
+   * Absent, or an end absent: not described, and rupture is NOT EVALUATED — never Ae = Ag.
+   * End I/J follow the member: a reversal swaps them, a split keeps each on its own segment.
+   */
+  tensionConnection?: import('../engine/steel/tension-connection').MemberTensionConnection;
+  /**
+   * Angles in compression (CIRSOC 301 §E.5, §E.6): how a single angle is loaded at its ends, and
+   * the spacing and kind of a double angle's intermediate connectors (`engine/steel/angle-section.ts`).
+   * Absent: the angle's compression check is NOT EVALUATED, by name.
+   */
+  angleCompression?: import('../engine/steel/angle-section').AngleCompressionInput;
 }
 
 /** A camera the user named: where it stands and what it looks at, in scene coordinates. */
@@ -3942,6 +3955,14 @@ function createModelStore() {
     },
 
     /** Mirror selected nodes about an axis through their centroid */
+
+    /**
+     * The analysis settings a solve is given: PRO's own, or Basic's self-weight rule (the case it
+     * goes in). What reads a solve's loads afterwards (the despiece) reads its self-weight here.
+     */
+    solveAnalysis(isPro: boolean, includeSelfWeight: boolean): StructureModel['analysis'] {
+      return analysisFor(isPro, includeSelfWeight);
+    },
 
     solve(includeSelfWeight = false, drawPlane: DrawPlane = 'xy'): AnalysisResults | string | null {
       const mapped = remapModelForPlane(drawPlane, includeSelfWeight);
