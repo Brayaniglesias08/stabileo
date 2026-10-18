@@ -32,7 +32,7 @@ use crate::postprocess::ec3_check::{
 };
 use crate::postprocess::cirsoc201_check::{
     ductility_applies as cirsoc201_ductility_applies, ductility_strain_r as cirsoc201_ductility_strain,
-    min_shear_missing as cirsoc201_min_shear_missing, nominal_flexure_r as cirsoc201_nominal_flexure,
+    min_shear_missing as cirsoc201_min_shear_missing, nominal_flexure_axial_r as cirsoc201_nominal_flexure,
     phi_flexure_r as cirsoc201_phi, shear_inputs_valid as cirsoc201_shear_valid,
     shear_strength_r as cirsoc201_shear_strength, Cirsoc201DesignForces, Cirsoc201MemberData, CIRSOC201_DUCTILITY,
     CIRSOC201_FLEXURE, CIRSOC201_MIN_SHEAR, CIRSOC201_SHEAR,
@@ -567,7 +567,7 @@ pub fn cirsoc201_ratio_enclosures(
     let vu = around(f.vu.unwrap_or(0.0), b.vy, "Vu")?.abs();
     let nu = around(f.axial_compression.unwrap_or(0.0), if f.axial_compression.is_some() { b.n } else { 0.0 }, "Nu")?;
     let es = m.es.unwrap_or(200e9);
-    let flex = cirsoc201_nominal_flexure::<Interval>(m)
+    let flex = cirsoc201_nominal_flexure::<Interval>(m, nu, f.axial_compression.unwrap_or(0.0))
         .ok_or_else(|| format!("section data outside the certified domain: {m:?}"))?;
     if !(flex.mn.is_finite() && flex.epsilon_t.is_finite()) {
         return Err("neutral axis not certified".into());
@@ -1698,6 +1698,8 @@ mod tests {
             fyt: if g.unit() < 0.2 { Some(500e6) } else { None },
             ag: None,
             lambda: if g.unit() < 0.2 { Some(0.75) } else { None },
+            bf: if g.unit() < 0.3 { Some(b * g.range(1.0, 4.0)) } else { None },
+            hf: Some(g.range(0.05, 0.15)),
             edition: if g.unit() < 0.5 { Cirsoc201Edition::E2005 } else { Cirsoc201Edition::E2025 },
         }
     }
@@ -1798,7 +1800,7 @@ mod tests {
             s_stirrup: Some(0.15),
             fyt: None,
             ag: None,
-            lambda: None,
+            lambda: None, bf: None, hf: None,
             edition: Cirsoc201Edition::E2005,
         };
         let f = Cirsoc201DesignForces { element_id: 1, mu: Some(1e5), vu: Some(1e5), axial_compression: None };
