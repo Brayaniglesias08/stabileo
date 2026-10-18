@@ -341,7 +341,7 @@ pub struct InclinedDofs {
 /// `inclinedRoller` with an angle.
 pub fn inclined_dofs_2d(input: &SolverInput, dof_num: &DofNumbering) -> Vec<InclinedDofs> {
     let mut out = Vec::new();
-    for sup in input.supports.values() {
+    for sup in crate::ordered::values(&input.supports) {
         if sup.support_type != "inclinedRoller" { continue; }
         let Some(theta) = sup.angle else { continue; };
         if let (Some(&d0), Some(&d1)) = (dof_num.map.get(&(sup.node_id, 0)), dof_num.map.get(&(sup.node_id, 1))) {
@@ -361,7 +361,7 @@ pub fn inclined_dofs_2d(input: &SolverInput, dof_num: &DofNumbering) -> Vec<Incl
 /// `isInclined` support with a non-zero normal.
 pub fn inclined_dofs_3d(input: &SolverInput3D, dof_num: &DofNumbering) -> Vec<InclinedDofs> {
     let mut out = Vec::new();
-    for sup in input.supports.values() {
+    for sup in crate::ordered::values(&input.supports) {
         if !sup.is_inclined.unwrap_or(false) { continue; }
         let (Some(nx), Some(ny), Some(nz)) = (sup.normal_x, sup.normal_y, sup.normal_z) else { continue; };
         if (nx * nx + ny * ny + nz * nz).sqrt() <= 1e-12 { continue; }
@@ -1417,7 +1417,7 @@ pub fn solve_constrained_2d(input: &ConstrainedInput) -> Result<AnalysisResults,
     linear::validate_input_2d(&input.solver)?;
 
     // Constraint referential integrity
-    let node_ids: HashSet<usize> = input.solver.nodes.values().map(|n| n.id).collect();
+    let node_ids: HashSet<usize> = crate::ordered::values(&input.solver.nodes).map(|n| n.id).collect();
     validate_constraint_refs(&input.constraints, &node_ids, 3)?;
 
     let dof_num = DofNumbering::build_2d(&input.solver);
@@ -1455,7 +1455,7 @@ pub fn solve_constrained_2d_dense(
 
     // Build prescribed displacements
     let mut u_r = vec![0.0; nr];
-    for sup in input.solver.supports.values() {
+    for sup in crate::ordered::values(&input.solver.supports) {
         if sup.support_type == "spring" { continue; }
 
         if sup.support_type == "inclinedRoller" {
@@ -1785,7 +1785,7 @@ fn solve_constrained_2d_sparse(
 
     // Prescribed displacements (same construction as the dense path).
     let mut u_r = vec![0.0; nr];
-    for sup in input.solver.supports.values() {
+    for sup in crate::ordered::values(&input.solver.supports) {
         if sup.support_type == "spring" { continue; }
         if sup.support_type == "inclinedRoller" {
             if let Some(theta) = sup.angle {
@@ -2024,7 +2024,7 @@ pub fn solve_constrained_3d(input: &ConstrainedInput3D) -> Result<AnalysisResult
     )?;
 
     // Constraint referential integrity
-    let node_ids: HashSet<usize> = input.solver.nodes.values().map(|n| n.id).collect();
+    let node_ids: HashSet<usize> = crate::ordered::values(&input.solver.nodes).map(|n| n.id).collect();
     validate_constraint_refs(&input.constraints, &node_ids, 6)?;
 
     let dof_num = DofNumbering::build_3d(&input.solver);
@@ -2053,7 +2053,7 @@ pub fn solve_constrained_3d(input: &ConstrainedInput3D) -> Result<AnalysisResult
 
     // Build prescribed displacements
     let mut u_r = vec![0.0; nr];
-    for sup in input.solver.supports.values() {
+    for sup in crate::ordered::values(&input.solver.supports) {
         // Inclined supports: prescribed translations are given in GLOBAL
         // coords; the restrained inclined DOF (local_dof 0) is the normal
         // direction in the rotated frame. Project onto the normal —

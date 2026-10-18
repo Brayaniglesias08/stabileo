@@ -77,7 +77,7 @@ pub fn solve_moving_loads_2d(input: &MovingLoadInput) -> Result<MovingLoadEnvelo
 
     // Initialize envelopes
     let mut envelopes: HashMap<String, ElementEnvelope> = HashMap::new();
-    for elem in solver_input.elements.values() {
+    for elem in crate::ordered::values(&solver_input.elements) {
         envelopes.insert(elem.id.to_string(), ElementEnvelope {
             m_max_pos: 0.0, m_max_neg: 0.0,
             v_max_pos: 0.0, v_max_neg: 0.0,
@@ -219,8 +219,8 @@ pub fn build_load_path(
     let mut cum_pos = 0.0;
 
     // Build lookup maps to avoid O(n) linear scans per element
-    let node_by_id: HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let elem_by_id: HashMap<usize, &SolverElement> = input.elements.values().map(|e| (e.id, e)).collect();
+    let node_by_id: HashMap<usize, &SolverNode> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let elem_by_id: HashMap<usize, &SolverElement> = crate::ordered::values(&input.elements).map(|e| (e.id, e)).collect();
 
     let elem_ids: Vec<usize> = if let Some(ids) = path_element_ids {
         ids.to_vec()
@@ -256,8 +256,8 @@ pub fn build_load_path(
 
 fn auto_detect_path(input: &SolverInput) -> Result<Vec<usize>, String> {
     // Find a chain: start from leftmost supported node, traverse connected elements
-    let node_by_id: HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let mut elem_list: Vec<&SolverElement> = input.elements.values().collect();
+    let node_by_id: HashMap<usize, &SolverNode> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let mut elem_list: Vec<&SolverElement> = crate::ordered::values(&input.elements).collect();
     elem_list.sort_by(|a, b| {
         let na = node_by_id[&a.node_i];
         let nb = node_by_id[&b.node_i];
@@ -352,7 +352,7 @@ pub fn solve_moving_loads_3d(input: &MovingLoadInput3D) -> Result<MovingLoadEnve
 
     // Initialize envelopes
     let mut envelopes: HashMap<String, ElementEnvelope3D> = HashMap::new();
-    for elem in solver_input.elements.values() {
+    for elem in crate::ordered::values(&solver_input.elements) {
         envelopes.insert(elem.id.to_string(), ElementEnvelope3D {
             n_max_pos: 0.0, n_max_neg: 0.0,
             vy_max_pos: 0.0, vy_max_neg: 0.0,
@@ -443,8 +443,8 @@ pub struct MovingLoadMaps3d<'a> {
 impl<'a> MovingLoadMaps3d<'a> {
     pub fn new(input: &'a SolverInput3D) -> Self {
         Self {
-            node_by_id: input.nodes.values().map(|n| (n.id, n)).collect(),
-            elem_by_id: input.elements.values().map(|e| (e.id, e)).collect(),
+            node_by_id: crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect(),
+            elem_by_id: crate::ordered::values(&input.elements).map(|e| (e.id, e)).collect(),
         }
     }
 }
@@ -534,8 +534,8 @@ pub fn build_load_path_3d(
     let mut cum_pos = 0.0;
 
     // Build lookup maps to avoid O(n) linear scans per element
-    let node_by_id: HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let elem_by_id: HashMap<usize, &SolverElement3D> = input.elements.values().map(|e| (e.id, e)).collect();
+    let node_by_id: HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let elem_by_id: HashMap<usize, &SolverElement3D> = crate::ordered::values(&input.elements).map(|e| (e.id, e)).collect();
 
     let elem_ids: Vec<usize> = if let Some(ids) = path_element_ids {
         ids.to_vec()
@@ -569,8 +569,8 @@ pub fn build_load_path_3d(
 }
 
 fn auto_detect_path_3d(input: &SolverInput3D) -> Result<Vec<usize>, String> {
-    let node_by_id: HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let mut elem_list: Vec<&SolverElement3D> = input.elements.values().collect();
+    let node_by_id: HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let mut elem_list: Vec<&SolverElement3D> = crate::ordered::values(&input.elements).collect();
     elem_list.sort_by(|a, b| {
         let na = node_by_id[&a.node_i];
         let nb = node_by_id[&b.node_i];

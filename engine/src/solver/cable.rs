@@ -197,17 +197,17 @@ pub fn solve_cable_2d(
 
     // Build O(1) lookup maps by id
     let node_by_id: HashMap<usize, &SolverNode> =
-        input.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
     let mat_by_id: HashMap<usize, &SolverMaterial> =
-        input.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
     let sec_by_id: HashMap<usize, &SolverSection> =
-        input.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     // Precompute cable geometry
     let mut cables: Vec<CableGeom> = Vec::new();
     let mut cable_tensions: HashMap<usize, f64> = HashMap::new();
 
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         if elem.elem_type != "cable" {
             continue;
         }
@@ -624,16 +624,16 @@ pub fn solve_cable_3d(
 
     // Build O(1) lookup maps by id
     let node_by_id: HashMap<usize, &SolverNode3D> =
-        input.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
     let mat_by_id: HashMap<usize, &SolverMaterial> =
-        input.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
     let sec_by_id: HashMap<usize, &SolverSection3D> =
-        input.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     let mut cables: Vec<CableGeom3D> = Vec::new();
     let mut cable_tensions: HashMap<usize, f64> = HashMap::new();
 
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         if elem.elem_type != "cable" {
             continue;
         }

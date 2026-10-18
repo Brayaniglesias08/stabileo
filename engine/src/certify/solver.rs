@@ -287,7 +287,7 @@ fn rotated_candidate_2d(
     let mut rots = Vec::with_capacity(its.len());
     let mut prescribed = Vec::new();
     for it in its {
-        let sups: Vec<&SolverSupport> = input.supports.values().filter(|s| s.node_id == it.node_id).collect();
+        let sups: Vec<&SolverSupport> = crate::ordered::values(&input.supports).filter(|s| s.node_id == it.node_id).collect();
         let [sup] = sups.as_slice() else {
             return Err(Certificate::uncertified(format!(
                 "unsupported: several supports on inclined node {}",
@@ -472,7 +472,7 @@ fn rotated_candidate_3d(
     let mut rots = Vec::with_capacity(its.len());
     let mut prescribed = Vec::new();
     for it in its {
-        let sups: Vec<&SolverSupport3D> = input.supports.values().filter(|s| s.node_id == it.node_id).collect();
+        let sups: Vec<&SolverSupport3D> = crate::ordered::values(&input.supports).filter(|s| s.node_id == it.node_id).collect();
         let [sup] = sups.as_slice() else {
             return Err(Certificate::uncertified(format!(
                 "unsupported: several supports on inclined node {}",

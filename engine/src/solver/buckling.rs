@@ -123,11 +123,11 @@ pub fn solve_buckling_2d(
 ) -> Result<BucklingResult, String> {
     // Build lookup maps for O(1) access by id
     let elem_by_id: HashMap<usize, &SolverElement> =
-        input.elements.values().map(|e| (e.id, e)).collect();
+        crate::ordered::values(&input.elements).map(|e| (e.id, e)).collect();
     let mat_by_id: HashMap<usize, &SolverMaterial> =
-        input.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
     let sec_by_id: HashMap<usize, &SolverSection> =
-        input.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     let BucklingSystem2D { linear, dof_num, k_ff, neg_kg_csc, inclined_transforms_2d } = buckling_system_2d(input)?;
     let nf = dof_num.n_free;
@@ -373,11 +373,11 @@ pub fn solve_buckling_3d(
     let input = expanded.as_ref().unwrap_or(input);
     // Build lookup maps for O(1) access by id
     let elem_by_id: HashMap<usize, &SolverElement3D> =
-        input.elements.values().map(|e| (e.id, e)).collect();
+        crate::ordered::values(&input.elements).map(|e| (e.id, e)).collect();
     let mat_by_id: HashMap<usize, &SolverMaterial> =
-        input.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
     let sec_by_id: HashMap<usize, &SolverSection3D> =
-        input.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     let BucklingSystem3D { linear, dof_num, k_ff, neg_kg_csc, inclined_transforms } = buckling_system_3d(input)?;
     let nf = dof_num.n_free;

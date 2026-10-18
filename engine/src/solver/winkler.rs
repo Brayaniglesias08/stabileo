@@ -65,9 +65,9 @@ pub fn solve_winkler_2d(input: &WinklerInput) -> Result<AnalysisResults, String>
 
     // Build O(1) lookup maps
     let node_by_id: HashMap<usize, &SolverNode> =
-        input.solver.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input.solver.nodes).map(|n| (n.id, n)).collect();
     let elem_by_id: HashMap<usize, &SolverElement> =
-        input.solver.elements.values().map(|e| (e.id, e)).collect();
+        crate::ordered::values(&input.solver.elements).map(|e| (e.id, e)).collect();
 
     // Add Winkler foundation stiffness
     for spring in &input.foundation_springs {
@@ -76,7 +76,7 @@ pub fn solve_winkler_2d(input: &WinklerInput) -> Result<AnalysisResults, String>
 
     // Prescribed displacements
     let mut u_r = vec![0.0; nr];
-    for sup in input.solver.supports.values() {
+    for sup in crate::ordered::values(&input.solver.supports) {
         if sup.support_type == "spring" { continue; }
         let prescribed: [(usize, Option<f64>); 3] = [
             (0, sup.dx), (1, sup.dz), (2, sup.dry),
@@ -191,9 +191,9 @@ pub fn solve_winkler_3d(input: &WinklerInput3D) -> Result<AnalysisResults3D, Str
 
     // Build O(1) lookup maps
     let node_by_id: HashMap<usize, &SolverNode3D> =
-        input_solver.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input_solver.nodes).map(|n| (n.id, n)).collect();
     let elem_by_id: HashMap<usize, &SolverElement3D> =
-        input_solver.elements.values().map(|e| (e.id, e)).collect();
+        crate::ordered::values(&input_solver.elements).map(|e| (e.id, e)).collect();
 
     for spring in &input.foundation_springs {
         add_foundation_3d(&mut asm.k, n, spring, input_solver, &node_by_id, &elem_by_id, &dof_num)?;
@@ -201,7 +201,7 @@ pub fn solve_winkler_3d(input: &WinklerInput3D) -> Result<AnalysisResults3D, Str
 
     // Prescribed displacements
     let mut u_r = vec![0.0; nr];
-    for sup in input_solver.supports.values() {
+    for sup in crate::ordered::values(&input_solver.supports) {
         let prescribed: [(usize, Option<f64>); 6] = [
             (0, sup.dx), (1, sup.dy), (2, sup.dz),
             (3, sup.drx), (4, sup.dry), (5, sup.drz),

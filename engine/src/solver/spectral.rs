@@ -128,7 +128,7 @@ pub fn solve_spectral_2d(input: &SpectralInput) -> Result<SpectralResult, String
     let displacements = super::linear::build_displacements_2d(&dof_num, &combined_disps);
 
     // Build element force envelopes
-    let elem_ids: Vec<usize> = solver_input.elements.values().map(|e| e.id).collect();
+    let elem_ids: Vec<usize> = crate::ordered::values(&solver_input.elements).map(|e| e.id).collect();
     let element_forces: Vec<SpectralElementForce> = (0..n_elems)
         .map(|i| SpectralElementForce {
             element_id: if i < elem_ids.len() { elem_ids[i] } else { 0 },
@@ -380,7 +380,7 @@ pub fn solve_spectral_3d(input: &SpectralInput3D) -> Result<SpectralResult3D, St
 
     let displacements = super::linear::build_displacements_3d(&dof_num, &combined_disps);
 
-    let elem_ids: Vec<usize> = solver_input.elements.values().map(|e| e.id).collect();
+    let elem_ids: Vec<usize> = crate::ordered::values(&solver_input.elements).map(|e| e.id).collect();
     let element_forces: Vec<SpectralElementForce3D> = (0..n_elems)
         .map(|i| SpectralElementForce3D {
             element_id: if i < elem_ids.len() { elem_ids[i] } else { 0 },

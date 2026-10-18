@@ -12,6 +12,7 @@ pub mod section;
 pub mod certify;
 pub mod sanity;
 pub mod reproduce;
+pub mod ordered;
 #[cfg(kani)]
 mod kani_proofs;
 

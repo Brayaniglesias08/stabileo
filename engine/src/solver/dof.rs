@@ -44,14 +44,14 @@ impl DofNumbering {
         let dofs_per_node = Self::dofs_per_node_2d(input);
 
         // Sort nodes by ID for deterministic ordering
-        let mut node_ids: Vec<usize> = input.nodes.values().map(|n| n.id).collect();
+        let mut node_ids: Vec<usize> = crate::ordered::values(&input.nodes).map(|n| n.id).collect();
         node_ids.sort();
 
         // Supports per node. Several on one node merge by OR (any of them
         // restraining a DOF restrains it); validate_input_2d only lets plain
         // rigid restraints share a node, so the merge is unambiguous.
         let mut supports_at: HashMap<usize, Vec<&SolverSupport>> = HashMap::new();
-        for s in input.supports.values() {
+        for s in crate::ordered::values(&input.supports) {
             supports_at.entry(s.node_id).or_default().push(s);
         }
 
@@ -97,13 +97,13 @@ impl DofNumbering {
     pub fn build_3d(input: &SolverInput3D) -> Self {
         let dofs_per_node = Self::dofs_per_node_3d(input);
 
-        let mut node_ids: Vec<usize> = input.nodes.values().map(|n| n.id).collect();
+        let mut node_ids: Vec<usize> = crate::ordered::values(&input.nodes).map(|n| n.id).collect();
         node_ids.sort();
 
         // Merge supports: when multiple supports target the same node,
         // OR their constraint flags together (any support restraining a DOF
         // makes that DOF restrained). Sort supports by ID for determinism.
-        let mut sorted_supports: Vec<&SolverSupport3D> = input.supports.values().collect();
+        let mut sorted_supports: Vec<&SolverSupport3D> = crate::ordered::values(&input.supports).collect();
         sorted_supports.sort_by_key(|s| {
             // Sort by node_id (primary), then by number of restrained DOFs ascending
             // so the most-restrained support is last (wins on overwrite)

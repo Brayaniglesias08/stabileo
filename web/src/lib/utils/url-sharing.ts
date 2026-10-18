@@ -247,6 +247,9 @@ function toCompact(snapshot: ModelSnapshot, meta?: ShareMeta): Record<string, un
   // self-describing and the migration note (see noteAxisConventionMigrationIfNeeded)
   // does not false-fire on URL load; absence still flags a genuine legacy model.
   if (snapshot.localAxisConvention) c.lx = snapshot.localAxisConvention;
+  // Which build last solved it (provenance/solve-stamp.ts): without it every opened link would
+  // read as solved with the oldest version and raise the re-check notice.
+  if (snapshot.solvedWith) c.sw = snapshot.solvedWith;
 
   // Nodes: [[id, x, y, z?], ...]  (z omitted when undefined/0 in 2D)
   c.n = snapshot.nodes.map(([, v]) => {
@@ -465,6 +468,7 @@ function fromCompact(c: Record<string, unknown>): ModelSnapshot {
     analysisMode: c.m as '2d' | '3d' | 'pro' | 'edu' | undefined,
     name: c.nm as string | undefined,
     localAxisConvention: c.lx as ModelSnapshot['localAxisConvention'],
+    ...(c.sw && typeof c.sw === 'object' ? { solvedWith: c.sw as ModelSnapshot['solvedWith'] } : {}),
 
     // Nodes
     nodes: (c.n as number[][]).map(a => [a[0], { id: a[0], x: a[1], y: a[2], ...(a[3] !== undefined ? { z: a[3] } : {}) }]),

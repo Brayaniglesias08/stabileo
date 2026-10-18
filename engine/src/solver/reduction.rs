@@ -224,7 +224,7 @@ pub fn guyan_reduce_2d(input: &GuyanInput) -> Result<GuyanResult, String> {
 
     // The reduction hardcodes u_r = 0 in the recovery/reaction path, so
     // prescribed support displacements would be silently ignored.
-    for sup in input.solver.supports.values() {
+    for sup in crate::ordered::values(&input.solver.supports) {
         let prescribed = [sup.dx, sup.dz, sup.dry];
         if prescribed.iter().flatten().any(|v| v.abs() > 1e-15) {
             return Err(format!(
@@ -1095,7 +1095,7 @@ pub fn guyan_reduce_3d(input: &GuyanInput3D) -> Result<GuyanResult3D, String> {
     // Same limitation as the 2D path: u_r = 0 is hardcoded in the
     // recovery/reaction path, so prescribed support displacements would be
     // silently ignored.
-    for sup in input.solver.supports.values() {
+    for sup in crate::ordered::values(&input.solver.supports) {
         let prescribed = [sup.dx, sup.dy, sup.dz, sup.drx, sup.dry, sup.drz];
         if prescribed.iter().flatten().any(|v| v.abs() > 1e-15) {
             return Err(format!(

@@ -67,7 +67,7 @@ fn compute_static_degree_2d(input: &SolverInput) -> (i32, HashMap<usize, i32>) {
     // Count support restraints
     let mut r = 0i32;
     let mut rot_restrained_nodes = std::collections::HashSet::new();
-    for sup in input.supports.values() {
+    for sup in crate::ordered::values(&input.supports) {
         let (sr, has_rot) = count_support_restraints_2d(sup);
         r += sr;
         if has_rot {
@@ -83,7 +83,7 @@ fn compute_static_degree_2d(input: &SolverInput) -> (i32, HashMap<usize, i32>) {
 
     let mut m_frame = 0i32;
     let mut m_truss = 0i32;
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         if elem.elem_type == "frame" { m_frame += 1; }
         else { m_truss += 1; }
     }
@@ -91,7 +91,7 @@ fn compute_static_degree_2d(input: &SolverInput) -> (i32, HashMap<usize, i32>) {
     // Count hinges and frame elements per node
     let mut node_hinges: HashMap<usize, i32> = HashMap::new();
     let mut node_frame_elems: HashMap<usize, i32> = HashMap::new();
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         if elem.elem_type != "frame" { continue; }
         *node_frame_elems.entry(elem.node_i).or_insert(0) += 1;
         *node_frame_elems.entry(elem.node_j).or_insert(0) += 1;
@@ -351,7 +351,7 @@ fn expected_zero_rotations_2d(
     }
     let mut node_hinge_count: HashMap<usize, usize> = HashMap::new();
     let mut node_frame_count: HashMap<usize, usize> = HashMap::new();
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         if elem.elem_type == "frame" {
             *node_frame_count.entry(elem.node_i).or_insert(0) += 1;
             *node_frame_count.entry(elem.node_j).or_insert(0) += 1;
@@ -365,7 +365,7 @@ fn expected_zero_rotations_2d(
     }
 
     let mut rot_restrained = std::collections::HashSet::new();
-    for sup in input.supports.values() {
+    for sup in crate::ordered::values(&input.supports) {
         match sup.support_type.as_str() {
             "fixed" | "guidedX" | "guidedY" => { rot_restrained.insert(sup.node_id); }
             _ => {
@@ -527,7 +527,7 @@ fn compute_static_degree_3d(input: &SolverInput3D) -> (i32, HashMap<usize, i32>)
 
     let mut r = 0i32;
     let mut rot_restrained_nodes = std::collections::HashSet::new();
-    for sup in input.supports.values() {
+    for sup in crate::ordered::values(&input.supports) {
         let (sr, has_rot) = count_support_restraints_3d(sup);
         r += sr;
         if has_rot {
@@ -543,14 +543,14 @@ fn compute_static_degree_3d(input: &SolverInput3D) -> (i32, HashMap<usize, i32>)
 
     let mut m_frame = 0i32;
     let mut m_truss = 0i32;
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         if elem.elem_type == "frame" { m_frame += 1; }
         else { m_truss += 1; }
     }
 
     let mut node_hinges: HashMap<usize, i32> = HashMap::new();
     let mut node_frame_elems: HashMap<usize, i32> = HashMap::new();
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         if elem.elem_type != "frame" { continue; }
         *node_frame_elems.entry(elem.node_i).or_insert(0) += 1;
         *node_frame_elems.entry(elem.node_j).or_insert(0) += 1;
@@ -713,7 +713,7 @@ pub fn analyze_kinematics_3d(input: &SolverInput3D) -> KinematicResult {
         let mut node_hinge_count: HashMap<usize, usize> = HashMap::new();
         let mut node_frame_count: HashMap<usize, usize> = HashMap::new();
         let mut node_truss_count: HashMap<usize, usize> = HashMap::new();
-        for elem in input.elements.values() {
+        for elem in crate::ordered::values(&input.elements) {
             if elem.elem_type == "frame" {
                 *node_frame_count.entry(elem.node_i).or_insert(0) += 1;
                 *node_frame_count.entry(elem.node_j).or_insert(0) += 1;
@@ -734,7 +734,7 @@ pub fn analyze_kinematics_3d(input: &SolverInput3D) -> KinematicResult {
         }
 
         let mut rot_restrained = std::collections::HashSet::new();
-        for sup in input.supports.values() {
+        for sup in crate::ordered::values(&input.supports) {
             if sup.rrx { rot_restrained.insert(sup.node_id); }
             if sup.rry { rot_restrained.insert(sup.node_id); }
             if sup.rrz { rot_restrained.insert(sup.node_id); }

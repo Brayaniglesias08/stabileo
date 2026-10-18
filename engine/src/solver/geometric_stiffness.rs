@@ -176,12 +176,12 @@ pub(crate) fn emit_geometric_stiffness_2d(
     u: &[f64],
     emit: &mut dyn FnMut(usize, usize, f64),
 ) {
-    let node_by_id: std::collections::HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: std::collections::HashMap<usize, &SolverSection> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: std::collections::HashMap<usize, &SolverSection> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
     let dt_by_elem = uniform_dt_2d(input);
 
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let dt = dt_by_elem.get(&elem.id).copied().unwrap_or(0.0);
         if elem.elem_type == "truss" || elem.elem_type == "cable" {
             // Truss geometric stiffness
@@ -272,12 +272,12 @@ fn mat_vec(k: &[f64], u: &[f64]) -> Vec<f64> {
 /// `emit_geometric_stiffness_2d`: (element id, local [f_I; f_J]). Added to the
 /// elastic end forces they are the forces of the member P-Delta solved.
 pub(crate) fn frame_geometric_end_forces_2d(input: &SolverInput, dof_num: &DofNumbering, u: &[f64]) -> Vec<(usize, Vec<f64>)> {
-    let node_by_id: std::collections::HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: std::collections::HashMap<usize, &SolverSection> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: std::collections::HashMap<usize, &SolverSection> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
     let dt_by_elem = uniform_dt_2d(input);
     let mut out = Vec::new();
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         if elem.elem_type == "truss" || elem.elem_type == "cable" {
             continue;
         }
@@ -298,12 +298,12 @@ pub(crate) fn frame_geometric_end_forces_2d(input: &SolverInput, dof_num: &DofNu
 /// 3D counterpart of `frame_geometric_end_forces_2d` (local [f_I; f_J], 12).
 pub(crate) fn frame_geometric_end_forces_3d(input: &SolverInput3D, dof_num: &DofNumbering, u: &[f64]) -> Vec<(usize, Vec<f64>)> {
     let left_hand = input.left_hand.unwrap_or(false);
-    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: std::collections::HashMap<usize, &SolverSection3D> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: std::collections::HashMap<usize, &SolverSection3D> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
     let dt_by_elem = uniform_dt_3d(input);
     let mut out = Vec::new();
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         if elem.elem_type == "truss" || elem.elem_type == "cable" {
             continue;
         }
@@ -409,8 +409,8 @@ pub fn build_kg_from_forces_2d(
     let nf = dof_num.n_free;
     // With inclined rollers, keep every DOF until the rotation is applied.
     let mut kg = KgTriplets::new(if inclined.is_empty() { nf } else { dof_num.n_total });
-    let elem_by_id: std::collections::HashMap<usize, &SolverElement> = input.elements.values().map(|e| (e.id, e)).collect();
-    let node_by_id: std::collections::HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
+    let elem_by_id: std::collections::HashMap<usize, &SolverElement> = crate::ordered::values(&input.elements).map(|e| (e.id, e)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
 
     for ef in element_forces {
         let elem = elem_by_id[&ef.element_id];
@@ -477,8 +477,8 @@ pub(crate) fn build_kg_from_forces_3d_keep(
 ) -> KgTriplets {
     let mut kg = KgTriplets::new(if inclined.is_empty() { dof_num.n_free } else { dof_num.n_total });
     let left_hand = input.left_hand.unwrap_or(false);
-    let elem_by_id: std::collections::HashMap<usize, &SolverElement3D> = input.elements.values().map(|e| (e.id, e)).collect();
-    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
+    let elem_by_id: std::collections::HashMap<usize, &SolverElement3D> = crate::ordered::values(&input.elements).map(|e| (e.id, e)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
 
     for ef in element_forces {
         let elem = elem_by_id[&ef.element_id];
@@ -568,10 +568,10 @@ pub fn add_quad_geometric_stiffness_3d(
     u: &[f64],
     kg: &mut KgTriplets,
 ) {
-    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
-    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
 
-    for quad in input.quads.values() {
+    for quad in crate::ordered::values(&input.quads) {
         let mat = mat_by_id[&quad.material_id];
         let e = mat.e * 1000.0;
         let nu = mat.nu;
@@ -626,10 +626,10 @@ pub fn add_plate_geometric_stiffness_3d(
     u: &[f64],
     kg: &mut KgTriplets,
 ) {
-    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
-    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
 
-    for plate in input.plates.values() {
+    for plate in crate::ordered::values(&input.plates) {
         let mat = mat_by_id[&plate.material_id];
         let e = mat.e * 1000.0;
         let nu = mat.nu;
@@ -676,10 +676,10 @@ pub fn add_quad9_geometric_stiffness_3d(
     u: &[f64],
     kg: &mut KgTriplets,
 ) {
-    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
-    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
 
-    for quad9 in input.quad9s.values() {
+    for quad9 in crate::ordered::values(&input.quad9s) {
         let mat = mat_by_id[&quad9.material_id];
         let e = mat.e * 1000.0;
         let nu = mat.nu;
@@ -725,10 +725,10 @@ pub fn add_solid_shell_geometric_stiffness_3d(
     u: &[f64],
     kg: &mut KgTriplets,
 ) {
-    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
-    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
 
-    for ss in input.solid_shells.values() {
+    for ss in crate::ordered::values(&input.solid_shells) {
         let mat = mat_by_id[&ss.material_id];
         let e = mat.e * 1000.0;
         let nu = mat.nu;
@@ -764,10 +764,10 @@ pub fn add_curved_shell_geometric_stiffness_3d(
     u: &[f64],
     kg: &mut KgTriplets,
 ) {
-    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
-    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
 
-    for cs in input.curved_shells.values() {
+    for cs in crate::ordered::values(&input.curved_shells) {
         let mat = mat_by_id[&cs.material_id];
         let e = mat.e * 1000.0;
         let nu = mat.nu;
@@ -839,12 +839,12 @@ pub(crate) fn emit_geometric_stiffness_3d(
     emit: &mut dyn FnMut(usize, usize, f64),
 ) {
     let left_hand = input.left_hand.unwrap_or(false);
-    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: std::collections::HashMap<usize, &SolverSection3D> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: std::collections::HashMap<usize, &SolverSection3D> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
     let dt_by_elem = uniform_dt_3d(input);
 
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let mat = mat_by_id[&elem.material_id];
@@ -967,12 +967,12 @@ fn elongation_from_rows(t: &[f64], nd: usize, row_i: usize, row_j: usize, dofs: 
 
 /// The affine terms of `emit_geometric_stiffness_2d` (frames, trusses, cables).
 pub fn geometric_stiffness_terms_2d(input: &SolverInput, dof_num: &DofNumbering) -> Vec<KgAffineTerm> {
-    let node_by_id: std::collections::HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: std::collections::HashMap<usize, &SolverSection> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: std::collections::HashMap<usize, &SolverSection> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
     let dt_by_elem = uniform_dt_2d(input);
     let mut terms = Vec::new();
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let dt = dt_by_elem.get(&elem.id).copied().unwrap_or(0.0);
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
@@ -1036,12 +1036,12 @@ fn emit_shell_geometric_stiffness_3d(
 /// The affine terms of `emit_geometric_stiffness_3d` (frames, trusses, cables).
 pub fn geometric_stiffness_terms_3d(input: &SolverInput3D, dof_num: &DofNumbering) -> Vec<KgAffineTerm> {
     let left_hand = input.left_hand.unwrap_or(false);
-    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: std::collections::HashMap<usize, &SolverSection3D> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: std::collections::HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: std::collections::HashMap<usize, &SolverSection3D> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
     let dt_by_elem = uniform_dt_3d(input);
     let mut terms = Vec::new();
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let mat = mat_by_id[&elem.material_id];

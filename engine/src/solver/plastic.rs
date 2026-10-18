@@ -590,7 +590,7 @@ pub fn solve_plastic_2d(input: &PlasticInput) -> Result<PlasticResult, String> {
     }
 
     let mut current_input = solver_input.clone();
-    let node_xy: HashMap<usize, (f64, f64)> = current_input.nodes.values().map(|n| (n.id, (n.x, n.z))).collect();
+    let node_xy: HashMap<usize, (f64, f64)> = crate::ordered::values(&current_input.nodes).map(|n| (n.id, (n.x, n.z))).collect();
     let mut members: Vec<Member> = current_input
         .elements
         .iter()
@@ -643,7 +643,7 @@ pub fn solve_plastic_2d(input: &PlasticInput) -> Result<PlasticResult, String> {
             Constraint::LinearMPC(m) => rot_restrained.extend(m.terms.iter().map(|t| t.node_id)),
         }
     }
-    rot_restrained.extend(current_input.connectors.values().flat_map(|c| [c.node_i, c.node_j]));
+    rot_restrained.extend(crate::ordered::values(&current_input.connectors).flat_map(|c| [c.node_i, c.node_j]));
 
     let mut cumulative_factor = 0.0;
     let mut all_hinges: Vec<PlasticHinge> = Vec::new();

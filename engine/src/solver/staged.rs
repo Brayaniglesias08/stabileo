@@ -170,7 +170,7 @@ pub fn solve_staged_2d(input: &StagedInput) -> Result<StagedAnalysisResults, Str
 
         // Build prescribed displacement vector
         let mut u_r = vec![0.0; nr];
-        for sup in stage_solver_input.supports.values() {
+        for sup in crate::ordered::values(&stage_solver_input.supports) {
             if sup.support_type == "spring" { continue; }
             let prescribed: [(usize, Option<f64>); 3] = [
                 (0, sup.dx), (1, sup.dz), (2, sup.dry),
@@ -427,13 +427,13 @@ fn assemble_staged_2d(
     let mut f_global = vec![0.0; n];
 
     // Build lookup maps to avoid O(n) linear scans per element
-    let node_by_id: HashMap<usize, &SolverNode> = full_input.nodes.values().map(|n| (n.id, n)).collect();
-    let elem_by_id: HashMap<usize, &SolverElement> = full_input.elements.values().map(|e| (e.id, e)).collect();
-    let mat_by_id: HashMap<usize, &SolverMaterial> = full_input.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: HashMap<usize, &SolverSection> = full_input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode> = crate::ordered::values(&full_input.nodes).map(|n| (n.id, n)).collect();
+    let elem_by_id: HashMap<usize, &SolverElement> = crate::ordered::values(&full_input.elements).map(|e| (e.id, e)).collect();
+    let mat_by_id: HashMap<usize, &SolverMaterial> = crate::ordered::values(&full_input.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: HashMap<usize, &SolverSection> = crate::ordered::values(&full_input.sections).map(|s| (s.id, s)).collect();
 
     // Assemble active element stiffness matrices
-    for elem in stage_input.elements.values() {
+    for elem in crate::ordered::values(&stage_input.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let mat = mat_by_id[&elem.material_id];
@@ -560,13 +560,13 @@ fn assemble_staged_2d(
 
     // Collect nodes connected to active elements
     let mut connected_nodes = HashSet::new();
-    for elem in stage_input.elements.values() {
+    for elem in crate::ordered::values(&stage_input.elements) {
         connected_nodes.insert(elem.node_i);
         connected_nodes.insert(elem.node_j);
     }
 
     // Add artificial stiffness for ALL DOFs of disconnected nodes
-    for node in full_input.nodes.values() {
+    for node in crate::ordered::values(&full_input.nodes) {
         if !connected_nodes.contains(&node.id) {
             for local_dof in 0..dof_num.dofs_per_node {
                 if let Some(&d) = dof_num.map.get(&(node.id, local_dof)) {
@@ -584,7 +584,7 @@ fn assemble_staged_2d(
         let mut node_hinge_count: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
         let mut node_frame_count: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
 
-        for elem in stage_input.elements.values() {
+        for elem in crate::ordered::values(&stage_input.elements) {
             if elem.elem_type == "frame" {
                 *node_frame_count.entry(elem.node_i).or_insert(0) += 1;
                 *node_frame_count.entry(elem.node_j).or_insert(0) += 1;
@@ -652,13 +652,13 @@ fn assemble_staged_2d_triplets(
     let mut diag = vec![0.0; n];
 
     // Build lookup maps to avoid O(n) linear scans per element
-    let node_by_id: HashMap<usize, &SolverNode> = full_input.nodes.values().map(|n| (n.id, n)).collect();
-    let elem_by_id: HashMap<usize, &SolverElement> = full_input.elements.values().map(|e| (e.id, e)).collect();
-    let mat_by_id: HashMap<usize, &SolverMaterial> = full_input.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: HashMap<usize, &SolverSection> = full_input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode> = crate::ordered::values(&full_input.nodes).map(|n| (n.id, n)).collect();
+    let elem_by_id: HashMap<usize, &SolverElement> = crate::ordered::values(&full_input.elements).map(|e| (e.id, e)).collect();
+    let mat_by_id: HashMap<usize, &SolverMaterial> = crate::ordered::values(&full_input.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: HashMap<usize, &SolverSection> = crate::ordered::values(&full_input.sections).map(|s| (s.id, s)).collect();
 
     // Assemble active element stiffness matrices
-    for elem in stage_input.elements.values() {
+    for elem in crate::ordered::values(&stage_input.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let mat = mat_by_id[&elem.material_id];
@@ -804,13 +804,13 @@ fn assemble_staged_2d_triplets(
 
     // Collect nodes connected to active elements
     let mut connected_nodes = HashSet::new();
-    for elem in stage_input.elements.values() {
+    for elem in crate::ordered::values(&stage_input.elements) {
         connected_nodes.insert(elem.node_i);
         connected_nodes.insert(elem.node_j);
     }
 
     // Add artificial stiffness for ALL DOFs of disconnected nodes
-    for node in full_input.nodes.values() {
+    for node in crate::ordered::values(&full_input.nodes) {
         if !connected_nodes.contains(&node.id) {
             for local_dof in 0..dof_num.dofs_per_node {
                 if let Some(&d) = dof_num.map.get(&(node.id, local_dof)) {
@@ -830,7 +830,7 @@ fn assemble_staged_2d_triplets(
         let mut node_hinge_count: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
         let mut node_frame_count: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
 
-        for elem in stage_input.elements.values() {
+        for elem in crate::ordered::values(&stage_input.elements) {
             if elem.elem_type == "frame" {
                 *node_frame_count.entry(elem.node_i).or_insert(0) += 1;
                 *node_frame_count.entry(elem.node_j).or_insert(0) += 1;
@@ -981,11 +981,11 @@ fn iterate_cables_staged_2d(
     let mut cable_tensions: HashMap<usize, f64> = HashMap::new();
 
     // Build lookup maps to avoid O(n) linear scans per element
-    let node_by_id: HashMap<usize, &SolverNode> = full_input.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: HashMap<usize, &SolverMaterial> = full_input.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: HashMap<usize, &SolverSection> = full_input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode> = crate::ordered::values(&full_input.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: HashMap<usize, &SolverMaterial> = crate::ordered::values(&full_input.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: HashMap<usize, &SolverSection> = crate::ordered::values(&full_input.sections).map(|s| (s.id, s)).collect();
 
-    for elem in stage_input.elements.values() {
+    for elem in crate::ordered::values(&stage_input.elements) {
         if elem.elem_type != "cable" { continue; }
 
         let node_i = node_by_id[&elem.node_i];
@@ -1353,7 +1353,7 @@ pub fn solve_staged_3d(input: &StagedInput3D) -> Result<StagedAnalysisResults3D,
 
         // Build prescribed displacement vector
         let mut u_r = vec![0.0; nr];
-        for sup in stage_input.supports.values() {
+        for sup in crate::ordered::values(&stage_input.supports) {
             let prescribed = [sup.dx, sup.dy, sup.dz, sup.drx, sup.dry, sup.drz];
             for (i, pd) in prescribed.iter().enumerate() {
                 if let Some(val) = pd {
@@ -1613,13 +1613,13 @@ fn add_artificial_stiffness_3d(
 
     // Collect nodes connected to active elements
     let mut connected_nodes = HashSet::new();
-    for elem in stage_input.elements.values() {
+    for elem in crate::ordered::values(&stage_input.elements) {
         connected_nodes.insert(elem.node_i);
         connected_nodes.insert(elem.node_j);
     }
 
     // Add artificial stiffness for ALL DOFs of disconnected nodes
-    for node in full_input.nodes.values() {
+    for node in crate::ordered::values(&full_input.nodes) {
         if !connected_nodes.contains(&node.id) {
             for local_dof in 0..dof_num.dofs_per_node {
                 if let Some(&d) = dof_num.map.get(&(node.id, local_dof)) {
@@ -1637,7 +1637,7 @@ fn add_artificial_stiffness_3d(
         let mut node_hinge_count: HashMap<usize, usize> = HashMap::new();
         let mut node_frame_count: HashMap<usize, usize> = HashMap::new();
 
-        for elem in stage_input.elements.values() {
+        for elem in crate::ordered::values(&stage_input.elements) {
             if elem.elem_type == "frame" {
                 *node_frame_count.entry(elem.node_i).or_insert(0) += 1;
                 *node_frame_count.entry(elem.node_j).or_insert(0) += 1;
@@ -1721,13 +1721,13 @@ fn assemble_staged_3d_triplets(
 
     // Collect nodes connected to active elements
     let mut connected_nodes = HashSet::new();
-    for elem in stage_input.elements.values() {
+    for elem in crate::ordered::values(&stage_input.elements) {
         connected_nodes.insert(elem.node_i);
         connected_nodes.insert(elem.node_j);
     }
 
     // Add artificial stiffness for ALL DOFs of disconnected nodes
-    for node in full_input.nodes.values() {
+    for node in crate::ordered::values(&full_input.nodes) {
         if !connected_nodes.contains(&node.id) {
             for local_dof in 0..dof_num.dofs_per_node {
                 if let Some(&d) = dof_num.map.get(&(node.id, local_dof)) {
@@ -1747,7 +1747,7 @@ fn assemble_staged_3d_triplets(
         let mut node_hinge_count: HashMap<usize, usize> = HashMap::new();
         let mut node_frame_count: HashMap<usize, usize> = HashMap::new();
 
-        for elem in stage_input.elements.values() {
+        for elem in crate::ordered::values(&stage_input.elements) {
             if elem.elem_type == "frame" {
                 *node_frame_count.entry(elem.node_i).or_insert(0) += 1;
                 *node_frame_count.entry(elem.node_j).or_insert(0) += 1;
@@ -1797,12 +1797,12 @@ fn build_results_from_u_3d(
     let mut element_forces = Vec::new();
 
     // Build lookup maps to avoid O(n) linear scans per element
-    let node_by_id: HashMap<usize, &SolverNode3D> = full_input.nodes.values().map(|n| (n.id, n)).collect();
-    let elem_by_id: HashMap<usize, &SolverElement3D> = full_input.elements.values().map(|e| (e.id, e)).collect();
-    let mat_by_id: HashMap<usize, &SolverMaterial> = full_input.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: HashMap<usize, &SolverSection3D> = full_input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode3D> = crate::ordered::values(&full_input.nodes).map(|n| (n.id, n)).collect();
+    let elem_by_id: HashMap<usize, &SolverElement3D> = crate::ordered::values(&full_input.elements).map(|e| (e.id, e)).collect();
+    let mat_by_id: HashMap<usize, &SolverMaterial> = crate::ordered::values(&full_input.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: HashMap<usize, &SolverSection3D> = crate::ordered::values(&full_input.sections).map(|s| (s.id, s)).collect();
 
-    for elem in full_input.elements.values() {
+    for elem in crate::ordered::values(&full_input.elements) {
         if !active_elements.contains(&elem.id) { continue; }
 
         let node_i = node_by_id[&elem.node_i];
@@ -1965,7 +1965,7 @@ fn build_results_from_u_3d(
     }
 
     let mut reactions = Vec::new();
-    for sup in full_input.supports.values() {
+    for sup in crate::ordered::values(&full_input.supports) {
         if let Some(nf) = node_forces.get(&sup.node_id) {
             reactions.push(Reaction3D {
                 node_id: sup.node_id,

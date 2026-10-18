@@ -183,7 +183,7 @@ pub(crate) fn reaction_bounds_2d_with(
     let u = gather_u_2d(dof, &results.displacements).map_err(|c| format!("{c:?}"))?;
     let reported: HashMap<usize, &Reaction> = results.reactions.iter().map(|r| (r.node_id, r)).collect();
     let mut out = Vec::new();
-    for (node, sup) in single_support_nodes(input.supports.values().map(|s| (s.node_id, s))) {
+    for (node, sup) in single_support_nodes(crate::ordered::values(&input.supports).map(|s| (s.node_id, s))) {
         let spring_type = sup.support_type == "spring";
         let angled = sup.angle.is_some_and(|a| a.abs() > 1e-15)
             && (sup.kx.unwrap_or(0.0) > 0.0 || sup.ky.unwrap_or(0.0) > 0.0);
@@ -257,7 +257,7 @@ pub(crate) fn reaction_bounds_3d_with(
     let u = gather_u_3d(dof, &results.displacements).map_err(|c| format!("{c:?}"))?;
     let reported: HashMap<usize, &Reaction3D> = results.reactions.iter().map(|r| (r.node_id, r)).collect();
     let mut out = Vec::new();
-    for (node, sup) in single_support_nodes(input.supports.values().map(|s| (s.node_id, s))) {
+    for (node, sup) in single_support_nodes(crate::ordered::values(&input.supports).map(|s| (s.node_id, s))) {
         let Some(r) = reported.get(&node) else { continue };
         let springs = [sup.kx, sup.ky, sup.kz, sup.krx, sup.kry, sup.krz];
         let rep = [r.fx, r.fy, r.fz, r.mx, r.my, r.mz];

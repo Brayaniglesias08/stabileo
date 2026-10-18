@@ -14,10 +14,10 @@ pub fn assemble_mass_matrix_2d(
     let n = dof_num.n_total;
     let mut m_global = vec![0.0; n * n];
 
-    let node_by_id: HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let section_by_id: HashMap<usize, &SolverSection> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let section_by_id: HashMap<usize, &SolverSection> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let sec = section_by_id[&elem.section_id];
@@ -181,8 +181,8 @@ fn assemble_mass_matrix_2d_sparse_impl(
     let mut cols: Vec<usize> = Vec::new();
     let mut vals: Vec<f64> = Vec::new();
 
-    let node_by_id: HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let section_by_id: HashMap<usize, &SolverSection> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let section_by_id: HashMap<usize, &SolverSection> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     // Scatter one lower-triangle entry (i >= j of the symmetric element matrix).
     macro_rules! scatter {
@@ -198,7 +198,7 @@ fn assemble_mass_matrix_2d_sparse_impl(
         }};
     }
 
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let sec = section_by_id[&elem.section_id];
@@ -260,13 +260,13 @@ pub fn assemble_mass_matrix_3d(
     let mut m_global = vec![0.0; n * n];
     let left_hand = input.left_hand.unwrap_or(false);
 
-    let node_by_id: HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let section_by_id: HashMap<usize, &SolverSection3D> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let section_by_id: HashMap<usize, &SolverSection3D> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     /// Maps 12-DOF element indices to 14-DOF positions, skipping warping DOFs 6 and 13.
     const DOF_MAP_12_TO_14: [usize; 12] = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12];
 
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let sec = section_by_id[&elem.section_id];
@@ -345,7 +345,7 @@ pub fn assemble_mass_matrix_3d(
     }
 
     // Assemble plate element masses
-    for plate in input.plates.values() {
+    for plate in crate::ordered::values(&input.plates) {
         let density = densities.get(&plate.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -381,7 +381,7 @@ pub fn assemble_mass_matrix_3d(
     }
 
     // Assemble quad (MITC4 shell) element masses
-    for quad in input.quads.values() {
+    for quad in crate::ordered::values(&input.quads) {
         let density = densities.get(&quad.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -411,7 +411,7 @@ pub fn assemble_mass_matrix_3d(
     }
 
     // Assemble quad9 (MITC9 shell) element masses
-    for quad9 in input.quad9s.values() {
+    for quad9 in crate::ordered::values(&input.quad9s) {
         let density = densities.get(&quad9.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -435,7 +435,7 @@ pub fn assemble_mass_matrix_3d(
     }
 
     // Assemble solid-shell element masses
-    for ss in input.solid_shells.values() {
+    for ss in crate::ordered::values(&input.solid_shells) {
         let density = densities.get(&ss.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -460,7 +460,7 @@ pub fn assemble_mass_matrix_3d(
     }
 
     // Assemble curved shell element masses
-    for cs in input.curved_shells.values() {
+    for cs in crate::ordered::values(&input.curved_shells) {
         let density = densities.get(&cs.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -540,8 +540,8 @@ fn assemble_mass_matrix_3d_sparse_impl(
     let mut cols: Vec<usize> = Vec::new();
     let mut vals: Vec<f64> = Vec::new();
 
-    let node_by_id: HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let section_by_id: HashMap<usize, &SolverSection3D> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let section_by_id: HashMap<usize, &SolverSection3D> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     /// Maps 12-DOF element indices to 14-DOF positions, skipping warping DOFs 6 and 13.
     const DOF_MAP_12_TO_14: [usize; 12] = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12];
@@ -560,7 +560,7 @@ fn assemble_mass_matrix_3d_sparse_impl(
         }};
     }
 
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let sec = section_by_id[&elem.section_id];
@@ -639,7 +639,7 @@ fn assemble_mass_matrix_3d_sparse_impl(
     }
 
     // Assemble plate element masses (lumped/diagonal 18×18, no rotation needed)
-    for plate in input.plates.values() {
+    for plate in crate::ordered::values(&input.plates) {
         let density = densities.get(&plate.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -670,7 +670,7 @@ fn assemble_mass_matrix_3d_sparse_impl(
     }
 
     // Assemble quad (MITC4 shell) element masses
-    for quad in input.quads.values() {
+    for quad in crate::ordered::values(&input.quads) {
         let density = densities.get(&quad.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -696,7 +696,7 @@ fn assemble_mass_matrix_3d_sparse_impl(
     }
 
     // Assemble quad9 (MITC9 shell) element masses
-    for quad9 in input.quad9s.values() {
+    for quad9 in crate::ordered::values(&input.quad9s) {
         let density = densities.get(&quad9.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -717,7 +717,7 @@ fn assemble_mass_matrix_3d_sparse_impl(
     }
 
     // Assemble solid-shell element masses
-    for ss in input.solid_shells.values() {
+    for ss in crate::ordered::values(&input.solid_shells) {
         let density = densities.get(&ss.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -738,7 +738,7 @@ fn assemble_mass_matrix_3d_sparse_impl(
     }
 
     // Assemble curved shell element masses
-    for cs in input.curved_shells.values() {
+    for cs in crate::ordered::values(&input.curved_shells) {
         let density = densities.get(&cs.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -891,11 +891,11 @@ pub fn compute_total_mass_3d(
     input: &SolverInput3D,
     densities: &HashMap<String, f64>,
 ) -> f64 {
-    let node_by_id: HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let section_by_id: HashMap<usize, &SolverSection3D> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let section_by_id: HashMap<usize, &SolverSection3D> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     let mut total = 0.0;
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let sec = section_by_id[&elem.section_id];
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
@@ -908,7 +908,7 @@ pub fn compute_total_mass_3d(
     }
 
     // Add plate masses
-    for plate in input.plates.values() {
+    for plate in crate::ordered::values(&input.plates) {
         let density = densities.get(&plate.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -928,7 +928,7 @@ pub fn compute_total_mass_3d(
     }
 
     // Add quad (MITC4 shell) element masses
-    for quad in input.quads.values() {
+    for quad in crate::ordered::values(&input.quads) {
         let density = densities.get(&quad.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -960,7 +960,7 @@ pub fn compute_total_mass_3d(
     }
 
     // Add quad9 (MITC9 shell) element masses
-    for quad9 in input.quad9s.values() {
+    for quad9 in crate::ordered::values(&input.quad9s) {
         let density = densities.get(&quad9.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -991,7 +991,7 @@ pub fn compute_total_mass_3d(
     }
 
     // Add solid-shell element masses (volumetric — no thickness field)
-    for ss in input.solid_shells.values() {
+    for ss in crate::ordered::values(&input.solid_shells) {
         let density = densities.get(&ss.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -1005,7 +1005,7 @@ pub fn compute_total_mass_3d(
     }
 
     // Add curved shell element masses
-    for cs in input.curved_shells.values() {
+    for cs in crate::ordered::values(&input.curved_shells) {
         let density = densities.get(&cs.material_id.to_string()).copied().unwrap_or(0.0);
         if density <= 0.0 { continue; }
 
@@ -1043,11 +1043,11 @@ pub fn compute_total_mass(
     input: &SolverInput,
     densities: &HashMap<String, f64>,
 ) -> f64 {
-    let node_by_id: HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let section_by_id: HashMap<usize, &SolverSection> = input.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let section_by_id: HashMap<usize, &SolverSection> = crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     let mut total = 0.0;
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let sec = section_by_id[&elem.section_id];
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
