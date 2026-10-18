@@ -70,6 +70,14 @@ Fiber beams and cables (`docs/solver/special-elements.md`, tests in
   wrong elastic stiffness).
 - `irvine_parameter`: removed a spurious factor L (unused by the solvers).
 
+Nonlinear (`docs/solver/nonlinear.md`, tests in `derivation_nonlinear.rs`):
+
+- Co-rotational 2D (also arc-length and displacement control): member-end deformational rotations
+  are now reduced to (−π, π]. Members drawn right to left, or rotating past ±π, no longer get a
+  spurious 2π of bending. A cantilever fixed at its right end used to fail to converge.
+- The 3D co-rotational leaning-column reproduction (SYMBOLIC.md item 5) now passes and is a
+  regular regression test.
+
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
 **BREAKING (results): steel members bent about both axes without axial force are now checked by
