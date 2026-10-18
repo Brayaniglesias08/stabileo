@@ -22,6 +22,7 @@ import type { SolverInput3D, SolverElement3D, AnalysisResults3D, FullEnvelope3D 
 import { finishSolve3D, finishPDelta3D } from './solve-finish';
 import { plainDeepCopy, findUncloneablePath } from '../utils/plain-deep-copy';
 import { errorText } from '../utils/error-text';
+import { EngineUnavailableError, EngineCheckError } from './engine-unavailable';
 import { tagCertifyJob } from './certify-tags';
 
 let wasmReady = false;
@@ -170,6 +171,9 @@ let wasmCheckServiceability: ((json: string) => string) | null = null;
 let wasmCheckBoltGroups: ((json: string) => string) | null = null;
 let wasmCheckWeldGroups: ((json: string) => string) | null = null;
 let wasmCheckSpreadFootings: ((json: string) => string) | null = null;
+let wasmLoadsRequest: ((json: string) => string) | null = null;
+let wasmCheckIsolatedFootings: ((json: string) => string) | null = null;
+let wasmCertifyIsolatedFootings: ((json: string) => string) | null = null;
 
 // Certified results (docs/verification/CERTIFY.md). Absent from older WASM builds.
 let wasmCertifyLinear2d: ((input: any) => any) | null = null;
@@ -347,6 +351,9 @@ export async function initSolver(): Promise<void> {
     wasmCheckBoltGroups = wasm.check_bolt_groups ?? null;
     wasmCheckWeldGroups = wasm.check_weld_groups ?? null;
     wasmCheckSpreadFootings = wasm.check_spread_footings ?? null;
+    wasmLoadsRequest = (wasm as Record<string, unknown>).loads_request as typeof wasmLoadsRequest ?? null;
+    wasmCheckIsolatedFootings = (wasm as Record<string, unknown>).check_isolated_footings as typeof wasmCheckIsolatedFootings ?? null;
+    wasmCertifyIsolatedFootings = (wasm as Record<string, unknown>).certify_isolated_footings as typeof wasmCertifyIsolatedFootings ?? null;
 
     // Beam Station Extraction
     wasmExtractBeamStationBuffer3d = wasm.extract_beam_station_buffer_3d ?? null;
@@ -1489,90 +1496,97 @@ export function isWasmReady(): boolean {
 }
 
 // ─── Design Check Wrappers ───────────────────────────────────────
-// These return null gracefully if the WASM function is not yet compiled.
+// Each returns the engine's parsed results, or throws: `EngineUnavailableError` when the engine
+// (or this checker in the loaded build) is missing, `EngineCheckError` carrying the engine's own
+// message when the check fails. They used to turn every failure into `null`, which lost the
+// engine's reason; a caller that catches must still treat the member as not verified.
 
-/** AISC 360 LRFD steel member checks via WASM. */
-export function checkSteelMembers(input: any): any | null {
-  if (!wasmReady || !wasmCheckSteelMembers) return null;
-  try { return JSON.parse(wasmCheckSteelMembers(JSON.stringify(input))); }
-  catch { return null; }
+function runDesignCheck(what: string, check: ((json: string) => string) | null, input: unknown): any {
+  if (!wasmReady || !check) throw new EngineUnavailableError(what);
+  let raw: string;
+  try { raw = check(JSON.stringify(input)); }
+  catch (e) { throw new EngineCheckError(what, errorText(e, 'the engine raised an error without a message')); }
+  try { return JSON.parse(raw); }
+  catch (e) { throw new EngineCheckError(what, `unreadable answer (${errorText(e, 'not JSON')})`); }
 }
 
-/** Reinforced concrete member checks via WASM. */
-export function checkRcMembers(input: any): any | null {
-  if (!wasmReady || !wasmCheckRcMembers) return null;
-  try { return JSON.parse(wasmCheckRcMembers(JSON.stringify(input))); }
-  catch { return null; }
+/** AISC 360 LRFD steel member checks via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkSteelMembers(input: any): any {
+  return runDesignCheck('AISC 360 LRFD steel member checks', wasmCheckSteelMembers, input);
 }
 
-/** Timber member checks via WASM. */
-export function checkTimberMembers(input: any): any | null {
-  if (!wasmReady || !wasmCheckTimberMembers) return null;
-  try { return JSON.parse(wasmCheckTimberMembers(JSON.stringify(input))); }
-  catch { return null; }
+/** Reinforced concrete member checks via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkRcMembers(input: any): any {
+  return runDesignCheck('reinforced concrete member checks', wasmCheckRcMembers, input);
 }
 
-/** Eurocode 3 steel member checks via WASM. */
-export function checkEc3Members(input: any): any | null {
-  if (!wasmReady || !wasmCheckEc3Members) return null;
-  try { return JSON.parse(wasmCheckEc3Members(JSON.stringify(input))); }
-  catch { return null; }
+/** Timber member checks via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkTimberMembers(input: any): any {
+  return runDesignCheck('timber member checks', wasmCheckTimberMembers, input);
 }
 
-/** Eurocode 2 RC member checks via WASM. */
-export function checkEc2Members(input: any): any | null {
-  if (!wasmReady || !wasmCheckEc2Members) return null;
-  try { return JSON.parse(wasmCheckEc2Members(JSON.stringify(input))); }
-  catch { return null; }
+/** Eurocode 3 steel member checks via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkEc3Members(input: any): any {
+  return runDesignCheck('Eurocode 3 steel member checks', wasmCheckEc3Members, input);
 }
 
-/** CIRSOC 201 RC member checks via WASM. */
-export function checkCirsoc201Members(input: any): any | null {
-  if (!wasmReady || !wasmCheckCirsoc201Members) return null;
-  try { return JSON.parse(wasmCheckCirsoc201Members(JSON.stringify(input))); }
-  catch { return null; }
+/** Eurocode 2 RC member checks via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkEc2Members(input: any): any {
+  return runDesignCheck('Eurocode 2 RC member checks', wasmCheckEc2Members, input);
 }
 
-/** Cold-formed steel member checks via WASM. */
-export function checkCfsMembers(input: any): any | null {
-  if (!wasmReady || !wasmCheckCfsMembers) return null;
-  try { return JSON.parse(wasmCheckCfsMembers(JSON.stringify(input))); }
-  catch { return null; }
+/** CIRSOC 201 RC member checks via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkCirsoc201Members(input: any): any {
+  return runDesignCheck('CIRSOC 201 RC member checks', wasmCheckCirsoc201Members, input);
 }
 
-/** Masonry member checks via WASM. */
-export function checkMasonryMembers(input: any): any | null {
-  if (!wasmReady || !wasmCheckMasonryMembers) return null;
-  try { return JSON.parse(wasmCheckMasonryMembers(JSON.stringify(input))); }
-  catch { return null; }
+/** Cold-formed steel member checks via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkCfsMembers(input: any): any {
+  return runDesignCheck('cold-formed steel member checks', wasmCheckCfsMembers, input);
 }
 
-/** Serviceability checks (deflection/vibration) via WASM. */
-export function checkServiceability(input: any): any | null {
-  if (!wasmReady || !wasmCheckServiceability) return null;
-  try { return JSON.parse(wasmCheckServiceability(JSON.stringify(input))); }
-  catch { return null; }
+/** Masonry member checks via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkMasonryMembers(input: any): any {
+  return runDesignCheck('masonry member checks', wasmCheckMasonryMembers, input);
 }
 
-/** Bolt group capacity checks via WASM. */
-export function checkBoltGroups(input: any): any | null {
-  if (!wasmReady || !wasmCheckBoltGroups) return null;
-  try { return JSON.parse(wasmCheckBoltGroups(JSON.stringify(input))); }
-  catch { return null; }
+/** Serviceability checks (deflection/vibration) via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkServiceability(input: any): any {
+  return runDesignCheck('serviceability checks (deflection/vibration)', wasmCheckServiceability, input);
 }
 
-/** Weld group capacity checks via WASM. */
-export function checkWeldGroups(input: any): any | null {
-  if (!wasmReady || !wasmCheckWeldGroups) return null;
-  try { return JSON.parse(wasmCheckWeldGroups(JSON.stringify(input))); }
-  catch { return null; }
+/** Bolt group capacity checks via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkBoltGroups(input: any): any {
+  return runDesignCheck('bolt group capacity checks', wasmCheckBoltGroups, input);
 }
 
-/** Spread footing bearing checks via WASM. */
-export function checkSpreadFootings(input: any): any | null {
-  if (!wasmReady || !wasmCheckSpreadFootings) return null;
-  try { return JSON.parse(wasmCheckSpreadFootings(JSON.stringify(input))); }
-  catch { return null; }
+/** Weld group capacity checks via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkWeldGroups(input: any): any {
+  return runDesignCheck('weld group capacity checks', wasmCheckWeldGroups, input);
+}
+
+/** Spread footing bearing checks via WASM. Throws `EngineUnavailableError` without the engine, `EngineCheckError` with the engine's message when it fails. */
+export function checkSpreadFootings(input: any): any {
+  return runDesignCheck('spread footing bearing checks', wasmCheckSpreadFootings, input);
+}
+
+/**
+ * Load generation in the engine (`engine/src/loads`): CIRSOC 101 combinations, INPRES-CIRSOC 103
+ * spectrum and static method. `req` is a `LoadsRequest` tagged by `op`. Throws
+ * `EngineUnavailableError` without the engine, `EngineCheckError` with its message on a refusal.
+ */
+export function loadsRequest(req: { op: string } & Record<string, unknown>): any {
+  return runDesignCheck(`load generation (${req.op})`, wasmLoadsRequest, req);
+}
+
+/** CIRSOC 201 isolated footings (`isolated_footing.rs`). Throws like the checks above. */
+export function checkIsolatedFootings(input: any): any {
+  return runDesignCheck('CIRSOC 201 isolated footing checks', wasmCheckIsolatedFootings, input);
+}
+
+/** Certified CIRSOC 201 isolated footings: the same formulas in interval arithmetic. */
+export function certifyIsolatedFootings(input: any): any {
+  return runDesignCheck('certified CIRSOC 201 isolated footing checks', wasmCertifyIsolatedFootings, input);
 }
 
 /** Check if a specific WASM design check function is available. */

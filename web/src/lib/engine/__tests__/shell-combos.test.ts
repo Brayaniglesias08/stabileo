@@ -5,7 +5,10 @@ import { getShellCombinationKernel, registerShellCombinationKernel } from '../sh
  * Pins the linear recombination, Von Mises recompute, and governing envelope.
  */
 import { describe, it, expect } from 'vitest';
+import fc from 'fast-check';
 import { combineShellStresses, envelopeShellStresses, enrichComboShellStresses } from '../shell-combos';
+import { combineShellStressesOracle, enrichComboShellStressesOracle } from './differential/shell-combos-oracle';
+import { EngineUnavailableError } from '../engine-unavailable';
 import type { AnalysisResults3D, QuadStress } from '../types-3d';
 
 const emptyResult = (quadStresses: QuadStress[]): AnalysisResults3D => ({
@@ -109,15 +112,60 @@ it('matches the TS batch for sparse cases, negative/duplicate factors, missing s
     { id: 20, factors: [{ caseId: 2, factor: 0 }, { caseId: 99, factor: 2 }] },
     { id: 30, factors: [] },
   ];
-  const run = () => {
+  const run = (enrich: typeof enrichComboShellStresses) => {
     const results = new Map([[40, emptyResult([q(8, 900)])], [20, emptyResult([])], [10, emptyResult([])], [30, emptyResult([])]]);
     const envelope = emptyResult([]);
-    enrichComboShellStresses(pc, results, envelope, combinations, new Map([[3, { thickness: 0.2 }]]));
+    enrich(pc, results, envelope, combinations, new Map([[3, { thickness: 0.2 }]]));
     return { results, envelope };
   };
-  const actual = run();
+  // The kernel against the TypeScript oracle (the app's former silent fallback).
+  expect(run(enrichComboShellStresses)).toEqual(run(enrichComboShellStressesOracle));
+});
+
+it('without the kernel, a model with shells is refused, not recombined in TypeScript', () => {
+  const kernel = getShellCombinationKernel();
+  const pc = new Map([[1, emptyResult([q(7, 30)])]]);
+  const combos = [{ id: 10, factors: [{ caseId: 1, factor: 1.2 }] }];
   registerShellCombinationKernel(null);
-  try { expect(actual).toEqual(run()); } finally { registerShellCombinationKernel(kernel); }
+  try {
+    expect(() => enrichComboShellStresses(pc, new Map([[10, emptyResult([])]]), undefined, combos, new Map())).toThrow(EngineUnavailableError);
+    expect(() => combineShellStresses([{ caseId: 1, factor: 1 }], new Map(), new Map([[1, new Map([[7, q(7, 30)]])]]), new Map())).toThrow(EngineUnavailableError);
+    // A frame has nothing to combine and needs no kernel.
+    expect(combineShellStresses([{ caseId: 1, factor: 1 }], new Map(), new Map(), new Map())).toEqual({ plateStresses: [], quadStresses: [] });
+  } finally { registerShellCombinationKernel(kernel); }
+});
+
+it('combineShellStresses through the kernel equals the TypeScript oracle on random batches', () => {
+  fc.assert(fc.property(
+    fc.array(fc.array(fc.record({ id: fc.integer({ min: 1, max: 12 }), s: fc.array(fc.double({ min: -1e3, max: 1e3, noNaN: true }), { minLength: 6, maxLength: 6 }), q: fc.option(fc.tuple(fc.double({ min: -50, max: 50, noNaN: true }), fc.double({ min: -50, max: 50, noNaN: true })), { nil: undefined }) }), { maxLength: 8 }), { minLength: 1, maxLength: 4 }),
+    fc.array(fc.record({ caseId: fc.integer({ min: 0, max: 4 }), factor: fc.double({ min: -2, max: 2, noNaN: true }) }), { maxLength: 6 }),
+    fc.boolean(), fc.double({ min: 0.05, max: 0.4, noNaN: true }),
+    (cases, factors, withIds, thickness) => {
+      const toMap = (rows: Array<{ id: number; s: number[]; q?: [number, number] }>) => {
+        const m = new Map<number, { sigmaXx: number; sigmaYy: number; tauXy: number; mx: number; my: number; mxy: number; qx?: number; qy?: number }>();
+        for (const r of rows) m.set(r.id, { sigmaXx: r.s[0]!, sigmaYy: r.s[1]!, tauXy: r.s[2]!, mx: r.s[3]!, my: r.s[4]!, mxy: r.s[5]!, ...(r.q ? { qx: r.q[0], qy: r.q[1] } : {}) });
+        return m;
+      };
+      const plates = new Map(cases.map((c, i) => [i, toMap(c.filter((r) => r.id % 2 === 0))]));
+      const quads = new Map(cases.map((c, i) => [i, toMap(c.filter((r) => r.id % 2 === 1))]));
+      const thick = new Map([...Array(13).keys()].filter((id) => id % 4 === 0).map((id) => [id, { thickness }]));
+      const ids = withIds ? {
+        plates: new Set([...plates.values()].flatMap((m) => [...m.keys()])),
+        quads: new Set([...quads.values()].flatMap((m) => [...m.keys()])),
+      } : undefined;
+      const e = combineShellStresses(factors, plates, quads, thick, ids);
+      const o = combineShellStressesOracle(factors, plates, quads, thick, ids);
+      expect(e.plateStresses.map((p) => p.elementId)).toEqual(o.plateStresses.map((p) => p.elementId));
+      expect(e.quadStresses.map((p) => p.elementId)).toEqual(o.quadStresses.map((p) => p.elementId));
+      for (const [a, b] of [...e.plateStresses.map((p, i) => [p, o.plateStresses[i]!] as const), ...e.quadStresses.map((p, i) => [p, o.quadStresses[i]!] as const)]) {
+        for (const k of Object.keys(b) as Array<keyof typeof b>) {
+          const x = a[k] as number, y = b[k] as number;
+          if (y === undefined) { expect(x).toBeUndefined(); continue; }
+          expect(Math.abs(x - y)).toBeLessThanOrEqual(1e-9 * Math.max(1, Math.abs(y)));
+        }
+      }
+    },
+  ), { numRuns: 500, seed: 7 });
 });
 
 it('keeps first-wins ties, retained nodal fields, and rejects nonfinite shell inputs', () => {

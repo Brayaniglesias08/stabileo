@@ -26,6 +26,8 @@
    * it replaces is read that way, line by line.
    */
   import { t } from '../lib/i18n';
+  import { engineStatus } from '../lib/store/engine-status.svelte';
+  import { isEngineUnavailable } from '../lib/engine/engine-unavailable';
   import { teAll } from '../lib/i18n/engine-text';
   import { solveFlex, type FlexInput, type FlexCase } from '../lib/engine/codes/argentina/cirsoc-flex';
   import { sheetRows, sectionNumber, type Sec } from './flex/sheet-rows';
@@ -273,10 +275,13 @@
   });
 
   const out = $derived.by(() => {
+    // The section points come from the engine only: recompute when it arrives.
+    void engineStatus.ready;
     try {
       return { r: solveFlex(input), err: null as string | null };
     } catch (e) {
       /* A half-typed field is an ordinary state, not a stack trace. */
+      if (isEngineUnavailable(e)) return { r: null, err: t('engine.unavailable') };
       return { r: null, err: String((e as Error)?.message ?? e) };
     }
   });

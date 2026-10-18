@@ -21,6 +21,7 @@
   import SectionEditor from './components/SectionEditor.svelte';
   import { modelStore, uiStore, resultsStore, dsmStepsStore, fmStepsStore, tabManager, historyStore } from './lib/store';
   import { explainedSteps } from './lib/store/explained-steps.svelte';
+  import { markEngineReady, markEngineFailed } from './lib/store/engine-status.svelte';
   import { EDIT_TOOLS } from './lib/store/ui.svelte';
   import { syncModelTabWithResults } from './lib/store/view-mode';
   import { t, i18n, setLocale } from './lib/i18n';
@@ -875,14 +876,19 @@
       uiStore.analysisMode = '2d';
     }
 
-    // Initialize WASM solver (non-blocking, fallback to JS if it fails)
+    // Initialize the engine (non-blocking). There is no JS fallback: if it fails, every result
+    // that needs it says "engine not available", and the reader is told once here.
     import('./lib/engine/wasm-solver').then(m => m.initSolver()).then(() => {
+      markEngineReady();
       // Canonical section geometry needs the engine. Sections created or
       // loaded before it was ready could only resolve as properties-only, and
       // nothing else revisits that, so resolve them now that it is up.
       modelStore.refreshCanonicalSections();
-    }).catch(() => {
-      console.warn('WASM solver unavailable, using JS fallback');
+    }).catch((err) => {
+      const message = String((err as Error)?.message ?? err);
+      console.error('The calculation engine failed to load:', message);
+      markEngineFailed(message);
+      uiStore.toast(t('engine.unavailable'), 'error');
     });
 
     // Initialize tab manager with current state
