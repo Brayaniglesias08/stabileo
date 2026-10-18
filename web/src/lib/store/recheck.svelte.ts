@@ -1,0 +1,91 @@
+/**
+ * The re-check prompt for projects last solved with an older version (roadmap: "Trust and
+ * verification backlog", item 8).
+ *
+ * ── What it holds ──────────────────────────────────────────────────
+ *
+ *   stamp        which build last solved the project on screen (`provenance/solve-stamp.ts`).
+ *                Session-authoritative, like the export record: captured into every snapshot,
+ *                adopted on open, replaced by every solve, never touched by undo.
+ *   assessment   computed once when the project is opened: the registered result changes that
+ *                concern THIS model (`provenance/applicability.ts`).
+ *
+ * ── The rules ──────────────────────────────────────────────────────
+ *
+ *   - The notice is shown when the assessment lists changes and they have not been
+ *     acknowledged, even when a solve (live calc) has already made the numbers current. It
+ *     cannot be dismissed any other way: no close button, no Escape, no click outside. Acknowledging is a statement the engineer makes ("I have read what
+ *     changed"), so it is a checkbox and a button, not a reflex.
+ *   - Acknowledged is per stamp, per session. Reopening the same file later shows it again:
+ *     the file still says it was solved with the older version, and a colleague opening it
+ *     has read nothing.
+ *   - Until the model is solved again in this build, its results are STALE, acknowledged or
+ *     not, and say so (`stale`). A solve stamps the current version and clears it.
+ */
+import { assessProject, type RecheckAssessment } from '../provenance/applicability';
+import { freshStamp, readStamp, stampSolve, unknownStamp, type SolveStamp } from '../provenance/solve-stamp';
+import type { AnalysisKind, FeatureSnapshot } from '../provenance/model-features';
+
+function createRecheckStore() {
+  // The project on screen at start-up is a new one, made in this build.
+  let stamp = $state.raw<SolveStamp | null>(freshStamp());
+  let assessment = $state.raw<RecheckAssessment | null>(null);
+  /** The stamp the assessment was made against: a solve replaces `stamp` and ends staleness. */
+  let assessedStampId = $state<string | null>(null);
+  let acknowledged = $state.raw<ReadonlySet<string>>(new Set());
+
+  const stale = (): boolean =>
+    !!assessment && assessment.changes.length > 0 && (stamp === null || stamp.id === assessedStampId);
+
+  return {
+    get stamp() { return stamp; },
+    get assessment() { return assessment; },
+    /** Results on hand (or about to be produced from saved design state) predate registered changes. */
+    get stale() { return stale(); },
+    /** The blocking notice is up. */
+    get noticeOpen() {
+      // Not tied to `stale`: live calc may re-solve the moment a project opens, and the notice
+      // must still be read. What changed is worth knowing even once the numbers are current.
+      return !!assessment && assessment.changes.length > 0 && assessedStampId !== null && !acknowledged.has(assessedStampId);
+    },
+    /** Opened in an older build than the one that solved it. */
+    get solvedWithNewer() { return !!assessment?.newer && (stamp === null || stamp.id === assessedStampId); },
+
+    /**
+     * A project was opened (file, tab, autosave, link). `snapshot`: what was opened, as stored.
+     * A project without a stamp is assessed as solved with version 0.
+     */
+    openProject(snapshot: FeatureSnapshot & { solvedWith?: unknown }, analysisMode?: string): void {
+      // No stamp: an explicit "unknown" one (version 0), so the project keeps one identity while
+      // it travels between tabs and an acknowledgement given in this session holds for it.
+      const stored = readStamp(snapshot.solvedWith) ?? unknownStamp();
+      stamp = stored;
+      assessment = assessProject(snapshot, stored, analysisMode);
+      assessedStampId = stored.id;
+    },
+
+    /** A new, empty project: nothing was solved, nothing is stale, and it belongs to this build. */
+    reset(): void {
+      stamp = freshStamp();
+      assessment = null;
+      assessedStampId = null;
+    },
+
+    /** An analysis of `kind` just published results in this build. */
+    noteSolved(kind: AnalysisKind): void {
+      stamp = stampSolve(kind, stamp);
+    },
+
+    /** The engineer read the notice. Results stay marked stale until re-run. */
+    acknowledge(): void {
+      if (assessedStampId) acknowledged = new Set([...acknowledged, assessedStampId]);
+    },
+
+    /** What a snapshot carries: the stamp, or nothing when the project was never solved. */
+    capture(): SolveStamp | undefined {
+      return stamp ? { ...stamp, analyses: [...stamp.analyses] } : undefined;
+    },
+  };
+}
+
+export const recheckStore = createRecheckStore();

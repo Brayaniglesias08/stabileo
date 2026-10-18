@@ -1,0 +1,134 @@
+import { describe, it, expect } from 'vitest';
+import { assessProject, conditionHolds } from '../applicability';
+import { modelFeatures, type FeatureSnapshot } from '../model-features';
+import { RESULT_CHANGES, RESULTS_VERSION, type ResultChangeRegistry } from '../registry';
+import { stampSolve, unknownStamp, type SolveStamp } from '../solve-stamp';
+
+const STEEL = { id: 1, name: 'F-24', e: 200000, nu: 0.3, rho: 78.5, fy: 235 };
+const CONCRETE = { id: 2, name: 'H-25', e: 30000, nu: 0.2, rho: 25, fy: 25 };
+const node = (id: number, x: number, z = 0) => [id, { id, x, y: 0, z }] as [number, { id: number; x: number; y: number; z: number }];
+const member = (id: number, materialId: number, type: 'frame' | 'truss', extra: Record<string, unknown> = {}) =>
+  [id, { id, type, nodeI: 1, nodeJ: 2, materialId, sectionId: 1, releaseI: {}, releaseJ: {}, ...extra }] as [number, never];
+
+function model(over: Partial<FeatureSnapshot> = {}): FeatureSnapshot {
+  return {
+    analysisMode: 'pro',
+    materials: [[1, STEEL], [2, CONCRETE]] as never,
+    elements: [],
+    supports: [[1, { nodeId: 1, type: 'fixed3d' }]] as never,
+    loads: [],
+    loadCases: [{ id: 1, type: 'D' }],
+    ...over,
+  };
+}
+
+const ids = (s: FeatureSnapshot, stamp: SolveStamp | null = null) => assessProject(s, stamp, s.analysisMode).changes.map((c) => c.id);
+
+describe('which registered changes concern a model', () => {
+  it('shows the CIRSOC 301 tension note only for steel members without connection data under CIRSOC 301', () => {
+    const steelTruss = model({ elements: [member(1, 1, 'truss')] });
+    expect(ids(steelTruss)).toContain('cirsoc301-tension-needs-connection');
+
+    const concreteOnly = model({ elements: [member(1, 2, 'frame')] });
+    expect(ids(concreteOnly)).not.toContain('cirsoc301-tension-needs-connection');
+    expect(ids(concreteOnly)).not.toContain('cirsoc301-ltb-top-flange');
+    expect(ids(concreteOnly)).toContain('cirsoc201-strain-compatibility');
+
+    const connected = model({ elements: [member(1, 1, 'truss', { tensionConnection: { i: { kind: 'welded' }, j: { kind: 'welded' } } })] });
+    expect(ids(connected)).not.toContain('cirsoc301-tension-needs-connection');
+    expect(ids(connected)).toContain('cirsoc301-ltb-top-flange');
+
+    const ec3 = model({
+      elements: [member(1, 1, 'truss')],
+      regulations: { roles: { steel: { adapterId: 'eurocode3' } } },
+    });
+    expect(ids(ec3)).not.toContain('cirsoc301-tension-needs-connection');
+    expect(ids(ec3)).not.toContain('cirsoc301-biaxial-h11b');
+    expect(ids(ec3)).toContain('ec3-aisc-ltb-and-slender');
+  });
+
+  it('names the ACI change for an ACI-bound concrete model and not the CIRSOC 201 one', () => {
+    const aci = model({ elements: [member(1, 2, 'frame')], regulations: { roles: { concrete: { adapterId: 'aci-aisc' } } } });
+    expect(ids(aci)).toContain('aci318-strain-and-axial');
+    expect(ids(aci)).not.toContain('cirsoc201-strain-compatibility');
+  });
+
+  it('shows the constraint change only when a constraint slave is supported', () => {
+    const base = { elements: [member(1, 2, 'frame')], nodes: [node(1, 0), node(2, 5)] };
+    const onSupported = model({ ...base, constraints: [{ type: 'rigidLink', masterNode: 2, slaveNode: 1 }] });
+    const free = model({ ...base, constraints: [{ type: 'rigidLink', masterNode: 1, slaveNode: 2 }] });
+    expect(ids(onSupported)).toContain('constraints-on-supported-slaves');
+    expect(ids(free)).not.toContain('constraints-on-supported-slaves');
+  });
+
+  it('shows the dead-load default only for models with floor (area) dead loads', () => {
+    const withFloor = model({ loads: [{ type: 'surface3d', data: { quadId: 1, q: -2.32, caseId: 1 } }], quads: [[1, {}]] as never });
+    expect(ids(withFloor)).toContain('dead-load-default-2.52');
+    expect(ids(model({ elements: [member(1, 2, 'frame')] }))).not.toContain('dead-load-default-2.52');
+  });
+
+  it('lists nothing for a project solved with the current version, and every applicable change for an unknown one', () => {
+    const steel = model({ elements: [member(1, 1, 'truss')] });
+    const current = stampSolve('linear', null);
+    expect(current.resultsVersion).toBe(RESULTS_VERSION);
+    expect(assessProject(steel, current).changes).toEqual([]);
+    expect(assessProject(steel, current).older).toBe(false);
+    const unknown = assessProject(steel, unknownStamp());
+    expect(unknown.older).toBe(true);
+    expect(unknown.solvedVersion).toBe(0);
+    expect(unknown.changes.length).toBeGreaterThan(3);
+    // No stamp at all reads the same as the explicit unknown stamp.
+    expect(assessProject(steel, null).changes.map((c) => c.id)).toEqual(unknown.changes.map((c) => c.id));
+  });
+
+  it('flags a project solved with a newer version than this build', () => {
+    const newer = { ...stampSolve('linear', null), resultsVersion: RESULTS_VERSION + 1 };
+    const a = assessProject(model(), newer);
+    expect(a.newer).toBe(true);
+    expect(a.changes).toEqual([]);
+  });
+
+  it('an empty model is concerned by nothing', () => {
+    expect(ids(model({ supports: [], loadCases: [] }))).toEqual([]);
+  });
+});
+
+describe('versions and recorded analyses (a later registry)', () => {
+  const later: ResultChangeRegistry = {
+    ...RESULT_CHANGES,
+    currentResultsVersion: 2,
+    changes: [
+      ...RESULT_CHANGES.changes,
+      { ...RESULT_CHANGES.changes[0], id: 'v2-modal', resultsVersion: 2, when: { all: ['members', 'analysis:modal'] } },
+      { ...RESULT_CHANGES.changes[0], id: 'v2-all', resultsVersion: 2, when: {} },
+    ],
+  };
+  const steel = model({ elements: [member(1, 1, 'truss')] });
+  const v1 = (analyses: SolveStamp['analyses']) => ({ ...stampSolve('linear', null), resultsVersion: 1, analyses });
+
+  it('lists only changes after the version the project was solved with', () => {
+    const got = assessProject(steel, v1(['linear', 'modal']), 'pro', later).changes.map((c) => c.id);
+    expect(got).toEqual(['v2-all', 'v2-modal'].sort());
+  });
+
+  it('gates on the analyses the stamp recorded, and counts every analysis as run when it records none', () => {
+    expect(assessProject(steel, v1(['linear']), 'pro', later).changes.map((c) => c.id)).toEqual(['v2-all']);
+    expect(assessProject(steel, null, 'pro', later).changes.map((c) => c.id)).toContain('v2-modal');
+  });
+
+  it('counts the analyses the stamp cannot see as run', () => {
+    const f = modelFeatures(steel, { analysesRun: ['linear'] });
+    expect(f.has('analysis:timeHistory')).toBe(true);
+    expect(f.has('analysis:modal')).toBe(false);
+  });
+});
+
+describe('conditionHolds', () => {
+  it('needs every group, and any feature within a group', () => {
+    const f = new Set(['a', 'c']);
+    expect(conditionHolds({ any: ['a', 'b'] }, f)).toBe(true);
+    expect(conditionHolds({ all: ['a', 'b'] }, f)).toBe(false);
+    expect(conditionHolds({ allOf: [['a'], ['b', 'c']] }, f)).toBe(true);
+    expect(conditionHolds({}, f)).toBe(true);
+  });
+});

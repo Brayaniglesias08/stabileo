@@ -1,4 +1,5 @@
 import { registerColumnCapacityKernel } from './column-capacity-kernel';
+import { noteEngineBuild } from '../provenance/build-identity';
 import { registerCirsoc201BeamKernel } from './codes/argentina/cirsoc201-beam-kernel';
 import { registerCirsoc301Kernel } from './codes/argentina/cirsoc301-kernel';
 import { packedShellCombinationKernel, registerShellCombinationKernel } from './shell-combination-kernel';
@@ -192,6 +193,13 @@ export function getWasmBytes(): Promise<ArrayBuffer> {
   return wasmBytesPromise;
 }
 
+/** The engine's own account of its version and commit; null from a build without the export. */
+function engineInfoOf(wasm: unknown): { engineVersion?: string; engineCommit?: string } | null {
+  const f = (wasm as { engine_build_info?: () => string }).engine_build_info;
+  if (typeof f !== 'function') return null;
+  try { return JSON.parse(f()); } catch { return null; }
+}
+
 /** Initialize the WASM module. Call once at app startup. */
 export async function initSolver(): Promise<void> {
   if (wasmReady) return;
@@ -207,8 +215,12 @@ export async function initSolver(): Promise<void> {
       const wasmUrl = new URL('../wasm/dedaliano_engine_bg.wasm', import.meta.url);
       const wasmBytes = readFileSync(fileURLToPath(wasmUrl));
       wasm.initSync({ module: wasmBytes });
+      noteEngineBuild(new Uint8Array(wasmBytes), engineInfoOf(wasm));
     } else {
-      await wasm.default(await getWasmBytes());
+      const bytes = await getWasmBytes();
+      await wasm.default(bytes);
+      // The worker pool compiles these same bytes, so one hash names the binary everywhere.
+      noteEngineBuild(bytes, engineInfoOf(wasm));
     }
     registerCollisionKernel(wasm.CollisionGeometry ?? null);
     registerRcSectionKernel(wasm.RcSectionGeometry ?? null);

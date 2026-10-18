@@ -17,7 +17,7 @@ import { viewVisibility } from '../store/view-state.svelte';
 import { NO_RELEASE, type Release } from '../store/model.svelte';
 import { uiStore } from '../store/ui.svelte';
 import { resultsStore } from '../store/results.svelte';
-import { noteAxisConventionMigrationIfNeeded, noteBasicSelfWeightRuleIfNeeded, statedSelfWeightCaseId } from '../store/file';
+import { onProjectOpened, noteBasicSelfWeightRuleIfNeeded, statedSelfWeightCaseId } from '../store/file';
 import { packJointDesigns, unpackJointDesigns } from '../connection/joint-share';
 import { CODE_HASH, readCodeFragment, codeShareUrl } from '../model/code/share';
 import { mergeCode } from '../model/code/apply';
@@ -945,7 +945,7 @@ export function loadFromURLHash(): 'data' | 'embed' | null {
   // Same pre-metadata convention note as a .ded open — a shared link is the most
   // common cross-machine entry point, so a legacy 3D model must not change axes
   // silently here. (New models carry the tag below, so this never false-fires.)
-  noteAxisConventionMigrationIfNeeded(snapshot, loadedMode);
+  onProjectOpened(snapshot, loadedMode);
 
   // Notify 3D viewport to restore camera from uiStore
   queueMicrotask(() => {
@@ -1013,7 +1013,7 @@ export function loadFromShareLink(url: string): boolean {
   // Same pre-metadata convention note as a .ded open — a shared link is the most
   // common cross-machine entry point, so a legacy 3D model must not change axes
   // silently here. (New models carry the tag below, so this never false-fires.)
-  noteAxisConventionMigrationIfNeeded(snapshot, loadedMode);
+  onProjectOpened(snapshot, loadedMode);
 
   // Notify 3D viewport to restore camera from uiStore
   queueMicrotask(() => {

@@ -50,6 +50,17 @@ pub fn review_model_sanity(json: &str) -> Result<String, JsValue> {
     sanity::review_json(json).map_err(|e| JsValue::from_str(&e))
 }
 
+/// Which engine this is: `{"engineVersion": CARGO_PKG_VERSION, "engineCommit": <git commit>}`.
+/// The web app records it in the provenance of every result and report.
+#[wasm_bindgen]
+pub fn engine_build_info() -> String {
+    serde_json::json!({
+        "engineVersion": env!("CARGO_PKG_VERSION"),
+        "engineCommit": env!("STABILEO_ENGINE_COMMIT"),
+    })
+    .to_string()
+}
+
 /// Solve 2D linear static analysis. JsValue in → JsValue out (hot path).
 #[wasm_bindgen]
 pub fn solve_2d(input: JsValue) -> Result<JsValue, JsValue> {

@@ -313,8 +313,19 @@ export function deserializeProject(text: string): boolean {
   validateAxisSafety(data);
   resultsStore.clear(); // stale results dropped — the model must be re-solved
   resultsStore.forgetView();
-  noteAxisConventionMigrationIfNeeded(data.snapshot, data.analysisMode);
+  onProjectOpened(data.snapshot, uiStore.analysisMode);
   return true;
+}
+
+/**
+ * What every load path does once a stored project is the one on screen: the one-time notes about
+ * conventions it was saved under, and the re-check of results it was last solved with
+ * (`recheck.svelte.ts`). Shared by `.ded` open, tab activation, autosave restore and share links,
+ * so no entry point opens an old project in silence.
+ */
+export function onProjectOpened(snap: ModelSnapshot | undefined, analysisMode: string | undefined): void {
+  noteAxisConventionMigrationIfNeeded(snap, analysisMode);
+  if (snap) recheckStore.openProject(snap as never, analysisMode);
 }
 
 /**
@@ -592,6 +603,10 @@ export function exportResultsCSV(solveError?: string): string {
   lines.push(`# Stabileo — ${t('file.csvResults')} ${is3D ? '3D' : '2D'}`);
   lines.push(`# ${t('file.csvProject')}: ${modelStore.model.name}`);
   lines.push(`# ${t('file.csvDate')}: ${new Date().toLocaleString()}`);
+  // Which build produced these numbers from which model and settings (`provenance/result-provenance.ts`).
+  const prov = currentResultProvenance();
+  if (prov.stale) lines.push(`# ${t('provenance.stale')}`);
+  for (const [k, v] of provenanceTextLines(prov, provenanceLabels())) lines.push(`# ${k}: ${v}`);
   lines.push('');
   if (!r3d && !r2d) {
     lines.push(`# ${t('excel.solveFailed')}`);
@@ -678,6 +693,9 @@ export function downloadCanvasPNG(canvas: HTMLCanvasElement): void {
 }
 
 import { hydrateProjectProvenance } from './project-provenance';
+import { recheckStore } from './recheck.svelte';
+import { currentResultProvenance, provenanceLabels } from './result-provenance';
+import { provenanceTextLines } from '../provenance/result-provenance';
 import { askAboutOverlapsInModel } from '../model/edit/connection-questions';
 import { viewVisibility } from './view-state.svelte';
 

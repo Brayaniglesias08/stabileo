@@ -14,6 +14,7 @@
   import { loadComponentsText, distributedText, pointOnElementText, thermalText } from '../lib/engine/calc-report-loads';
   import { t, tp, i18n } from '../lib/i18n';
   import { shouldProjectModelToXZ } from '../lib/geometry/coordinate-system';
+  import { currentResultProvenance, provenanceLabels } from '../lib/store/result-provenance';
 
   let { open = $bindable(false) }: { open: boolean } = $props();
 
@@ -117,6 +118,8 @@
       data.figures = figures;
       data.kinematics = content.kinematics ? kinematicReportOfModel() : undefined;
       if (!solved.ok) data.solveError = solved.error;
+      // After the solve: the record names the results the report prints.
+      data.resultProvenance = { record: currentResultProvenance(), labels: provenanceLabels() };
       // No tab to be had: the report came as a file, which is said, and the dialog stays.
       if (openCalcReport(data, win) === 'tab') open = false;
       else uiStore.toast(t('calcReport.popupBlocked'), 'info');
