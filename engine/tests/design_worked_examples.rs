@@ -15,6 +15,7 @@
 //! [AISC]  AISC, *Companion to the AISC Steel Construction Manual, Vol. 1:
 //!         Design Examples*, v16.0, first-semester edition (2023), keyed to
 //!         ANSI/AISC 360-22. Page numbers are the example's own (D-3, F-11 ...).
+//! [LC19]  Lee & Chiew, *Advanced Steel Construction* 15(3) (2019) 259–266.
 //! [AISC-15] AISC, *Companion to the AISC Steel Construction Manual, Vol. 1:
 //!         Design Examples*, v15.1 (keyed to ANSI/AISC 360-16; E7 and E4-2
 //!         unchanged in 360-22).
@@ -1155,6 +1156,35 @@ fn ec3_class4_minor_axis_and_rhs_effective_sections() {
     let r = ec3_run(Ec3MemberData { lcr_y: 1000.0, lcr_z: 1000.0, ..chs }, -100e3, 0.0, 0.0);
     assert!(!r.pass);
     assert!(r.unevaluated.iter().any(|u| u.contains("Class 4 Aeff")), "{:?}", r.unevaluated);
+}
+
+/// [LC19] Lee & Chiew, "A review of Class 4 slender section properties
+/// calculation for thin-walled steel sections according to EC3", *Advanced
+/// Steel Construction* 15(3) (2019), pp. 259–266, Example 2 (Box 4): welded
+/// square box 1000 mm, t = 10 mm, S355, pure compression.
+///
+/// Printed: hw = 980 mm, Agross = 39600 mm², ε = 0.814; kσ = 4,
+/// λ̄p = 2.12, ρ = 0.423, beff = 414.5 mm; Aeff = 16980 mm² (42.9 %).
+///
+/// The box is welded from plates, so its flat width is h − 2t = 980 mm; the
+/// checker's RHS takes c = h − 3t (EN 1993-1-1 Table 5.2 for a rolled or
+/// formed tube), so the box is entered with h = b = 980 + 3t. A, Iy, Iz are
+/// the printed gross values (Iy = Iz = 646932 cm⁴).
+#[test]
+fn ec3_class4_welded_box_compression_lee_chiew_2019() {
+    let t = 10.0;
+    let m = Ec3MemberData {
+        a: 39600.0,
+        iy: 646932e4,
+        iz: 646932e4,
+        section_class: SectionClass::Class4,
+        geometry: Some(Ec3Geometry::Rhs { h: 980.0 + 3.0 * t, b: 980.0 + 3.0 * t, t }),
+        ..ec3_blank(355.0)
+    };
+    let lp = lambda_p(980.0 / t, 355.0, 4.0);
+    published(lp, 2.12, THREE_SF, "λ̄p");
+    published((lp - 0.22) / (lp * lp), 0.423, THREE_SF, "ρ (4.2)");
+    published(effective_section(&m, m.geometry.as_ref().unwrap()).unwrap().a_eff, 16980.0, THREE_SF, "Aeff");
 }
 
 // ════════════════════════════════════════════════════════════════════════

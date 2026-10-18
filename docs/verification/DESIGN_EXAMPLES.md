@@ -52,6 +52,7 @@ Tests:
 | AISI-M | AISI, *Cold-Formed Steel Design Manual*, 2008 edition (AISI S100-07). Scholars' Mine, Missouri S&T, `ccfss-aisi-spec/159`. Page numbers are the manual's (II-149, III-56). |
 | WDF04 | J. Showalter, "Structural Wood Design Using ASD and LRFD", *Wood Design Focus*, Winter 2004, pp. 11–19 — Problem 10 of Wheat & Cramer's AF&PA design aid. AWC web-media `WDF-2004-UsingASDandLRFD-0512.pdf`. |
 | AWC-E | AWC/ICC, *2015/2018 Structural Wood Design Examples* (sold, not free). E1.4 and E1.8 with the printed AWC values as reproduced in Tekla Tedds, "Verification Example – Axial Compression of Wood Column (ASD)" (2026), and Dlubal Knowledge Base 001714 (C. Tjoa, 2023). Secondary: the AWC book itself was not at hand. |
+| LC19 | Lee & Chiew, "A review of Class 4 slender section properties calculation for thin-walled steel sections according to EC3", *Advanced Steel Construction* 15(3) (2019) 259–266. Example 1 (welded I in bending) divides I by the distance to the flange mid-plane and is not used. |
 | ENER | ENERCALC, *SEL Verification Example Series – Wood Column Module*, 2026 V1, hand calculation pp. 1–5. Software-vendor verification document. |
 | P751 | FEMA P-751, *2009 NEHRP Recommended Seismic Provisions: Design Examples* (2012), ch. 10 Masonry (TMS 402-08). |
 | P1051 | FEMA P-1051, *2015 NEHRP Recommended Seismic Provisions: Design Examples* (2016), ch. 13 Masonry (TMS 402-13). |
@@ -132,6 +133,7 @@ Status: **pass** — stabileo reproduces the printed values at the stated roundi
 | 6.3.2 Mcr with load height (SN003b eq. 2) | SBE A.1 (pp. 4-60–4-61) | zg = +165 mm, C1 = 1.127, C2 = 0.454: Mcr = 113.9 kNm, λ̄LT = 1.288 | pass (zg added; default top flange) |
 | 6.3.2 χLT | SBE A.1; P364 Ex. 3, 4, 5, 12 | — | uncovered: the examples use 6.3.2.3 with f, or take Mcr from LTBeam without printing It/Iw; stabileo implements 6.3.2.2 (D10) |
 | Class 4: EN 1993-1-5 4.3/4.4 Aeff, Weff,y, Weff,z; 6.2.9.3 with eN·NEd | — (clause by hand: welded I 600×300×12×6 and 400×300×8×8, RHS 400×200×6, S355) | ρ = 0.949 / 0.430, Aeff = 8330 mm², Weff,y = 2302.3e3, Weff,z = 164.2e3 mm³, RHS Aeff = 5268 mm² | clause test; no free published example found. Gross A/Wel used to stand in (unsafe); now refused without Aeff/Weff/eN or geometry, CHS refused (EN 1993-1-6) |
+| Class 4 Aeff, welded box in compression | LC19 Example 2 (Box 4) | λ̄p = 2.12, ρ = 0.423, Aeff = 16980 mm² | pass (box entered with h = c + 3t: welded flat width h − 2t) |
 | 6.3.3 / Annex B (Table B.2) kyy, kzy, (6.61), (6.62) | SBE-MS8 Ex. 2 (pp. 8-18–8-22) | λ̄y = 0.12, λ̄z = 0.540, χz = 0.865, Nb,y,Rd = 3507, Nb,z,Rd = 3034 kN, kyy = 0.997, kzy = 0.997, (6.61) = 0.647, (6.62) = 0.653 | **fixed** (D11); equations compared with the printed Mb,Rd (6.3.2.3, D10) |
 | Annex B with Cm < 1, both kzy branches | SBE-SS4 App. D column (pp. 4-97–4-103) | CmLT = 0.888 → kzy = 0.996, (6.62) = 0.832; CmLT = 0.6 → kzy = 0.977, 0.758; Cmy = 0.6 → kyy = 0.605, (6.61) = 0.625 | pass |
 | Annex B kyz, kzz (biaxial) | — | no free published Annex B example with Mz,Ed ≠ 0 found | uncovered |
@@ -262,11 +264,10 @@ printed λc = 0.851 should be 0.881 (D26), so its Fn/Pn are not used.
 
 The CIRSOC 201-2025 detailing modules (`codes/cirsoc201/*`) other than crack control have no
 published worked example: their rules are geometric limits rather than resistances, and they
-remain covered by `web/src/lib/codes/cirsoc201/__tests__/`. Also not found freely: EN 1993-1-5
-Class 4 examples other than secondary reproductions (the ECCS *Design of Plated Structures* box
-column via SOFiSTiK DCE-EN30, and Lee & Chiew, *Adv. Steel Constr.* 15(3) 2019) — neither is yet
-reproduced, because `ec3_check` takes Aeff/Weff as inputs and the examples' values would be
-passed straight through; a CIRSOC 301 flexural-torsional (E.4) or staggered-hole (s²/4g)
+remain covered by `web/src/lib/codes/cirsoc201/__tests__/`. Also not reproduced: the ECCS
+*Design of Plated Structures* welded box with unequal flanges (via SOFiSTiK DCE-EN30) — the
+checker's effective section covers doubly symmetric I and RHS only; Weff of a Class 4 web in
+bending (LC19 Example 1 uses a non-standard lever arm). Not found freely: a CIRSOC 301 flexural-torsional (E.4) or staggered-hole (s²/4g)
 example; an AISC E7.2 slender round HSS; CFSEI technical notes and the current AISI D100 manual
 (sold); the AWC examples book (sold); NCMA TEK notes (login).
 
