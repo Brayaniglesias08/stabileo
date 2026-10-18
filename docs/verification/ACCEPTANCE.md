@@ -41,10 +41,16 @@ and compared against those results. Every release must pass it.
 | `asce_shm_120dof_undamaged` | IASC-ASCE SHM Phase I 4-storey 2x2-bay braced steel frame, 3D, 116 members, rigid diaphragms | Johnson et al. 2004, J. Eng. Mech. 130(1), Table 1, Table 2 ("120DOF lumped mass"); `DataGen/cal_model.m` (NEES doi:10.4231/D3Q52FC7T) | f1-f12 (x, y, torsion) | ±0.005 Hz (printed to 2 decimals) | pass (max 0.024%) |
 | `asce_shm_120dof_damage_i` | same, all 1st-storey braces without stiffness (mass kept) | same, Table 2 | f1-f12 | ±0.005 Hz | pass (max 0.035%) |
 | `asce_shm_120dof_damage_ii` | same, 1st- and 3rd-storey braces without stiffness | same, Table 2 | f1-f12 | ±0.005 Hz | pass (max 0.098%) |
+| `asce_shm_12dof_undamaged` | same frame, source's 12DOF model (floor nodes' uz, rx, ry fixed) | same, Table 2 ("12DOF lumped mass") | f1-f12 | ±0.005 Hz | pass (max 0.019%) |
+| `asce_shm_12dof_damage_i` | 12DOF, damage (i) | same | f1-f12 | ±0.005 Hz | pass (max 0.012%) |
+| `asce_shm_12dof_damage_ii` | 12DOF, damage (ii) | same | f1-f12 | ±0.005 Hz | pass (max 0.072%) |
+| `asce_shm_12dof_storey_stiffness_undamaged` | 12DOF frame, static: roof Fx, Fy, Mz | same, Table 3 (storey stiffnesses x, y, θ) | floor-1 and roof ux, uy, rz = F·Σ1/K | propagated half unit of each printed K (~5e-5 rel) | pass (max 0.006%) |
+| `asce_shm_12dof_storey_stiffness_damage_i` | same, damage (i) | same, Table 3 | same | same | pass (max 0.021%) |
+| `bathe_wilson_10bay_9storey` | 10-bay, 9-storey plane frame (110 members), lumped member mass | Bathe & Wilson 1972, J. Eng. Mech. Div. 98(EM6); data and values as quoted in CSI SAP2000 Example 1-021 / ETABS | ω1²-ω3² | [printed, printed + 1 unit): the values are truncated to 6 significant figures | pass (< 1e-6 rel) |
 
-All 57 reference values pass. In every case stabileo agrees with the replay
-of the benchmark's own model code to about 1e-5 relative. What is left is
-the rounding in the printed reference values.
+All 105 reference values in 13 cases pass. In every case stabileo agrees with
+the replay of the benchmark's own model code to about 1e-5 relative or better.
+What is left is the rounding in the printed reference values.
 
 ## Modelling differences and how they are handled
 
@@ -84,6 +90,19 @@ it exists.
 - In the source, beams of type 3 (axial only) are stabileo `truss` elements,
   and beams of type 5 (pinned at end b) are frames with `hingeEnd`. The rigid
   floor is `equalDOF` on ux, as in the source's master/slave table.
+
+### Bathe & Wilson frame (1972)
+
+- The 1972 eigenvalues are those of member mass lumped half to each end
+  node in both translations; the replay reproduces them to the printed
+  digits that way. A consistent mass matrix, which is what stabileo's
+  `densities` produce, gives ω3² = 16.79, which is 1.2% high. This is the
+  same 0.6% frequency offset that independent programs report for mode 3
+  when they use consistent mass. The case therefore lumps the mass on stubs,
+  as the source does.
+- The printed values are the exact eigenvalues truncated, not rounded
+  (5.526956 is printed as 5.52695, 16.58787 as 16.5878). The tolerance band is
+  [printed, printed + one unit in the last digit).
 
 ### SHM benchmark (Johnson et al. 2004)
 
