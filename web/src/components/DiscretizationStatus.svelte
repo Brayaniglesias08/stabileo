@@ -81,7 +81,7 @@
 
     {#if discretization}
       <label class="toggle">
-        <input type="checkbox" bind:checked={discretizationStore.showMap} data-testid="discretization-map-toggle" />
+        <input type="checkbox" checked={discretizationStore.showMap} onchange={(e) => (discretizationStore.showMap = e.currentTarget.checked)} data-testid="discretization-map-toggle" />
         {t('discretization.showMap')}
       </label>
       {#if discretizationStore.showMap}
