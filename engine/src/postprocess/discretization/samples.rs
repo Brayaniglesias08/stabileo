@@ -61,6 +61,9 @@ impl Family {
 /// One sample: position, frame, plane stress, weight, and the element shape functions there.
 #[derive(Debug, Clone)]
 pub struct Sample {
+    /// In-plane natural coordinates of the point (the pairs at ±ζ share them).
+    pub xi: f64,
+    pub eta: f64,
     pub zeta: f64,
     pub pos: [f64; 3],
     pub frame: [[f64; 3]; 3],
@@ -182,7 +185,7 @@ fn bilinear(xi: f64, eta: f64) -> ([f64; 4], [f64; 4], [f64; 4]) {
 
 fn from_shell_samples(raw: Vec<ShellStressSample>, shape: impl Fn(f64, f64, f64) -> Vec<f64>) -> Vec<Sample> {
     raw.into_iter()
-        .map(|s| Sample { zeta: s.zeta, pos: s.pos, frame: s.frame, sigma: s.sigma, weight: s.weight, shape: shape(s.xi, s.eta, s.zeta) })
+        .map(|s| Sample { xi: s.xi, eta: s.eta, zeta: s.zeta, pos: s.pos, frame: s.frame, sigma: s.sigma, weight: s.weight, shape: shape(s.xi, s.eta, s.zeta) })
         .collect()
 }
 
@@ -250,7 +253,7 @@ pub fn sample_elements(input: &SolverInput3D, results: &AnalysisResults3D) -> Re
             }
             for (zeta, sigma) in through_thickness(sm, m, p.thickness) {
                 let pz = add(&pos, &scale(&frame[2], zeta * 0.5 * p.thickness));
-                samples.push(Sample { zeta, pos: pz, frame, sigma, weight: area / 3.0 * 0.5 * p.thickness, shape: shape.clone() });
+                samples.push(Sample { xi: l1, eta: l2, zeta, pos: pz, frame, sigma, weight: area / 3.0 * 0.5 * p.thickness, shape: shape.clone() });
             }
         }
         out.push(ElemSamples {
@@ -287,7 +290,7 @@ pub fn sample_elements(input: &SolverInput3D, results: &AnalysisResults3D) -> Re
                 }
                 for (zeta, sigma) in through_thickness(sm, m, q.thickness) {
                     let pz = add(&pos, &scale(&frame[2], zeta * 0.5 * q.thickness));
-                    samples.push(Sample { zeta, pos: pz, frame, sigma, weight: da * 0.5 * q.thickness, shape: n.to_vec() });
+                    samples.push(Sample { xi, eta, zeta, pos: pz, frame, sigma, weight: da * 0.5 * q.thickness, shape: n.to_vec() });
                 }
             }
         }
@@ -327,7 +330,7 @@ pub fn sample_elements(input: &SolverInput3D, results: &AnalysisResults3D) -> Re
                 }
                 for (zeta, sigma) in through_thickness(sm, m, q.thickness) {
                     let pz = add(&pos, &scale(&frame[2], zeta * 0.5 * q.thickness));
-                    samples.push(Sample { zeta, pos: pz, frame, sigma, weight: da * 0.5 * q.thickness, shape: n.to_vec() });
+                    samples.push(Sample { xi, eta, zeta, pos: pz, frame, sigma, weight: da * 0.5 * q.thickness, shape: n.to_vec() });
                 }
             }
         }

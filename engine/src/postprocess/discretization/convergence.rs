@@ -11,7 +11,9 @@
 //! under-states the error of quantities that converge faster.
 //!
 //! Governing quantities: the largest translation of any node; the largest principal bending
-//! moment and the largest surface von Mises stress at element centres (shells); the resultant
+//! moment and the largest surface von Mises stress of the shells, at element centres (DKT, MITC4,
+//! MITC9) or, for curved shells and solid-shells, whose centre values are mid-surface only, at
+//! their integration points from the through-thickness pairs; the resultant
 //! reaction of each group of connected supported nodes (a line support's nodal reactions depend
 //! on the mesh, their sum does not); the largest end moment of any frame member.
 
@@ -20,6 +22,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use super::refine::{check_refinable, refine_uniform, GeometryMode};
+use super::samples::Family;
 use super::{estimate_3d, DEFAULT_THRESHOLD};
 use crate::types::*;
 
@@ -96,23 +99,22 @@ pub struct ConvergenceStudy {
     pub caveats: Vec<String>,
 }
 
-/// Governing quantities of one solution, keyed for matching across meshes.
-pub(crate) fn governing(input: &SolverInput3D, r: &AnalysisResults3D, original_max_node: usize) -> BTreeMap<(String, usize), f64> {
+/// Governing quantities of one solution, keyed for matching across meshes (`original_max_node`:
+/// the largest node id of the model as drawn; reaction groups are named by their smallest one).
+pub fn governing(input: &SolverInput3D, r: &AnalysisResults3D, original_max_node: usize) -> BTreeMap<(String, usize), f64> {
     let mut q = BTreeMap::new();
     let umax = r.displacements.iter().map(|d| (d.ux * d.ux + d.uy * d.uy + d.uz * d.uz).sqrt()).fold(0.0, f64::max);
     q.insert(("maxDisplacement".to_string(), 0), umax);
 
-    let thick: HashMap<usize, f64> = input.quads.values().map(|e| (e.id, e.thickness))
+    let thick_q: HashMap<usize, f64> = input.quads.values().map(|e| (e.id, e.thickness))
         .chain(input.quad9s.values().map(|e| (e.id, e.thickness)))
-        .chain(input.curved_shells.values().map(|e| (e.id, e.thickness)))
-        .chain(input.plates.values().map(|e| (e.id, e.thickness)))
         .collect();
+    let thick_p: HashMap<usize, f64> = input.plates.values().map(|e| (e.id, e.thickness)).collect();
     let (mut mmax, mut smax) = (0.0_f64, 0.0_f64);
-    let mut visit = |id: usize, s: [f64; 3], m: [f64; 3]| {
+    let mut visit_t = |s: [f64; 3], m: [f64; 3], t: f64| {
         let pm = 0.5 * (m[0] + m[1]);
         let rm = (0.25 * (m[0] - m[1]).powi(2) + m[2] * m[2]).sqrt();
         mmax = mmax.max(pm.abs() + rm);
-        let t = thick.get(&id).copied().unwrap_or(0.0);
         let k = if t > 0.0 { 6.0 / (t * t) } else { 0.0 };
         for sign in [-1.0, 1.0] {
             let (a, b, c) = (s[0] + sign * k * m[0], s[1] + sign * k * m[1], s[2] + sign * k * m[2]);
@@ -120,10 +122,38 @@ pub(crate) fn governing(input: &SolverInput3D, r: &AnalysisResults3D, original_m
         }
     };
     for p in &r.plate_stresses {
-        visit(p.element_id, [p.sigma_xx, p.sigma_yy, p.tau_xy], [p.mx, p.my, p.mxy]);
+        visit_t([p.sigma_xx, p.sigma_yy, p.tau_xy], [p.mx, p.my, p.mxy], thick_p.get(&p.element_id).copied().unwrap_or(0.0));
     }
+    // MITC4 and MITC9 report membrane stress and moments at their centres. Curved shells and
+    // solid-shells report only the mid-surface stress there (moments zero), so theirs are taken
+    // from the through-thickness integration-point pairs below instead.
+    let centred: std::collections::HashSet<usize> = input.quads.values().map(|e| e.id)
+        .chain(input.quad9s.values().map(|e| e.id)).collect();
     for p in &r.quad_stresses {
-        visit(p.element_id, [p.sigma_xx, p.sigma_yy, p.tau_xy], [p.mx, p.my, p.mxy]);
+        if centred.contains(&p.element_id) {
+            visit_t([p.sigma_xx, p.sigma_yy, p.tau_xy], [p.mx, p.my, p.mxy], thick_q.get(&p.element_id).copied().unwrap_or(0.0));
+        }
+    }
+    if !(input.curved_shells.is_empty() && input.solid_shells.is_empty()) {
+        if let Ok(elems) = super::samples::sample_elements(input, r) {
+            for e in elems.iter().filter(|e| matches!(e.family, Family::CurvedShell | Family::SolidShell)) {
+                for lo in e.samples.iter().filter(|s| s.zeta < 0.0) {
+                    let Some(hi) = e.samples.iter().find(|s| s.zeta > 0.0 && s.xi == lo.xi && s.eta == lo.eta) else { continue };
+                    // σ(ζ) linear through the thickness: σ = σm − 6Mζ/t², sampled at ζ = ±g; the
+                    // two points are g·t apart along the normal.
+                    let g = hi.zeta;
+                    let t = super::samples::norm3(&super::samples::sub(&hi.pos, &lo.pos)) / g;
+                    let hi_l = super::samples::to_local(&lo.frame, &super::samples::to_global(&hi.frame, &hi.sigma));
+                    let mut m = [0.0; 3];
+                    let mut sm = [0.0; 3];
+                    for k in 0..3 {
+                        sm[k] = 0.5 * (lo.sigma[k] + hi_l[k]);
+                        m[k] = (lo.sigma[k] - hi_l[k]) * t * t / (12.0 * g);
+                    }
+                    visit_t(sm, m, t);
+                }
+            }
+        }
     }
     if mmax > 0.0 {
         q.insert(("maxMoment".to_string(), 0), mmax);

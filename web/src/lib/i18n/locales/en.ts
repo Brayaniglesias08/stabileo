@@ -9949,7 +9949,7 @@ const en: Record<string, string> = {
   'discretization.caveat.inclinedSupportsDropped': "New nodes between differently inclined supports got no support.",
   'discretization.caveat.singleRefinement': "Only one refinement fitted in the size limit: the order is assumed, not observed.",
   'discretization.caveat.dofLimit': "A further refinement would exceed the size limit and was not solved.",
-  'discretization.caveat.centroidStresses': "Shell moments and stresses are read at element centers.",
+  'discretization.caveat.centroidStresses': "Shell moments and stresses are read at element centers (at the integration points for curved shells and solid-shells, whose center values are mid-surface only).",
   'discretization.refuse.constraints': "the model has constraints (rigid links, diaphragms), which refinement cannot extend automatically",
   'discretization.refuse.connectors': "the model has connectors",
   'discretization.refuse.curvedBeams': "the model has curved beams",

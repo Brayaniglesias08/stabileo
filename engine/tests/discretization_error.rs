@@ -7,7 +7,7 @@
 //! summed element by element, and ‖u‖²_E either closed form (Navier series) or the
 //! Richardson-extrapolated limit of ‖u_h‖²_E over a refinement sequence.
 
-use dedaliano_engine::postprocess::discretization::convergence::{convergence_study_3d, richardson, ConvergenceOptions};
+use dedaliano_engine::postprocess::discretization::convergence::{convergence_study_3d, governing, richardson, ConvergenceOptions};
 use dedaliano_engine::postprocess::discretization::refine::{refine_uniform, GeometryMode};
 use dedaliano_engine::postprocess::discretization::{estimate_3d, DiscretizationEstimate};
 use dedaliano_engine::solver::linear;
@@ -699,4 +699,50 @@ fn curved_shell_self_weight_matches_quads() {
     let (q, c) = (w(Fam::Mitc4), w(Fam::Curved));
     // ρ = 1000/t kg/m³ with g = 9.81: 9.81 kN/m² over 1 m².
     assert!((q - 9.81).abs() < 1e-9 && (c - 9.81).abs() < 1e-9, "quad {q}, curved {c}");
+}
+
+/// One MITC4 element, or two DKT triangles, simply supported on all four edges: every element is
+/// fully supported, yet the new edge midpoints are on the supported boundary and must stay
+/// supported, while the new centre node is inside the plate and must stay free.
+#[test]
+fn refinement_keeps_line_supports_of_a_one_element_plate() {
+    for fam in [Fam::Mitc4, Fam::Dkt] {
+        let m = square_plate(fam, 1, false);
+        let rf = refine_uniform(&m.input, GeometryMode::Faceted).unwrap().input;
+        let supported: std::collections::HashSet<usize> = rf.supports.values().filter(|s| s.rz).map(|s| s.node_id).collect();
+        for n in rf.nodes.values() {
+            let on_edge = n.x.abs() < 1e-9 || n.y.abs() < 1e-9 || (n.x - 1.0).abs() < 1e-9 || (n.y - 1.0).abs() < 1e-9;
+            assert_eq!(supported.contains(&n.id), on_edge, "{fam:?}: node at ({}, {})", n.x, n.y);
+        }
+        // And the sequence converges to the simply supported plate, not a corner-supported one.
+        let seq = sequence(&m.input, 3);
+        let (fine_in, fine_r) = seq.last().unwrap();
+        let centre = fine_in.nodes.values().find(|n| (n.x - 0.5).abs() < 1e-9 && (n.y - 0.5).abs() < 1e-9).unwrap().id;
+        let ratio = disp(fine_r, centre)[2].abs() / (0.00406 / plate_rigidity());
+        assert!((ratio - 1.0).abs() < 0.1, "{fam:?}: 8 × 8 from one element gives {ratio:.3} of the SS plate");
+    }
+}
+
+/// Curved shells (and solid-shells) report only mid-surface stress at their centres: the
+/// governing moment and surface stress come from their through-thickness points, and agree with
+/// MITC4 on a flat plate in bending.
+#[test]
+fn governing_bending_of_curved_and_solid_shells() {
+    let q = |fam: Fam| {
+        let m = square_plate(fam, 8, true);
+        let r = solve(&m.input);
+        governing(&m.input, &r, usize::MAX)
+    };
+    let (g4, gc, gs) = (q(Fam::Mitc4), q(Fam::Curved), q(Fam::Solid));
+    let key = |k: &str| (k.to_string(), 0usize);
+    let m4 = g4[&key("maxMoment")];
+    let s4 = g4[&key("maxStress")];
+    println!("maxMoment MITC4 {m4:.4e} curved {:?} solid {:?}", gc.get(&key("maxMoment")), gs.get(&key("maxMoment")));
+    println!("maxStress MITC4 {s4:.4e} curved {:?} solid {:?}", gc.get(&key("maxStress")), gs.get(&key("maxStress")));
+    for (name, g) in [("curved", &gc), ("solid", &gs)] {
+        let (m, s) = (g[&key("maxMoment")], g[&key("maxStress")]);
+        // Integration points sit closer to the clamped edge than centres do: same order, not equal.
+        assert!(m > 0.6 * m4 && m < 1.6 * m4, "{name}: max moment {m:.4e} vs MITC4 {m4:.4e}");
+        assert!(s > 0.6 * s4 && s < 1.6 * s4, "{name}: max surface stress {s:.4e} vs MITC4 {s4:.4e}");
+    }
 }

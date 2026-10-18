@@ -17,10 +17,10 @@
 //!   has the same stiffness and, with its loads split, the same fixed-end forces). Releases stay
 //!   at the outer ends.
 //! * Supports: a new node on an edge between supported nodes gets the restraints they share,
-//!   and prescribed displacements interpolated, unless the edge is a chord across a fully
-//!   supported element that no supported line runs along (the diagonal of a corner triangle
+//!   and prescribed displacements interpolated: always on an exterior edge; on an interior edge
+//!   unless it is a chord across a fully supported element that no supported line runs along (the diagonal of a corner triangle
 //!   whose three nodes sit on two different supported edges is not a line support); a centre
-//!   node only when its element's four edges qualify. Springs are not copied (caveat).
+//!   node only inside a supported region (its edges qualify and one is interior). Springs are not copied (caveat).
 //! * Loads: element pressures, temperatures and self-weight go to every child; edge loads to the
 //!   children on that edge; nodal loads stay on their nodes.
 //!
@@ -579,6 +579,11 @@ pub fn refine_uniform(input: &SolverInput3D, mode: GeometryMode) -> Result<Refin
     // Whether the edge p–q (both ends supported) carries a line support.
     let line_edge = |p: usize, q: usize| -> bool {
         let Some(fs) = b.edge_facets.get(&key(p, q)) else { return true };
+        // An exterior edge between supported nodes is a supported boundary (a plate simply
+        // supported on its edges, however coarse); only interior chords need a closer look.
+        if fs.len() == 1 {
+            return true;
+        }
         if fs.iter().all(|&f| b.facets[f].0.iter().any(|&n| !supported(n))) {
             return true;
         }
@@ -599,7 +604,14 @@ pub fn refine_uniform(input: &SolverInput3D, mode: GeometryMode) -> Result<Refin
         }
         let qualifies = match ps.as_slice() {
             [p, q] => line_edge(*p, *q),
-            ring => (0..ring.len()).all(|k| line_edge(ring[k], ring[(k + 1) % ring.len()])),
+            // A centre node lies inside its element: supported only within a supported region,
+            // i.e. when every edge around it qualifies and at least one is interior (an element
+            // whose edges are all exterior — a one-element plate — has a free middle).
+            ring => {
+                let edges = || (0..ring.len()).map(|k| (ring[k], ring[(k + 1) % ring.len()]));
+                edges().all(|(p, q)| line_edge(p, q))
+                    && edges().any(|(p, q)| b.edge_facets.get(&key(p, q)).is_none_or(|fs| fs.len() > 1))
+            }
         };
         if !qualifies {
             continue;

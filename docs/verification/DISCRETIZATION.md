@@ -87,13 +87,17 @@ shows a warning.
   split. New nodes between supported nodes get the restraints both share, and interpolated
   prescribed displacements, unless the edge is a chord across a fully supported element that
   no supported line runs along (the diagonal of a corner triangle whose three nodes sit on two
-  different supported edges is not a line support); springs are not copied (caveat
+  different supported edges is not a line support). Exterior edges between supported nodes are
+  always supported, so the end edge of a strip one element wide supported along both long sides
+  gets a support at its midpoint it may not have; springs are not copied (caveat
   `springsNotDistributed`). Pressures,
   temperatures and self-weight go to every child, edge loads to the children on that edge, nodal
   loads stay on their node. Models with constraints, connectors or curved beams are refused.
   No p-refinement is offered (MITC4 → MITC9 would be one; not implemented).
 * **Governing quantities**: the largest nodal translation; the largest principal shell moment
-  and shell surface von Mises stress at element centres; the resultant reaction of each group of
+  and shell surface von Mises stress at element centres (DKT, MITC4, MITC9) or, for curved
+  shells and solid-shells, whose centre values are mid-surface only, at their integration points
+  from the through-thickness pairs; the resultant reaction of each group of
   connected supported nodes (nodal reactions along a line support depend on the mesh, their sum
   does not); the largest member end moment.
 * **Richardson.** For q0 (model), q1, q2: observed order `p = log₂((q1 − q0)/(q2 − q1))`,

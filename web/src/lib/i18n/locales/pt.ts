@@ -9582,7 +9582,7 @@ const pt: Translations = {
   'discretization.caveat.inclinedSupportsDropped': "Os nós novos entre apoios com inclinações diferentes ficaram sem apoio.",
   'discretization.caveat.singleRefinement': "Só um refinamento coube no limite de tamanho: a ordem é suposta, não observada.",
   'discretization.caveat.dofLimit': "Mais um refinamento excederia o limite de tamanho e não foi resolvido.",
-  'discretization.caveat.centroidStresses': "Momentos e tensões de casca são lidos no centro dos elementos.",
+  'discretization.caveat.centroidStresses': "Momentos e tensões de casca são lidos no centro dos elementos (nos pontos de integração para cascas curvas e sólido-cascas, cujo valor central é só da superfície média).",
   'discretization.refuse.constraints': "o modelo tem restrições (ligações rígidas, diafragmas), que o refinamento não pode estender automaticamente",
   'discretization.refuse.connectors': "o modelo tem conectores",
   'discretization.refuse.curvedBeams': "o modelo tem vigas curvas",

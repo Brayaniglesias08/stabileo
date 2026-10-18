@@ -9938,7 +9938,7 @@ const es: Record<string, string> = {
   'discretization.caveat.inclinedSupportsDropped': "Los nodos nuevos entre apoyos con distinta inclinación quedaron sin apoyo.",
   'discretization.caveat.singleRefinement': "Solo entró un refinamiento en el límite de tamaño: el orden se supone, no se observa.",
   'discretization.caveat.dofLimit': "Un refinamiento más superaría el límite de tamaño y no se resolvió.",
-  'discretization.caveat.centroidStresses': "Los momentos y tensiones de cáscara se leen en el centro de los elementos.",
+  'discretization.caveat.centroidStresses': "Los momentos y tensiones de cáscara se leen en el centro de los elementos (en los puntos de integración para cáscaras curvas y sólido-cáscaras, cuyo valor central es solo de superficie media).",
   'discretization.refuse.constraints': "el modelo tiene restricciones (vínculos rígidos, diafragmas), que el refinamiento no puede extender automáticamente",
   'discretization.refuse.connectors': "el modelo tiene conectores",
   'discretization.refuse.curvedBeams': "el modelo tiene vigas curvas",
