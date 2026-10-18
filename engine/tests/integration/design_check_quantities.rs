@@ -28,7 +28,7 @@ fn rect_footing() -> SpreadFootingData {
         col_width: 0.40,
         d: None,
         mu_sliding: None,
-        rho_w: None,
+        rho_w: None, neglect_size_effect: None,
     }
 }
 
@@ -149,6 +149,8 @@ fn slender_wall(h: f64) -> MasonryMemberData {
         an: None,
         av: None,
         s_stirrup: None,
+        laterally_tied: None,
+        gamma_g: None,
     }
 }
 
@@ -234,6 +236,8 @@ fn timber_column_stability_uses_the_governing_axis() {
             d: 0.30,
             le: 3.0,
             lu: None,
+            le_b: None,
+            le_bending: None,
             cd: None, cm: None, ct: None,
             cf_bending: None, cf_tension: None, cf_compression: None,
             cfu: None, ci: None, cr: None,
