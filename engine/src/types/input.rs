@@ -1194,7 +1194,13 @@ pub enum Constraint {
 pub struct RigidLinkConstraint {
     pub master_node: usize,
     pub slave_node: usize,
-    /// DOFs to constrain on slave: 0=ux,1=uz (2D); 0..5 (3D). Empty = all translational.
+    /// DOFs to constrain on slave: 0=ux, 1=uz, 2=θ (2D); 0..5 (3D).
+    ///
+    /// Empty means different links in the two dimensions (docs/solver/assembly-constraints.md,
+    /// AC-3): in 3D (ux, uy, uz), all translations with the slave's rotation free (a pinned
+    /// arm); in 2D (ux, uz, θ), the rotation tied too (a fixed arm). List the DOFs to say which
+    /// link is meant: 2D [0, 1] is the 3D default, 3D [0..6] the 2D one. The web app lists them
+    /// when it sends a stored link to the 2D solver (`constraint-2d-remap.ts`).
     #[serde(default)]
     pub dofs: Vec<usize>,
 }
@@ -1205,7 +1211,14 @@ pub struct RigidLinkConstraint {
 pub struct DiaphragmConstraint {
     pub master_node: usize,
     pub slave_nodes: Vec<usize>,
-    /// Plane: "XY" (default), "XZ", or "YZ"
+    /// Plane: "XY" (default), "XZ", or "YZ".
+    ///
+    /// In 3D (Z up) the plane is the diaphragm's own: "XY" is a horizontal floor, rigid in X–Y
+    /// and free to bend vertically. A 2D model is the X–Z plane, and there "XY" (the default)
+    /// and "XZ" both mean the in-plane rigid body of the model plane (u_x, u_z tied to θ), "YZ"
+    /// ties u_z only (docs/solver/assembly-constraints.md, AC-5). So a 3D floor diaphragm is NOT
+    /// the 2D "XY" one: its trace on a plane frame is an equal u_x (an `equalDOF` on DOF 0),
+    /// which is what the web app sends to the 2D solver (`constraint-2d-remap.ts`).
     #[serde(default = "default_diaphragm_plane")]
     pub plane: String,
 }
