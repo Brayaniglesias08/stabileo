@@ -88,6 +88,24 @@ The Product Thesis orders what to build for firms to buy. This section ranks wha
 
 Order of work: 1–3 first (they remove the largest time sink, catch the errors tests cannot, and are unique), then 4–5.
 
+### Trust and verification backlog
+
+What remains after the October 2026 safety wave (certified solver, differential testing against seven solvers, fuzzing and mutation testing, feature matrix, certified design checks, model sanity review). Each item closes a way results can still be silently wrong or a way verification can silently stop working.
+
+1. **Verification jobs that actually run.** Nightly fuzzing, mutation testing and the Code_Aster / OpenSees / Frame3DD / PyNite / Mystran / Kratos / CalculiX differential jobs run on schedule, and a failure alerts someone (issue or notification). A job that never runs protects nothing.
+2. **Protected main.** Required checks (engine, web, e2e, Kani, Lean, symbolic) before merge; CODEOWNERS so solver, certificate and design-check changes need a second reviewer.
+3. **Discretization error.** Certificates bound the algebraic error of the discretized model, not the mesh error. A posteriori estimators (e.g. Zienkiewicz–Zhu) for shells, plates and solids, automatic convergence checks, and a discretization-error estimate shown next to every certified result.
+4. **Sensitivity to assumptions.** How much governing results move when uncertain assumptions change (support fixity, cracked-section stiffness modifiers, spring values, connection rigidity), so engineers see which assumptions matter.
+5. **Physics invariants on every model (metamorphic testing).** Rigid rotation, mirroring, node renumbering and unit scaling leave physical results unchanged; superposition and Maxwell–Betti reciprocity hold for linear analyses; external work equals strain energy. Run across all analyses and the whole example corpus; no reference solution needed.
+6. **Units in the type system.** Dimensioned quantities in Rust and TypeScript, so kN/N and m/mm mix-ups fail to compile instead of producing wrong numbers.
+7. **Clause traceability enforced in CI, and independent implementations.** A machine-readable map clause → implementation → tests → published example; CI fails when a clause has no test. The most-used checks (CIRSOC 201, CIRSOC 301) get a second implementation written from the clause text alone, compared on random inputs.
+8. **Re-check prompt for old projects.** When a saved project opens in a version whose results changed for its features, say what changed and offer to re-run.
+9. **Reproducibility and provenance.** Every report records the version, commit and certificate hashes, so anyone can reproduce it bit for bit.
+10. **Opt-in field telemetry.** Solver refusals, diagnostics and crashes from real use (opt-in, no model content without consent), to learn how real models fail.
+11. **More formal proofs.** More kernels proved in Lean, and machine-checked correspondence between the Rust implementation and the proved algorithm for the critical kernels.
+
+Beyond software: an independent licensed structural engineer reviews worked examples, clause readings and sample reports; real anonymised projects from engineering firms join the acceptance suite.
+
 ## Daily, Weekly, Monthly Priority Lens
 
 This is the clearest way to prioritize the product roadmap:
