@@ -75,8 +75,7 @@ fn solve_time_history_2d_inner(
     mut trace: Option<&mut Option<DynamicTrace>>,
 ) -> Result<TimeHistoryResult, String> {
     super::linear::validate_input_2d(&input.solver)?;
-    let referenced_material_ids = super::dynamic_validation::referenced_material_ids_2d(&input.solver);
-    super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
+    super::dynamic_validation::validate_mass_2d(&input.solver, &input.densities)?;
     super::dynamic_validation::validate_time_params(input.time_step, input.n_steps)?;
     validate_integration_params(input.beta, input.gamma, input.alpha, input.damping_xi)?;
     if let Some(ga) = &input.ground_accel {
@@ -1010,8 +1009,7 @@ fn solve_time_history_3d_inner(
     mut trace: Option<&mut Option<DynamicTrace>>,
 ) -> Result<TimeHistoryResult3D, String> {
     super::linear::validate_input_3d(&input.solver)?;
-    let referenced_material_ids = super::dynamic_validation::referenced_material_ids_3d(&input.solver);
-    super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
+    super::dynamic_validation::validate_mass_3d(&input.solver, &input.densities)?;
     super::dynamic_validation::validate_time_params(input.time_step, input.n_steps)?;
     validate_integration_params(input.beta, input.gamma, input.alpha, input.damping_xi)?;
     for ga in [&input.ground_accel_x, &input.ground_accel_y, &input.ground_accel_z] {
@@ -1554,7 +1552,7 @@ mod tests {
         });
 
         let solver = SolverInput {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials, sections, elements, supports,
             loads: vec![],
             constraints: vec![],

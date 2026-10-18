@@ -317,7 +317,7 @@ fn validation_rack_semirigid_connector() {
         }));
     }
     let input_semi = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: secs,
@@ -659,7 +659,7 @@ fn validation_rack_base_plate_semirigid() {
     })];
 
     let input_semi = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_sr,
         materials: mats_sr,
         sections: secs_sr,

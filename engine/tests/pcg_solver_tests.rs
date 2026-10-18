@@ -67,7 +67,7 @@ fn make_beam_2d_n(n_elem: usize) -> SolverInput {
         nodes, materials, sections, elements, supports, loads,
         constraints: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 
@@ -148,7 +148,7 @@ fn make_cantilever_3d() -> SolverInput3D {
         curved_shells: HashMap::new(),
         curved_beams: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 
@@ -258,7 +258,7 @@ fn make_ss_plate_3d_n(n: usize) -> SolverInput3D {
         curved_shells: HashMap::new(),
         curved_beams: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 
@@ -315,7 +315,7 @@ fn make_truss_chain_2d() -> SolverInput {
         nodes, materials, sections, elements, supports, loads,
         constraints: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 
@@ -703,7 +703,7 @@ fn invalid_method_string_warns_and_falls_back_to_auto() {
         nodes, materials, sections, elements, supports, loads,
         constraints: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     };
     set_opts_2d(&mut input, serde_json::json!({"method": "conjgate"}));
 

@@ -59,7 +59,7 @@ fn frame_with_leaning_column(p: f64, lateral: f64) -> SolverInput3D {
         loads.push(SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: lateral, fy: 0.0, fz: 0.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None }));
     }
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: HashMap::from([("1".into(), SolverMaterial { id: 1, e: E, nu: 0.3 })]), sections, elements,
         supports, loads, constraints: vec![], left_hand: None,
         plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(),
@@ -101,7 +101,7 @@ fn fixed_pinned_column(released: bool) -> SolverInput3D {
     // Torsion needs a hold somewhere when the head is free to turn.
     let head = if released { head } else { SolverSupport3D { rrz: true, ..head } };
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: HashMap::from([("1".into(), SolverMaterial { id: 1, e: E, nu: 0.3 })]),
         sections: HashMap::from([("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: I, iz: I, j: 2.0 * I, cw: None, as_y: None, as_z: None })]),
         elements,
@@ -158,7 +158,7 @@ fn plane_frame_with_leaning_column(p: f64, lateral: f64) -> SolverInput {
         loads.push(SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: lateral, fz: 0.0, my: 0.0 }));
     }
     SolverInput {
-        solver_options: None, nodes, materials: HashMap::from([("1".into(), SolverMaterial { id: 1, e: E, nu: 0.3 })]),
+        solver_options: None, masses: Default::default(), nodes, materials: HashMap::from([("1".into(), SolverMaterial { id: 1, e: E, nu: 0.3 })]),
         sections, elements, supports, loads, constraints: vec![], connectors: HashMap::new(),
     }
 }
@@ -193,7 +193,7 @@ fn plane_member_released_at_one_end_buckles_as_the_pinned_column() {
         let nodes = (0..=n_el).map(|k| ((k + 1).to_string(), SolverNode { id: k + 1, x: 0.0, z: l * k as f64 / n_el as f64 })).collect();
         let elements = (1..=n_el).map(|k| (k.to_string(), plane_frame(k, k, k + 1, 1, false, released && k == n_el))).collect();
         SolverInput {
-            solver_options: None, nodes, materials: HashMap::from([("1".into(), SolverMaterial { id: 1, e: E, nu: 0.3 })]),
+            solver_options: None, masses: Default::default(), nodes, materials: HashMap::from([("1".into(), SolverMaterial { id: 1, e: E, nu: 0.3 })]),
             sections: HashMap::from([("1".into(), SolverSection { id: 1, a: 0.01, iz: I, as_y: None })]),
             elements,
             supports: HashMap::from([("1".into(), plane_support(1, 1, "fixed")), ("2".into(), plane_support(2, n_el + 1, "rollerY"))]),

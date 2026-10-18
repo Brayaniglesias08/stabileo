@@ -579,7 +579,7 @@ fn embed(input: &SolverInput, rot_sign: f64) -> SolverInput3D {
         })
         .collect();
     SolverInput3D {
-        solver_options: None, nodes, materials: input.materials.clone(), sections, elements, supports, loads,
+        solver_options: None, masses: Default::default(), nodes, materials: input.materials.clone(), sections, elements, supports, loads,
         constraints: vec![], left_hand: None, plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(),
         solid_shells: HashMap::new(), curved_shells: HashMap::new(), curved_beams: vec![], connectors: HashMap::new(),
     }
@@ -1132,7 +1132,7 @@ fn model_2d_from(
         loads,
         constraints: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 
@@ -1204,7 +1204,7 @@ fn model_3d_from(
         curved_shells: HashMap::new(),
         curved_beams: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 

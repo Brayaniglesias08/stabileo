@@ -121,7 +121,7 @@ fn make_cantilever_3d(n_elem: usize) -> SolverInput3D {
     })];
 
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials,
         sections,
@@ -233,7 +233,7 @@ fn make_ss_plate(nx: usize, ny: usize) -> SolverInput3D {
         .collect();
 
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),

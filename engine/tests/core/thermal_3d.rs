@@ -61,7 +61,7 @@ fn make_3d_input(
         });
     }
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map, materials: mats_map, sections: secs_map,
         elements: elems_map, supports: sups_map, loads,
         constraints: vec![], left_hand: None,

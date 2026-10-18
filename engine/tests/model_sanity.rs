@@ -165,7 +165,7 @@ fn building(s: &Spec) -> Building {
             curved_shells: HashMap::new(),
             curved_beams: vec![],
             connectors: HashMap::new(),
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
         },
         grid,
     }

@@ -115,7 +115,7 @@ fn bar_3d(loads: Vec<SolverLoad3D>) -> SolverInput3D {
         nodes, materials, sections, elements, supports, loads,
         plates: HashMap::new(), quads: HashMap::new(), constraints: vec![], connectors: HashMap::new(),
         curved_shells: HashMap::new(), left_hand: None,
-        quad9s: HashMap::new(), solid_shells: HashMap::new(), curved_beams: vec![], solver_options: None,
+        quad9s: HashMap::new(), solid_shells: HashMap::new(), curved_beams: vec![], solver_options: None, masses: Default::default(),
     }
 }
 

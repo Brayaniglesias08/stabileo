@@ -384,7 +384,7 @@ fn validation_thermal_ext_5_settlement_propped() {
         });
     }
     let input = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map, materials: mats_map, sections: secs_map,
         elements: elems_map, supports: sups_map, loads: vec![], constraints: vec![],
         connectors: HashMap::new(), };
@@ -476,7 +476,7 @@ fn validation_thermal_ext_6_double_settlement() {
         });
     }
     let input = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map, materials: mats_map, sections: secs_map,
         elements: elems_map, supports: sups_map, loads: vec![], constraints: vec![],
         connectors: HashMap::new(), };
