@@ -63,8 +63,10 @@ function densities(model) {
   return Object.fromEntries(Object.keys(model.materials).map((k) => [k, 7850]));
 }
 
+/** The highest-numbered node without a support (the harmonic response point). */
 function lastNode(model) {
-  return Math.max(...Object.values(model.nodes).map((n) => n.id));
+  const supported = new Set(Object.values(model.supports).map((s) => s.nodeId));
+  return Math.max(...Object.values(model.nodes).map((n) => n.id).filter((id) => !supported.has(id)));
 }
 
 /**

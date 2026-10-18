@@ -17,6 +17,14 @@ const MUST_SUCCEED = [
   /^combo-2d\//, /^bundle-3d\//, /^plastic-/, /\/solve_[23]d$/,
 ];
 
+/** Certificates that must come out certified on these models, so agreement is not vacuous. */
+const MUST_CERTIFY = [
+  /\/certify_(linear|modal|spectral|pdelta|multi_case|time_history)_[23]d$/,
+  /^(portal|two-story|truss)-2d\/certify_buckling_2d$/, /-3d\/certify_buckling_3d$/,
+  /^combo-2d\/certify_/, /^bundle-3d\/certify_/, /^plastic-.*\/certify_/,
+];
+const CERTIFIED = /"status":"certified"|"certified":true|"stabilityCertified":true/;
+
 let reference: Result[];
 test.beforeAll(async () => {
   reference = await runInNode();
@@ -32,6 +40,9 @@ test('engine results are bit-identical to Node', async ({ page, browserName }) =
 
   const errors = reference.filter((r) => r.text.startsWith('ERR') && MUST_SUCCEED.some((re) => re.test(r.name)));
   expect(errors.map((r) => `${r.name}: ${r.text.slice(0, 200)}`)).toEqual([]);
+
+  const uncertified = reference.filter((r) => MUST_CERTIFY.some((re) => re.test(r.name)) && !CERTIFIED.test(r.text));
+  expect(uncertified.map((r) => r.name)).toEqual([]);
 
   expect(results.map((r) => r.name)).toEqual(reference.map((r) => r.name));
   const diffs = results
