@@ -191,6 +191,13 @@ pub fn check_case(ctx: &Ctx, c: &Case2, anas: &[Ana2], invariants: &[&str]) {
                     same(a, &c.units(&u), Ok(base.units(&u)), &cond)
                 }
                 "superposition" => superposition(a, c, &base, &cond),
+                "modal orthogonality" => {
+                    if a.name == "modal" {
+                        guarded(|| Ok(crate::modal_checks::check_2d(&c.s, &c.dens, &cond))).unwrap_or_else(Verdict::Fail)
+                    } else {
+                        Verdict::NotApplicable
+                    }
+                }
                 "linear agreement" => {
                     // Analyses that reduce to the linear solve on this model
                     // (one or several stages with the full structure, no

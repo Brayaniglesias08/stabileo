@@ -18,6 +18,7 @@ mod case;
 mod checks2;
 mod checks3;
 mod corpus;
+mod modal_checks;
 mod regressions;
 mod response;
 mod symmetry;
@@ -25,11 +26,38 @@ mod tally;
 
 use tally::Tally;
 
-pub const INV_2D: &[&str] = &["rotation", "mirror", "relabel", "reversal", "units", "superposition", "reciprocity", "energy", "symmetry", "linear agreement"];
-pub const INV_3D: &[&str] = &["rotation", "relabel", "reversal", "units", "superposition", "reciprocity", "energy", "symmetry", "linear agreement"];
+pub const INV_2D: &[&str] = &["rotation", "mirror", "relabel", "reversal", "units", "superposition", "reciprocity", "energy", "symmetry", "linear agreement", "modal orthogonality"];
+pub const INV_3D: &[&str] = &["rotation", "relabel", "reversal", "units", "superposition", "reciprocity", "energy", "symmetry", "linear agreement", "modal orthogonality"];
 
 fn seed() -> u64 {
     std::env::var("METAMORPHIC_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(20261018)
+}
+
+/// The invariants × analyses matrix of a PR-tier run, as it appears in
+/// docs/verification/METAMORPHIC.md (between the BEGIN/END markers).
+fn render(t: &Tally, anas: &[&str], invs: &[&str]) -> String {
+    let mut s = format!("| Analysis | {} |\n|---|{}\n", invs.join(" | "), ":-:|".repeat(invs.len()));
+    for a in anas {
+        let cells: Vec<&str> = invs.iter().map(|i| t.symbol(a, i)).collect();
+        s += &format!("| {a} | {} |\n", cells.join(" | "));
+    }
+    s
+}
+
+fn check_doc(section: &str, table: &str) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/verification/METAMORPHIC.md");
+    let doc = std::fs::read_to_string(&path).unwrap_or_default();
+    let (b, e) = (format!("<!-- BEGIN {section} -->\n"), format!("<!-- END {section} -->"));
+    let (Some(i), Some(j)) = (doc.find(&b), doc.find(&e)) else { panic!("docs/verification/METAMORPHIC.md has no {section} section") };
+    let current = &doc[i + b.len()..j];
+    if current != table {
+        if std::env::var("UPDATE_METAMORPHIC_DOC").is_ok() {
+            let new = format!("{}{}{}", &doc[..i + b.len()], table, &doc[j..]);
+            std::fs::write(&path, new).unwrap();
+        } else {
+            panic!("docs/verification/METAMORPHIC.md ({section}) is out of date: rerun with UPDATE_METAMORPHIC_DOC=1\n{table}");
+        }
+    }
 }
 
 fn finish(name: &str, t: &Tally) {
@@ -57,6 +85,9 @@ fn run_2d(name: &str, cases: Vec<case::Case2>, only: Option<&str>) {
             }
         }
     }
+    if name == "pr_2d" && only.is_none() {
+        check_doc(name, &render(&t, &anas.iter().map(|a| a.name).collect::<Vec<_>>(), INV_2D));
+    }
     finish(name, &t);
 }
 
@@ -73,6 +104,9 @@ fn run_3d(name: &str, cases: Vec<case::Case3>, only: Option<&str>) {
                 symmetry::check_3d(&t, &sym, anti, &anas);
             }
         }
+    }
+    if name == "pr_3d" && only.is_none() {
+        check_doc(name, &render(&t, &anas.iter().map(|a| a.name).collect::<Vec<_>>(), INV_3D));
     }
     finish(name, &t);
 }

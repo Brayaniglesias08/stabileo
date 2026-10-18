@@ -80,6 +80,21 @@ impl Tally {
         s
     }
 
+    /// Matrix symbol of a cell: ✓ held on every model it ran on, ✗ violated,
+    /// R the analysis refused every model (or the transform's result) by
+    /// name, U never representable, · not applicable.
+    pub fn symbol(&self, ana: &str, inv: &str) -> &'static str {
+        let g = self.cells.lock().unwrap();
+        match g.get(&(ana.to_string(), inv.to_string())) {
+            Some(c) if !c.fails.is_empty() => "✗",
+            Some(c) if c.pass > 0 => "✓",
+            Some(c) if c.inconclusive > 0 => "~",
+            Some(c) if c.refused > 0 => "R",
+            Some(c) if c.unrep > 0 => "U",
+            _ => "·",
+        }
+    }
+
     /// Status per cell for the doc: holds / VIOLATED / not checked.
     pub fn status(&self, ana: &str, inv: &str) -> &'static str {
         let g = self.cells.lock().unwrap();
