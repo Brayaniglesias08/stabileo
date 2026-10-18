@@ -11,6 +11,25 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Discretization error: estimated next to every certified shell result (2026-10-18)
+
+Certificates bound the algebraic error of the assembled system, not the mesh error. The engine
+now estimates the second one, and never presents it as certified (docs/verification/DISCRETIZATION.md).
+
+- `engine/src/postprocess/discretization/`: Zienkiewicz–Zhu estimator with superconvergent
+  patch recovery for DKT, MITC4, MITC9, curved shells and SHB8 solid-shells (element and global
+  energy-norm indicators; effectivity 1.01 for MITC4 and 1.10 for DKT at 16 × 16 on the Navier
+  plate); uniform h-refinement (smooth or faceted geometry, frames split, supports and loads
+  carried over) and a convergence study with Richardson extrapolation and observed order.
+  WASM `estimate_discretization_3d`, `convergence_study_3d`. Frames are stated exact.
+- Results panel: "algebraic error: certified ≤ X · discretization error: estimated ~Y% (not
+  certified)", a warning above 5 %, an element error map and an on-demand convergence check
+  (en/es/pt).
+- **Fix (results): curved-shell self-weight was 1000× too heavy** (density taken in kN/m³
+  instead of kg/m³ like every other shell). Not reachable from the web app.
+- Found, not fixed: the SHB8 solid-shell is ≈ 18 % too stiff in thin-plate bending (Poisson
+  thickness locking; centre deflection 0.82 of Kirchhoff on a t/a = 0.01 plate under refinement).
+
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
 **BREAKING (results): steel members bent about both axes without axial force are now checked by
