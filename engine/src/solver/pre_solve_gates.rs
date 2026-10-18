@@ -1288,7 +1288,7 @@ pub fn check_rigid_body_restraint_3d(input: &SolverInput3D) -> Vec<StructuredDia
         }
     }
     let mut diags = Vec::new();
-    for nodes in comps.values() {
+    for nodes in crate::ordered::values(&comps) {
         let n = nodes.len() as f64;
         let mut c = [0.0; 3];
         for id in nodes {
