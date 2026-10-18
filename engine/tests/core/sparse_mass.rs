@@ -523,10 +523,16 @@ const GOLDEN_BUCKLING_3D: [f64; 4] = [
     // axial force from its elongation (EA·δ/L, the exact mean of N) instead of
     // (N_start + N_end)/2 of the recovered end forces: mode 0 moved 1.9e-10,
     // now 1.1e-11 from the closed form (mode 1: 1.1e-10).
-    4.934802200597014e0,
-    9.86960440216402e0,
-    4.441322215041605e1,
-    8.882644430536759e1,
+    //
+    // Recaptured a fourth time when the 3D frame Kg gained its torsional (Wagner) term:
+    // the twist DOFs now enter the pencil, so the iteration takes another floating-point
+    // path. Mode 0 moved 1.2e-10 and sits 1.3e-10 from the closed form; mode 1 is now
+    // 2.2e-11 from it (was 1.1e-10). The torsional load of this section is far above
+    // these four modes.
+    4.934802201182984e0,
+    9.869604401308603e0,
+    4.441322214967293e1,
+    8.882644430572996e1,
 ];
 
 #[test]

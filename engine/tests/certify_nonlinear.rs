@@ -863,13 +863,17 @@ fn certify_spectral_3d_building() {
     let dof = DofNumbering::build_3d(&input);
     let k = assemble_stiffness_sparse_3d(&input, &dof, false).k_ff;
     let m = assemble_mass_matrix_3d_sparse(&input, &dof, &densities());
-    let mut r = vec![0.0; dof.n_free];
+    // (M·r)_f from the full mass (supports' translations move with the ground).
+    let n = dof.n_total;
+    let m_full = dense_lower(&dedaliano_engine::solver::mass_matrix::assemble_mass_matrix_3d_sparse_block(&input, &dof, &densities(), n));
+    let mut r = vec![0.0; n];
     for (&(_, local), &g) in &dof.map {
-        if local == 0 && g < dof.n_free {
+        if local == 0 {
             r[g] = 1.0;
         }
     }
-    let (ref_u, ref_shear) = reference_spectral(&k, &m, &r, 4, &sp.spectrum, 9.81, Some(0.05));
+    let mr: Vec<f64> = (0..dof.n_free).map(|i| (0..n).map(|q| m_full[i * n + q] * r[q]).sum()).collect();
+    let (ref_u, ref_shear) = reference_spectral(&k, &m, &mr, 4, &sp.spectrum, 9.81, Some(0.05));
     let umax = ref_u.iter().fold(0.0f64, |a, &b| a.max(b));
     for ne in displacements {
         for (local, e) in ne.values.iter().enumerate() {
