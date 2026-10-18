@@ -41,6 +41,20 @@ fn two_fiber_section(e: f64, c: f64, a1: f64, a2: f64, along_z: bool) -> FiberSe
     FiberSectionDef { fibers: vec![f(c, a1), f(-c, a2)], materials: vec![FiberMaterial::Elastic { e }] }
 }
 
+/// Four elastic fibers: the two of `two_fiber_section` along the chosen axis,
+/// each split in half at ±0.05 on the other axis, so the section has bending
+/// stiffness about both axes (a 3D model needs it).
+fn four_fiber_section(e: f64, c: f64, a1: f64, a2: f64, along_z: bool) -> FiberSectionDef {
+    let mut fibers = Vec::new();
+    for (s, area) in [(c, a1), (-c, a2)] {
+        for o in [0.05, -0.05] {
+            let (y, z) = if along_z { (o, s) } else { (s, o) };
+            fibers.push(Fiber { y, z, area: area / 2.0, material_idx: 0 });
+        }
+    }
+    FiberSectionDef { fibers, materials: vec![FiberMaterial::Elastic { e }] }
+}
+
 /// 2D cantilever along +x, fixed at node 0, one fiber element 0–1.
 fn fiber_cantilever_2d(
     l: f64,
@@ -201,7 +215,7 @@ fn eccentric_tension_exact(e_kn: f64, c: f64, a1: f64, a2: f64, p: f64, l: f64) 
 fn fiber_3d_eccentric_tension_cantilever_bends_toward_stiff_side() {
     let (e, c, a1, a2, l, p) = (200_000.0, 0.1, 3e-3, 1e-3, 2.0, 100.0);
     let (ux, uz) = eccentric_tension_exact(e * 1000.0, c, a1, a2, p, l);
-    let input = fiber_cantilever_3d(l, two_fiber_section(e, c, a1, a2, true),
+    let input = fiber_cantilever_3d(l, four_fiber_section(e, c, a1, a2, true),
         SolverNodalLoad3D { node_id: 2, fx: p, fy: 0.0, fz: 0.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None });
     let r = solve_fiber_nonlinear_3d(&input).unwrap();
     assert!(r.converged);
@@ -209,7 +223,7 @@ fn fiber_3d_eccentric_tension_cantilever_bends_toward_stiff_side() {
     assert!(rel(d.ux, ux) < 1e-6, "ux {} vs {ux}", d.ux);
     assert!(rel(d.uz, uz) < 1e-6, "uz {} vs {uz} (toward the stiff +z fibres)", d.uz);
     // Same along y (always right): tip uy toward +y.
-    let input = fiber_cantilever_3d(l, two_fiber_section(e, c, a1, a2, false),
+    let input = fiber_cantilever_3d(l, four_fiber_section(e, c, a1, a2, false),
         SolverNodalLoad3D { node_id: 2, fx: p, fy: 0.0, fz: 0.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None });
     let r = solve_fiber_nonlinear_3d(&input).unwrap();
     let d = r.results.displacements.iter().find(|d| d.node_id == 2).unwrap();
@@ -247,13 +261,10 @@ fn fiber_2d_eccentric_tension_cantilever_bends_toward_stiff_side() {
     assert!(rel(d.uz, uz) < 1e-6, "uz {} vs {uz} (toward the stiff top fibres)", d.uz);
 }
 
-/// SP-2 consequence: a singly reinforced section (steel only at the bottom,
-/// concrete-like no-tension material elsewhere is not needed): a cantilever
-/// whose only stiff fibres sit at the bottom, under a downward tip load, is in
-/// tension at the bottom near the support. With the mirrored kinematics the
-/// bottom fibres were compressed instead. Checked on the section state through
-/// the yield flag: elastic-perfectly... (kept simple: sign of the bottom fibre
-/// stress under hogging is tension).
+/// SP-2 consequence: a cantilever under a downward tip load hogs, so at the
+/// support the top fibre (+y) is in tension and the bottom one compressed.
+/// With the mirrored kinematics it was the other way round, which for a
+/// singly reinforced or otherwise y-asymmetric section is a different member.
 #[test]
 fn fiber_2d_hogging_puts_top_fibre_in_tension() {
     // Cantilever, downward tip load: hogging moment, top (+y) fibre in tension.
@@ -425,7 +436,7 @@ fn concrete_hognestad_is_history_free_in_compression() {
 /// changed with the length unit. Same cable in m and in mm.
 #[test]
 fn irvine_parameter_is_dimensionless() {
-    let (w, l, h, e, a) = (1.0, 100.0, 250.0, 160e6, 5e-3); // kN/m, m, kN, kN/m², m²
+    let (w, l, h, e, a): (f64, f64, f64, f64, f64) = (1.0, 100.0, 250.0, 160e6, 5e-3); // kN/m, m, kN, kN/m², m²
     let d = w * l * l / (8.0 * h);
     let le = l * (1.0 + 8.0 * (d / l).powi(2));
     let expected = (w * l / h).powi(2) * l / (h * le / (e * a));
@@ -479,7 +490,7 @@ fn catenary_ordinate_and_length() {
 #[test]
 #[ignore = "open question SP-11: ernst_tangent_modulus is not the derivative of the chord-tension law"]
 fn ernst_tangent_modulus_is_the_chord_law_derivative() {
-    let (e, a, w, lh, t) = (160e6, 2e-3, 0.2, 200.0, 300.0);
+    let (e, a, w, lh, t): (f64, f64, f64, f64, f64) = (160e6, 2e-3, 0.2, 200.0, 300.0);
     let eps = |t: f64| t / (e * a) - (w * lh).powi(2) / (24.0 * t * t);
     let dt = 1e-4 * t;
     let tangent = 2.0 * dt / (eps(t + dt) - eps(t - dt)) / a;
@@ -523,22 +534,25 @@ fn cable_tension_follows_the_elastic_catenary_chord_law() {
 
 /// SP-13 (DOCUMENTED-CHOICE, pinned). The cable solver uses the cable density
 /// only for Ernst's sag reduction; it does not apply the cable's weight as a
-/// load. With no loads nothing moves.
+/// load: the vertical reactions of a loaded V cable equal the applied load
+/// alone, with or without density.
 #[test]
 fn cable_density_is_not_a_load() {
+    let p = 20.0;
     let input = common::make_input(
         vec![(1, 0.0, 0.0), (2, 10.0, -2.0), (3, 20.0, 0.0)],
         vec![(1, 200_000.0, 0.3)],
         vec![(1, 1e-3, 1e-8)],
         vec![(1, "cable", 1, 2, 1, 1, false, false), (2, "cable", 2, 3, 1, 1, false, false)],
         vec![(1, 1, "pinned"), (2, 3, "pinned")],
-        vec![],
+        vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: 0.0, fz: -p, my: 0.0 })],
     );
     let dens = HashMap::from([("1".to_string(), 7850.0)]);
     let r = cable::solve_cable_2d(&input, &dens, 50, 1e-10).unwrap();
-    for d in &r.results.displacements {
-        assert!(d.ux == 0.0 && d.uz == 0.0, "node {} moved", d.node_id);
-    }
+    assert!(r.converged);
+    let rz: f64 = r.results.reactions.iter().map(|x| x.rz).sum();
+    assert!((rz - p).abs() < 1e-9 * p, "ΣRz = {rz}, applied {p}: no self-weight added");
+    assert!(r.cable_forces.iter().all(|c| c.ernst_modulus < 200e6), "density still reduces the modulus");
 }
 
 /// SP-14 (OPEN). Outside the cable solver a "cable" member is assembled as a
@@ -560,8 +574,9 @@ fn linear_solver_does_not_report_cable_compression_silently() {
         Err(_) => {}
         Ok(r) => {
             let compressed = r.element_forces.iter().any(|f| f.n_start < 0.0);
-            let warned = !r.diagnostics.is_empty() || !r.structured_diagnostics.is_empty() || !r.solver_diagnostics.is_empty();
-            assert!(!compressed || warned, "cables in compression without a diagnostic: {:?}",
+            let all = format!("{:?} {:?} {:?}", r.diagnostics, r.structured_diagnostics, r.solver_diagnostics).to_lowercase();
+            let warned = all.contains("cable") || all.contains("compression") || all.contains("tension-only");
+            assert!(!compressed || warned, "cables in compression without a diagnostic: N = {:?}",
                 r.element_forces.iter().map(|f| f.n_start).collect::<Vec<_>>());
         }
     }
@@ -593,7 +608,7 @@ fn quarter_circle_cantilever(n: usize, r: f64, iy: f64, iz: f64) -> SolverInput3
 /// the inscribed polygon falls as 1/N² (ratio ≈ 4 per doubling).
 #[test]
 fn curved_beam_quarter_circle_converges_to_castigliano() {
-    let (r, iy, p) = (4.0, 1e-4, 10.0);
+    let (r, iy, p): (f64, f64, f64) = (4.0, 1e-4, 10.0);
     let ei = 200e6 * iy;
     let dz = std::f64::consts::PI * p * r.powi(3) / (4.0 * ei);
     let dx = p * r.powi(3) / (2.0 * ei);
@@ -694,15 +709,15 @@ fn connector_zero_length_3d_axis_mapping() {
 
 /// SP-17 (OPEN). The 3D connector frame jumps where its reference vector
 /// switches (global X while |dir·X| < 0.9, else global Y). With anisotropic
-/// transverse springs two connectors 1e-4 rad apart get local axes ~70° apart.
+/// transverse springs two connectors 1e-6 apart in direction get very different local axes.
 /// There is no local_y / roll input to fix the orientation.
 #[test]
 #[ignore = "open question SP-17: 3D connector local axes are discontinuous at |dir_x| = 0.9 and not user-settable"]
 fn connector_3d_axes_are_continuous_in_direction() {
-    let dir = |a: f64| [a.cos(), a.sin(), 0.0];
-    let a0 = 0.9f64.acos();
-    let k1 = connector_stiffness_3d(1.0, 100.0, 1.0, 1.0, 1.0, 1.0, dir(a0 - 1e-4), 0.0);
-    let k2 = connector_stiffness_3d(1.0, 100.0, 1.0, 1.0, 1.0, 1.0, dir(a0 + 1e-4), 0.0);
+    // Out of the XY plane (in it both references give local y = ±Z).
+    let dir = |x: f64| { let t = ((1.0 - x * x) / 2.0).sqrt(); [x, t, t] };
+    let k1 = connector_stiffness_3d(1.0, 100.0, 1.0, 1.0, 1.0, 1.0, dir(0.9 - 1e-6), 0.0);
+    let k2 = connector_stiffness_3d(1.0, 100.0, 1.0, 1.0, 1.0, 1.0, dir(0.9 + 1e-6), 0.0);
     let diff = (0..144).map(|i| (k1[i] - k2[i]).abs()).fold(0.0, f64::max);
     assert!(diff < 0.1, "stiffness jumps by {diff} across the reference switch");
 }
