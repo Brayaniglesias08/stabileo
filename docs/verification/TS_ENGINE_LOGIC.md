@@ -112,7 +112,9 @@ under "What is left".
   - 3: the design-results normaliser now honours the engine's `pass: false` and
     `unevaluated`. The wrappers themselves still return `null` on error, and every new caller
     treats `null` as "not verified".
-- Open: 1, 4, 10, 11, 14 and 17. See "What is left".
+- Fixed on feat/cirsoc301-rust: 1 (CIRSOC 301 in the engine, the TypeScript an adapter, every
+  steel pass gated on the certified engine check; see "CIRSOC 301" below).
+- Open: 4, 10, 11, 14 and 17. See "What is left".
 
 ## Plan and status
 
@@ -179,9 +181,22 @@ symmetric in r ↔ 1/r, so the two orderings agree. It was not compared numerica
 exports no correlation entry point, and `spectral-case.ts` builds the case differently from
 `solve_spectral_3d`.
 
-**Not written: CIRSOC 301 against `steel_check.rs`.** It waits for #293, which rewrites
-`cirsoc301.ts`. The two implement different codes (CIRSOC 301 and AISC 360), so the test has
-to map φ and the caps.
+**CIRSOC 301** (`cirsoc301-steel.test.ts`). The engine now has its own CIRSOC 301 checker,
+`engine/src/postprocess/cirsoc301_check.rs` (the AISC 360 `steel_check.rs` is a different code
+and was not used). The TypeScript checker as it stood after #293, #295 and #303 is kept as the
+oracle (`__tests__/differential/cirsoc301-oracle.ts`). On 4 000 random members of every family it
+knows (I rolled and welded, channels, tees, boxes, RHS, CHS, solid bars; with and without J/Cw,
+Cb, load height, K factors and every kind of end connection), with random axial force, both
+moments and shear, every check agrees to 1e-9 in design strength and ratio and in verdict and
+refusal, and the test asserts that every clause path ran with both verdicts (D.2(a)/(b), E.3,
+E.4, E.7, F.2–F.6, G.2, H.1.1a/b and the refusals). One class of disagreement:
+
+| Disagreement | Cases | Which side was wrong |
+|---|---:|---|
+| Biaxial bending without axial force: no interaction check | 496 of 4 000 | TypeScript. H.1.1, last paragraph: «Para miembros sometidos a flexión biaxial se aplicará la expresión (H.1.1b) anulando el término que contiene a la fuerza axil». A member at 0,63 of φMnx and 0,63 of φMny passed; H.1.1b gives 1,27. Pinned. |
+
+The certified check (`certify_cirsoc301_members`) is run on 1 500 more members: its enclosure
+contains the f64 ratio, and it is uncertified only where the f64 check refused a loaded check.
 
 ### 3. Engine re-check gate
 
@@ -193,6 +208,14 @@ There are two production paths to a CIRSOC 201 "pass".
   with moment already came from the Rust column kernel. When the beam kernel is not loaded,
   the verifier reports the member as not verifiable: the capacity is `null`, or φVn = 0,
   which fails.
+- - **CIRSOC 301 steel** (`codes/argentina/cirsoc301-engine-gate.ts`). `checkSteelMember` — the one
+  path of the verification, the profile optimiser, the tension table and the steel results
+  screen — hands the exact input it checked and every demand set (the compression and the
+  tension run) to `certify_cirsoc301_members`. A pass stands only when the certified utilization
+  is provably below 1; otherwise the member fails with `VERIF_ENGINE_DISAGREES`, and with
+  `VERIF_ENGINE_UNAVAILABLE` when the engine is not loaded. Each result carries
+  `engineRecheck` (the enclosure), which the results screen shows as the proven-bound badge.
+  Tests: `__tests__/cirsoc301-engine-gate.test.ts`.
 - **Design and verification of the whole model** (`auto-verify.ts` → `verifyElement`, used
   by `runCirsocDesign` and by the report). This path designed and checked with the same
   TypeScript, so its own defects passed its own designs. `codes/argentina/cirsoc201-engine-gate.ts`
@@ -218,7 +241,7 @@ designer anchored at 4 ‰ for the required steel and never looked at the provid
 | CIRSOC 201 beam flexure and shear (`station-design-forces.ts` `computeFlexureCapacity`, `computeShearCapacity`) | **Migrated.** Thin adapters over `codes/argentina/cirsoc201-beam-kernel.ts` → `cirsoc201_beam_batch` (numeric boundary, the `steel-codes.ts` pattern without JSON, because the verifier asks thousands of times per run). The ductility check is new. |
 | CIRSOC 201 legacy designer (`cirsoc201.ts` `checkFlexure`, `checkShear`, `checkColumn`) | Sizing stays in TypeScript and the verdict is re-checked by the engine (step 3). It is not yet a thin adapter. |
 | CIRSOC 201 other sections (`cirsoc201-capacity.ts`, `-flanged.ts`, `-circular.ts`, `interaction-diagram.ts`, `cirsoc-flex.ts`) | Not migrated. |
-| CIRSOC 301 (`cirsoc301.ts`) | Waiting for #293, which rewrites this file. No Rust CIRSOC 301 checker exists yet. |
+| CIRSOC 301 (`cirsoc301.ts`) | **Migrated.** A thin adapter over `check_cirsoc301_members` (`cirsoc301-kernel.ts`, JSON boundary): it maps `SteelDesignParams` in and the results out and renders the engine's messages as the Spanish `steps`. No engine = every check fails. Every pass is re-checked by `cirsoc301-engine-gate.ts` (step 3). Single and double angles are new (E.5, E.6). Still TypeScript (class c, inputs to the engine): `steel/tension-connection.ts` (Ae from the model's end connections), `steel/moment-gradient.ts` (Cb), `steel/section-constants.ts` (J, Cw, Z). |
 | Serviceability (`checkDeflection`) | **Migrated.** The verdict (allowable deflection, ratio, pass) comes from `check_serviceability`. Only the long-term multiplier stays in TypeScript. If the engine is not loaded, the check fails. `checkCrackWidth` has no engine counterpart; it was fixed but stays in TypeScript. |
 | Footings (`foundation-check.ts`, `punching-shear.ts`) | Not migrated. The Rust checker was corrected and is proven equal on shear for centred footings, but it does not model eccentricity, separate service and factored loads, or flexure, so it cannot replace the TypeScript yet. |
 | Station design forces | Production already uses the engine buffer. The TypeScript is the fallback when WASM is not ready (finding 4), and it is proven equal on the QA-8 frame. |
@@ -263,10 +286,11 @@ machine was shared by eight agents. The nightly job runs it.
 
 In rough order of safety value:
 
-1. **CIRSOC 301 in Rust.** Write a `cirsoc301_check.rs` (the engine has AISC 360 only),
-   migrate `cirsoc301.ts` to an adapter, add a differential test, and gate
-   `verification-service.ts` and `steel/profile-optimise.ts`. This waits for #293, which
-   rewrites `cirsoc301.ts`.
+1. **CIRSOC 301 inputs still computed in TypeScript.** The checker is in Rust and gated, but Ae
+   from the model's end connections (`tension-connection.ts`), Cb (`moment-gradient.ts`) and J,
+   Cw, Z (`section-constants.ts`) are TypeScript arithmetic fed to it. Not in the engine either:
+   F.7–F.11 (boxes, tubes, tees, angles in flexure), so those members are NOT EVALUATED under
+   moment, by name.
 2. **Gate coverage.** Biaxial bending (Bresler), torsion and the slenderness magnifier are not
    re-checked by the engine, because it has no checkers for them. Each result says so in
    `engineRecheck.notRechecked`.
@@ -320,7 +344,7 @@ In rough order of safety value:
 | `codes/argentina/cirsoc201-layouts.ts` | 255 | d | - | medium | Bar coordinate layouts reproducing workbook conventions (geometry placement) |
 | `codes/argentina/cirsoc201-section.ts` | 288 | b | engine/src/rc_section_kernel.rs | high | General polygon section strain-compatibility P-Mx-My; WASM kernel when registered, full TS sectionPoint fallback otherwise; phi/cap applied in TS |
 | `codes/argentina/cirsoc201.ts` | 1520 | b | engine/src/postprocess/cirsoc201_check.rs, rc_check.rs | high | CIRSOC 201 flexure, shear, column, torsion, biaxial, slenderness, detailing checks (known duplicate) |
-| `codes/argentina/cirsoc301.ts` | 852 | b | engine/src/postprocess/steel_check.rs | high | CIRSOC 301/AISC LRFD tension, compression, flexure LTB, shear, H1 interaction (known duplicate) |
+| `codes/argentina/cirsoc301.ts` | 852 | a | engine/src/postprocess/cirsoc301_check.rs | high | Adapter over check_cirsoc301_members (was the TS duplicate; now the differential oracle) |
 | `codes/argentina/flex-demand-from-model.ts` | 76 | d | - | medium | Maps station resultants to calculator demand fields with one sign flip |
 | `codes/argentina/index.ts` | 8 | d | - | low | Re-export barrel |
 | `codes/argentina/interaction-diagram.ts` | 261 | b | engine/src/postprocess/rc_check.rs (axial_flexure_capacity), column_capacity_kernel.rs | high | Rectangular two-layer P-M interaction diagram scan plus SVG |

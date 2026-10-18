@@ -11,6 +11,22 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
+
+**BREAKING (results): steel members bent about both axes without axial force are now checked by
+H.1.1b**, which the TypeScript checker skipped (unconservative). Every other CIRSOC 301 number is
+unchanged: the engine agrees with the previous checker to 1e-9 on 4 000 random members.
+
+- `engine/src/postprocess/cirsoc301_check.rs`: tension D.2 (Ae = An·U), compression E.3/E.4/E.7,
+  single angles E.5 and double angles E.6, flexure F.2–F.6 with load height and Cb, shear G.2/G.4,
+  interaction H.1; generic over `Real`; WASM `check_cirsoc301_members`, `certify_cirsoc301_members`.
+- `cirsoc301.ts` is an adapter over it; every steel pass is confirmed by the certified engine check
+  (`VERIF_ENGINE_DISAGREES` / `VERIF_ENGINE_UNAVAILABLE` otherwise).
+- Catalogue angles (one thickness) and double angles now reach the steel check; the member states
+  the E.5 end condition or the E.6 connectors. Angles in flexure (F.9, F.10) are refused by name.
+- Steel results screen: every check per member, ratio, governing check, status with the reason,
+  proven-bound badge, the calculation with clause references, in en/es/pt.
+||||||| 333cbc54
 #### Solid shells meshed with frames or shells; spectral analysis checked (2026-10-17)
 
 **BREAKING (results): 3D models that mix solid shells (or trusses) with frames or shells now
