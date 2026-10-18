@@ -8,6 +8,7 @@
  */
 
 import { getElevation, hasElevation, VERTICAL_AXIS, type CoordinateNode } from '../geometry/coordinate-system';
+import { APP_VERSION } from '../build-info';
 
 const BACKEND_URL = import.meta.env.VITE_AI_BACKEND_URL || 'http://localhost:3001';
 const API_KEY = import.meta.env.VITE_AI_API_KEY || '';
@@ -246,7 +247,7 @@ export function buildArtifact(
 
   return {
     meta: {
-      engineVersion: '0.1.0',
+      engineVersion: APP_VERSION,
       buildTimestamp: new Date().toISOString(),
       buildSha: 'web-frontend',
       solverPath: results.timings?.solverType ?? 'unknown',

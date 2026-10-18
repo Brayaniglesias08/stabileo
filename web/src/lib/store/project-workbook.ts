@@ -27,7 +27,7 @@ import type { WorkbookModel } from '../export/workbook-model';
 import { combinationKind, type WorkbookSource } from '../export/workbook-results';
 import { fitsInXlsx, safeText, type WorkbookSheet } from '../export/workbook-cells';
 import { specificationRows } from '../pro/specification-list';
-import { BUILD_COMMIT } from '../build-info';
+import { APP_VERSION, BUILD_COMMIT } from '../build-info';
 
 function workbookModel(): WorkbookModel {
   const m = modelStore.model;
@@ -79,7 +79,7 @@ export function currentWorkbookSheets(stations: StationSpec, opts: WorkbookOptio
     solved: buildSolverInput3D(model, false, false, { expandMemberOffsets: false }),
     projectName: modelStore.model.name,
     projectInfo: modelStore.projectInfo,
-    meta: { exported: new Date().toISOString(), commit: BUILD_COMMIT },
+    meta: { exported: new Date().toISOString(), commit: `${APP_VERSION} (${BUILD_COMMIT})` },
     results: {
       sources: workbookSources(opts.sources),
       stations,
