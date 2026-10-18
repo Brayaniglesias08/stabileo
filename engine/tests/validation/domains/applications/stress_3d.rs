@@ -229,7 +229,7 @@ fn validation_stress_3d_torsion() {
 /// reported no torsion at all (found by the differential test against the TypeScript oracle).
 #[test]
 fn validation_stress_3d_torsion_rect_with_zero_thicknesses() {
-    let (b, h, mx) = (0.1, 0.2, 2.0);
+    let (b, h, mx): (f64, f64, f64) = (0.1, 0.2, 2.0);
     let mut section = rect_section(b, h);
     section.tw = Some(0.0);
     section.tf = Some(0.0);
@@ -244,7 +244,7 @@ fn validation_stress_3d_torsion_rect_with_zero_thicknesses() {
 /// The 3D engine reported half of it (one-sided Q over the two-sided width).
 #[test]
 fn validation_stress_3d_chs_shear_peaks_at_2v_over_a() {
-    let (d, t) = (0.3, 0.004);
+    let (d, t): (f64, f64) = (0.3, 0.004);
     let r = d / 2.0;
     let i = std::f64::consts::PI / 4.0 * (r.powi(4) - (r - t).powi(4));
     let section = SectionGeometry {
