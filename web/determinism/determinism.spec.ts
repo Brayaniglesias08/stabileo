@@ -13,13 +13,13 @@ type Result = { name: string; text: string };
 
 /** Certificates and solves that must succeed on these models (not only agree). */
 const MUST_SUCCEED = [
-  /\/certify_linear_[23]d$/, /\/export_linear_bundle_[23]d$/, /\/certify_modal_[23]d$/,
+  /\/certify_linear_[23]d$/, /\/export_linear_bundle_[23]d$/, /\/certify_modal_[23]d$/, /\/(solve|certify)_harmonic_[23]d$/,
   /^combo-2d\//, /^bundle-3d\//, /^plastic-/, /\/solve_[23]d$/,
 ];
 
 /** Certificates that must come out certified on these models, so agreement is not vacuous. */
 const MUST_CERTIFY = [
-  /\/certify_(linear|modal|spectral|pdelta|multi_case|time_history)_[23]d$/,
+  /\/certify_(linear|modal|spectral|pdelta|multi_case|time_history|harmonic)_[23]d$/,
   /^(portal|two-story|truss)-2d\/certify_buckling_2d$/, /-3d\/certify_buckling_3d$/,
   /^combo-2d\/certify_/, /^bundle-3d\/certify_/, /^plastic-.*\/certify_/,
 ];

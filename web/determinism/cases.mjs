@@ -63,10 +63,17 @@ function densities(model) {
   return Object.fromEntries(Object.keys(model.materials).map((k) => [k, 7850]));
 }
 
-/** The highest-numbered node without a support (the harmonic response point). */
-function lastNode(model) {
-  const supported = new Set(Object.values(model.supports).map((s) => s.nodeId));
-  return Math.max(...Object.values(model.nodes).map((n) => n.id).filter((id) => !supported.has(id)));
+/**
+ * A response point with a free translational DOF: the highest-numbered unsupported node, else
+ * the highest-numbered `rollerX` node (x free), in direction x. Throws when the model has
+ * none, so a fixture change shows up as a failed harmonic case instead of a vacuous one.
+ */
+function responsePoint(model) {
+  const supportOf = new Map(Object.values(model.supports).map((s) => [s.nodeId, s.type]));
+  const ids = Object.values(model.nodes).map((n) => n.id).sort((a, b) => b - a);
+  const id = ids.find((i) => !supportOf.has(i)) ?? ids.find((i) => supportOf.get(i) === 'rollerX');
+  if (id === undefined) throw new Error('no node with a free x DOF for the harmonic response');
+  return { responseNodeId: id, responseDof: 'x' };
 }
 
 /**
@@ -125,9 +132,9 @@ function caseList(w, fx) {
     const th = { ...dyn, timeStep: 0.01, nSteps: 40, groundAccel: GROUND, groundDirection: 'X' };
     add(`${id}/solve_time_history_2d`, () => w.solve_time_history_2d(s(th)));
     add(`${id}/certify_time_history_2d`, () => w.certify_time_history_2d(s(th)));
-    const hm = { ...dyn, frequencies: [0.5, 2.0, 8.0], dampingRatio: 0.05, responseNodeId: lastNode(m), responseDof: 'x' };
-    add(`${id}/solve_harmonic_2d`, () => w.solve_harmonic_2d(s(hm)));
-    add(`${id}/certify_harmonic_2d`, () => w.certify_harmonic_2d(s(hm)));
+    const hm = () => ({ ...dyn, frequencies: [0.5, 2.0, 8.0], dampingRatio: 0.05, ...responsePoint(m) });
+    add(`${id}/solve_harmonic_2d`, () => w.solve_harmonic_2d(s(hm())));
+    add(`${id}/certify_harmonic_2d`, () => w.certify_harmonic_2d(s(hm())));
     add(`${id}/solve_plastic_2d`, () => w.solve_plastic_2d(s(plasticOf(m, false))));
     add(`${id}/certify_plastic_2d`, () => w.certify_plastic_2d(s(plasticOf(m, false))));
     add(`${id}/solve_multi_case_2d`, () => w.solve_multi_case_2d(multiCaseOf(m)));
@@ -152,9 +159,9 @@ function caseList(w, fx) {
     const th = { ...dyn, timeStep: 0.01, nSteps: 40, groundAccelX: GROUND };
     add(`${id}/solve_time_history_3d`, () => w.solve_time_history_3d(s(th)));
     add(`${id}/certify_time_history_3d`, () => w.certify_time_history_3d(s(th)));
-    const hm = { ...dyn, frequencies: [0.5, 2.0, 8.0], dampingRatio: 0.05, responseNodeId: lastNode(m), responseDof: 'x' };
-    add(`${id}/solve_harmonic_3d`, () => w.solve_harmonic_3d(s(hm)));
-    add(`${id}/certify_harmonic_3d`, () => w.certify_harmonic_3d(s(hm)));
+    const hm = () => ({ ...dyn, frequencies: [0.5, 2.0, 8.0], dampingRatio: 0.05, ...responsePoint(m) });
+    add(`${id}/solve_harmonic_3d`, () => w.solve_harmonic_3d(s(hm())));
+    add(`${id}/certify_harmonic_3d`, () => w.certify_harmonic_3d(s(hm())));
     add(`${id}/solve_plastic_3d`, () => w.solve_plastic_3d(s(plasticOf(m, true))));
     add(`${id}/certify_plastic_3d`, () => w.certify_plastic_3d(s(plasticOf(m, true))));
     add(`${id}/certify_multi_case_3d`, () => w.certify_multi_case_3d(multiCaseOf(m)));
