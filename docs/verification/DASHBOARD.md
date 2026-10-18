@@ -6,7 +6,7 @@ data is in [`dashboard.json`](dashboard.json) for the app and the docs site. CI 
 weekly and on every release tag ([workflow](../../.github/workflows/verification-dashboard.yml)).
 **"not yet measured" means exactly that**: no value is estimated or typed in.
 
-Generated 2026-10-18 16:54 UTC at commit `e6f8497499`.
+Generated 2026-10-18 20:37 UTC at commit `6739655768`.
 
 These are the metrics behind the exit criteria of the backlog sections of
 [PRODUCT_ROADMAP.md](../roadmap/PRODUCT_ROADMAP.md). Per-item verification levels are in
@@ -16,7 +16,7 @@ These are the metrics behind the exit criteria of the backlog sections of
 
 | Metric | Value | Roadmap section | Source / note |
 |---|---|---|---|
-| Open `safety` issues | **51** | Release safety | GitHub label `safety`; 0 closed |
+| Open `safety` issues | **52** | Release safety | GitHub label `safety`; 0 closed |
 | Safety advisories published (GitHub) | **0** | Release safety | GitHub label `safety-advisory` |
 | Engineering logic in Rust (share of lines) | **64.6 %** | Engineering coverage | engine/src vs TS_ENGINE_LOGIC.md classes (b)+(c); TypeScript (b)+(c): 58924 lines in 161 modules; 13 TS modules not yet classified |
 | TypeScript (b)+(c) modules rated high safety | **88 modules, 35935 lines** | Engineering coverage | TS_ENGINE_LOGIC.md inventory (Safety column) |
@@ -105,6 +105,7 @@ One row per release, from the snapshots in [`releases/`](releases/): each is mea
 - [#444](https://github.com/lambdaclass/stabileo/issues/444) Winkler member forces leave out the foundation reaction
 - [#445](https://github.com/lambdaclass/stabileo/issues/445) Rigid link and diaphragm mean different things in the 2D and the 3D solve of one model
 - [#447](https://github.com/lambdaclass/stabileo/issues/447) Contain first, fix second: per-feature runtime switches (warn/refuse) for known dangerous results
+- [#452](https://github.com/lambdaclass/stabileo/issues/452) 2D: a nodal moment on a node where every frame is hinged is silently lost
 
 ### Differential testing (latest report per harness on `main`)
 

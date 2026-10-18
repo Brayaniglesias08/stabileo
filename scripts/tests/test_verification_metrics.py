@@ -135,5 +135,49 @@ class History(unittest.TestCase):
             vm.write_release(tempfile.mkdtemp(), {"release": "../evil", "values": {}})
 
 
+class CoverageProvenance(unittest.TestCase):
+    def _gh(self):
+        summary = lambda pctg: {"c.json": json.dumps({"data": [{"totals": {
+            "lines": {"percent": pctg}, "functions": {"percent": pctg}}}]})}
+        r_new = dict(run(9, branch="v0.4.0", event="push"), headSha="new")
+        r_old = dict(run(8, branch="v0.3.0", event="push"), headSha="old")
+        return FakeGH({"verification-dashboard.yml": [r_new, r_old]},
+                      {9: ["llvm-cov-summary"], 8: ["llvm-cov-summary"]},
+                      {(9, "llvm-cov-summary"): summary(90.0), (8, "llvm-cov-summary"): summary(70.0)})
+
+    def test_current_dashboard_takes_newest(self):
+        self.assertEqual(vm.coverage(self._gh(), 10, None)["lines"], 90.0)
+
+    def test_release_snapshot_takes_only_its_own_commit(self):
+        self.assertEqual(vm.coverage(self._gh(), 10, None, require_sha="old")["lines"], 70.0)
+        self.assertIsNone(vm.coverage(self._gh(), 10, None, require_sha="other"))
+
+
+class RecordGuard(unittest.TestCase):
+    def test_missing_tag_refused(self):
+        self.assertIn("no tag", vm.check_record("v9.9.9", "abc", "", False))
+
+    def test_tag_not_head_refused(self):
+        self.assertIn("check out the tag", vm.check_record("v0.2.0", "abc", "def", False))
+
+    def test_tag_at_head_or_override_allowed(self):
+        self.assertIsNone(vm.check_record("v0.2.0", "abc", "abc", False))
+        self.assertIsNone(vm.check_record("v9.9.9", "abc", "", True))
+
+    def test_real_repo_has_no_such_tag(self):
+        self.assertEqual(vm.resolve_tag("v999.99.99-does-not-exist"), "")
+
+
+class SafetyMapping(unittest.TestCase):
+    def test_unmapped_safety_issues_are_reported(self):
+        issues = [{"number": 404, "title": "a"}, {"number": 99999, "title": "new defect"}]
+        self.assertEqual([i["number"] for i in vm.unmapped_safety(issues, vm.catalog_issues())], [99999])
+
+    def test_known_defects_are_on_their_rows(self):
+        rows = {r[0]: set(r[5]) for r in vm.ANALYSES}
+        self.assertIn(444, rows["Winkler foundation"])
+        self.assertIn(445, rows["Constraints (rigid links, diaphragms, EqualDOF, MPC)"])
+
+
 if __name__ == "__main__":
     unittest.main()

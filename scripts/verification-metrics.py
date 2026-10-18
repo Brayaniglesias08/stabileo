@@ -456,7 +456,10 @@ def fuzz_execs(gh: GH, max_runs: int):
     return {"total": total, "targets": targets} if targets else None
 
 
-def coverage(gh: GH, max_runs: int, local: str | None):
+def coverage(gh: GH, max_runs: int, local: str | None, require_sha: str | None = None):
+    """Engine coverage from `local`, else from the newest coverage artifact of a main or release-tag
+    run. With `require_sha` (recording a release snapshot) only an artifact of a run of exactly that
+    commit is accepted; otherwise coverage stays unmeasured for the snapshot."""
     data = None
     if local and os.path.exists(local):
         with open(local, encoding="utf-8") as f:
@@ -464,8 +467,10 @@ def coverage(gh: GH, max_runs: int, local: str | None):
         src = local
     elif gh.ok:
         # Coverage is measured by release-tag runs (and manual runs on main), so tag runs count.
+        flt = is_main_or_tag_run if not require_sha else (
+            lambda r: is_main_or_tag_run(r) and r.get("headSha") == require_sha)
         hit = find_artifacts(gh, "verification-dashboard.yml", r"llvm-cov-summary", max_runs, branch=None,
-                             run_filter=is_main_or_tag_run)
+                             run_filter=flt)
         if hit:
             d = gh.download(hit[0][0]["databaseId"], hit[0][1])
             p = d and next(iter(glob.glob(os.path.join(d, "**", "*.json"), recursive=True)), None)
@@ -508,9 +513,9 @@ ANALYSES = [
     ("Linear static", ["linear", "linear (sparse path)"], ["Certified linear static results"],
      ["2D linear static", "3D linear static"],
      [("Frame3DD", "static"), ("PyNite", "static"), ("MYSTRAN", "static"), ("Kratos", "static"),
-      ("CalculiX", "static"), ("OpenSees", "static"), ("Code_Aster", "static")], [343, 435]),
+      ("CalculiX", "static"), ("OpenSees", "static"), ("Code_Aster", "static")], [343, 435, 443, 452]),
     ("Constraints (rigid links, diaphragms, EqualDOF, MPC)", ["constrained"],
-     ["Constraints (multi-point constraints)"], ["Constraint technology"], [("Code_Aster", "static")], [342]),
+     ["Constraints (multi-point constraints)"], ["Constraint technology"], [("Code_Aster", "static")], [342, 445]),
     ("Load combinations and envelopes", ["load combinations"], ["Load combinations and envelopes"],
      ["Load combinations / envelopes"], [], []),
     ("Member forces, diagrams, deflections, reactions", [],
@@ -518,9 +523,9 @@ ANALYSES = [
      ["Diagrams / section forces / deformed shape"],
      [("Frame3DD", "static"), ("PyNite", "static"), ("OpenSees", "static"), ("Code_Aster", "static")], [343]),
     ("P-Delta (second order)", ["P-Delta", "P-Delta (sparse path)"], ["P-Delta (second-order) displacements"],
-     ["2D P-Delta", "3D P-Delta"], [("Frame3DD", "pdelta"), ("OpenSees", "pdelta")], [404, 431]),
+     ["2D P-Delta", "3D P-Delta"], [("Frame3DD", "pdelta"), ("OpenSees", "pdelta")], [404, 431, 439, 442]),
     ("Linear buckling", ["buckling"], ["Buckling load-factor enclosure"], ["2D buckling", "3D buckling"],
-     [("OpenSees", "buckling")], [404]),
+     [("OpenSees", "buckling")], [404, 439]),
     ("Modal", ["modal", "certified modal"], ["Modal enclosures and completeness"], ["2D modal", "3D modal"],
      [("Frame3DD", "modal"), ("MYSTRAN", "modal"), ("OpenSees", "modal")], [338, 341, 405]),
     ("Response spectrum (SRSS / CQC)", ["spectral"], ["Response spectrum (SRSS / CQC)"],
@@ -533,14 +538,14 @@ ANALYSES = [
      ["Plastic collapse load factor", "Plastic collapse load factor, 3D"],
      ["Plastic collapse / hinge sequencing"], [], []),
     ("Co-rotational (geometric nonlinear)", ["corotational", "corotational (sparse path)"], [],
-     ["2D geometric nonlinear (corotational)", "3D geometric nonlinear"], [], [426]),
+     ["2D geometric nonlinear (corotational)", "3D geometric nonlinear"], [], [426, 442]),
     ("Material nonlinear", ["material nonlinear", "material nonlinear (sparse path)"], [],
      ["2D material nonlinear", "3D material nonlinear"], [], [427, 428, 429]),
     ("Fiber nonlinear", ["fiber nonlinear"], [], ["Fiber nonlinear (2D/3D)"], [], [420, 433]),
     ("Arc length", ["arc length"], [], ["Nonlinear solution controls"], [], []),
     ("Displacement control", ["displacement control"], [], ["Nonlinear solution controls"], [], []),
     ("Staged construction", ["staged (one stage)"], [], ["Construction staging"], [], []),
-    ("Winkler foundation", ["Winkler (no foundation)"], [], ["Winkler foundation solvers (2D/3D)"], [], []),
+    ("Winkler foundation", ["Winkler (no foundation)"], [], ["Winkler foundation solvers (2D/3D)"], [], [444]),
     ("Contact / gaps", ["contact (no gaps)"], [], ["Contact / gap / unilateral support behavior"], [], [432]),
     ("Soil-structure interaction (p-y, t-z, q-z)", ["SSI (no soil springs)"], [],
      ["Nonlinear SSI beyond Winkler"], [], [421, 422, 423]),
@@ -564,7 +569,7 @@ ELEMENTS = [
     ("Frame, Timoshenko (shear deformable)", "engine/src/element/frame.rs", ["Timoshenko shear area"],
      ["frame_local_stiffness_2d"], ["Timoshenko beam / shear deformation"], ["MYSTRAN", "Kratos", "OpenSees"], [406]),
     ("Warping torsion (7th DOF)", "engine/src/element/frame.rs", ["warping torsion"],
-     ["frame_local_stiffness_3d_warping"], ["Warping torsion / 7th DOF"], [], [408]),
+     ["frame_local_stiffness_3d_warping"], ["Warping torsion / 7th DOF"], [], [408, 439]),
     ("Curved beam", "engine/src/element/curved_beam.rs", ["curved beam"], [], ["Curved beams"], [], [418]),
     ("Connector (spring element)", "engine/src/element/connector.rs", ["connector"], [], [], ["Code_Aster"], [419]),
     ("Cable / catenary", "engine/src/element/cable.rs", [], [], ["Cable / catenary element"], [], [414, 415, 416, 417]),
@@ -769,6 +774,18 @@ def maturity(fm, issue_state):
     return rows
 
 
+def catalog_issues() -> set[int]:
+    return ({n for row in ANALYSES for n in row[5]} | {n for row in ELEMENTS for n in row[6]}
+            | {n for c in DESIGN_CHECKS for n in c["issues"]})
+
+
+def unmapped_safety(open_safety: list[dict], catalog: set[int]) -> list[dict]:
+    """Open `safety` issues that no maturity row names. They are listed in MATURITY.md and counted
+    on the dashboard, so a new defect cannot vanish from the matrix because nobody mapped it; map
+    each defect to the rows it affects (backlog / process items may stay unmapped)."""
+    return [i for i in open_safety if i["number"] not in catalog]
+
+
 # --------------------------------------------------------------------------- output
 
 
@@ -776,7 +793,7 @@ def issue_link(n):
     return f"[#{n}](https://github.com/{REPO}/issues/{n})"
 
 
-def write_maturity(rows, generated, commit):
+def write_maturity(rows, generated, commit, unmapped=None):
     lines = [
         "# Verification maturity matrix",
         "",
@@ -819,6 +836,12 @@ def write_maturity(rows, generated, commit):
             lines.append(f"| {r['name']} | **{r['level']}** | " + " | ".join(cells) + f" | {iss} |")
         counts = {lv: sum(1 for r in rows[key] if r["level"] == lv) for lv in LEVELS}
         lines += ["", "Totals: " + ", ".join(f"{lv} {n}" for lv, n in counts.items() if n), ""]
+    if unmapped is not None:
+        lines += ["## Open `safety` issues not mapped to an item", "",
+                  "Every open `safety` issue that no row above names. Defects belong on the rows they affect",
+                  "(edit the catalog in `scripts/verification-metrics.py`); backlog and process items may stay here.", ""]
+        lines += [f"- {issue_link(i['number'])} {i['title']}" for i in unmapped] or ["None."]
+        lines.append("")
     with open(OUT_MATURITY, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
@@ -931,6 +954,25 @@ def write_dashboard(doc):
 # --------------------------------------------------------------------------- main
 
 
+def resolve_tag(name: str) -> str:
+    """Short commit of refs/tags/<name>, or "" when there is no such tag."""
+    return subprocess.run(["git", "rev-parse", "--verify", "--quiet", "--short=10", f"refs/tags/{name}^{{commit}}"],
+                          cwd=ROOT, capture_output=True, text=True).stdout.strip()
+
+
+def check_record(release: str, head: str, tag_commit: str, allow_untagged: bool) -> str | None:
+    """Why --record must not run (None when it may): the tag must exist and be HEAD."""
+    if allow_untagged:
+        return None
+    if not tag_commit:
+        return (f"--record {release}: no tag refs/tags/{release} (mistyped, or not fetched); "
+                "pass --allow-untagged-record to record HEAD anyway")
+    if tag_commit != head:
+        return (f"--record {release}: HEAD is {head}, the tag is {tag_commit}; check out the tag "
+                "(or pass --allow-untagged-record)")
+    return None
+
+
 def write_release(directory: str, row: dict) -> str:
     """Write one release snapshot. Snapshots are one file per release, so a run that starts from a
     main without some pending snapshot never deletes it (the workflow also carries over the
@@ -967,6 +1009,12 @@ def main():
     ap.add_argument("--max-runs", type=int, default=15, help="CI runs to look back per workflow")
     ap.add_argument("--coverage-json", help="local `cargo llvm-cov --json --summary-only` output")
     a = ap.parse_args()
+    if a.record:  # fail before spending minutes on GitHub calls
+        head = subprocess.run(["git", "rev-parse", "--short=10", "HEAD"], cwd=ROOT, capture_output=True,
+                              text=True).stdout.strip()
+        err = check_record(a.record, head, resolve_tag(a.record), a.allow_untagged)
+        if err:
+            sys.exit(err)
 
     prev = {}
     if os.path.exists(OUT_JSON):
@@ -1049,8 +1097,7 @@ def main():
     M["fm_bad"] = metric("Feature-matrix cells E / IGN / BAD / K", bad, section=S_COV, source="FEATURE_MATRIX.md")
 
     # Maturity (also gives certified shares)
-    issue_nums = {n for row in ANALYSES for n in row[5]} | {n for row in ELEMENTS for n in row[6]} | \
-                 {n for c in DESIGN_CHECKS for n in c["issues"]}
+    issue_nums = catalog_issues()
     if gh.ok:
         st = gh.issue_states(issue_nums)
         issue_state = {str(k): v for k, v in st.items()} or issue_state
@@ -1124,7 +1171,8 @@ def main():
         if fz:
             M["fuzz_execs"] = metric("Fuzz executions (latest nightly)", fz["total"], section=S_TRUST,
                                      source="verify.yml fuzz-stats-*")
-    cov = coverage(gh, a.max_runs, a.coverage_json)
+    head_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    cov = coverage(gh, a.max_runs, a.coverage_json, require_sha=head_sha if a.record else None)
     if cov:
         M["coverage_lines"] = metric("Engine line coverage (llvm-cov)", cov["lines"], display=f"{cov['lines']:.1f} %",
                                      section=S_PROOF, source=cov["source"])
@@ -1165,11 +1213,9 @@ def main():
     if a.record:
         # A release snapshot describes the revision that was measured: run this from a checkout of
         # the tag (the workflow does). Refuse to label main's numbers with another commit.
-        tag = subprocess.run(["git", "rev-parse", "--short=10", f"{a.record}^{{commit}}"], cwd=ROOT,
-                             capture_output=True, text=True).stdout.strip()
-        if tag and tag != commit and not a.allow_untagged:
-            sys.exit(f"--record {a.record}: HEAD is {commit}, the tag is {tag}; check out the tag "
-                     "(or pass --allow-untagged-record)")
+        err = check_record(a.record, commit, resolve_tag(a.record), a.allow_untagged)
+        if err:
+            sys.exit(err)
         write_release(RELEASES_DIR, {"release": a.record, "date": now[:10], "commit": commit,
                                      "values": {k: metrics[k]["display"] for k in HISTORY_KEYS if k in metrics}})
     history = load_history(RELEASES_DIR)
@@ -1182,7 +1228,9 @@ def main():
         f.write("\n")
     write_dashboard(doc)
     safety = {i["number"] for i in (details.get("safety_issues") or [])}
-    write_maturity(rows, now, commit)
+    unm = unmapped_safety(details.get("safety_issues") or [], catalog_issues()) \
+        if details.get("safety_issues") is not None else None
+    write_maturity(rows, now, commit, unm)
     if safety:
         with open(OUT_MATURITY, encoding="utf-8") as f:
             t = f.read()

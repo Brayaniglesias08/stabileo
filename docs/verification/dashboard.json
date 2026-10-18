@@ -1,12 +1,12 @@
 {
  "schema": 1,
- "generated": "2026-10-18 16:54 UTC",
- "commit": "e6f8497499",
+ "generated": "2026-10-18 20:37 UTC",
+ "commit": "6739655768",
  "metrics": {
   "safety_open": {
    "label": "Open `safety` issues",
-   "value": 51,
-   "display": "51",
+   "value": 52,
+   "display": "52",
    "status": "measured",
    "source": "GitHub label `safety`",
    "note": "0 closed",
@@ -242,7 +242,9 @@
     },
     "issues": [
      343,
-     435
+     435,
+     443,
+     452
     ]
    },
    {
@@ -255,7 +257,8 @@
      "Tested": "[feature matrix](FEATURE_MATRIX.md) [2D](FEATURE_MATRIX.md#2d), [3D](FEATURE_MATRIX.md#3d)"
     },
     "issues": [
-     342
+     342,
+     445
     ]
    },
    {
@@ -291,7 +294,9 @@
     },
     "issues": [
      404,
-     431
+     431,
+     439,
+     442
     ]
    },
    {
@@ -304,7 +309,8 @@
      "Tested": "[feature matrix](FEATURE_MATRIX.md) [2D](FEATURE_MATRIX.md#2d), [3D](FEATURE_MATRIX.md#3d)"
     },
     "issues": [
-     404
+     404,
+     439
     ]
    },
    {
@@ -377,7 +383,8 @@
      "Tested": "[feature matrix](FEATURE_MATRIX.md) [2D](FEATURE_MATRIX.md#2d), [3D](FEATURE_MATRIX.md#3d)"
     },
     "issues": [
-     426
+     426,
+     442
     ]
    },
    {
@@ -439,7 +446,9 @@
      "Benchmarked": "[BENCHMARKS](../BENCHMARKS.md#solver-capability-matrix): Winkler foundation solvers (2D/3D) (Good)",
      "Tested": "[feature matrix](FEATURE_MATRIX.md) [2D](FEATURE_MATRIX.md#2d), [3D](FEATURE_MATRIX.md#3d)"
     },
-    "issues": []
+    "issues": [
+     444
+    ]
    },
    {
     "name": "Contact / gaps",
@@ -583,7 +592,8 @@
      "Tested": "[feature matrix](FEATURE_MATRIX.md) [3D](FEATURE_MATRIX.md#3d)"
     },
     "issues": [
-     408
+     408,
+     439
     ]
    },
    {
@@ -1147,6 +1157,36 @@
    "pr": false,
    "state": "open",
    "title": "Flat 2D model solved in 3D: nodal moments and prescribed rotations act mirrored"
+  },
+  "439": {
+   "pr": false,
+   "state": "open",
+   "title": "Web: 3D sections send no Cw and fall back to J = 0.001·Iy; with torsional buckling in Kg these now drive 3D buckling/P-Delta"
+  },
+  "442": {
+   "pr": false,
+   "state": "open",
+   "title": "Imperfection analysis can silently do nothing (3D gravity axis, member loads, residual stresses, plane model along Y)"
+  },
+  "443": {
+   "pr": false,
+   "state": "open",
+   "title": "Settlements on a DOF the support leaves free are dropped without a message"
+  },
+  "444": {
+   "pr": false,
+   "state": "open",
+   "title": "Winkler member forces leave out the foundation reaction"
+  },
+  "445": {
+   "pr": false,
+   "state": "open",
+   "title": "Rigid link and diaphragm mean different things in the 2D and the 3D solve of one model"
+  },
+  "452": {
+   "pr": false,
+   "state": "open",
+   "title": "2D: a nodal moment on a node where every frame is hinged is silently lost"
   }
  },
  "details": {
@@ -1354,6 +1394,10 @@
    {
     "number": 447,
     "title": "Contain first, fix second: per-feature runtime switches (warn/refuse) for known dangerous results"
+   },
+   {
+    "number": 452,
+    "title": "2D: a nodal moment on a node where every frame is hinged is silently lost"
    }
   ],
   "ts": {
@@ -1383,19 +1427,19 @@
     "modules": 13,
     "lines": 1740,
     "files": [
-     "certificate-types.ts",
-     "certificate-read.ts",
      "pdelta-amplification.ts",
-     "certify-jobs.ts",
-     "certify-tags.ts",
+     "certificate-types.ts",
      "incremental-outcome.ts",
+     "certify-jobs.ts",
+     "certificate-read.ts",
      "model-sanity.ts",
-     "steel/angle-section.ts",
+     "certify-tags.ts",
      "steel/tension-connection.ts",
-     "codes/argentina/cirsoc201-engine-gate.ts",
-     "codes/argentina/cirsoc201-beam-kernel.ts",
+     "steel/angle-section.ts",
      "codes/argentina/cirsoc301-engine-gate.ts",
-     "codes/argentina/cirsoc301-kernel.ts"
+     "codes/argentina/cirsoc301-kernel.ts",
+     "codes/argentina/cirsoc201-engine-gate.ts",
+     "codes/argentina/cirsoc201-beam-kernel.ts"
     ]
    },
    "missing": [
@@ -1453,16 +1497,16 @@
     "run": "https://github.com/lambdaclass/stabileo/actions/runs/39097987226",
     "date": "2026-10-18",
     "statuses": {
+     "ill_conditioned": 222,
      "ok": 760,
      "unsupported": 121,
-     "ill_conditioned": 222,
      "stabileo_failed": 11
     },
     "analyses": {
      "static": {
+      "ill_conditioned": 222,
       "ok": 760,
       "unsupported": 121,
-      "ill_conditioned": 222,
       "stabileo_failed": 11
      }
     },
