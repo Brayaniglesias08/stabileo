@@ -20,7 +20,7 @@ let wire: Record<string, unknown> = {};
 vi.mock('../../engine/certify-jobs', () => ({ runCertify: (...a: unknown[]) => runCertify(...(a as [])), hasCertify: () => true }));
 vi.mock('../../engine/solver-service', () => ({ certifiableInputOf: () => ({ dim: '3d', wire: () => wire }) }));
 
-const { discretizationStore } = await import('../discretization.svelte');
+const { discretizationStore, discretizationClaims } = await import('../discretization.svelte');
 const { resultsStore } = await import('../results.svelte');
 
 async function settle() {
@@ -66,5 +66,36 @@ describe('discretization store', () => {
     resultsStore.setPDeltaResult3D({ results: { displacements: [], reactions: [], elementForces: [] }, iterations: 1, converged: true } as never);
     expect(discretizationStore.applies()).toBe(false);
     expect(discretizationStore.canRunStudy()).toBe(false);
+  });
+
+  it('never shows 0 % for an estimate that could not be made, nor maps it', async () => {
+    const unest = { ...estimate, relativeError: undefined, unestimableReason: 'noStrainEnergy', exceedsThreshold: true };
+    const c = discretizationClaims(unest as never, 0);
+    expect(c.percent).toBeNull();
+    expect(c.unestimable).toBe('noStrainEnergy');
+    expect(c.warnUnestimable).toBe(true);
+    runCertify.mockImplementationOnce(async () => unest as never);
+    wire = { quads: { 3: {} } };
+    discretizationStore.track({}, '3d');
+    await settle();
+    expect(discretizationStore.elementMap().size).toBe(0);
+  });
+
+  it('claims exact members only when every member is, and none was cut into pieces', () => {
+    const exact = { ...estimate, notes: ['notCertified', 'framesExact'], frameMembers: 3, inexactMembers: [] };
+    expect(discretizationClaims(exact as never, 0).framesExact).toBe(true);
+    // A member of variable section is solved as prismatic pieces: not exact.
+    const tapered = discretizationClaims(exact as never, 1);
+    expect(tapered.framesExact).toBe(false);
+    expect(tapered.variableMembers).toBe(1);
+    // Warping members: the engine withholds the claim and lists them.
+    const warping = { ...estimate, notes: ['notCertified', 'warpingMembersNotEstimated'], frameMembers: 3, inexactMembers: [2] };
+    const w = discretizationClaims(warping as never, 0);
+    expect(w.framesExact).toBe(false);
+    expect(w.warpingMembers).toBe(1);
+    // Curved beams.
+    const curved = { ...estimate, notes: ['notCertified', 'curvedBeamsSegmented'], frameMembers: 1 };
+    expect(discretizationClaims(curved as never, 0).framesExact).toBe(false);
+    expect(discretizationClaims(curved as never, 0).curvedBeams).toBe(true);
   });
 });

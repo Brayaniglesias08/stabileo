@@ -6,9 +6,10 @@
    * toggle and the on-demand convergence check.
    */
   import { t } from '../lib/i18n';
-  import { uiStore } from '../lib/store';
+  import { uiStore, modelStore } from '../lib/store';
+  import { isVariableMember } from '../lib/engine/variable-members';
   import { certificateStore, formatBound } from '../lib/store/certificate.svelte';
-  import { discretizationStore, type QuantityConvergence } from '../lib/store/discretization.svelte';
+  import { discretizationStore, discretizationClaims, type QuantityConvergence } from '../lib/store/discretization.svelte';
   import { shellContourColor } from '../lib/three/stress-heatmap';
 
   const is3D = $derived(uiStore.is3DWorkspace);
@@ -41,6 +42,13 @@
   }
 
   const discretization = $derived(est.status === 'done' ? est.estimate : null);
+  /*
+   * Members of variable section reach the engine as chains of prismatic pieces
+   * (`engine/variable-members.ts`): an approximation the engine cannot see, so its "members are
+   * exact" does not hold for them.
+   */
+  const variableMembers = $derived([...modelStore.elements.values()].filter((e) => isVariableMember(modelStore.model, e)).length);
+  const claims = $derived(discretization ? discretizationClaims(discretization, variableMembers) : null);
   const warn = $derived(
     (discretization?.exceedsThreshold ?? false) || (study.status === 'done' && study.study.exceedsThreshold),
   );
@@ -66,20 +74,33 @@
         <span>{t('discretization.pending')}</span>
       {:else if est.status === 'failed'}
         <span>{t('discretization.failed').replace('{reason}', est.reason)}</span>
-      {:else if discretization && discretization.relativeError != null}
-        <span data-testid="discretization-estimate">{t('discretization.estimated').replace('{pct}', pct(discretization.relativeError))}</span>
+      {:else if claims && claims.percent !== null}
+        <span data-testid="discretization-estimate">{t('discretization.estimated').replace('{pct}', pct(claims.percent))}</span>
+      {:else if claims?.unestimable}
+        <span data-testid="discretization-unestimable">{t(`discretization.unestimable.${claims.unestimable}`)}</span>
       {/if}
     </div>
 
-    {#if warn}
+    {#if claims?.warnUnestimable}
+      <div class="warning" data-testid="discretization-warning">{t('discretization.warningUnestimable')}</div>
+    {:else if warn}
       <div class="warning" data-testid="discretization-warning">{t('discretization.warning').replace('{threshold}', threshold)}</div>
     {/if}
 
-    {#if discretization && discretization.frameMembers > 0}
-      <div class="note">{t('discretization.framesExact')}</div>
+    {#if claims?.framesExact}
+      <div class="note" data-testid="discretization-frames-exact">{t('discretization.framesExact')}</div>
+    {/if}
+    {#if claims && claims.warpingMembers > 0}
+      <div class="note" data-testid="discretization-frames-inexact">{t('discretization.warpingNotEstimated').replace('{n}', String(claims.warpingMembers))}</div>
+    {/if}
+    {#if claims && claims.variableMembers > 0}
+      <div class="note" data-testid="discretization-variable-members">{t('discretization.variableNotEstimated').replace('{n}', String(claims.variableMembers))}</div>
+    {/if}
+    {#if claims?.curvedBeams}
+      <div class="note">{t('discretization.curvedBeamsNotEstimated')}</div>
     {/if}
 
-    {#if discretization}
+    {#if claims && claims.percent !== null}
       <label class="toggle">
         <input type="checkbox" checked={discretizationStore.showMap} onchange={(e) => (discretizationStore.showMap = e.currentTarget.checked)} data-testid="discretization-map-toggle" />
         {t('discretization.showMap')}

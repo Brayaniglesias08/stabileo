@@ -27,12 +27,16 @@ export interface DiscretizationEstimate {
   certified: false;
   method: string;
   relativeError?: number | null;
+  /** `unloaded` or `noStrainEnergy` when the shells' error could not be estimated (never 0 %). */
+  unestimableReason?: 'unloaded' | 'noStrainEnergy' | null;
   errorNorm: number;
   solutionNorm: number;
   threshold: number;
   exceedsThreshold: boolean;
   elements: ElementErrorIndicator[];
   frameMembers: number;
+  /** Members neither exact nor estimated (warping torsion). */
+  inexactMembers?: number[];
   notes: string[];
 }
 
@@ -57,6 +61,36 @@ export interface ConvergenceStudy {
   threshold: number;
   exceedsThreshold: boolean;
   caveats: string[];
+}
+
+/**
+ * What the panel may claim about an estimate (pure, so each claim is tested): a percentage only
+ * when one was estimated; "members are exact" only when the engine says so for every member AND
+ * no member of variable section was cut into prismatic pieces for the solve (an approximation the
+ * engine cannot see); otherwise how many members are not estimated, and why.
+ */
+export interface DiscretizationClaims {
+  percent: number | null;
+  unestimable: 'unloaded' | 'noStrainEnergy' | null;
+  warnUnestimable: boolean;
+  framesExact: boolean;
+  warpingMembers: number;
+  variableMembers: number;
+  curvedBeams: boolean;
+}
+
+export function discretizationClaims(e: DiscretizationEstimate, variableMembers: number): DiscretizationClaims {
+  const percent = e.relativeError == null || !Number.isFinite(e.relativeError) ? null : e.relativeError;
+  const unestimable = percent === null ? e.unestimableReason ?? null : null;
+  return {
+    percent,
+    unestimable,
+    warnUnestimable: unestimable === 'noStrainEnergy',
+    framesExact: e.notes.includes('framesExact') && variableMembers === 0,
+    warpingMembers: e.inexactMembers?.length ?? 0,
+    variableMembers,
+    curvedBeams: e.notes.includes('curvedBeamsSegmented'),
+  };
 }
 
 type Estimate =
@@ -171,7 +205,8 @@ function createDiscretizationStore() {
     /** Element indicators keyed as the 3D viewport keys shells (`p12`, `q7`). */
     elementMap(): Map<string, number> {
       const m = new Map<string, number>();
-      if (estimate.status !== 'done') return m;
+      // No map for an estimate that could not be made: zeros there would read as "no error".
+      if (estimate.status !== 'done' || estimate.estimate.relativeError == null) return m;
       for (const e of estimate.estimate.elements) {
         if (e.kind === 'plate') m.set(`p${e.elementId}`, e.localPercent);
         else if (e.kind === 'quad') m.set(`q${e.elementId}`, e.localPercent);
