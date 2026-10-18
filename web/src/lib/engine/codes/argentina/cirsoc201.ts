@@ -343,27 +343,47 @@ export function checkFlexure(
   const dPrimeAssumed = cover + (stirrupDia / 1000) + 0.008;
   const AsMaxPractical = 0.04 * b * h * 1e4; // cm², the stated practical ceiling (not a clause)
 
-  // Size, choose bars, and size again at the depth the chosen bars give, until they agree.
+  const Ag = flange ? flange.bf * flange.hf + b * (h - flange.hf) : b * h;
+  const ductilityApplies = MuAbs > 0 && Nu < 0.10 * fc * 1000 * Ag;
+
+  /*
+   * Size at the depth the assumed bar gives (Ø16, or the caller's), choose bars, and check the
+   * bars chosen at the depth THEY give. If that check fails (a bigger bar sits higher), size
+   * again at that depth — until the bars chosen pass, or the depth stops changing.
+   */
   let barDia = fixedDia ?? ASSUMED_FLEXURE_BAR_DIA_MM;
-  let d = effectiveDepth(h, cover, stirrupDia, barDia);
-  let design = engineFlexureDesign(edition, fc, fy, b, h, d, dPrimeAssumed, MuAbs, Nu, flange);
-  let AsMin = minFlexuralSteelCm2(fc, fy, b, d);
-  let AsDesign = design.kind === 'impossible' ? AsMaxPractical : Math.max(design.As, AsMin);
-  let rebar = selectRebar(AsDesign);
-  for (let pass = 0; pass < 4 && fixedDia === undefined && rebar.dia > barDia; pass++) {
-    barDia = rebar.dia;
+  let d = 0, AsMin = 0, AsDesign = 0;
+  let design!: EngineFlexureDesign;
+  let rebar!: { count: number; dia: number; area: number; label: string };
+  let rebarComp: { count: number; dia: number; area: number; label: string } | undefined;
+  let check!: NonNullable<ReturnType<typeof evaluateBeamSection>>;
+  for (let pass = 0; pass < 5; pass++) {
     d = effectiveDepth(h, cover, stirrupDia, barDia);
     design = engineFlexureDesign(edition, fc, fy, b, h, d, dPrimeAssumed, MuAbs, Nu, flange);
     AsMin = minFlexuralSteelCm2(fc, fy, b, d);
-    AsDesign = design.kind === 'impossible' ? AsMaxPractical : Math.max(design.As, AsMin);
+    // No steel within the engine's search (tension steel up to 10 % of Ag) works: report that
+    // bound, which is above every feasible requirement, so the answer never falls as Mu rises.
+    AsDesign = design.kind === 'impossible' ? 0.10 * Ag * 1e4 : Math.max(design.As, AsMin);
     rebar = selectRebar(AsDesign);
+    rebarComp = design.kind === 'doubly' ? selectRebar(Math.max(design.AsComp, AsMin * 0.5)) : undefined;
+    // The verdict: the engine's check of the bars chosen, at the depths those bars give.
+    const dReal = fixedDia !== undefined ? d : effectiveDepth(h, cover, stirrupDia, rebar.dia);
+    const dPrimeReal = rebarComp ? cover + stirrupDia / 1000 + rebarComp.dia / 2000 : 0;
+    const r = evaluateBeamSection({
+      edition, fc: fc * 1e6, fy: fy * 1e6, b, h, d: dReal,
+      As: rebar.area * 1e-4, AsComp: rebarComp ? rebarComp.area * 1e-4 : 0, dPrime: dPrimeReal,
+      Ag, NuCompression: Nu * 1e3, bf: flange?.bf, hf: flange?.hf,
+    });
+    if (!r) throw new Cirsoc201EngineUnavailable('beam flexure check');
+    check = r;
+    const passes = r.flexureValid && r.phiMn / 1e3 >= MuAbs && !(ductilityApplies && r.epsilonT < r.epsilonTMin);
+    if (passes || design.kind === 'impossible' || fixedDia !== undefined || rebar.dia === barDia) break;
+    barDia = rebar.dia;
   }
   const isDoubly = design.kind === 'doubly';
   steps.push(`d = ${(d * 100).toFixed(1)} cm, d' = ${(dPrimeAssumed * 100).toFixed(1)} cm`);
   steps.push(`Mu = ${MuAbs.toFixed(2)} kN·m${Nu !== 0 ? `, Nu = ${Nu.toFixed(2)} kN (+ compresión)` : ''}`);
   steps.push(`As,mín = ${AsMin.toFixed(2)} cm²`);
-
-  let rebarComp: { count: number; dia: number; area: number; label: string } | undefined;
   if (design.kind === 'impossible') {
     steps.push('⚠ Ninguna armadura dentro de los límites cumple flexión y ductilidad (motor) — sección insuficiente: agrandar la sección');
   } else {
@@ -371,29 +391,15 @@ export function checkFlexure(
       `As,req (motor, CIRSOC 201-${edition}) = ${design.As.toFixed(2)} cm²: φMn = ${design.phiMn.toFixed(2)} kN·m, ` +
       `εt = ${(design.epsilonT * 1000).toFixed(2)} ‰${design.epsilonTMin > 0 ? ` ≥ εt,mín = ${(design.epsilonTMin * 1000).toFixed(2)} ‰` : ''}`,
     );
-    if (isDoubly) {
-      const AsCompReq = Math.max(design.AsComp, AsMin * 0.5); // practical minimum, as before
-      rebarComp = selectRebar(AsCompReq);
+    if (rebarComp) {
       steps.push(`A's,req = ${design.AsComp.toFixed(2)} cm² → armadura compresión: ${rebarComp.label} (${rebarComp.area.toFixed(2)} cm²)`);
     }
   }
   steps.push(`As,req (tracción) = ${AsDesign.toFixed(2)} cm²`);
   steps.push(`Armadura tracción: ${rebar.label} (${rebar.area.toFixed(2)} cm²)`);
 
-  // The verdict: the engine's check of the bars chosen, at the depths those bars give.
-  const dReal = fixedDia !== undefined ? d : effectiveDepth(h, cover, stirrupDia, rebar.dia);
-  const dPrimeReal = rebarComp ? cover + stirrupDia / 1000 + rebarComp.dia / 2000 : 0;
-  const check = evaluateBeamSection({
-    edition, fc: fc * 1e6, fy: fy * 1e6, b, h, d: dReal,
-    As: rebar.area * 1e-4, AsComp: rebarComp ? rebarComp.area * 1e-4 : 0, dPrime: dPrimeReal,
-    Ag: flange ? flange.bf * flange.hf + b * (h - flange.hf) : b * h, NuCompression: Nu * 1e3,
-    bf: flange?.bf, hf: flange?.hf,
-  });
-  if (!check) throw new Cirsoc201EngineUnavailable('beam flexure check');
   const phiMn = check.flexureValid && Number.isFinite(check.phiMn) ? check.phiMn / 1e3 : 0;
   const epsilonTProv = check.flexureValid ? check.epsilonT : 0;
-  const Ag = flange ? flange.bf * flange.hf + b * (h - flange.hf) : b * h;
-  const ductilityApplies = MuAbs > 0 && Nu < 0.10 * fc * 1000 * Ag;
   const notDuctile = ductilityApplies && check.flexureValid && epsilonTProv < check.epsilonTMin;
   steps.push(`a = ${(check.a * 100).toFixed(2)} cm, c = ${(check.c * 100).toFixed(2)} cm`);
   steps.push(`εt = ${(epsilonTProv * 1000).toFixed(2)}‰ → φ = ${check.phi.toFixed(3)}`);
@@ -420,7 +426,7 @@ export function checkFlexure(
     Mu: MuAbs, d, a: check.a,
     aReq: design.a, c: design.c, cMax: (d * 0.003) / (0.003 + etc), epsilonT: design.epsilonT,
     AsReq: AsDesign,
-    AsFlexural: design.kind === 'impossible' ? AsMaxPractical : design.As,
+    AsFlexural: design.kind === 'impossible' ? 0.10 * Ag * 1e4 : design.As,
     AsMin, AsMax: AsMaxPractical,
     AsProv: rebar.area,
     bars: rebar.label,
@@ -491,6 +497,22 @@ export function checkShear(
   }
   const phiVn = chosen.shearValid ? chosen.phiVn / 1e3 : 0;
   const AvProv = legs * stirrupBar.area; // cm² per set
+  /*
+   * The Av/s the demand requires: the spacing at which the engine's φVn equals Vu (a search on
+   * s; Vs is Av·fyt·d/s with fyt capped, 22.5.8.5.3), never below Av,min/s.
+   */
+  let AvOverSReq = 0;
+  if (VuAbs > phiVc) {
+    let lo = 1e-4, hi = 10;
+    for (let k = 0; k < 80; k++) {
+      const mid = Math.sqrt(lo * hi);
+      const r = ask(legs, mid);
+      if (r.shearValid && r.phiVn / 1e3 >= VuAbs) lo = mid; else hi = mid;
+    }
+    AvOverSReq = AvProv / lo;
+  }
+  const AvOverSMin = spacing > 0 ? (chosen.AvMin * 1e4) / spacing : 0;
+  steps.push(`Av/s,req = ${Math.max(AvOverSReq, AvOverSMin).toFixed(2)} cm²/m`);
   steps.push(`Estribos: ${legs} ramas ${stirrupBar.label} c/${(spacing * 100).toFixed(0)} cm`);
   steps.push(`φVn = ${phiVn.toFixed(2)} kN`);
 
@@ -511,8 +533,8 @@ export function checkShear(
 
   return {
     Vu: VuAbs, d, phiVc, Vs: VsReq,
-    AvOverS: (AvProv / spacing),
-    AvOverSMin: spacing > 0 ? (chosen.AvMin * 1e4) / spacing : 0,
+    AvOverS: Math.max(AvOverSReq, AvOverSMin),
+    AvOverSMin,
     spacing, stirrupDia: stirrupBar.diameter, stirrupLegs: legs,
     phiVn, ratio, status, steps,
   };

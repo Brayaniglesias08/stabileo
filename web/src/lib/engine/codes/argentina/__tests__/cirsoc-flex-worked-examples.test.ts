@@ -45,7 +45,7 @@ describe('FSR — rectangular section in simple bending', () => {
    */
   const r = checkFlexure(
     { fc: 25, fy: 420, cover: coverFor(0.034), b: 0.12, h: 0.40, stirrupDia: 0 },
-    52,
+    52, 0, { edition: '2005' }, // the workbook is a CIRSOC 201-2005 document
   );
 
   it('reaches the same effective depth', () => {
@@ -125,12 +125,8 @@ describe('FCR — rectangular section under axial load and bending', () => {
    */
   const r = checkColumn(
     { fc: 25, fy: 420, cover: 0.042, b: 0.30, h: 0.30, stirrupDia: 0 },
-    500, 100,
+    500, 100, { edition: '2005' },
   );
-
-  it('reaches the same effective depths', () => {
-    expect(r.steps.join(' ')).toContain("d = 25.0 cm, d' = 5.0 cm");
-  });
 
   it('agrees exactly on §10.9.1 bounds', () => {
     // Published: Ast,mín 9.00 cm², Ast,máx 72.00 cm² on Ag = 0.09 m²
@@ -140,20 +136,19 @@ describe('FCR — rectangular section under axial load and bending', () => {
   });
 
   /**
-   * The panel does not use `checkColumn`, and this is why.
-   *
-   * Against the workbook's example it returns 25.69 cm² for a published
-   * 21.34 — but the 20 % is not the problem, the SIGN is not guaranteed.
-   * Swept against the real interaction diagram the same rule ran from 71 %
-   * to 171 % of the steel required, light in the high-moment corner. See
-   * `rect-column-on-the-curve.test.ts`.
-   *
-   * Pinned here so the old rule's behaviour stays documented while it is
-   * still in the file, and quoted by PRO's memos.
+   * `checkColumn` used to add "steel for the moment" to half the "steel for the axial load" —
+   * 25,69 cm² here against a published 21,34, and from 71 % to 171 % of the requirement when
+   * swept (that rule is pinned in `__tests__/differential/cirsoc201-legacy-designer.test.ts`).
+   * It now sizes on the engine with the app's standard bar layout: the least standard bars
+   * whose design moment at Pu reaches Mu. So its steel is the published requirement rounded
+   * UP to real bars — never below it by more than the layout's own depth difference — and its
+   * own check passes.
    */
-  it('the old estimator is 20 % heavy HERE, and not reliably heavy anywhere', () => {
-    expect(r.AsTotal / 21.3354).toBeGreaterThan(1.10);
-    expect(r.AsTotal / 21.3354).toBeLessThan(1.30);
+  it('sizes on the engine: passes its check, with the published steel rounded up to bars', () => {
+    expect(r.status).not.toBe('fail');
+    expect(r.ratio).toBeLessThanOrEqual(1);
+    expect(r.AsProv / 21.3354).toBeGreaterThan(0.95);
+    expect(r.AsProv / 21.3354).toBeLessThan(1.6);
   });
 
   it('what the panel actually uses lands within 10 % of the published steel', () => {

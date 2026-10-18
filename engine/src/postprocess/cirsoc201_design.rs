@@ -11,8 +11,7 @@
 //! Singly reinforced first: the tension steel that gives φ·Mn ≥ Mu while εt stays at or above the
 //! ductility limit (when the clause applies: Mu > 0 and Pu < 0,10·f'c·Ag). If the most steel the
 //! limit allows is not enough, compression steel As' at d' is added: for each As' the tension
-//! steel is the most the limit allows, and As' is the least that reaches Mu; then the tension
-//! steel is reduced to the least that still reaches Mu.
+//! steel is the most the limit allows, and As' is the least that reaches Mu.
 
 use crate::postprocess::cirsoc201_check::{
     ductility_strain, gross_area, nominal_flexure_axial, phi_flexure, Cirsoc201MemberData,
@@ -165,13 +164,16 @@ pub fn design_flexure(m: &Cirsoc201MemberData, mu: f64, nu: f64, allow_compressi
     if !reaches(as_c_hi) {
         return impossible;
     }
+    // The textbook pair: the concrete held at the ductility limit (the tension steel the most
+    // the limit allows) and the least compression steel that reaches Mu. Not reducing the
+    // tension steel afterwards keeps the requirement continuous and rising across the switch
+    // from singly to doubly reinforced (a smaller As with more As' also passes, but then the
+    // tension steel would fall as the moment rises).
     let as_c = least(tiny, as_c_hi, reaches);
-    let top = match ductile_max(as_c) {
+    let as_t = match ductile_max(as_c) {
         Some(t) => t,
         None => return impossible,
     };
-    let lo = equilibrium_from(as_c).unwrap_or(tiny);
-    let as_t = if passes(lo, as_c) { lo } else { least(lo, top, |x| passes(x, as_c)) };
     finish(FlexureDesignKind::Doubly, as_t, as_c)
 }
 
@@ -299,6 +301,27 @@ mod tests {
         assert!(passes(&m, &d, mu, 0.0));
         assert!(d.epsilon_t >= d.epsilon_t_min);
         assert_eq!(design_flexure(&m, mu, 0.0, false).kind, FlexureDesignKind::Impossible);
+    }
+
+    #[test]
+    fn requirement_never_falls_as_the_moment_rises() {
+        for e in [Cirsoc201Edition::E2005, Cirsoc201Edition::E2025] {
+            let m = beam(e);
+            let (mut prev_t, mut prev_c) = (0.0, 0.0);
+            let mut mu = 10e3;
+            while mu < 600e3 {
+                let d = design_flexure(&m, mu, 0.0, true);
+                if d.kind == FlexureDesignKind::Impossible {
+                    break;
+                }
+                assert!(passes(&m, &d, mu, 0.0), "{mu}");
+                assert!(d.as_t >= prev_t * (1.0 - 1e-9), "{mu}: As {} < {prev_t}", d.as_t);
+                assert!(d.as_c >= prev_c * (1.0 - 1e-6) - 1e-12, "{mu}: As' {} < {prev_c}", d.as_c);
+                prev_t = d.as_t;
+                prev_c = d.as_c;
+                mu += 5e3;
+            }
+        }
     }
 
     #[test]
