@@ -363,6 +363,8 @@ pub struct E2eBound {
     /// fully released rotations), so the model leaves them undetermined.
     pub excluded: Vec<(usize, usize)>,
     pub n_params: usize,
+    /// ‖ũ‖₂ over the DOFs bounded (rounded down).
+    pub u_norm: f64,
 }
 
 #[inline]
@@ -646,6 +648,7 @@ pub fn certify(model: &Model, u: &[f64]) -> Result<E2eBound, String> {
         mismatch_norm: mismatch,
         excluded,
         n_params: m,
+        u_norm: unorm,
     })
 }
 

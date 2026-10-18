@@ -48,6 +48,11 @@ use system::{agreement, certify, Model};
 /// Discrepancy the agreement check accepts, relative to the entry's scale.
 pub const AGREEMENT_TOL: f64 = 1e-10;
 
+/// Largest violation of the model's kinematics (supports, settlements,
+/// inclined supports, constraints) the returned displacements may show,
+/// relative to their norm: `‖C q̃ + p − ũ‖ ≤ KINEMATIC_TOL·‖ũ‖`.
+pub const KINEMATIC_TOL: f64 = 1e-9;
+
 /// A DOF named by node and local index (2D: ux, uz, θ; 3D: ux, uy, uz, rx, ry, rz).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -137,6 +142,14 @@ fn finish(
         Err(reason) if reason.starts_with("a load acts on") => return EndToEnd::Failed { reason },
         Err(reason) => return EndToEnd::Uncertified { reason: format!("no bound against the re-assembled model: {reason}") },
     };
+    if !(bound.mismatch_norm <= KINEMATIC_TOL * bound.u_norm) && bound.mismatch_norm > 1e-300 {
+        return EndToEnd::Failed {
+            reason: format!(
+                "the returned displacements violate the model's supports or constraints (‖C q̃ + p − ũ‖ = {:.3e}, ‖ũ‖ = {:.3e})",
+                bound.mismatch_norm, bound.u_norm
+            ),
+        };
+    }
     // Every assembly path the solver may have factored must agree.
     let mut agr = Agreement { k_rel: 0.0, f_rel: 0.0, worst_k: None, worst_f: None };
     for e in eng() {
