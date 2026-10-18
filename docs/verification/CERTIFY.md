@@ -255,6 +255,10 @@ There are no rigid end offsets in the model format. Shells are next.
 | stable random frames, 3D | 150 | 150 | identical |
 | fuzz generators (`fuzz_models`, rich and plain), 2D | 300 | 88; 1 uncertified and 2 with no solution, see findings | identical |
 | fuzz generators, 3D | 240 | 23 (most are mechanisms the solver refuses); 1 uncertified (ill-conditioned beyond `ε`) | identical |
+| differential generators (`tools/differential`, 14 generators × 200, `e2e_dir`, run by hand) | 2800 | 2534: every model the assembled-level certificate certifies except 6 (two `rich3d` models in three variants, singular in exact arithmetic, see findings) | identical |
+
+The differential models: `python3 tools/differential/dump_models.py DIR 200`, then
+`E2E_DIR=DIR cargo test --release --test certify_end_to_end e2e_dir -- --ignored --nocapture`.
 
 The stable generators cover every feature in scope: jittered multi-bay frames, braces,
 hinges and releases, shear areas, reference vectors, roll angles, left-handed axes,
@@ -285,6 +289,11 @@ source instead and runs the end-to-end tests: PLANTED_RESULTS
   from such a node hides a real mechanism the same way: the linked pair rotates freely,
   the spring holds it, and the assembled-level certificate certifies a meaningless
   answer (`relBound` 2e-15). The end-to-end check reports `failed` / `uncertified`.
+* **Singular in exact arithmetic, regular in f64**: a node reached by one member released
+  about its local y (`rich3d` 121 and 143) has a rotation about a skew axis that nothing
+  stiffens. The engine's orphan guard looks at diagonal entries only, the rounded `K` is
+  regular, and the assembled-level certificate certifies its solve. The end-to-end check
+  cannot bound the model (`uncertified`).
 * **`leftHand`**: with the local y negated the frame is improper (`det R = −1`) and the
   engine transforms rotations like translations, so its member matrices annihilate the
   *mirrored* rigid rotations (`u_j = t − θ × Δ`), while rigid links, diaphragms and
