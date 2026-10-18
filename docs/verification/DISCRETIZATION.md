@@ -77,7 +77,10 @@ the honest answer.
 strain of 10⁻¹² everywhere would), the ratio is 0/0 and no percentage is reported:
 `unestimableReason` is `unloaded` (nothing loads the model) or `noStrainEnergy` (it is loaded,
 but the load goes straight into the supports — one simply supported element under pressure is
-the simplest case; the mesh is too coarse to say anything and the panel warns to refine it). The
+the simplest case; the mesh is too coarse to say anything and the panel warns to refine it), or
+`tooCoarse` when no element shares a node with another of its kind (a one-element mesh): every
+recovery patch is the element itself, so the recovered field is its own and the estimate would
+be ≈ 0 by construction. The
 element map is not drawn for an estimate that could not be made. In the convergence study a
 governing quantity that is zero on the model as drawn is kept (zero is a value): a one-element
 plate's zero moment against the refined meshes' non-zero ones is an estimated error of 100 %.
