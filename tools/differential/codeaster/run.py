@@ -229,6 +229,14 @@ def finish(r, tol, dump_dir, model):
             # solved without a warning.
             return dict(r, status="silent_singular", why=why)
         r.pop("near_singular", None)
+        if "<FACTOR_42>" in msg and "over_constrained_dof" in sres["diags"]:
+            # A DOF both restrained by a support and tied by a constraint:
+            # stabileo warns (over_constrained_dof) and enforces the
+            # constraint through its master DOFs; Code_Aster's Lagrange
+            # multipliers are then redundant and its matrix singular. The
+            # split of the reaction between the support and the constraint
+            # has no unique answer, so there is nothing to compare.
+            return dict(r, status="over_constrained", why=["over_constrained_dof", "code_aster: " + why[0]])
         if "<FACTOR_57>" in msg:
             # MUMPS could not reach RESI_RELA = 1e-6: the model is too
             # ill-conditioned for Code_Aster to give a reference.

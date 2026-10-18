@@ -50,6 +50,27 @@ free-DOF stiffness (from OpenSees' assembled matrix): both solvers lose about
 reported as `ill_conditioned`, not compared. Well-conditioned models
 (κ < 1e6) agree to ~1e-10.
 
+stabileo's refusals and warnings are checked against OpenSees too:
+
+| status | meaning |
+|---|---|
+| `refused` | stabileo refuses the model and OpenSees finds no unique answer either (κ > 1e12, or the converter rejects it for the same reason: a nodal moment on a rotation nothing stiffens, a rotational mechanism) |
+| `false_reject` | stabileo refuses a model whose OpenSees stiffness is regular (κ < 1e10): flagged, exit 1 |
+| `false_warning` | stabileo flags a model ill-conditioned whose OpenSees stiffness is well conditioned (κ < 1e8): flagged, exit 1 |
+| `not_applicable` | buckling with no positive load factor on either side (no member in compression, or none whose compression reaches a free DOF) |
+| `stabileo_failed` | a refusal neither side decides (1e10 ≤ κ ≤ 1e12, or OpenSees failed too) |
+
+Modal and buckling jobs check the static probe's conditioning before the
+eigen solve, so a mechanism is `ill_conditioned` whatever the eigen solver
+then reports. `engine/tests/fuzz_models` (`--random2d/--random3d`) are
+mostly mechanisms by design (they exercise these refusals); the rich
+generators repair theirs (see `gen_models.py`, `stability.py`): in 90 % of
+the models the hinges / releases that make a mechanism are dropped, the
+other 10 % stay as drawn. `stability.py` counts mechanisms exactly from the
+compatibility matrix (pure Python, independent of both programs); on the
+first nightly's 1000 rich seeds it agreed with stabileo's flags on every
+model.
+
 ## Model mapping
 
 Conventions were taken from the engine source:
@@ -64,7 +85,7 @@ Conventions were taken from the engine source:
 | hinges / releases on Timoshenko members | the released end on its own node, `equalDOF` to the joint on every other DOF (3D: only when the local axes lie along global axes); its constraint force is added to the joint's reaction |
 | `truss` | `Truss` + `Elastic` material |
 | hinges / `releaseMy*`, `releaseMz*` | `-release` / `-releasey`, `-releasez` |
-| supports (2D types; 3D flags OR-ed per node) | `fix` |
+| supports (2D types, several plain rigid ones on a node OR-ed; 3D flags OR-ed per node) | `fix` |
 | springs (2D rotated by `angle`) | `zeroLength` to a fixed ground node |
 | settlements `dx…drz` | `sp` |
 | full-length uniform member load | `-beamUniform` |
@@ -258,6 +279,13 @@ which equilibrium fixes for any formulation (a lost, doubled or misdirected
 load, a wrong pressure normal or support).
 
 ### Findings (fixed; regression tests in `engine/tests/opensees_differential_regressions.rs`)
+
+* 2D nodal moments on a node where every frame is hinged went into the
+  artificial rotational spring and never reached the structure; the solver
+  refused only when the rotation exceeded 100 rad, so a smaller moment
+  (3 kN·m on a stiff bar) solved with zero reactions and `equilibriumOk`
+  (#452, found triaging rich2d-744020). `validate_loads_2d` now refuses
+  them by topology, as the 3D solver does.
 
 * Buckling took each member's axial force as (N_start + N_end)/2; the
   geometric stiffness needs the mean of N along the member, which that is only
