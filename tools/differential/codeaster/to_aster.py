@@ -15,8 +15,10 @@ Element pairs (see README.md for the justification of each):
                            AZ = A/asY, AY = A/asZ (the engine pairs asY with Iy)
   truss                    BARRE
   support springs          DIS_TR / DIS_T on a POI1 cell, K_TR_D_N global
-  connectors               DIS_TR on a SEG2 cell, K_TR_D_L in the connector's
-                           local axes (ported from element/connector.rs)
+  connectors               DIS_TR on a SEG2 cell (ported from
+                           element/connector.rs): zero-length K_TR_D_L in the
+                           connector's local axes; finite-length the full
+                           global K_TR_L (shear at the midpoint via rigid arms)
   releases (My, Mz, T)     the released end on its own node, tied to the
                            joint by LIAISON_DDL on the three translations and
                            on the local rotation components that are not
@@ -110,6 +112,46 @@ def connector_axes(pi, pj):
     dy = _unit(_cross(ref, dx))
     dz = _cross(dx, dy)
     return dx, dy, dz, n
+
+
+# element/connector.rs CONNECTOR_SHEAR_POSITION: where the shear springs of a
+# finite-length connector act, as a fraction of its length from node i.
+CONNECTOR_SHEAR_POSITION = 0.5
+
+
+def connector_matrix(kv, ex, ey, ez, length):
+    """Port of element/connector.rs connector_stiffness_3d: global 12x12
+    stiffness over [u_i, theta_i, u_j, theta_j], the sum of k * b b^T over the
+    spring compatibility rows b. kv = (axial, shear y, shear z, torsion,
+    bend y, bend z) in the connector axes ex, ey, ez."""
+    a = CONNECTOR_SHEAR_POSITION
+
+    def trans(e, arm):
+        b = [0.0] * 12
+        for p in range(3):
+            b[p] = -e[p]
+            b[3 + p] = a * length * arm[p]
+            b[6 + p] = e[p]
+            b[9 + p] = (1.0 - a) * length * arm[p]
+        return b
+
+    def rot(e):
+        b = [0.0] * 12
+        for p in range(3):
+            b[3 + p] = -e[p]
+            b[9 + p] = e[p]
+        return b
+
+    rows = [trans(ex, [0.0, 0.0, 0.0]), trans(ey, [-v for v in ez]), trans(ez, ey),
+            rot(ex), rot(ey), rot(ez)]
+    k = [[0.0] * 12 for _ in range(12)]
+    for kk, b in zip(kv, rows):
+        if kk:
+            for i in range(12):
+                if b[i]:
+                    for j in range(12):
+                        k[i][j] += kk * b[i] * b[j]
+    return k
 
 
 def rank3(vs, tol=1e-9):
@@ -532,7 +574,16 @@ def translate(d):
         dx, dy, dz, n = connector_axes(pts[c["nodeI"]], pts[c["nodeJ"]])
         kv = [c.get(k) or 0.0 for k in ("kAxial", "kShear", "kShearZ", "kMoment", "kBendY", "kBendZ")]
         g = f"C{c['id']}"
-        discret.append(f"_F(GROUP_MA={g!r}, CARA='K_TR_D_L', REPERE='LOCAL', VALE=({', '.join(_f(v) for v in kv)}))")
+        if n > 1e-12:
+            # Finite length: the shear springs act at the midpoint through rigid
+            # arms (element/connector.rs), which couples shear to the end
+            # rotations: a full 12x12 matrix, not a diagonal one.
+            kfull = connector_matrix(kv, dx, dy, dz, n)
+            vals = [kfull[i][j] for j in range(12) for i in range(j + 1)]
+            discret.append(f"_F(GROUP_MA={g!r}, CARA='K_TR_L', REPERE='GLOBAL', "
+                           f"VALE=({', '.join(_f(v) for v in vals)}))")
+        else:
+            discret.append(f"_F(GROUP_MA={g!r}, CARA='K_TR_D_L', REPERE='LOCAL', VALE=({', '.join(_f(v) for v in kv)}))")
         if n > 1e-12:
             orient.append(f"_F(GROUP_MA={g!r}, CARA='VECT_Y', VALE=({', '.join(_f(v) for v in dy)}))")
         else:
