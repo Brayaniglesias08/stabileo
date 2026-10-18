@@ -27,6 +27,7 @@ const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThanOrEqu
  */
 function same(a: unknown, b: unknown, path = ''): void {
   if (typeof b === 'number' && typeof a === 'number') {
+    if (!Number.isFinite(b)) { expect(a, path).toBe(b); return; }
     expect(Math.abs(a - b), `${path}: ${a} vs ${b}`).toBeLessThanOrEqual(1e-12 * Math.max(Math.abs(b), Number.MIN_VALUE));
     return;
   }
@@ -72,6 +73,9 @@ describe('INPRES-CIRSOC 103: engine against the verified oracle', () => {
         same(coef, MO.designSeismicCoefficient({ spectrum: spec as never, group, r, t: per.t }));
         const v0 = coef.c * 1000;
         same(M.distributeInHeight(levels, v0, per.ta * 3, spec.t2), MO.distributeInHeight(levels, v0, per.ta * 3, spec.t2));
+        // No spectrum plateau (the plan's T2 = ∞ before a spectrum exists).
+        same(M.distributeInHeight(levels, v0, per.ta * 3, Infinity), MO.distributeInHeight(levels, v0, per.ta * 3, Infinity));
+        same(M.staticMethodApplicable({ zone, group, heightM: height, levels: nLevels, regularity, t: per.t, t2: Infinity }), MO.staticMethodApplicable({ zone, group, heightM: height, levels: nLevels, regularity, t: per.t, t2: Infinity }));
         const app = { zone, group, heightM: height, levels: nLevels, regularity, t: per.t, t2: spec.t2 };
         same(M.staticMethodApplicable(app), MO.staticMethodApplicable(app));
         const { t: _t, ...noT } = app;

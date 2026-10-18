@@ -312,10 +312,11 @@ pub struct DistributionResult {
 
 /// §6.2.4.1 [6.11]: Fk = Wk·hk·V0/ΣWh; past T > 2·T2 ([6.12]/[6.13]) 0,9 of it so, and 0,1·V0
 /// at the top.
-pub fn distribute_in_height(levels: &[MassLevel], base_shear: f64, uncapped_t: f64, t2: f64) -> DistributionResult {
+/// `t2 = None`: no spectrum plateau to compare with (the app's T2 = ∞), never top-heavy.
+pub fn distribute_in_height(levels: &[MassLevel], base_shear: f64, uncapped_t: f64, t2: Option<f64>) -> DistributionResult {
     let usable: Vec<MassLevel> = levels.iter().copied().filter(|l| l.w > 0.0 && l.h > 0.0).collect();
     let sum_wh: f64 = usable.iter().map(|l| l.w * l.h).sum();
-    let top_heavy = uncapped_t > 2.0 * t2;
+    let top_heavy = t2.is_some_and(|t2| uncapped_t > 2.0 * t2);
     if sum_wh <= 0.0 {
         return DistributionResult { forces: usable.iter().map(|l| (l.h, l.w, 0.0)).collect(), top_heavy, sum_wh };
     }

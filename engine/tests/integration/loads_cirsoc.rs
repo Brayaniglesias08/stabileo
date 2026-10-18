@@ -82,7 +82,7 @@ fn static_method_values() {
     assert!((p.ta - 0.0466 * 20f64.powf(0.9)).abs() < 1e-15);
     assert!((p.cu - 1.525).abs() < 1e-12);
     // [6.11]: forces proportional to W·h, summing to V0.
-    let d = distribute_in_height(&[MassLevel { h: 3.0, w: 100.0 }, MassLevel { h: 6.0, w: 100.0 }], 90.0, 0.3, 0.5);
+    let d = distribute_in_height(&[MassLevel { h: 3.0, w: 100.0 }, MassLevel { h: 6.0, w: 100.0 }], 90.0, 0.3, Some(0.5));
     assert!(!d.top_heavy);
     assert!((d.forces[0].2 - 30.0).abs() < 1e-12 && (d.forces[1].2 - 60.0).abs() < 1e-12);
     // Tabla 2.5: group A in zone 4 above 30 m needs the dynamic method.

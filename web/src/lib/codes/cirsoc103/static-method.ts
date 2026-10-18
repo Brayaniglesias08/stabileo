@@ -231,7 +231,9 @@ export function distributeInHeight(
   uncappedT: number, t2: number,
 ): DistributionResult {
   const r = loadsRequest({
-    op: 'cirsoc103Distribution', levels: levels.map((l) => ({ h: l.h, w: l.w })), baseShear: baseShearKN, uncappedT, t2,
+    // T2 = ∞ (no spectrum) crosses as null: never top-heavy.
+    op: 'cirsoc103Distribution', levels: levels.map((l) => ({ h: l.h, w: l.w })), baseShear: baseShearKN, uncappedT,
+    t2: Number.isFinite(t2) ? t2 : null,
   }) as { forces: Array<[number, number, number]>; topHeavy: boolean; sumWh: number };
   const forces = r.forces.map(([h, w, f]) => ({ h, w, f }));
   if (r.sumWh <= 0) {

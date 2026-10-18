@@ -28,7 +28,7 @@ pub enum LoadsRequest {
     #[serde(rename_all = "camelCase")]
     Cirsoc103Coefficient { spectrum: s103::DesignSpectrum, group: String, r: f64, t: f64 },
     #[serde(rename_all = "camelCase")]
-    Cirsoc103Distribution { levels: Vec<s103::MassLevel>, base_shear: f64, uncapped_t: f64, t2: f64 },
+    Cirsoc103Distribution { levels: Vec<s103::MassLevel>, base_shear: f64, uncapped_t: f64, t2: Option<f64> },
     #[serde(rename_all = "camelCase")]
     Cirsoc103Applicability { zone: u8, group: String, height: f64, levels: u32, regularity: String, t: Option<f64>, t2: Option<f64> },
 }
