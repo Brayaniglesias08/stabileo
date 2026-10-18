@@ -8,8 +8,8 @@
 //! 9.3.3.1 [10.3.5]), so a sized section passes the check by construction, and the result is
 //! confirmed by running the check once more on the answer.
 //!
-//! Singly reinforced first: the tension steel that gives φ·Mn ≥ Mu while εt stays at or above the
-//! ductility limit (when the clause applies: Mu > 0 and Pu < 0,10·f'c·Ag). If the most steel the
+//! Singly reinforced first: the least tension steel (scanned, then bisected: φ·Mn is not monotone
+//! in As in the transition zone) that gives φ·Mn ≥ Mu while εt stays at or above the ductility limit (when the clause applies: Mu > 0 and Pu < 0,10·f'c·Ag). If the most steel the
 //! limit allows is not enough, compression steel As' at d' is added: for each As' the tension
 //! steel is the most the limit allows, and As' is the least that reaches Mu.
 
@@ -143,16 +143,24 @@ pub fn design_flexure(m: &Cirsoc201MemberData, mu: f64, nu: f64, allow_compressi
     };
 
     // ── Singly reinforced ──
+    // φ·Mn is NOT monotone in As over the ductile range: in the transition zone φ falls as the
+    // steel grows (with 2005's εt,min = 0,004 and fy = 500 MPa φ·Mn peaks near εt = 0,005 and
+    // then drops). So the range is scanned for the first steel that passes, and the boundary
+    // bisected inside that first passing interval.
     if let Some(top) = ductile_max(0.0) {
-        if strong(top, 0.0) {
-            let lo = equilibrium_from(0.0).unwrap_or(tiny);
-            if mu == 0.0 || passes(lo, 0.0) {
-                return finish(FlexureDesignKind::Singly, lo, 0.0);
+        let lo = equilibrium_from(0.0).unwrap_or(tiny);
+        if mu == 0.0 || passes(lo, 0.0) {
+            return finish(FlexureDesignKind::Singly, lo, 0.0);
+        }
+        const SCAN: usize = 256;
+        let mut prev = lo;
+        for k in 1..=SCAN {
+            let x = lo + (top - lo) * k as f64 / SCAN as f64;
+            if passes(x, 0.0) {
+                let as_t = least(prev, x, |y| passes(y, 0.0));
+                return finish(FlexureDesignKind::Singly, as_t, 0.0);
             }
-            // φ·Mn grows with As within the ductile range; bisection keeps the passing end, and
-            // the check confirms it.
-            let as_t = least(lo, top, |x| passes(x, 0.0));
-            return finish(FlexureDesignKind::Singly, as_t, 0.0);
+            prev = x;
         }
     }
     if !allow_compression_steel || !(m.d_prime.unwrap_or(0.0) > 0.0 && m.d_prime.unwrap_or(0.0) < m.d) {
@@ -331,6 +339,23 @@ mod tests {
         let tie = design_flexure(&m, 100e3, -200e3, true);
         assert!(tie.as_t > plain.as_t + 200e3 / 420e6 * 0.5, "{} vs {}", tie.as_t, plain.as_t);
         assert!(passes(&m, &tie, 100e3, -200e3));
+    }
+
+    #[test]
+    fn transition_zone_hump_is_found_singly() {
+        // 2005, fy = 500: φ·Mn peaks near εt = 0,005 and falls toward εt,min = 0,004; a moment
+        // under the peak needs no compression steel even though the steel AT the limit fails it.
+        let mut m = beam(Cirsoc201Edition::E2005);
+        m.fc = 20e6;
+        m.fy = 500e6;
+        m.b = 0.5;
+        m.h = 0.4966;
+        m.d = 0.451;
+        let d = design_flexure(&m, 413.85e3, 0.0, true);
+        assert_eq!(d.kind, FlexureDesignKind::Singly);
+        assert!(passes(&m, &d, 413.85e3, 0.0));
+        let less = FlexureDesign { as_t: d.as_t * 0.999, ..d };
+        assert!(!passes(&m, &less, 413.85e3, 0.0));
     }
 
     #[test]

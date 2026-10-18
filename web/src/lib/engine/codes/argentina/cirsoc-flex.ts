@@ -376,7 +376,13 @@ function biaxialUtilisation(
 }
 
 /** One call, whichever sheet the reader picked. */
-export function solveFlex(i: FlexInput): FlexOutput {
+export function solveFlex(input: FlexInput): FlexOutput {
+  /* An empty demand field is no demand (0); anything else that is not a number is refused. */
+  const blank = (v: unknown) => v === undefined || v === null || v === '';
+  const i: FlexInput = {
+    ...input,
+    Pu: blank(input.Pu) ? 0 : input.Pu, Mu: blank(input.Mu) ? 0 : input.Mu, Muy: blank(input.Muy) ? 0 : input.Muy,
+  };
   const rejected = validate(i);
   if (rejected.length > 0) return refused(i, rejected);
   const outline = outlineFor(i);

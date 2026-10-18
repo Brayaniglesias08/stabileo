@@ -157,12 +157,6 @@ impl Ring {
             }
         }
     }
-    fn shifted(self, by: Pt) -> Ring {
-        match self {
-            Ring::Polygon(p) => Ring::Polygon(p.into_iter().map(|q| [q[0] - by[0], q[1] - by[1]]).collect()),
-            Ring::Circle { c, r } => Ring::Circle { c: [c[0] - by[0], c[1] - by[1]], r },
-        }
-    }
     /// (max, min) of n·p over the ring.
     fn extent(&self, nx: f64, ny: f64) -> (f64, f64) {
         match self {
@@ -216,9 +210,9 @@ fn clipped_circle<T: Real>(c: Pt, r: f64, nx: f64, ny: f64, level: T) -> Option<
 /// A section (polygons and circles) with bars, prepared once and asked many times.
 #[derive(Debug, Clone)]
 pub struct Section {
-    /// Outer ring first, then holes; coordinates relative to the gross centroid.
+    /// Outer ring first, then holes; the caller's coordinates.
     rings: Vec<Ring>,
-    /// x, y (relative to the gross centroid), area.
+    /// x, y (the caller's coordinates), area.
     bars: Vec<[f64; 3]>,
     pub code: SectionCode,
     ag: f64,
@@ -341,8 +335,8 @@ impl Section {
             return Err("the outline encloses no concrete");
         }
         let centroid = [sx / ag, sy / ag];
-        let rings = rings.into_iter().map(|r| r.shifted(centroid)).collect();
-        let bars: Vec<[f64; 3]> = bars.into_iter().map(|b| [b[0] - centroid[0], b[1] - centroid[1], b[2]]).collect();
+        // Coordinates stay the caller's (so a bar exactly on the block edge is decided the same
+        // way the caller's geometry puts it); moments are taken about the centroid below.
         let ast = bars.iter().map(|b| b[2]).sum();
         Ok(Section { rings, bars, code, ag, ast, centroid })
     }
@@ -412,8 +406,10 @@ impl Section {
             }
         }
         let mut pn = k * z[0].max(zero);
-        let mut mnx = -(k * z[2]);
-        let mut mny = k * z[1];
+        // Moments about the gross centroid (cx, cy): ∫(y − cy) = My − A·cy, likewise for x.
+        let (cx, cy) = (T::exact(self.centroid[0]), T::exact(self.centroid[1]));
+        let mut mnx = -(k * (z[2] - z[0] * cy));
+        let mut mny = k * (z[1] - z[0] * cx);
 
         let es = T::exact(code.es);
         let fy = T::exact(code.fy);
@@ -435,8 +431,8 @@ impl Section {
                 }
             }
             pn = pn + force;
-            mnx = mnx - force * T::exact(bar[1]);
-            mny = mny + force * T::exact(bar[0]);
+            mnx = mnx - force * (T::exact(bar[1]) - cy);
+            mny = mny + force * (T::exact(bar[0]) - cx);
             eps_min = eps_min.min(strain);
         }
         let eps_t = -(eps_min.min(zero));
