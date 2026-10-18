@@ -626,20 +626,12 @@ pub fn prepare_static_2d_dense_reference(input: &SolverInput) -> Result<Prepared
     prepare_static_2d_impl(input, true)
 }
 
-fn prepare_static_2d_impl(input: &SolverInput, force_dense: bool) -> Result<PreparedStatic2D<'_>, String> {
-    let dof_num = DofNumbering::build_2d(input);
-    let mut pre_solve_diags = super::pre_solve_gates::run_pre_solve_gates_2d(input);
-    validate_solver_options(&input.solver_options, &mut pre_solve_diags);
-
-    // ── Input validation (before assembly) ──
-    validate_input_2d(input)?;
-
-    let n = dof_num.n_total;
+/// Prescribed displacements of the restrained DOFs (`u_r`, length
+/// `n_total − n_free`), in the inclined-support frames the restrained DOFs
+/// are numbered in.
+pub(crate) fn prescribed_displacements_2d(input: &SolverInput, dof_num: &DofNumbering) -> Vec<f64> {
     let nf = dof_num.n_free;
-
-    // Build prescribed displacement vector u_r for restrained DOFs
-    let nr = n - nf;
-    let mut u_r = vec![0.0; nr];
+    let mut u_r = vec![0.0; dof_num.n_total - nf];
     for sup in input.supports.values() {
         if sup.support_type == "spring" { continue; } // spring DOFs are free
 
@@ -706,6 +698,23 @@ fn prepare_static_2d_impl(input: &SolverInput, force_dense: bool) -> Result<Prep
             }
         }
     }
+    u_r
+}
+
+fn prepare_static_2d_impl(input: &SolverInput, force_dense: bool) -> Result<PreparedStatic2D<'_>, String> {
+    let dof_num = DofNumbering::build_2d(input);
+    let mut pre_solve_diags = super::pre_solve_gates::run_pre_solve_gates_2d(input);
+    validate_solver_options(&input.solver_options, &mut pre_solve_diags);
+
+    // ── Input validation (before assembly) ──
+    validate_input_2d(input)?;
+
+    let n = dof_num.n_total;
+    let nf = dof_num.n_free;
+
+    // Build prescribed displacement vector u_r for restrained DOFs
+    let nr = n - nf;
+    let u_r = prescribed_displacements_2d(input, &dof_num);
 
     // Fully restrained: all DOFs are restrained, no solve needed.
     if nf == 0 {
@@ -1925,6 +1934,9 @@ pub struct PreparedStatic3D {
     n_nodes: usize,
     u_r: Vec<f64>,
     pre_solve_diags: Vec<StructuredDiagnostic>,
+    /// Free DOFs held only by artificial stiffness (orphan rotations and
+    /// warping): a load on one would never reach the structure.
+    orphan_dofs: std::collections::HashSet<usize>,
     path: PreparedPath3D,
 }
 
@@ -2053,35 +2065,12 @@ struct PcgDirectFallback3D {
 /// Prepare a 3D structure for one or more static solves: curved-beam expansion,
 /// numbering, assembly, and factorization of the free-free stiffness block
 /// happen exactly once here. This is exactly the load-independent part of `solve_3d`.
-pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, String> {
-    // Expand curved beams into frame elements before solving
-    let input = expand_curved_beams_3d(input);
-    let n_nodes = input.nodes.len();
-    let n_elements = input.elements.len()
-        + input.plates.len()
-        + input.quads.len()
-        + input.quad9s.len()
-        + input.solid_shells.len()
-        + input.curved_shells.len();
-    let dof_num = DofNumbering::build_3d(&input);
-    let mut pre_solve_diags = super::pre_solve_gates::run_pre_solve_gates_3d(&input);
-    validate_solver_options(&input.solver_options, &mut pre_solve_diags);
-
-    // ── Input validation (before assembly) ──
-    validate_input_3d(&input)?;
-
-    // An element that cannot be integrated over — collapsed, or folded onto
-    // itself — is refused by name, before it fails downstream as "Singular
-    // stiffness matrix — structure is a mechanism". Only those: see
-    // `refuse_broken_elements` for why not every gate `Error`.
-    super::pre_solve_gates::refuse_broken_elements(&pre_solve_diags)?;
-
-    let n = dof_num.n_total;
+/// Prescribed displacements of the restrained DOFs (`u_r`, length
+/// `n_total − n_free`), in the inclined-support frames the restrained DOFs
+/// are numbered in.
+pub(crate) fn prescribed_displacements_3d(input: &SolverInput3D, dof_num: &DofNumbering) -> Vec<f64> {
     let nf = dof_num.n_free;
-    let nr = n - nf;
-
-    // Build prescribed displacement vector u_r for restrained DOFs
-    let mut u_r = vec![0.0; nr];
+    let mut u_r = vec![0.0; dof_num.n_total - nf];
     for sup in input.supports.values() {
         // Inclined supports: prescribed translations are given in GLOBAL
         // coords, but the restrained inclined DOF (local_dof 0) lives in the
@@ -2131,6 +2120,38 @@ pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, Stri
             }
         }
     }
+    u_r
+}
+
+pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, String> {
+    // Expand curved beams into frame elements before solving
+    let input = expand_curved_beams_3d(input);
+    let n_nodes = input.nodes.len();
+    let n_elements = input.elements.len()
+        + input.plates.len()
+        + input.quads.len()
+        + input.quad9s.len()
+        + input.solid_shells.len()
+        + input.curved_shells.len();
+    let dof_num = DofNumbering::build_3d(&input);
+    let mut pre_solve_diags = super::pre_solve_gates::run_pre_solve_gates_3d(&input);
+    validate_solver_options(&input.solver_options, &mut pre_solve_diags);
+
+    // ── Input validation (before assembly) ──
+    validate_input_3d(&input)?;
+
+    // An element that cannot be integrated over — collapsed, or folded onto
+    // itself — is refused by name, before it fails downstream as "Singular
+    // stiffness matrix — structure is a mechanism". Only those: see
+    // `refuse_broken_elements` for why not every gate `Error`.
+    super::pre_solve_gates::refuse_broken_elements(&pre_solve_diags)?;
+
+    let n = dof_num.n_total;
+    let nf = dof_num.n_free;
+    let nr = n - nf;
+
+    // Build prescribed displacement vector u_r for restrained DOFs
+    let u_r = prescribed_displacements_3d(&input, &dof_num);
 
     // Fully restrained: all DOFs are restrained, no solve needed.
     if nf == 0 {
@@ -2160,6 +2181,7 @@ pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, Stri
             n_nodes,
             u_r,
             pre_solve_diags,
+            orphan_dofs: stiff.artificial_dofs.iter().copied().collect(),
             path: PreparedPath3D::FullyRestrained(FullyRestrained3D {
                 ku_full,
                 diagnostics: stiff.diagnostics,
@@ -2218,6 +2240,7 @@ pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, Stri
                 n_nodes,
                 u_r,
                 pre_solve_diags,
+                orphan_dofs: stiff.artificial_dofs.iter().copied().collect(),
                 path: PreparedPath3D::Pcg(PcgPrepared3D {
                     k_ff: stiff.k_ff,
                     k_full: stiff.k_full.unwrap(),
@@ -2313,6 +2336,7 @@ pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, Stri
                     n_nodes,
                     u_r,
                     pre_solve_diags,
+                    orphan_dofs: stiff.artificial_dofs.iter().copied().collect(),
                     path: PreparedPath3D::Sparse(SparsePrepared3D {
                         k_ff: stiff.k_ff,
                         k_full: stiff.k_full.unwrap(),
@@ -2363,6 +2387,7 @@ pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, Stri
                     n_nodes,
                     u_r,
                     pre_solve_diags,
+                    orphan_dofs: stiff_d.artificial_dofs.iter().copied().collect(),
                     path: PreparedPath3D::SparseDenseLu(SparseDenseLuPrepared3D {
                         k_full: stiff.k_full.unwrap(),
                         lu: k_ff_d,
@@ -2435,6 +2460,7 @@ pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, Stri
             n_nodes,
             u_r,
             pre_solve_diags,
+            orphan_dofs: stiff.artificial_dofs.iter().copied().collect(),
             path: PreparedPath3D::Dense(DensePrepared3D {
                 k_ff,
                 k_rf,
@@ -2458,6 +2484,7 @@ impl PreparedStatic3D {
     pub fn solve_loads(&self, loads: &[SolverLoad3D]) -> Result<AnalysisResults3D, String> {
         // Per-case load validation (the structure was validated in prepare)
         validate_loads_3d(&self.input, loads)?;
+        self.refuse_loads_on_orphan_dofs(loads)?;
         match &self.path {
             PreparedPath3D::FullyRestrained(p) => self.solve_loads_fully_restrained(loads, p),
             PreparedPath3D::Dense(p) => self.solve_loads_dense(loads, p),
@@ -2465,6 +2492,10 @@ impl PreparedStatic3D {
             PreparedPath3D::Pcg(p) => self.solve_loads_pcg(loads, p),
             PreparedPath3D::SparseDenseLu(p) => self.solve_loads_sparse_dense_lu(loads, p),
         }
+    }
+
+    fn refuse_loads_on_orphan_dofs(&self, loads: &[SolverLoad3D]) -> Result<(), String> {
+        refuse_loads_on_orphan_dofs_3d(&self.dof_num, &self.orphan_dofs, loads)
     }
 
     fn solve_loads_fully_restrained(
@@ -4128,6 +4159,14 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
         }
     }
 
+    // 8. Connectors: end nodes, finite stiffness, and the DOFs they need.
+    let node_xz: std::collections::HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
+    crate::element::connector::validate_connectors(
+        &input.connectors,
+        |id| node_xz.get(&id).map(|n| [n.x, n.z, 0.0]),
+        DofNumbering::dofs_per_node_2d(input) >= 3,
+    )?;
+
     Ok(())
 }
 
@@ -4316,6 +4355,13 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
         }
     }
 
+    // 1c. Curved-beam sizes: segment counts bounded, new ids representable.
+    crate::element::check_curved_beam_sizes(
+        &input.curved_beams,
+        input.nodes.values().map(|n| n.id).max().unwrap_or(0),
+        input.elements.values().map(|e| e.id).max().unwrap_or(0),
+    )?;
+
     // 2. Referential integrity — support → node
     for sup in input.supports.values() {
         if !node_ids.contains(&sup.node_id) {
@@ -4442,6 +4488,36 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
         }
     }
 
+    // 7b. Torsion constant J <= 0 on a member that carries torsion. Checked
+    // here, by name, before assembly: the artificial stiffness the assembler
+    // puts on DOFs no element is meant to stiffen (the rotations of a node
+    // only solid shells or trusses reach, a fully released joint) would
+    // otherwise hold the twist of a member whose own J is missing, and the
+    // model would solve with a meaningless rotation instead of being refused.
+    let torsion_section_ids: std::collections::HashSet<usize> = input.elements.values()
+        .filter(|e| e.elem_type == "frame" && !e.release_t_start && !e.release_t_end)
+        .map(|e| e.section_id)
+        .collect();
+    for sec in input.sections.values() {
+        if torsion_section_ids.contains(&sec.id) && sec.j <= 0.0 {
+            return Err(format!(
+                "Section {}: torsion constant J must be > 0 (got {}) for a member that is not released in torsion",
+                sec.id, sec.j
+            ));
+        }
+        if sec.cw.is_some_and(|cw| cw < 0.0) {
+            return Err(format!("Section {}: warping constant Cw must be >= 0", sec.id));
+        }
+    }
+
+    // 8. Connectors: end nodes, finite stiffness, and the DOFs they need.
+    let node_xyz: std::collections::HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
+    crate::element::connector::validate_connectors(
+        &input.connectors,
+        |id| node_xyz.get(&id).map(|n| [n.x, n.y, n.z]),
+        DofNumbering::dofs_per_node_3d(input) >= 6,
+    )?;
+
     Ok(())
 }
 
@@ -4544,7 +4620,119 @@ pub(crate) fn validate_loads_3d(input: &SolverInput3D, loads: &[SolverLoad3D]) -
         }
     }
 
+    refuse_moments_without_rotation_3d(input, loads)?;
+
     Ok(())
+}
+
+/// A nodal moment on a node no element, support or constraint gives rotational
+/// stiffness would be lost: a model of solid shells and trusses only has no
+/// rotation DOFs at all (the moment was dropped from the load vector), and in
+/// a model with frames or shells the rotation of a node only solid shells or
+/// trusses reach is an orphan DOF held by artificial stiffness (the moment
+/// produced a meaningless rotation and never reached the structure). Refused,
+/// by node, instead of answering for a model without the load.
+pub(crate) fn refuse_moments_without_rotation_3d(input: &SolverInput3D, loads: &[SolverLoad3D]) -> Result<(), String> {
+    let moments: Vec<&SolverNodalLoad3D> = loads
+        .iter()
+        .filter_map(|l| match l {
+            SolverLoad3D::Nodal(n) if n.mx != 0.0 || n.my != 0.0 || n.mz != 0.0 => Some(n),
+            _ => None,
+        })
+        .collect();
+    if moments.is_empty() {
+        return Ok(());
+    }
+    if DofNumbering::dofs_per_node_3d(input) < 6 {
+        return Err(moment_lost_3d(
+            moments[0].node_id,
+            "the model has no rotational degrees of freedom (solid shells, trusses and cables carry translations only)",
+        ));
+    }
+    // Per node and global rotation component: whether anything stiffens it.
+    let mut carried: std::collections::HashMap<usize, [bool; 3]> = std::collections::HashMap::new();
+    let mut nodes: Vec<usize> = Vec::new();
+    for e in input.elements.values() {
+        if e.elem_type == "truss" || e.elem_type == "cable" {
+            continue;
+        }
+        if !(e.release_my_start && e.release_mz_start && e.release_t_start) { nodes.push(e.node_i); }
+        if !(e.release_my_end && e.release_mz_end && e.release_t_end) { nodes.push(e.node_j); }
+    }
+    nodes.extend(input.plates.values().flat_map(|p| p.nodes));
+    nodes.extend(input.quads.values().flat_map(|q| q.nodes));
+    nodes.extend(input.quad9s.values().flat_map(|q| q.nodes));
+    nodes.extend(input.curved_shells.values().flat_map(|c| c.nodes));
+    nodes.extend(input.connectors.values().flat_map(|c| [c.node_i, c.node_j]));
+    for c in &input.constraints {
+        match c {
+            Constraint::RigidLink(r) => nodes.extend([r.master_node, r.slave_node]),
+            Constraint::Diaphragm(d) => { nodes.push(d.master_node); nodes.extend(&d.slave_nodes); }
+            Constraint::LinearMPC(m) => nodes.extend(m.terms.iter().map(|t| t.node_id)),
+            Constraint::EqualDOF(e) => nodes.extend([e.master_node, e.slave_node]),
+            Constraint::EccentricConnection(e) => nodes.extend([e.master_node, e.slave_node]),
+        }
+    }
+    for n in nodes {
+        carried.insert(n, [true; 3]);
+    }
+    for s in input.supports.values() {
+        let c = carried.entry(s.node_id).or_insert([false; 3]);
+        let k = [s.krx, s.kry, s.krz];
+        for (i, r) in [s.rrx, s.rry, s.rrz].into_iter().enumerate() {
+            c[i] |= r || k[i].unwrap_or(0.0) > 0.0;
+        }
+    }
+    for m in moments {
+        let c = carried.get(&m.node_id).copied().unwrap_or([false; 3]);
+        if [m.mx, m.my, m.mz].iter().zip(c).any(|(v, ok)| *v != 0.0 && !ok) {
+            return Err(moment_lost_3d(
+                m.node_id,
+                "no frame, shell, rotational support or constraint gives that node rotational stiffness (solid shells, trusses and cables carry translations only)",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Backstop for `refuse_moments_without_rotation_3d`, on the assembled DOFs:
+/// a nodal moment or bimoment on a DOF only artificial stiffness holds (a
+/// rotation every member releases, say) would be lost. `orphan` is the
+/// assembler's `artificial_dofs`.
+pub(crate) fn refuse_loads_on_orphan_dofs_3d(
+    dof_num: &DofNumbering,
+    orphan: &std::collections::HashSet<usize>,
+    loads: &[SolverLoad3D],
+) -> Result<(), String> {
+    if orphan.is_empty() {
+        return Ok(());
+    }
+    for load in loads {
+        let (node, comps): (usize, [(usize, f64); 4]) = match load {
+            SolverLoad3D::Nodal(l) => (l.node_id, [(3, l.mx), (4, l.my), (5, l.mz), (6, l.bw.unwrap_or(0.0))]),
+            SolverLoad3D::Bimoment(l) => (l.node_id, [(6, l.bimoment), (6, 0.0), (6, 0.0), (6, 0.0)]),
+            _ => continue,
+        };
+        for (local, v) in comps {
+            if v == 0.0 { continue; }
+            if let Some(d) = dof_num.global_dof(node, local) {
+                if orphan.contains(&d) {
+                    return Err(moment_lost_3d(
+                        node,
+                        "nothing in the model gives that rotation (or warping) of the node stiffness — every member is released there, or only solid shells and trusses reach it",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn moment_lost_3d(node: usize, why: &str) -> String {
+    format!(
+        "Nodal moment at node {node} is not supported: {why}, so the moment would not reach the structure. \
+         Apply it as a force couple, or connect the node to a frame or shell"
+    )
 }
 
 pub(crate) fn compute_internal_forces_2d(
@@ -4557,7 +4745,7 @@ pub(crate) fn compute_internal_forces_2d(
 
 /// `compute_internal_forces_2d` with the load set given explicitly, so
 /// multi-case solves can reuse one structure with per-case loads.
-pub(crate) fn compute_internal_forces_2d_with_loads(
+pub fn compute_internal_forces_2d_with_loads(
     input: &SolverInput,
     loads: &[SolverLoad],
     dof_num: &DofNumbering,
@@ -4778,7 +4966,7 @@ pub(crate) fn compute_internal_forces_3d(
 
 /// `compute_internal_forces_3d` with the load set given explicitly, so
 /// multi-case solves can reuse one structure with per-case loads.
-pub(crate) fn compute_internal_forces_3d_with_loads(
+pub fn compute_internal_forces_3d_with_loads(
     input: &SolverInput3D,
     loads: &[SolverLoad3D],
     dof_num: &DofNumbering,
@@ -5109,8 +5297,17 @@ pub fn expand_curved_beams_3d(input: &SolverInput3D) -> SolverInput3D {
     let mut result = input.clone();
 
     // Find next available node and element IDs
-    let mut next_node_id = result.nodes.values().map(|n| n.id).max().unwrap_or(0) + 1;
-    let mut next_elem_id = result.elements.values().map(|e| e.id).max().unwrap_or(0) + 1;
+    let max_node_id = result.nodes.values().map(|n| n.id).max().unwrap_or(0);
+    let max_elem_id = result.elements.values().map(|e| e.id).max().unwrap_or(0);
+
+    // Segment counts come from the model file. Beams that are too large to
+    // expand (or whose new ids would overflow) are all left in place, unexpanded,
+    // for `validate_input_3d` to refuse with the same check.
+    if crate::element::check_curved_beam_sizes(&input.curved_beams, max_node_id, max_elem_id).is_err() {
+        return result;
+    }
+    let mut next_node_id = max_node_id + 1;
+    let mut next_elem_id = max_elem_id + 1;
 
     let cb_node_map: std::collections::HashMap<usize, SolverNode3D> =
         result.nodes.values().map(|n| (n.id, n.clone())).collect();

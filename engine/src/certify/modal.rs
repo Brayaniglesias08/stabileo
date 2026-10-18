@@ -39,12 +39,12 @@ use super::interval::Interval;
 use super::solver::{gather_u_2d, gather_u_3d};
 use super::sparse::certify_lambda_min_lower;
 use crate::linalg::sparse::CscMatrix;
-use crate::solver::constraints::build_constraint_transform;
+use crate::solver::constraints::{build_constraint_transform, inclined_dofs_2d, inclined_dofs_3d};
 use crate::solver::dof::DofNumbering;
-use crate::solver::mass_matrix::{assemble_mass_matrix_2d_sparse, assemble_mass_matrix_3d_sparse};
+use crate::solver::mass_matrix::{assemble_mass_matrix_2d_sparse_inclined, assemble_mass_matrix_3d_sparse_inclined};
 use crate::solver::modal::{solve_modal_2d, solve_modal_3d, ModalResult, ModalResult3D};
 use crate::solver::sparse_assembly::assemble_stiffness_sparse_2d;
-use crate::solver::assembly::assemble_stiffness_sparse_3d;
+use crate::solver::assembly::{assemble_stiffness_sparse_3d, to_inclined_free};
 use crate::types::*;
 
 #[inline]
@@ -118,13 +118,17 @@ pub fn certify_modal_2d(
     let results = solve_modal_2d(input, densities, num_modes)?;
     let dof_num = DofNumbering::build_2d(input);
     let nf = dof_num.n_free;
-    let k = assemble_stiffness_sparse_2d(input, &dof_num).k_ff;
-    let m = assemble_mass_matrix_2d_sparse(input, &dof_num, densities);
+    // K and M in the inclined-roller frames; the published modes (global
+    // axes) are rotated into them.
+    let stiff = assemble_stiffness_sparse_2d(input, &dof_num);
+    let its = &stiff.inclined_transforms_2d;
+    let k = stiff.k_ff;
+    let m = assemble_mass_matrix_2d_sparse_inclined(input, &dof_num, densities, its);
     let mut modes = Vec::new();
     let mut err = None;
     for mode in &results.modes {
         match gather_u_2d(&dof_num, &mode.displacements) {
-            Ok(u) => modes.push((mode.omega * mode.omega, u[..nf].to_vec())),
+            Ok(u) => modes.push((mode.omega * mode.omega, to_inclined_free(u, its, nf))),
             Err(c) => err = Some(format!("mode shape: {c:?}")),
         }
     }
@@ -134,13 +138,17 @@ pub fn certify_modal_2d(
         None => {
             // The reduced pencil (CᵀKC, CᵀMC) the solver solves, enclosed
             // entrywise; modes read at the independent DOFs.
-            let ct = build_constraint_transform(&input.constraints, &dof_num, Some(&input.nodes), None);
-            let cm = ConstraintMap::from_transform(&ct, nf);
-            let (kr, kv) = reduce_symmetric_enclosed(&k, &cm);
-            let (mr, mv) = reduce_symmetric_enclosed(&m, &cm);
-            let modes_q: Vec<(f64, Vec<f64>)> =
-                modes.iter().map(|(l, p)| (*l, cm.indep_dof.iter().map(|&d| p[d]).collect())).collect();
-            certify_modes_enclosed(&kr, &kv, &mr, &mv, &modes_q)
+            match build_constraint_transform(&input.constraints, &dof_num, Some(&input.nodes), None, &inclined_dofs_2d(input, &dof_num)) {
+                Err(e) => ModalCertificate::uncertified(e),
+                Ok(ct) => {
+                    let cm = ConstraintMap::from_transform(&ct, nf);
+                    let (kr, kv) = reduce_symmetric_enclosed(&k, &cm);
+                    let (mr, mv) = reduce_symmetric_enclosed(&m, &cm);
+                    let modes_q: Vec<(f64, Vec<f64>)> =
+                        modes.iter().map(|(l, p)| (*l, cm.indep_dof.iter().map(|&d| p[d]).collect())).collect();
+                    certify_modes_enclosed(&kr, &kv, &mr, &mv, &modes_q)
+                }
+            }
         }
     };
     Ok(CertifiedModal2D { results, certificate })
@@ -153,15 +161,20 @@ pub fn certify_modal_3d(
     num_modes: usize,
 ) -> Result<CertifiedModal3D, String> {
     let results = solve_modal_3d(input, densities, num_modes)?;
+    // The model the solver analyzed, curved beams expanded.
+    let input = &crate::solver::linear::expand_curved_beams_3d(input);
     let dof_num = DofNumbering::build_3d(input);
     let nf = dof_num.n_free;
-    let k = assemble_stiffness_sparse_3d(input, &dof_num, false).k_ff;
-    let m = assemble_mass_matrix_3d_sparse(input, &dof_num, densities);
+    // In the inclined-support frames, as in 2D.
+    let stiff = assemble_stiffness_sparse_3d(input, &dof_num, false);
+    let its = &stiff.inclined_transforms;
+    let k = stiff.k_ff;
+    let m = assemble_mass_matrix_3d_sparse_inclined(input, &dof_num, densities, its);
     let mut modes = Vec::new();
     let mut err = None;
     for mode in &results.modes {
         match gather_u_3d(&dof_num, &mode.displacements) {
-            Ok(u) => modes.push((mode.omega * mode.omega, u[..nf].to_vec())),
+            Ok(u) => modes.push((mode.omega * mode.omega, to_inclined_free(u, its, nf))),
             Err(c) => err = Some(format!("mode shape: {c:?}")),
         }
     }
@@ -171,13 +184,17 @@ pub fn certify_modal_3d(
         None => {
             // The reduced pencil (CᵀKC, CᵀMC) the solver solves, enclosed
             // entrywise; modes read at the independent DOFs.
-            let ct = build_constraint_transform(&input.constraints, &dof_num, None, Some(&input.nodes));
-            let cm = ConstraintMap::from_transform(&ct, nf);
-            let (kr, kv) = reduce_symmetric_enclosed(&k, &cm);
-            let (mr, mv) = reduce_symmetric_enclosed(&m, &cm);
-            let modes_q: Vec<(f64, Vec<f64>)> =
-                modes.iter().map(|(l, p)| (*l, cm.indep_dof.iter().map(|&d| p[d]).collect())).collect();
-            certify_modes_enclosed(&kr, &kv, &mr, &mv, &modes_q)
+            match build_constraint_transform(&input.constraints, &dof_num, None, Some(&input.nodes), &inclined_dofs_3d(input, &dof_num)) {
+                Err(e) => ModalCertificate::uncertified(e),
+                Ok(ct) => {
+                    let cm = ConstraintMap::from_transform(&ct, nf);
+                    let (kr, kv) = reduce_symmetric_enclosed(&k, &cm);
+                    let (mr, mv) = reduce_symmetric_enclosed(&m, &cm);
+                    let modes_q: Vec<(f64, Vec<f64>)> =
+                        modes.iter().map(|(l, p)| (*l, cm.indep_dof.iter().map(|&d| p[d]).collect())).collect();
+                    certify_modes_enclosed(&kr, &kv, &mr, &mv, &modes_q)
+                }
+            }
         }
     };
     Ok(CertifiedModal3D { results, certificate })

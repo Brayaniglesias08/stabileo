@@ -13,6 +13,8 @@ on:
       - "verify/**"
       - "engine/src/**"
       - "docs/verification/**"
+      - "tools/symbolic/**"
+      - "engine/tests/symbolic_elements.rs"
       - "flake.nix"
       - "flake.lock"
       - ".github/workflows/verify.yml"
@@ -22,14 +24,20 @@ on:
     - cron: "0 5 * * *"
   workflow_dispatch:
 
+# Least privilege: jobs only read the repository.
+permissions:
+  contents: read
+
 jobs:
   lean:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v31
-      - uses: actions/cache@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             .tools/elan
@@ -50,13 +58,31 @@ jobs:
         working-directory: verify
         run: nix develop ..#verify -c ./scripts/check-bundles.sh
 
+  # The element matrices derived symbolically (tools/symbolic): regenerating
+  # engine/tests/symbolic_elements.rs must reproduce the committed file. The
+  # generated test itself runs in ci.yml's engine suite.
+  symbolic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install SymPy
+        run: pip install -r tools/symbolic/requirements.txt
+      - name: Generated test is up to date
+        run: python -I tools/symbolic/gen.py --check
+
   kani:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v31
-      - uses: actions/cache@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools
           key: kani-${{ runner.os }}-${{ hashFiles('flake.lock', 'scripts/kani-setup.sh') }}
@@ -78,15 +104,20 @@ jobs:
         run: column -t target/kani-report.tsv || true
 
   # Large-model certificate runs (release, #[ignore]d in the normal suite):
-  # certifies the 3D fixtures above 400 DOFs and grid frames up to 15k DOFs.
+  # certifies the 3D fixtures above 400 DOFs and grid frames up to 15k DOFs,
+  # and runs the large sweep of the cross-path assembly oracle
+  # (docs/verification/ASSEMBLY.md).
   certify-large:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly
           components: rust-src
       # engine/.cargo/config.toml links with clang + mold.
       - name: Install mold linker
@@ -94,16 +125,22 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y mold
         timeout-minutes: 5
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: engine
       - name: Large certificate tests
         working-directory: engine
-        run: cargo test --release --test certify --test certify_plastic_3d -- --ignored --nocapture
+        # The assembly oracle's other ignored tests are minimal reproductions
+        # of open bugs, so only its sweep runs here.
+        run: |
+          cargo test --release --test certify --test certify_plastic_3d -- --ignored --nocapture
+          cargo test --release --test assembly_paths assembly_paths_agree_large -- --ignored --nocapture
 
   # Differential test against OpenSees (an independent FE code): catches
   # element-matrix, fixed-end-force, axis-convention and reaction bugs that the
   # certificates cannot (they certify the assembled system, right or wrong).
+  # Linear static, buckling, modal, P-Delta, time history, plates and shells
+  # (~2 min on 4 cores; tools/opensees/README.md).
   # Fixed fixture set plus random models from a seed that moves daily; the
   # seed is printed so a failure reproduces with tools/opensees/run.sh.
   opensees-diff:
@@ -111,10 +148,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Install OpenSees
@@ -127,15 +168,61 @@ jobs:
           echo "seed-start $seed"
           python tools/opensees/compare.py --fixtures \
             --random2d 300 --random3d 300 --rich2d 500 --rich3d 500 \
+            --buckling2d 300 --buckling3d 300 --modal2d 300 --modal3d 300 \
+            --pdelta2d 300 --pdelta3d 300 --th2d 200 --th3d 200 \
+            --plates 300 --shells 60 \
             --seed-start "$seed" -j 4 --report opensees-report.json \
             --dump-dir opensees-mismatches
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: opensees-report
           path: |
             opensees-report.json
             opensees-mismatches/
+          if-no-files-found: ignore
+
+  # Differential test against Code_Aster 18.1 (EDF's FE code): the 3D linear
+  # solver including releases, connectors, constraints, thermal loads and
+  # inclined supports, which the OpenSees job does not translate. conda-forge
+  # code-aster, native on Linux. See tools/differential/codeaster/README.md;
+  # the seed is printed so a failure reproduces locally.
+  codeaster-diff:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Code_Aster (pins as in tools/differential/codeaster/setup.sh)
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-name: aster
+          create-args: -c conda-forge code-aster=18.1.10 python=3.12
+          cache-environment: true
+          init-shell: bash
+      - name: Build solver CLI
+        run: cargo build --release --example solve_json
+      - name: Compare with Code_Aster
+        working-directory: tools/differential/codeaster
+        run: |
+          seed=$(( $(date -u +%s) / 86400 % 1000 * 1000 ))
+          echo "seed-start $seed"
+          ASTER_PYTHON="$(which python)" python run.py --fixtures \
+            --random3d 100 --rich3d 400 --aster3d 400 \
+            --seed-start "$seed" -j 4 --report codeaster-report.json \
+            --dump-dir codeaster-mismatches
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: codeaster-report
+          path: |
+            tools/differential/codeaster/codeaster-report.json
+            tools/differential/codeaster/codeaster-mismatches/
           if-no-files-found: ignore
 
   # Coverage-guided fuzzing of the JSON entry points the WASM layer exposes
@@ -151,7 +238,7 @@ jobs:
       matrix:
         target: [json_static, json_dynamics, json_plastic, model_certify]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rust-src
@@ -182,7 +269,7 @@ jobs:
           cargo fuzz run ${{ matrix.target }} -- \
             -max_total_time=1800 -rss_limit_mb=2048 -timeout=60 \
             -print_final_stats=1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: fuzz-crashes-${{ matrix.target }}
@@ -205,7 +292,7 @@ jobs:
       matrix:
         slot: [0, 1, 2, 3]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       # engine/.cargo/config.toml links with clang + mold.
       - name: Install mold linker
@@ -226,7 +313,7 @@ jobs:
           echo "k=$(( (day * 4 + ${{ matrix.slot }}) % 64 ))" >> "$GITHUB_OUTPUT"
       - name: Mutants (shard ${{ steps.shard.outputs.k }}/64)
         run: ./scripts/mutants.sh --shard ${{ steps.shard.outputs.k }}/64 --jobs 2
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: mutants-report-${{ steps.shard.outputs.k }}

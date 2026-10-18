@@ -136,7 +136,8 @@ residual + Gershgorin certificate and writes the data it used;
 free-DOF system from the sparse assembly (any model size). Wasm:
 `export_linear_bundle_{2d,3d}(json) -> bundle JSON`.
 
-**Format** (`stabileo.linear-certificate.v1`, JSON). Every f64 is written exactly as an
+**Format** (`stabileo.linear-certificate.v2`, JSON; `v1` is `v2` without `provenance`
+and is still read). Every f64 is written exactly as an
 integer pair `[m, e]` meaning `m · 2^e` (`m` odd, or `[0, 0]`), so the checker sees the
 exact dyadic rationals the engine used.
 
@@ -150,6 +151,7 @@ exact dyadic rationals the engine used.
 | `l` | `{colPtr, rowIdx, values}`: the f64 Cholesky factor `L` of `P K Pᵀ − tI` in permuted numbering; it denotes `L'` with `L'[perm[a]][c] = L[a][c]` |
 | `mu` | the claimed `μ`, `λ_min(K) ≥ μ > 0` |
 | `bound` | the claimed bound `b`: `‖K⁻¹f − ũ‖₂ ≤ b` |
+| `provenance` | what was solved, by which engine (see *Provenance* below; absent for a bundle exported from a bare matrix) |
 | `info` | display copies of μ, b, ρ, relative bound (ignored by the checker) |
 
 **Check (Lean, `lake exe certcheck <bundle.json>...`).** `Certify.Bundle.check`
@@ -201,15 +203,166 @@ f64 export of the same bundles takes 4 ms to 4 s.
 Nothing about `L` or `perm` is checked: `L' L'ᵀ ⪰ 0` for every real `L'`, so a wrong
 factor or a non-permutation can only make the Gershgorin test fail.
 
-**Tests.** `engine/tests/certify_bundle.rs` (`export_bundles`) writes bundles for three
-fixtures (`ex-3d-portal-frame`, `ex-3d-tower`, `ex-3d-nave-industrial`) to
-`target/cert-bundles/`, plus three tampered copies of each whose claims are false or
-unsupportable: `bound / 1024`, `ũ` moved by `4b` in one component with `b` kept (then
-`‖u* − ũ'‖ ≥ 3b`, so acceptance would contradict `check_sound`), and `μ = 2 min Kᵢᵢ`
-(`> λ_min`, contradicting `check_sound_coercive`). `verify/scripts/check-bundles.sh`
-regenerates them, runs `certcheck`, and requires every original to be accepted and
-every tampered copy rejected. The ignored test `export_large_bundles` writes the generated
+### Plastic collapse bundles
+
+`certify::plastic_bundle::export_plastic_bundle_{2d,3d}(input)` (wasm
+`export_plastic_bundle_{2d,3d}(json)`) export the plastic-collapse certificate of a 2D or
+3D model (see "Plastic collapse load factor" below) as `stabileo.plastic-certificate.v1`.
+All numbers are exact rationals written as decimal text `"n"` or `"n/d"`.
+
+**The problem the bundle states** (a discretized rigid–perfectly-plastic limit-analysis
+problem; `plastic.rs::limit_problem_2d`, `plastic_3d.rs::limit_problem_3d`). Unknowns: the
+member end forces `x ∈ ℝ^nv` (`(Fx, Fz, Mᵢ)` per member in 2D, `(F, Mᵢ)` in 3D) and the
+load factor `λ`.
+
+| field | meaning |
+|---|---|
+| `rows` | equilibrium `Σ aᵢ xᵢ = λ p`: every free nodal DOF, every moment release |
+| `members[].comps` | per bending component `c`: weight `n_c > 0`, enclosure `[mpLo_c, mpHi_c]` of the plastic moment |
+| `members[].pieces` | `[a, b] ⊂ [0, 1]` and per component the cubic `M_c(t) = Σⱼ cⱼ tʲ`, each `cⱼ` an affine functional `{terms, lam}` of `(x, λ)` |
+| `static` | `{lambda, x}`: the static certificate; `pieces[].cuts` are its cut points |
+| `kinematic` | `{multipliers, hinges: [{member, piece, t, theta, diss}], lambda}` |
+
+The pieces are the end sections `[0, 0]` and `[1, 1]` (the end moments `−Mᵢ`, `Mⱼ`) and the
+load pieces between member-load breakpoints, `M(t) = −Mᵢ + t (d × F) − λ Lm(t)`. The yield
+condition is `Σ_c M_c(t)² / (n_c Mp_c²) ≤ 1` at every `t` of every piece: in 2D one
+component with `n = 1`, i.e. `|M(t)| ≤ Mp`; in 3D the biaxial ellipse
+`(M_y/Mp_y)² + (M_z/Mp_z)² ≤ 1` with `M_y = C·u_y`, `n_y = |u_y|²` for the exact (non-unit)
+local axes, checked exactly in rationals, no square roots.
+
+**Check (Lean, `Certify.Plastic.check`, `verify/Certify/PlasticCheck.lean`, core only).**
+* static: every row holds exactly at `(λ_lo, x)`; on every piece the chain
+  `a ≤ cuts… ≤ b` covers `[a, b]` and on each segment
+  `Σ_c B_c² / (n_c mpLo_c²) ≤ 1`, `B_c` the largest absolute Bernstein coefficient of the
+  cubic `M_c` on the segment (Taylor shift, scale, four coefficients);
+* kinematic: the multiplier-weighted rows equal the hinge-weighted moment functionals as
+  linear forms in `x` (every coefficient, accumulated into one array, is exactly 0); the
+  work `W = Σ_r u_r p_r + Σ_h Σ_c θ_{h,c} ∂M_c(t_h)/∂λ > 0`; each hinge lies on its piece,
+  `D_h ≥ 0`, `D_h² ≥ Σ_c θ_{h,c}² n_c mpHi_c²`; and `Σ_h D_h ≤ λ_up W`.
+
+**Soundness (`verify/Certify/PlasticSound.lean`).** For every assignment of plastic
+moments `Mp_{m,c} ∈ [mpLo, mpHi]` (`MpIn`), with `Admissible d mp λ x` = equilibrium and the
+yield condition at every point of every piece, and
+`λ_c = collapseFactor d mp = sSup {λ | ∃ x, Admissible d mp λ x}`:
+
+* `Certify.Plastic.static_sound`: `check d = true → Admissible d mp λ_lo x_static`
+  (static theorem; uses `bern_bound`: on `[s, s']` a cubic is bounded by its largest
+  absolute Bernstein coefficient, since `h³ q(s+v) = Σⱼ bⱼ C(3,j) vʲ (h−v)^(3−j)`);
+* `Certify.Plastic.kinematic_sound`: `check d = true → Admissible d mp λ x → λ ≤ λ_up`
+  (kinematic theorem, as LP weak duality: the checked identity gives
+  `Σ_h Σ_c θ_{h,c} M_c(t_h) = λ W` for any equilibrium field — the virtual-work equation —
+  and Cauchy–Schwarz against the ellipse bounds each hinge's term by `D_h`);
+* `Certify.Plastic.check_sound`: both, and `λ_lo ≤ λ_c ≤ λ_up`.
+
+So the bundle proves a lower and an upper bound on the collapse load factor **of the
+discretized model under the stated yield condition** (bending only; axial force, shear and
+torsion unlimited; associated flow is not needed for the bounds as stated). What this does
+*not* cover: that the rows and moment functionals are the right ones for the structure in
+the input (the model building in `plastic*.rs`: geometry, supports, releases, member-load
+statics, the `Mp` enclosures from section data), exactly as a linear bundle trusts the
+assembly of `K`.
+
+The engine side: the static field is the engine's exactly equilibrated candidate scaled by
+`s` (`s² U ≤ 1` for the bundle's own best-first Bernstein subdivision, within `2⁻³⁰` of the
+best point value), the hinges are the engine's checked mechanism (rotations per component,
+`ρ·u_c / n_c` in 3D), and the multipliers solve `Aᵀ u = Σ_h θ_h ∂M(t_h)/∂x` exactly. For the
+biaxial condition the per-component Bernstein bound is a little more conservative than the
+engine's degree-6 bound, so a 3D bundle's `λ_lo` can sit slightly (about `10⁻¹⁰`
+relative) below the in-app value.
+
+### Load-combination bundles
+
+`certify::combination_bundle::export_combination_bundle_{2d,3d}(input)` (wasm
+`export_combination_bundle_{2d,3d}(json)`) export `stabileo.combination-certificate.v1`
+(numbers as exact `[m, e]` dyadics):
+
+| field | meaning |
+|---|---|
+| `n`, `k`, `perm`, `l`, `mu` | the shared reduced stiffness, factor and `μ`, as in a linear bundle |
+| `cases[]` | per load case: `fLo`, `fHi`, `u`, `bound` (a linear certificate over the shared `K`) |
+| `combos[]` | `factors: [[case, cᵢ]]`, the computed combination `u` (free DOFs), its `bound` `B_j` |
+| `envelope` | `maxAbs[k]` (the engine's max-abs displacement envelope) and `bound` `E` |
+| `quantities` | member end forces (`labels` `e<id>.<start|end>.<component>`): `caseValues`, `caseBounds` (from `forces.rs`), `comboValues`, `comboBounds`, `envelopeBounds` |
+
+**Check (`Certify.Combo.check`, `verify/Certify/ComboCheck.lean`).** Gershgorin on
+`K − L'L'ᵀ` once; per case the shape and residual test of a linear bundle; per combination
+`B_j − Σ|cᵢ|bᵢ ≥ 0` and `Σ_k (Σcᵢũᵢ[k] − ũ_j[k])² ≤ (B_j − Σ|cᵢ|bᵢ)²`; for the envelope
+`E ≥ B_j` and `maxAbs[k] = max_j |ũ_j[k]|` exactly; per quantity
+`Σ|cᵢ| b_{i,q} + |Σcᵢ v_{i,q} − v_{j,q}| ≤ B_{j,q} ≤ E_q`.
+
+**Soundness (`verify/Certify/ComboSound.lean`).**
+* `Certify.Combo.check_sound_disp`: for all right-hand sides `fᵢ` in the cases'
+  enclosures, `‖K⁻¹fᵢ − ũᵢ‖₂ ≤ bᵢ` (`case_sound`, via `Certify.Bundle.check_sound`),
+  `‖Σ cᵢ K⁻¹fᵢ − ũ_j‖₂ ≤ B_j`, and for every DOF `k` every exact
+  `|(Σ cᵢ K⁻¹fᵢ)[k]|` is `≤ maxAbs[k] + E` and some is `≥ maxAbs[k] − E`
+  (i.e. `|max_j |exact_j[k]| − maxAbs[k]| ≤ E`);
+* `Certify.Combo.check_sound_quantities` (interval linear combination): if every exact case
+  value is within its stated case bound, every exact combination `Σ cᵢ eᵢ` is within
+  `B_{j,q}` of the reported combination value, and `B_{j,q} ≤ E_q`.
+
+Displacements of combinations and the envelope are therefore checked end to end; for end
+forces the per-case bounds (`forces.rs`, f64 evaluation of the force formulas) remain an
+assumption and only the combination step is checked. Station (diagram) bounds are not in
+the bundle.
+
+### Provenance
+
+Every bundle (linear `v2`, plastic, combination) carries
+
+| field | meaning |
+|---|---|
+| `provenance.inputSha256` | SHA-256 of the *canonical JSON* of the solver input: the input as the engine parsed it (`SolverInput`, `PlasticInput`, `MultiCaseInput`, … ), serialized by `serde_json` through `serde_json::Value` (object keys sorted), compact (`certify::provenance::canonical_json`) |
+| `provenance.inputKind` | the input type |
+| `provenance.engineVersion`, `engineCommit` | `CARGO_PKG_VERSION` and the git commit the engine was built from (`engine/build.rs`; `STABILEO_GIT_COMMIT` overrides, `unknown` without git) |
+| `provenance.kinds` | certificate kinds: `linear-static`; `plastic-collapse-static`, `plastic-collapse-kinematic`; `linear-static`, `load-combination`, `envelope`, `end-force-combination` |
+
+`certcheck` prints the provenance with its verdict (and rejects an unknown `format` with a
+clear message, exit 2). It does not hash: `verify/scripts/check-bundles.sh` checks that
+`inputSha256` is the SHA-256 of the canonical input `NAME.input.json` shipped next to each
+sample bundle `NAME.json`. The provenance is not covered by the soundness theorems: it ties
+a checked bundle to an input, and a mismatch is caught by the script, not by Lean.
+
+### Tests and samples
+
+`engine/tests/certify_bundle.rs` writes to `target/cert-bundles/`:
+* linear (`export_bundles`): `ex-3d-portal-frame`, `ex-3d-tower`, `ex-3d-nave-industrial`,
+  with tampered copies `bound / 1024`, `ũ` moved by `4b` (then `‖u* − ũ'‖ ≥ 3b`), and
+  `μ = 2 min Kᵢᵢ` (`> λ_min`, contradicting `check_sound_coercive`);
+* plastic (`export_plastic_bundles`): a 2D portal (combined mechanism, `λ_c = 6Mp/7`), a
+  2D continuous beam (hinges inside members), a 3D biaxial cantilever (`λ_c = 8`) and a 3D
+  space portal under biaxial sway with a member load; tampered: static field and `λ_lo`
+  scaled by 3/2 (equilibrium holds, yield fails, `1.5 λ_lo > λ_up`), `λ_up / 2`, `mpLo / 2`
+  (the claim for the wider enclosure is false), a hinge rotation doubled (identity fails);
+* combinations (`export_combination_bundles`): 2D frame (2 cases, 4 combinations incl. a
+  negative factor), 2D 3-storey building, 3D building (n = 270, 4 cases); tampered: a
+  combination bound `/ 1024`, a combination `ũ` moved by `4B`, an envelope value doubled,
+  an end-force combination bound `/ 1024`;
+* every bundle's canonical input `NAME.input.json`, and wrong-hash copies
+  (`*.wronghash.json`: valid certificates whose recorded input hash is not that of the
+  shipped input).
+
+`verify/samples/` holds small committed copies of these (all three formats, positive and
+negative), a `v1` linear bundle (no provenance; must still be accepted) and a bundle with
+an unknown format (`*.badformat.json`; must be refused with exit 2). `verify/scripts/check-bundles.sh [--no-generate] [DIR...]` regenerates the
+bundles (unless `--no-generate`), builds `certcheck` and checks the generated directory and
+`samples/`: every `NAME.json` must be accepted *and* match its input hash, every
+`*.tampered-*` must be rejected, and every `*.wronghash*` must be accepted by `certcheck`
+but caught by the hash check. The ignored test `export_large_bundles` writes the generated
 frame buildings above to `target/cert-bundles-large/`.
+
+### What the Lean checker proves, and what remains trusted
+
+| result | checked in Lean (theorem) | still trusted |
+|---|---|---|
+| linear static displacements | `‖K⁻¹f − ũ‖₂ ≤ b` for every `f` in the enclosure (`Bundle.check_sound`) | assembly of `K` and of the `f` enclosure from the input; the JSON reader |
+| plastic collapse, 2D and 3D | `λ_lo ≤ λ_c ≤ λ_up` for the stated discretized problem and every `Mp` in the enclosures (`Plastic.check_sound`) | model building (rows, moment functionals, `Mp` enclosures from section data); the JSON reader |
+| combinations / envelope, displacements | case bounds, combination bounds, max-abs envelope within `E` (`Combo.check_sound_disp`) | as for linear static |
+| combinations / envelope, end forces | combination and envelope bounds follow from the case bounds (`Combo.check_sound_quantities`) | the per-case force bounds (`forces.rs`), as before |
+| provenance | — (hash checked by `check-bundles.sh`) | the canonicalization and SHA-256 in the engine and the script's `sha256sum` |
+
+Not in any bundle (trusted in Rust only, with their own Lean theorems for the mathematics
+where listed above): buckling, modal, P-Delta, spectral, harmonic, time-history, member
+force bounds themselves, station bounds, design checks.
 
 ## Buckling load-factor enclosure
 
@@ -354,10 +507,13 @@ case's right-hand side and combine the same way).
 * **Combination member forces.** End forces are affine in `u` with load terms that do
   not depend on `u` (`f = k T u − fef`), so `|F_c* − F̃_c| ≤ Σ|cᵢ|ΔFᵢ + |Σcᵢ F̃ᵢ − F̃_c|`
   per component, with `ΔFᵢ` from the member force bounds below.
-* **Diagram stations.** The diagram evaluators compute `M(x) = M_start − V_start·x +
-  (load terms)`, `V(x) = V_start + …`, `N(x) = N_start + …`, `T(x)` linear between ends,
-  so at every station the error is at most `ΔM + ΔV·L`, `ΔV`, `ΔN`, `ΔT` (3D: `M_z` uses
-  `ΔV_y`, `M_y` uses `ΔV_z`). These are the `stationBounds`.
+* **Diagram stations.** Each case's diagram bound (next section, valid at every x)
+  combines the same way, `Σ|cᵢ|·Sᵢ`, plus the rounding of the combined start forces the
+  diagram formula reads (`δM + L·δV` for moments, `δN`, `δV`, `δT` otherwise). These are
+  the `stationBounds`; they replace the former `ΔM + ΔV·L`, which is several times looser.
+  Combinations also carry the gaps of their computed diagrams, `deflectionBounds` (member
+  factor × the combination's displacement bound) and `reactionBounds` (`Σ|cᵢ|Rᵢ` plus the
+  rounding of the combined reaction against the reported one).
 * **Envelopes.** `max_k`, `min_k` and max-abs over combinations are 1-Lipschitz in the
   sup norm, so every envelope value (max-abs results, envelope diagram ordinates) is
   within the largest combination bound of the exact envelope. The envelope is
@@ -366,8 +522,67 @@ case's right-hand side and combine the same way).
   tie).
 
 Not included (inherited from the member force bounds): f64 rounding in each case's
-force formulas and in evaluating the diagram polynomials. Reactions are not bounded.
-Constraints and inclined supports are unsupported, as for single cases.
+force formulas and in evaluating the diagram polynomials. Constraints and inclined
+supports are unsupported, as for single cases. Envelope curves get no gaps: their
+station values are certified, not the envelope between stations.
+
+## Diagrams, extremes, deflections and reactions
+
+What the result views compute after the solve (`engine/src/certify/stations.rs`,
+`deflection.rs`, `reactions.rs`; attached to `certify_linear_2d/3d`, to every case and
+combination of `certify_multi_case_2d/3d` and to the envelope as `stationBounds`,
+`deflectionBounds`, `reactionBounds`, `reactionReason`). Tests:
+`engine/tests/certify_shown.rs`.
+
+* **Diagrams at every x.** The evaluators (`postprocess::diagrams::compute_diagram_value_at`,
+  `diagrams_3d::evaluate_diagram_3d_at` and their TypeScript twins `computeDiagramValueAt`,
+  `evaluateDiagramAt`) compute `M(x) = M_start − V_start·x + (loads)`, `V(x) = V_start + …`,
+  `N(x) = N_start + …` (TS: `(1−t)N_start + t(N_end + Σpx) − …`), 3D `M_z = M_z,start −
+  V_y,start·x + …`, `M_y = M_y,start + V_z,start·x + …`, `T = (1−t)T_start + t·T_end`. The load
+  terms do not depend on `u` and the end forces are rows of `k_local T u_e`, so the error is
+  `r(x)·T·Δu_e` with `r(x)` affine in x (or a convex combination of two rows) and
+  `|r(x)TΔu| ≤ ‖r(x)‖₂·‖T‖₂·‖u* − ũ‖₂`. `x ↦ ‖r(x)‖₂` is convex: its sup over `[0, L]` is at
+  `x = 0` or `x = L`, evaluated in interval arithmetic. The bound therefore holds at *every*
+  point of the member (the hover, any polyline between stations) and for both evaluators,
+  which share the u-dependence exactly; the TS–engine agreement of the load terms is a
+  vitest (`certificate-shown.test.ts`).
+* **Extremes.** max, min and max-abs over a fixed set of stations are 1-Lipschitz in the sup
+  norm: the station bound bounds the error of every displayed extreme. Between stations the
+  *computed* diagram can exceed its station extreme; `gaps` bound by how much over the
+  engine's stations (`diagram_positions_2d/3d`, which the TS diagrams use too):
+  `G_k = K·h²/8 + Σ|S_i|·min(c_i − x_k, x_{k+1} − c_i, h/4) + min(Σ|J_i|, D·h)` on each station
+  interval, with `K ≥ |f''|` on smooth pieces (`|q|` for moments, `|q'|` for shears), `S_i` the
+  slope jumps (point loads in M, load ends in V), `J_i` the value jumps (couples in M, point
+  loads in V) and `D ≥ |f'|` (proof in `stations.rs`). So the exact extreme along the member
+  lies in `[shown − bound, shown + bound + gap]`; the max label prints `±(bound + gap)`. Where
+  the extreme occurs is **not** certified: the argmax is not continuous in the forces (two
+  near-equal peaks can swap).
+* **Deflection curves.** `compute_deformed_shape` (and TS `computeDisplacementAt`,
+  `memberLocalCurve`, the same Euler–Bernoulli/Timoshenko member) is `u(x) = (1−t)u_i + t u_j`
+  and `v(x) = Σ p_k(x) q_k + (loads)` per bending plane, `q = (v_i, θ_i, v_j, θ_j)`. The cubics
+  `p_k` are probed from the solver's own `MemberDeflection` (`deflection_shape_cubics`) and the
+  three parts use disjoint end components, so every displayed translation (and the length of
+  the displacement) at every x is within `√max(1, S)·‖T‖²·‖u* − ũ‖₂`, `S = sup ‖p(x)‖₂²`
+  enclosed by interval Horner on 64 subintervals (max over Euler–Bernoulli and, with a shear
+  area, Timoshenko; trusses as straight lines). Rotations along the curve are not bounded.
+* **Reactions.** Restrained DOF: `R = (K u − f)_d`, so `|ΔR| ≤ ‖K_{d,F}‖₂·‖u* − ũ‖₂`; spring
+  DOF: `R = −k u_d`, `|k|·‖u* − ũ‖₂`. The reported value is also compared with the formula
+  at ũ in interval arithmetic and the difference added, so the reaction bound covers the
+  f64 evaluation and any mismatch with the formula. Not bounded (with `reactionReason`):
+  constraints, inclined supports; skipped: 2D springs with an angle, nodes with several
+  supports, the bimoment reaction.
+
+Tests: the double-double reference of the same assembled system lies inside every bound on
+84 certified random models (≈170 000 checks; the reference reaches 41% of a bound) and on
+feature models (partial and trapezoidal loads, couples, thermal loads, hinges, trusses,
+Timoshenko, springs, 3D releases, axial distributed loads); the worst displacement-error
+direction allowed by the certificate, probed through the solver's own routines, reaches
+≥ 0.9999 of every bound kind (so halving any bound fails); gaps are attained (ratio > 0.99)
+by diagrams peaking midway between stations; combinations contain the combined reference.
+
+Inherited limitation: rounding in the f64 evaluation of the diagram and curve formulas is
+not included (reactions excepted, see above). Not yet formalized in Lean (instances of
+`force_bound` with `r(x)` for `k`, plus the convexity and chord-error lemmas).
 
 ## Certified design checks
 
@@ -408,8 +623,40 @@ inconclusive at this precision.
   combination is refused. Values *between* stations are not covered (as in the f64
   envelope).
 
-Wasm: `certify_steel_members`, `certify_ec3_members`, `certify_ec2_members` (bounded
-demands in; `ec3_demands` / `ec2_demands` convert the station demand sets and
+* **Roots (RC flexure).** CIRSOC 201 and ACI 318 flexure solve strain compatibility
+  (`postprocess/rc_flexure.rs`): the neutral axis `c` is the root of the force residual
+  `R(c) = Cc(c) + As'·fs'(c) − As·fs(c)`, with both steel stresses clamped to `±fy`.
+  `R` is continuous and strictly increasing for `c > 0` on the data domain checked by
+  `RcFlexureSection::monotone` (f'c, bw > 0, bf ≥ bw, hf, As, As', Es, d, d', fy ≥ 0;
+  otherwise the member is refused), so the root is unique. `Real::increasing_root`
+  bisects in f64 and the interval instantiation certifies a bracket `[r − δ, r + δ]`
+  around the f64 root by evaluating `R` in interval arithmetic at both ends (`< 0` left,
+  `> 0` right for every real parameter in its enclosure); `Mn`, `εt` and `φ` are then
+  evaluated over the bracket. Capacities depend only on the exact member data.
+* **P-M interaction (ACI).** With `Nu ≠ 0` the f64 check bisects to *a* neutral axis
+  where `φPn(c) = Pu` (`φPn` need not be monotonic). The certified check encloses `φMn`
+  over the whole set `{c : φPn(c) ∈ [Pu]}` by branch and bound on `c`: boxes whose
+  `φPn` enclosure misses `[Pu]` are dropped, the rest split down to a relative width of
+  1e-12 (or 1e-4 for boxes entirely inside `[Pu]`), at most 200 000 boxes. This contains
+  whichever crossing the f64 bisection finds. `[Pu]` must be certified strictly inside
+  `(φPn(c_min), φPn(c_max)]` (off the diagram the f64 check flags the flexure check), and
+  an `Nu` box containing 0 and non-zero values takes the hull of the pure-flexure and
+  diagram strengths (the f64 check switches at exactly `Nu = 0`). A T-beam with a
+  possibly non-zero `Nu` is refused (the f64 check flags it incomplete).
+
+* **CIRSOC 301** (`postprocess/cirsoc301_check.rs`): D.2, E (E.3, E.4, E.5, E.6, E.7), F.2–F.6,
+  G.2/G.4 and H.1, the capacities generic over `Real`. A check refused under load refuses the box.
+  A check that runs only for some demands (tension or compression, weak-axis flexure above
+  1e-6 kN·m, interaction) counts toward the upper bound wherever it may run and toward the lower
+  bound only where it certainly runs. The least root of the asymmetric-section cubic E.4.6 (unequal
+  angles) is certified by `increasing_root` on (0, min(Fex, Fey, Fez)): Courant–Fischer on the
+  definite pencil puts exactly one root there. Classification thresholds of Tabla B.4.1 are
+  decided on the f64 data, as in the AISC check.
+
+Wasm: `certify_steel_members`, `certify_ec3_members`, `certify_ec2_members`,
+`certify_cirsoc201_members`, `certify_cirsoc301_members`, `certify_rc_members`, `certify_timber_members`,
+`certify_cfs_members` (bounded demands in; `ec3_demands` / `ec2_demands` /
+`cirsoc201_demands` / `rc_demands` / `timber_demands` / `cfs_demands` convert the station demand sets and
 `scale_demands` changes units, e.g. kN → N for EC2's Pa-based formulas, widening each
 bound by the scaling's rounding), `certify_steel_multi_case_2d/3d`
 (multi-case model + members in, `{ analysis, steel }` out).
@@ -417,12 +664,41 @@ bound by the scaling's rounding), `certify_steel_multi_case_2d/3d`
 | Check | Status |
 |---|---|
 | AISC 360 (`steel_check`): tension D2 (yield + rupture), compression E3, flexure F2 (LTB) / F6, shear G2, interaction H1 | **certified** |
-| EC3 (`ec3_check`): tension 6.2.3, flexural buckling 6.3.1 (χ curves a–d), LTB 6.3.2, weak-axis flexure 6.2.5, shear 6.2.6, simplified interaction 6.3.3 | **certified** |
+| EC3 (`ec3_check`): tension 6.2.3, flexural buckling 6.3.1 (χ curves a–d), LTB 6.3.2, weak-axis flexure 6.2.5, shear 6.2.6, interaction 6.3.3 (6.61)/(6.62) with Annex B factors | **certified** |
 | EC2 (`ec2_check`): RC flexure 6.1 (rectangular block, singly / doubly reinforced, compression-steel yield branch), shear 6.2 (VRd,c with the NEd axial term over the whole NEd interval, VRd,s, VRd,max) | **certified** |
-| CIRSOC 201 (`cirsoc201_check`), ACI RC (`rc_check`), timber, masonry, CFS, connections, foundations, serviceability | not certified (f64 only) |
+| CIRSOC 201 (`cirsoc201_check`): RC flexure 10.2 (strain compatibility, singly / doubly reinforced, compression- and tension-steel yield branches, φ 9.3.2 with εty = 0.002 for fy ≤ 420 MPa else fy/Es), shear Cap. 11 (Vc with √f'c ≤ 25/3, Vs, Vs,max) | **certified** |
+| ACI 318-19 (`rc_check`): RC flexure 22.2 (strain compatibility, rectangular singly / doubly, T-beam flange / web), P-M interaction 22.4 at the axial load, axial capacity 22.4.2.1 / 22.4.3.1, φ Table 21.2.2, shear 22.5.5.1 (Av,min switch, λs, √f'c ≤ 8.3, Vs,max) | **certified** |
+| NDS timber (`timber_check`): bending 3.3 (CL with the Table 3.3.3 effective span), compression 3.6 (CP), tension 3.8, shear 3.4, interaction 3.9.1 / 3.9.2 (FcE1 amplification, saturated at 99) | **certified** |
+| AISI S100 (`cfs_check`): compression E2 (weak-axis flexural buckling, local via Ae) / E4 distortional, tension D2, flexure F2.1 LTB / F4 distortional, weak-axis flexure, web shear G2.1 (three ranges), linear interaction H1.2 / H2 | **certified** |
+| masonry, connections, foundations, serviceability | not certified (f64 only) |
+
+Timber note: past buckling (`fc ≥ FcE1`) the f64 check saturates the 3.9.2 ratio at 99;
+the amplified term is written `fb/max(1 − fc/FcE1, fb/99)` (equal after the final
+`min(·, 99)`, and finite), so a box reaching `FcE1` has an enclosure reaching 99. A box
+that also contains a zero moment is refused (the term jumps 0 → 99 there).
+
+CFS note: flexural-torsional buckling of singly symmetric sections and second-order
+amplification are not in the f64 check (the web flags the former). Fixed while
+certifying (regression tests in `tests/integration/cfs_check.rs`): zero / non-finite
+capacities passed (now `unevaluated`), F2.1 read `1 + √X` for `√(1 + X)` (Me high; the
+web's compensating Cw rescaling in `cfs-code.ts` is removed), G2.1 used the yield branch
+up to the elastic limit, a misprinted inelastic limit and an elastic Vn missing a factor
+t, a shear demand without web geometry read ratio 0, and the interaction used AISC's
+H1-1a/b split instead of AISI's linear sum.
 
 EC3 note: an unbraced length `lb = 0` gives `Mcr = x/0`; the f64 check reads it as no
 LTB reduction, the interval check refuses (division by an interval containing 0).
+
+RC model notes (the f64 check's model, which is what is certified): the displaced
+concrete at the compression bars is not deducted in pure flexure (it is in the ACI
+interaction diagram); the T-beam ignores compression steel; CIRSOC 201 has no axial
+force. Fixed while certifying (regression tests in `tests/integration/cirsoc201_check.rs`
+and `rc_check.rs`): CIRSOC 201 passed a member with zero capacity, assumed the tension
+steel yields when εt < εy, took the compression-steel stress from the singly reinforced
+neutral axis, used εty = 0.002 for every grade and left √f'c uncapped in Vc; ACI had no
+axial capacity check (an overloaded column reported the moment at the end of the
+diagram), dropped the axial force on T-beams, assumed the tension steel yields, and left
+√f'c uncapped in Vc.
 
 Inherited limitations: rounding in the f64 evaluation of member forces and diagram
 polynomials (see member force bounds) is not included; capacities are certified as the
@@ -899,6 +1175,14 @@ reports `method` (`modal`, `modal+static`, `direct`), `modesUsed`, `nDof`,
 `truncationRatio` (share of the static target response carried by the omitted modes) and
 `warnings` (frequencies where the correction could not be applied,
 `harmonic_truncation_is_reported`).
+
+## Which K is certified
+
+A certificate is about the K, f (and M, K_G) the solver assembled, right or wrong. That
+the dense, sparse, `_ex`, parallel and constrained paths assemble the same matrices, and
+that the certificates' own reduced systems (`reduced_sparse_2d/3d`, `buckling_system_2d/3d`)
+equal them, is checked separately by the cross-path assembly oracle,
+[ASSEMBLY.md](ASSEMBLY.md).
 
 ## Rounding model
 

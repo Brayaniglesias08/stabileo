@@ -152,8 +152,19 @@ fn certify_combinations_2d_building() {
     for cc in &out.combinations {
         assert_eq!(cc.force_bounds.len(), input.solver.elements.len());
         assert_eq!(cc.station_bounds.len(), input.solver.elements.len());
+        let lengths: std::collections::HashMap<usize, f64> = out.results.combination_results[0]
+            .results
+            .element_forces
+            .iter()
+            .map(|f| (f.element_id, f.length))
+            .collect();
         for (fb, sb) in cc.force_bounds.iter().zip(&cc.station_bounds) {
-            assert!(sb.moment >= fb.m && sb.shear == fb.v && sb.axial == fb.n);
+            // Station bounds (valid at every x) come from the stiffness rows the
+            // diagram formula reads: no looser than ΔM + ΔV·L from the end forces.
+            assert_eq!(fb.element_id, sb.element_id);
+            assert!(sb.shear <= fb.v && sb.axial <= fb.n * (1.0 + 1e-12));
+            assert!(sb.moment <= fb.m + fb.v * lengths[&fb.element_id]);
+            assert!(sb.moment >= 0.5 * fb.m, "not vacuous");
         }
     }
     let env = &out.envelope;
@@ -278,7 +289,12 @@ fn w_member(id: usize, lb: f64) -> SteelMemberData {
         "elementId": id, "fy": 345e3, "fu": 450e3, "ag": 1.23e-2, "aw": 3.08e-3,
         "lby": lb, "lbz": lb, "iy": 2.22e-4, "iz": 7.25e-5, "ry": 0.134, "rz": 0.0768,
         "zy": 1.59e-3, "zz": 7.23e-4, "sy": 1.44e-3, "sz": 4.77e-4, "j": 9.1e-7, "cw": 1.56e-6,
-        "lb": lb, "cb": 1.0, "e": 200e6, "depth": 0.308
+        "lb": lb, "cb": 1.0, "e": 200e6, "depth": 0.308,
+        // bf = 305, tf = 15.4, h = 255, tw = 9.9 mm: no slender element (E7).
+        "compressionElements": [
+            { "kind": "rolledFlange", "b": 0.1525, "t": 0.0154, "count": 4.0 },
+            { "kind": "web", "b": 0.255, "t": 0.0099 }
+        ]
     }))
     .unwrap()
 }
@@ -398,7 +414,8 @@ fn certified_ec3_utilization_end_to_end_2d() {
             serde_json::from_value(serde_json::json!({
                 "elementId": id, "fy": 355e3, "e": 210e6, "a": 5.381e-3, "wplY": 6.28e-4, "welY": 5.57e-4,
                 "wplZ": 1.25e-4, "welZ": 8.05e-5, "iy": 8.356e-5, "iz": 6.04e-6, "it": 2.01e-7, "iw": 1.26e-7,
-                "lcrY": 3.5, "lcrZ": 3.5, "lb": 3.5, "bucklingCurveY": "a", "c1": 1.13, "av": 2.568e-3
+                "lcrY": 3.5, "lcrZ": 3.5, "lb": 3.5, "bucklingCurveY": "a", "c1": 1.13, "av": 2.568e-3,
+                "geometry": { "shape": "I", "h": 0.3, "b": 0.15, "tw": 0.0071, "tf": 0.0107, "r": 0.015 }
             }))
             .unwrap()
         })
@@ -457,5 +474,82 @@ fn certified_ec2_utilization_end_to_end_2d() {
             "{}: {f64_max} ∉ [{}, {}]", m.element_id, r.utilization_lower, r.utilization_upper);
         assert!(r.utilization_upper - r.utilization_lower <= 1e-9 * (1.0 + f64_max));
         eprintln!("EC2 elem {}: U ∈ [{:.6}, {:.6}] {}", m.element_id, r.utilization_lower, r.utilization_upper, r.governing_check);
+    }
+}
+
+/// CIRSOC 201 (Pa / N units) end to end, as EC2.
+#[test]
+fn certified_cirsoc201_utilization_end_to_end_2d() {
+    use dedaliano_engine::postprocess::cirsoc201_check::{check_cirsoc201_members, Cirsoc201CheckInput, Cirsoc201MemberData};
+    let mc = building_2d();
+    let analysis = certify_multi_case_2d(&mc).unwrap();
+    let demands = cirsoc201_demands(&scale_demands(&steel_demands_from_combinations_2d(&analysis, 21).unwrap(), 1000.0));
+    let mut ids: Vec<usize> = mc.solver.elements.values().map(|e| e.id).collect();
+    ids.sort();
+    let members: Vec<Cirsoc201MemberData> = ids
+        .iter()
+        .map(|&id| {
+            serde_json::from_value(serde_json::json!({
+                "elementId": id, "fc": 25e6, "fy": 420e6, "b": 0.3, "h": 0.6, "d": 0.55,
+                "asTension": 1.5e-3, "asCompression": 4e-4, "dPrime": 0.05, "av": 1.0e-4, "sStirrup": 0.15
+            }))
+            .unwrap()
+        })
+        .collect();
+    let res = certify_cirsoc201_members(&CertifiedCirsoc201CheckInput { members: members.clone(), demands: demands.clone() });
+    for (m, r) in members.iter().zip(&res) {
+        assert!(r.certified, "{}: {:?}", m.element_id, r.reason);
+        let f64_max = demands
+            .iter()
+            .filter(|d| d.forces.element_id == m.element_id)
+            .map(|d| {
+                let c = &check_cirsoc201_members(&Cirsoc201CheckInput { members: vec![m.clone()], forces: vec![d.forces.clone()] })[0];
+                // The certified check covers all four (flexure, ductility 9.3.3.1, shear, minimum
+                // shear reinforcement), as the f64 check does since the merge of #298 and #301.
+                assert!(!c.min_shear_reinforcement_missing, "{c:?}");
+                c.flexure_ratio.max(c.ductility_ratio).max(c.shear_ratio)
+            })
+            .fold(0.0, f64::max);
+        assert!(r.utilization_lower <= f64_max * (1.0 + 1e-12) && f64_max <= r.utilization_upper * (1.0 + 1e-12),
+            "{}: {f64_max} ∉ [{}, {}]", m.element_id, r.utilization_lower, r.utilization_upper);
+        assert!(r.utilization_upper - r.utilization_lower <= 1e-9 * (1.0 + f64_max));
+    }
+}
+
+/// ACI 318 RC end to end, with the axial force of every station (P-M interaction).
+#[test]
+fn certified_aci_rc_utilization_end_to_end_2d() {
+    use dedaliano_engine::postprocess::rc_check::{check_rc_members, RCCheckInput, RCMemberData};
+    let mc = building_2d();
+    let analysis = certify_multi_case_2d(&mc).unwrap();
+    let demands = rc_demands(&scale_demands(&steel_demands_from_combinations_2d(&analysis, 21).unwrap(), 1000.0));
+    let mut ids: Vec<usize> = mc.solver.elements.values().map(|e| e.id).collect();
+    ids.sort();
+    let members: Vec<RCMemberData> = ids
+        .iter()
+        .map(|&id| {
+            serde_json::from_value(serde_json::json!({
+                "elementId": id, "fc": 28e6, "fy": 420e6, "b": 0.4, "h": 0.6, "d": 0.55,
+                "asTension": 2.0e-3, "asCompression": 1.0e-3, "dPrime": 0.05, "av": 1.5e-4, "sStirrup": 0.15
+            }))
+            .unwrap()
+        })
+        .collect();
+    let res = certify_rc_members(&CertifiedRcCheckInput { members: members.clone(), demands: demands.clone() });
+    for (m, r) in members.iter().zip(&res) {
+        assert!(r.certified, "{}: {:?}", m.element_id, r.reason);
+        let f64_max = demands
+            .iter()
+            .filter(|d| d.forces.element_id == m.element_id)
+            .map(|d| {
+                let c = &check_rc_members(&RCCheckInput { members: vec![m.clone()], forces: vec![d.forces.clone()] })[0];
+                assert!(c.unevaluated.is_empty());
+                c.unity_ratio
+            })
+            .fold(0.0, f64::max);
+        assert!(r.utilization_lower <= f64_max * (1.0 + 1e-9) && f64_max <= r.utilization_upper * (1.0 + 1e-9),
+            "{}: {f64_max} ∉ [{}, {}]", m.element_id, r.utilization_lower, r.utilization_upper);
+        assert!(r.utilization_upper - r.utilization_lower <= 1e-6 * (1.0 + f64_max));
+        eprintln!("ACI elem {}: U ∈ [{:.6}, {:.6}] {}", m.element_id, r.utilization_lower, r.utilization_upper, r.governing_check);
     }
 }

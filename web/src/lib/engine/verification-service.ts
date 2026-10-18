@@ -33,8 +33,11 @@ import {
 import { extractBeamStationBuffer3D, extractBeamStationsGrouped3D, isSolverReady } from './wasm-solver';
 import { autoVerifyFromResults, type AutoVerifyModelData } from './auto-verify';
 import { classifyElement, type ElementVerification } from './codes/argentina/cirsoc201';
-import { verifySteelElement, type SteelVerification, type SteelVerificationInput, type SteelDesignParams } from './codes/argentina/cirsoc301';
+import { verifySteelElement, type SteelVerification, type SteelDesignParams, type TensionConnection } from './codes/argentina/cirsoc301';
+import { angleSection, type AngleCompressionInput } from './steel/angle-section';
+import { engineGateSteel, type SteelDemandSet, type SteelEngineRecheck } from './codes/argentina/cirsoc301-engine-gate';
 import { momentGradient, type StationMoment } from './steel/moment-gradient';
+import { memberNetArea, memberEndsFor, type MemberEnd, type TensionSectionInput } from './steel/tension-connection';
 import type { GoverningPerElement3D } from './governing-case';
 import type { CheckStatus, MemberDesignResult, DesignCheckSummary } from './design-check-results';
 import { isDesignedMember, maskAxialDemand } from './design/behaviour-demands';
@@ -332,7 +335,8 @@ export type SteelInputGap =
  */
 type SteelSectionData = {
   a?: number; iz?: number; iy?: number; h?: number; b?: number;
-  tw?: number; tf?: number; j?: number;
+  tw?: number; tf?: number; j?: number; t?: number; shape?: string;
+  composition?: { profileName: string; arrangement: string; gapMm: number };
 };
 /** Material fields the steel path reads, on the same footing. */
 type SteelMaterialData = { fy?: number; e?: number; fu?: number };
@@ -351,8 +355,17 @@ export function missingSteelInputs(
   if (material.fu == null || material.fu <= 0) gaps.push('ultimateStrength');
   if (section.h == null || section.h <= 0) gaps.push('depth');
   if (section.b == null || section.b <= 0) gaps.push('flangeWidth');
-  if (section.tw == null || section.tw <= 0) gaps.push('webThickness');
-  if (section.tf == null || section.tf <= 0) gaps.push('flangeThickness');
+  // An angle has ONE thickness, `t` (or its catalogue part's, for a double angle): asking it for a
+  // web and a flange thickness left every angle out of the steel check (`steel/angle-section.ts`).
+  const ang = angleSection(section);
+  if (ang.kind === 'angle') {
+    // legs and thickness are known
+  } else if (ang.kind === 'refused' && ang.reason === 'thickness') {
+    gaps.push('flangeThickness');
+  } else if (ang.kind === 'none') {
+    if (section.tw == null || section.tw <= 0) gaps.push('webThickness');
+    if (section.tf == null || section.tf <= 0) gaps.push('flangeThickness');
+  }
   if (section.iy == null || section.iy <= 0) gaps.push('strongAxisInertia');
   // The weak axis and the area are what every limit state starts from; a section without them is
   // not a section this checker can see at all.
@@ -435,7 +448,9 @@ export function runSteelVerification(
     const k = { ...(e3.kStrong !== undefined ? { Kx: e3.kStrong } : {}), ...(e3.kWeak !== undefined ? { Ky: e3.kWeak } : {}) };
     const len = lengths?.get(ef.elementId);
     const segment = steelSegmentDiagram(ef.elementId, len, stationDiagrams, model);
-    const v = checkSteelMember(ef.elementId, demand, section as SteelSectionData, material as SteelMaterialData, { ...(len ?? { L, Lb: L }), ...k }, segment);
+    const tensionEnds = memberEndsFor(ef.elementId, model as never, len?.chain);
+    const angle = (elem as { angleCompression?: AngleCompressionInput }).angleCompression;
+    const v = checkSteelMember(ef.elementId, demand, section as SteelSectionData, material as SteelMaterialData, { ...(len ?? { L, Lb: L }), ...k, tensionEnds, ...(angle ? { angle } : {}) }, segment);
     if (v) verifs.push(v);
   }
 
@@ -625,19 +640,64 @@ export function steelGoverningRatio(v: SteelVerification): number {
  * verification runs. When the member sees both compression and tension, both are checked and
  * the worse is returned.
  */
+/**
+ * The model's end connections as the checker's `TensionConnection`: Ae with its steps, or the
+ * reason it is NOT EVALUATED. A missing end says «falta la union extrema», the phrase the checker
+ * already uses for a member with no connection at all.
+ */
+export function resolveTensionEnds(section: TensionSectionInput, ends: readonly MemberEnd[]): TensionConnection {
+  const r = memberNetArea(section, ends);
+  if ('Ae' in r) {
+    return { resolved: { Ae: r.Ae, steps: ['§D.3 — Area neta efectiva, de la union extrema del modelo:', ...r.steps], messages: [{ key: 'steel.tc.calc.aeTitle' }, ...r.messages] } };
+  }
+  if ('missing' in r) {
+    const where = r.missing.map((e) => `barra ${e.elementId} extremo ${e.end.toUpperCase()}`).join(', ');
+    const ends = r.missing.map((e) => `#${e.elementId} ${e.end.toUpperCase()}`).join(', ');
+    return {
+      refused: `falta la union extrema (${where}): agujeros y coeficiente U de D.3`,
+      refusedMessage: { key: 'c301.refuse.endsMissing', params: { ends } },
+    };
+  }
+  return {
+    refused: `barra ${r.at.elementId} extremo ${r.at.end.toUpperCase()}: ${r.refused.message}`,
+    refusedMessage: { key: 'c301.refuse.endRefused', params: { end: `#${r.at.elementId} ${r.at.end.toUpperCase()}`, reason: { key: `steel.tc.refuse.${r.refused.code}` } } },
+  };
+}
+
 export function checkSteelMember(
   elementId: number,
   demand: SteelMemberDemand,
   section: SteelSectionData & { shape?: string },
   material: SteelMaterialData,
-  lengths: { L: number; Lb: number; Kx?: number; Ky?: number; freeEnd?: boolean },
+  lengths: {
+    L: number; Lb: number; Kx?: number; Ky?: number; freeEnd?: boolean;
+    /**
+     * The end connection for tension rupture (D.2(b), D.3). The model holds none, so absent —
+     * the usual case — a member in tension is NOT EVALUATED rather than given Ae = Ag.
+     */
+    tensionConnection?: TensionConnection;
+    /**
+     * The member ends whose connection decides rupture (`memberEndsFor`), each with the model's
+     * description or none. Resolved here against THIS section — so a candidate profile in the
+     * optimiser gets its own An and U — into `tensionConnection`. An end without a description
+     * leaves the tension check NOT EVALUATED, as before.
+     */
+    tensionEnds?: readonly MemberEnd[];
+    /** How an angle is loaded and connected (E.5, E.6), from `Element.angleCompression`. */
+    angle?: AngleCompressionInput;
+  },
   /**
    * The moment diagram over the unbraced SEGMENT (`steelSegmentDiagram`), when the member is a
    * chain of elements. Absent, `demand.diagram` — the element-local envelope — is read, which
    * is the segment itself when `Lb` is the element's own length.
    */
   segment?: SteelSegmentDiagram,
-): SteelVerification | null {
+  /**
+   * `screen: true` — a search screening candidates: no calculation trace and no gate. Its pass is
+   * provisional (`engineRecheck.screened`); the search must confirm what it picks without it.
+   */
+  opts: { screen?: boolean } = {},
+): (SteelVerification & { engineRecheck: SteelEngineRecheck }) | null {
   const { MuStrong: MuStrongMax, MuWeak: MuWeakMax, Vu: VuMax, diagram } = demand;
   const { L, Lb } = lengths;
   /*
@@ -766,22 +826,45 @@ export function checkSteelMember(
         ...(k.Sy !== undefined ? { Sy: k.Sy } : {}),
       };
     })(),
+    // The section family selects the Table B.4.1 classification (Q of §E.7, §F.2–F.6). A shape it
+    // cannot classify ('C' cold-formed, …) comes back NOT EVALUATED rather than as an I-section.
+    // The load height of F.2.2 is not known here, so the checker's conservative default (top
+    // flange) applies.
+    ...(section.shape !== undefined ? { shape: section.shape } : {}),
+    // Rolled only when picked from a rolled catalogue family. A parametric or declared section
+    // is taken as welded (builtUp): Fr = 114 MPa instead of 69 (F.2.7, F.3, F.4.6a), Table
+    // B.4.1 case 2/12 flanges, and Aw on the web height (G.2.2) — each the conservative side.
+    builtUp: !(section as { profileFamily?: string }).profileFamily,
     // Effective-length factors: stated on the member, or 1,0 (sway-prevented / direct analysis).
     ...(lengths.Kx !== undefined ? { Kx: lengths.Kx } : {}),
     ...(lengths.Ky !== undefined ? { Ky: lengths.Ky } : {}),
+    ...(lengths.tensionConnection ? { tensionConnection: lengths.tensionConnection } : {}),
+    ...(!lengths.tensionConnection && lengths.tensionEnds ? { tensionConnection: resolveTensionEnds(section as TensionSectionInput, lengths.tensionEnds) } : {}),
   };
+  // Angles: one thickness, the legs, and the member's E.5/E.6 data. An arrangement the checker
+  // does not cover goes in under its own name, which the engine refuses by name.
+  const ang = angleSection(section as SteelSectionData, lengths.angle);
+  if (ang.kind === 'angle') {
+    Object.assign(sdp, { shape: ang.shape, angle: ang.angle, tw: ang.t, tf: ang.t, h: ang.h, b: ang.b });
+  } else if (ang.kind === 'refused') {
+    sdp.shape = `angle-${ang.detail ?? ang.reason}`;
+  }
 
 
-  const run = (Nu: number) => verifySteelElement({
-    // Muz/Muy are the CHECKER's names (strong/weak); the values come from the solver's
-    // my/mz channels — the same cross the inertias take above. The checker's axial sign is
-    // + compression.
-    elementId, Nu, Muz: MuStrongMax, Muy: MuWeakMax, Vu: VuMax, params: sdp,
-  });
-  const runs: SteelVerification[] = [];
-  if (demand.Nc > 0 || demand.Nt === 0) runs.push(run(demand.Nc));
-  if (demand.Nt > 0) runs.push(run(-demand.Nt));
-  return runs.reduce((worst, v) => (steelGoverningRatio(v) > steelGoverningRatio(worst) ? v : worst));
+  // Muz/Muy are the CHECKER's names (strong/weak); the values come from the solver's
+  // my/mz channels — the same cross the inertias take above. The checker's axial sign is
+  // + compression.
+  const sets: SteelDemandSet[] = [];
+  if (demand.Nc > 0 || demand.Nt === 0) sets.push({ Nu: demand.Nc, Muz: MuStrongMax, Muy: MuWeakMax, Vu: VuMax });
+  if (demand.Nt > 0) sets.push({ Nu: -demand.Nt, Muz: MuStrongMax, Muy: MuWeakMax, Vu: VuMax });
+  const runs = sets.map((f) => verifySteelElement({ elementId, ...f, params: sdp }, { trace: !opts.screen }));
+  const worst = runs.reduce((w, v) => (steelGoverningRatio(v) > steelGoverningRatio(w) ? v : w));
+  if (opts.screen) {
+    return { ...worst, engineRecheck: { certified: false, certifiedOk: false, disagrees: false, unavailable: !worst.engine.available, screened: true } };
+  }
+  // The engine's certified check confirms a pass on this exact input, or the pass is withdrawn
+  // (`cirsoc301-engine-gate.ts`).
+  return engineGateSteel(worst, sdp, sets);
 }
 
 // ─── Unified VerificationReport ──────────────────────────────

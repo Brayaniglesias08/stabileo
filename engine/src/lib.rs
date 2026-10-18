@@ -10,6 +10,7 @@ pub mod solver;
 pub mod postprocess;
 pub mod section;
 pub mod certify;
+pub mod sanity;
 #[cfg(kani)]
 mod kani_proofs;
 
@@ -38,6 +39,15 @@ fn to_js_value<T: serde::Serialize>(value: &T) -> Result<JsValue, JsValue> {
 fn from_js_value<T: serde::de::DeserializeOwned>(value: JsValue) -> Result<T, JsValue> {
     serde_wasm_bindgen::from_value(value)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))
+}
+
+/// Model sanity review (`sanity`): the modelling errors a solver cannot see — equilibrium per
+/// case against an independent applied sum, weight per floor area, period against the code's
+/// formula, tributary column loads, material/section/support/spring plausibility, absurd
+/// displacements. JSON `SanityInput` in → JSON `SanityReport` out.
+#[wasm_bindgen]
+pub fn review_model_sanity(json: &str) -> Result<String, JsValue> {
+    sanity::review_json(json).map_err(|e| JsValue::from_str(&e))
 }
 
 /// Solve 2D linear static analysis. JsValue in → JsValue out (hot path).
@@ -93,6 +103,45 @@ pub fn export_linear_bundle_2d(json: &str) -> Result<String, JsValue> {
     let input: types::SolverInput = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
     let bundle = certify::bundle::export_linear_bundle_2d(&input).map_err(|e| JsValue::from_str(&e))?;
+    Ok(bundle.to_json())
+}
+
+/// Solve and certify a 2D plastic collapse model and export its certificate bundle
+/// (`stabileo.plastic-certificate.v1`, docs/verification/CERTIFY.md): JSON in → bundle
+/// JSON out, checkable with `lake exe certcheck`.
+#[wasm_bindgen]
+pub fn export_plastic_bundle_2d(json: &str) -> Result<String, JsValue> {
+    let input: types::PlasticInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let bundle = certify::plastic_bundle::export_plastic_bundle_2d(&input).map_err(|e| JsValue::from_str(&e))?;
+    Ok(bundle.to_json())
+}
+
+/// 3D version of `export_plastic_bundle_2d`.
+#[wasm_bindgen]
+pub fn export_plastic_bundle_3d(json: &str) -> Result<String, JsValue> {
+    let input: types::PlasticInput3D = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let bundle = certify::plastic_bundle::export_plastic_bundle_3d(&input).map_err(|e| JsValue::from_str(&e))?;
+    Ok(bundle.to_json())
+}
+
+/// Solve and certify a 2D multi-case model and export its load-combination bundle
+/// (`stabileo.combination-certificate.v1`, docs/verification/CERTIFY.md).
+#[wasm_bindgen]
+pub fn export_combination_bundle_2d(json: &str) -> Result<String, JsValue> {
+    let input: solver::load_cases::MultiCaseInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let bundle = certify::combination_bundle::export_combination_bundle_2d(&input).map_err(|e| JsValue::from_str(&e))?;
+    Ok(bundle.to_json())
+}
+
+/// 3D version of `export_combination_bundle_2d`.
+#[wasm_bindgen]
+pub fn export_combination_bundle_3d(json: &str) -> Result<String, JsValue> {
+    let input: solver::load_cases::MultiCaseInput3D = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let bundle = certify::combination_bundle::export_combination_bundle_3d(&input).map_err(|e| JsValue::from_str(&e))?;
     Ok(bundle.to_json())
 }
 
@@ -463,8 +512,7 @@ pub fn certify_time_history_3d(json: &str) -> Result<String, JsValue> {
 /// Solve 2D staged construction analysis. JSON in → JSON out.
 #[wasm_bindgen]
 pub fn solve_staged_2d(json: &str) -> Result<String, JsValue> {
-    let input: types::StagedInput = serde_json::from_str(json)
-        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let input = solver::staged::parse_staged_2d(json).map_err(|e| JsValue::from_str(&e))?;
     let results = solver::staged::solve_staged_2d(&input)
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&results)
@@ -474,8 +522,7 @@ pub fn solve_staged_2d(json: &str) -> Result<String, JsValue> {
 /// Solve 3D staged construction analysis. JSON in → JSON out.
 #[wasm_bindgen]
 pub fn solve_staged_3d(json: &str) -> Result<String, JsValue> {
-    let input: types::StagedInput3D = serde_json::from_str(json)
-        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let input = solver::staged::parse_staged_3d(json).map_err(|e| JsValue::from_str(&e))?;
     let results = solver::staged::solve_staged_3d(&input)
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&results)
@@ -829,6 +876,61 @@ pub fn certify_ec2_members(json: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 
+/// Certified CIRSOC 201 RC checks (flexure, shear) from bounded demands.
+/// JSON `CertifiedCirsoc201CheckInput` in → JSON results.
+#[wasm_bindgen]
+pub fn certify_cirsoc201_members(json: &str) -> Result<String, JsValue> {
+    let input: certify::design::CertifiedCirsoc201CheckInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::design::certify_cirsoc201_members(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Certified CIRSOC 301 steel checks from bounded demands.
+/// JSON `CertifiedCirsoc301CheckInput` in → JSON results.
+#[wasm_bindgen]
+pub fn certify_cirsoc301_members(json: &str) -> Result<String, JsValue> {
+    let input: certify::design::CertifiedCirsoc301CheckInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::design::certify_cirsoc301_members(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Certified ACI 318 RC checks (flexure incl. P-M interaction, shear, axial)
+/// from bounded demands. JSON `CertifiedRcCheckInput` in → JSON results.
+#[wasm_bindgen]
+pub fn certify_rc_members(json: &str) -> Result<String, JsValue> {
+    let input: certify::design::CertifiedRcCheckInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::design::certify_rc_members(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Certified NDS timber checks from bounded demands.
+/// JSON `CertifiedTimberCheckInput` in → JSON results.
+#[wasm_bindgen]
+pub fn certify_timber_members(json: &str) -> Result<String, JsValue> {
+    let input: certify::design::CertifiedTimberCheckInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::design::certify_timber_members(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Certified AISI S100 cold-formed steel checks from bounded demands.
+/// JSON `CertifiedCfsCheckInput` in → JSON results.
+#[wasm_bindgen]
+pub fn certify_cfs_members(json: &str) -> Result<String, JsValue> {
+    let input: certify::design::CertifiedCfsCheckInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::design::certify_cfs_members(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
 /// Solve + certify a 2D multi-case model, then certify AISC 360 checks for the
 /// given members over every station × combination. JSON in → JSON
 /// `{ analysis, steel }`.
@@ -1162,7 +1264,15 @@ pub fn build_section_geometry(json: &str) -> Result<String, JsValue> {
 
     let req: Request = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))?;
-    let segs = |o: Option<usize>| o.unwrap_or(cat::DEFAULT_ARC_SEGMENTS);
+    // The count comes from the caller and sizes every arc's vertex list.
+    let segs = |o: Option<usize>| -> Result<usize, JsValue> {
+        match o.unwrap_or(cat::DEFAULT_ARC_SEGMENTS) {
+            n if n <= cat::MAX_ARC_SEGMENTS => Ok(n),
+            n => Err(JsValue::from_str(&format!(
+                "arcSegments {n} exceeds the maximum of {}", cat::MAX_ARC_SEGMENTS
+            ))),
+        }
+    };
     // A `profileId` is what makes an outline a catalogue profile rather than a
     // shape the user drew; the standard travels with it so provenance survives
     // into the digest.
@@ -1178,8 +1288,8 @@ pub fn build_section_geometry(json: &str) -> Result<String, JsValue> {
 
     let geometry = match req {
         Request::Rect { b, h } => cat::rectangle(b, h),
-        Request::Circle { d, arc_segments } => cat::solid_circle(d, segs(arc_segments)),
-        Request::Chs { d, t, arc_segments } => cat::circular_hollow(d, t, segs(arc_segments)),
+        Request::Circle { d, arc_segments } => cat::solid_circle(d, segs(arc_segments)?),
+        Request::Chs { d, t, arc_segments } => cat::circular_hollow(d, t, segs(arc_segments)?),
         Request::ISection { h, b, tw, tf, root_radius, arc_segments, profile_id, standard } => {
             let source = match profile_id {
                 Some(id) => cat::GeometrySource::Catalogue {
@@ -1188,32 +1298,32 @@ pub fn build_section_geometry(json: &str) -> Result<String, JsValue> {
                 },
                 None => cat::GeometrySource::Parametric { shape: "i".into() },
             };
-            cat::i_section(h, b, tw, tf, root_radius, segs(arc_segments), source)
+            cat::i_section(h, b, tw, tf, root_radius, segs(arc_segments)?, source)
         }
         Request::Ipn { h, b, tw, tf, arc_segments, profile_id, standard } => {
-            cat::ipn_section(h, b, tw, tf, segs(arc_segments),
+            cat::ipn_section(h, b, tw, tf, segs(arc_segments)?,
                 catalogue_source(profile_id, standard, "DIN 1025-1", "ipn"))
         }
         Request::Upn { h, b, tw, tf, arc_segments, profile_id, standard } => {
-            cat::upn_section(h, b, tw, tf, segs(arc_segments),
+            cat::upn_section(h, b, tw, tf, segs(arc_segments)?,
                 catalogue_source(profile_id, standard, "DIN 1025-5", "upn"))
         }
         Request::Tee { h, b, tw, tf, root_radius, toe_radius, arc_segments, profile_id, standard } => {
-            cat::tee_section_filleted(h, b, tw, tf, root_radius, toe_radius, segs(arc_segments),
+            cat::tee_section_filleted(h, b, tw, tf, root_radius, toe_radius, segs(arc_segments)?,
                 catalogue_source(profile_id, standard, "IRAM-IAS U 500-561", "tee"))
         }
         Request::Angle { h, b, t, root_radius, toe_radius, arc_segments, profile_id, standard } => {
-            cat::angle_section_filleted(h, b, t, root_radius, toe_radius, segs(arc_segments),
+            cat::angle_section_filleted(h, b, t, root_radius, toe_radius, segs(arc_segments)?,
                 catalogue_source(profile_id, standard, "EN 10056-1", "angle"))
         }
         Request::Channel { h, b, tw, tf, slope, root_radius, toe_radius, taper_ref,
                            arc_segments, profile_id, standard } => {
             cat::tapered_channel(h, b, tw, tf, slope, root_radius, toe_radius,
-                taper_ref.unwrap_or(tw + (b - tw) / 2.0), segs(arc_segments),
+                taper_ref.unwrap_or(tw + (b - tw) / 2.0), segs(arc_segments)?,
                 catalogue_source(profile_id, standard, "IRAM-IAS U 500-509-4", "channel"))
         }
         Request::Rhs { b, h, t, corner_radius, arc_segments, profile_id, standard } => {
-            cat::rectangular_hollow_rounded(b, h, t, corner_radius, segs(arc_segments),
+            cat::rectangular_hollow_rounded(b, h, t, corner_radius, segs(arc_segments)?,
                 catalogue_source(profile_id, standard, "IRAM-IAS U 500-218", "rhs"))
         }
         Request::Custom { outer, holes } => cat::custom(outer, holes),
@@ -1405,12 +1515,29 @@ pub fn check_ec3_members(json: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
 
+/// Batched CIRSOC 201 beam-section flexure and shear; layout in
+/// `postprocess::cirsoc201_check::beam_batch`.
+#[wasm_bindgen]
+pub fn cirsoc201_beam_batch(data: &[f64]) -> Result<Vec<f64>, JsValue> {
+    postprocess::cirsoc201_check::beam_batch(data).map_err(JsValue::from_str)
+}
+
 #[wasm_bindgen]
 pub fn check_cirsoc201_members(json: &str) -> Result<String, JsValue> {
     let input: postprocess::cirsoc201_check::Cirsoc201CheckInput =
         serde_json::from_str(json)
             .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
     let results = postprocess::cirsoc201_check::check_cirsoc201_members(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// CIRSOC 301-2018 steel member checks. JSON `Cirsoc301CheckInput` in → JSON results.
+#[wasm_bindgen]
+pub fn check_cirsoc301_members(json: &str) -> Result<String, JsValue> {
+    let input: postprocess::cirsoc301_check::Cirsoc301CheckInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = postprocess::cirsoc301_check::check_cirsoc301_members(&input);
     serde_json::to_string(&results)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }
@@ -1857,11 +1984,29 @@ fn normalize_and_mesh(
     }
 
     let mut params = MeshParams::default();
-    // Roughly two thousand triangles: J converges at the field's rate rather
-    // than the gradient's, so this is ample and keeps the solve within a few
-    // milliseconds — which matters, because this runs per model section.
+    // At least two thousand triangles, and fine enough across the walls.
+    //
+    // A count alone is not enough: on a thin wall it leaves one or two
+    // triangles through the thickness, and the P1 Prandtl solve — a strict
+    // lower bound on J — then comes out far low. Measured against an
+    // independent quadratic-element solve, a 400x200 I with 2-4 mm plates read
+    // 18.5 % low and a 2 mm channel 23.9 % low at A/2000. The mean wall
+    // thickness 2A/P (exact for a thin wall, P counting every boundary, holes
+    // included) sets a second bound of (2A/P)^2/50 per triangle; the whole is
+    // capped at sixty thousand triangles so a very slender outline stays a
+    // sub-second solve. The result is still a lower bound, now within a few
+    // percent on thin walls (see docs/verification/SECTIONS_CONNECTIONS.md).
     let scaled_area = props.a * scale * scale;
-    params.max_area = max_area.map(|a| a * scale * scale).unwrap_or(scaled_area / 2000.0);
+    let perimeter: f64 = geometry.polygons.iter().map(|p| {
+        let n = p.vertices.len();
+        (0..n).map(|i| {
+            let (a, b) = (p.vertices[i], p.vertices[(i + 1) % n]);
+            ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt()
+        }).sum::<f64>()
+    }).sum::<f64>() * scale;
+    let wall = if perimeter > 0.0 { 2.0 * scaled_area / perimeter } else { f64::INFINITY };
+    let auto = (scaled_area / 2000.0).min(wall * wall / 50.0).max(scaled_area / 60000.0);
+    params.max_area = max_area.map(|a| a * scale * scale).unwrap_or(auto);
 
     let mesh = mesh_section(&scaled, &params).map_err(|e| JsValue::from_str(&e))?;
     Ok((mesh, scale, props))
@@ -2027,7 +2172,7 @@ pub fn analyze_section_shear(json: &str) -> Result<String, JsValue> {
     let res = section::shear::solve_shear(
         &mesh,
         [props.yc * scale, props.zc * scale],
-        ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4) },
+        ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4), iyz: props.iyz * scale.powi(4) },
         SolveStrategy::Sparse,
     )
     .map_err(|e| JsValue::from_str(&e))?;
@@ -2103,7 +2248,7 @@ pub fn analyze_section_shear_field(json: &str) -> Result<String, JsValue> {
     let res = section::shear::solve_shear(
         &mesh,
         [props.yc * scale, props.zc * scale],
-        ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4) },
+        ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4), iyz: props.iyz * scale.powi(4) },
         SolveStrategy::Sparse,
     )
     .map_err(|e| JsValue::from_str(&e))?;
@@ -2180,7 +2325,7 @@ pub fn analyze_section_plastic(json: &str) -> Result<String, JsValue> {
         let c = [props.yc * scale, props.zc * scale];
         let sh = solve_shear(
             &mesh, c,
-            ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4) },
+            ShearInertia { iy: props.iy * scale.powi(4), iz: props.iz * scale.powi(4), iyz: props.iyz * scale.powi(4) },
             section::poisson::SolveStrategy::Sparse,
         )
         .map_err(|e| JsValue::from_str(&format!("shear solve failed on the way to Cw: {e}")))?;
