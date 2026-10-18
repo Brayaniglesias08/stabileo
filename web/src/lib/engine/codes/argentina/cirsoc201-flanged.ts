@@ -10,7 +10,7 @@
  *
  * §9.6.1.2's minimum is ρmin·bw·d, on the WEB (the flange is in compression).
  *
- * Edition: defaults to 2005, the CIRSOC_FLEX workbook's, like the calculator it serves.
+ * Edition: default 2025, the edition in force; pass 2005 to reproduce the workbook.
  */
 
 import { checkFlexure, type ConcreteDesignParams, type FlexureResult } from './cirsoc201';
@@ -43,7 +43,7 @@ export function checkFlexureFlanged(
   params: ConcreteDesignParams,
   geom: FlangedGeometry,
   Mu: number,
-  edition: Cirsoc201EditionLike = '2005',
+  edition: Cirsoc201EditionLike = '2025',
 ): FlangedFlexureResult {
   const { fc, fy } = params;
   const { bf, hf, bw } = geom;
@@ -74,7 +74,7 @@ export function flangedBlockDepth(
   params: ConcreteDesignParams,
   geom: FlangedGeometry,
   AsCm2: number,
-  edition: Cirsoc201EditionLike = '2005',
+  edition: Cirsoc201EditionLike = '2025',
 ): { a: number; withinFlange: boolean } {
   const { fc, fy, h, cover, stirrupDia } = params;
   const d = h - cover - stirrupDia / 1000 - 0.008;

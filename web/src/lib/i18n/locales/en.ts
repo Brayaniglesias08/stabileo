@@ -812,6 +812,7 @@ const en: Record<string, string> = {
   'flex.step.badDimension': '⚠ {name} must be greater than 0. Check the input.',
   'flex.step.badCover': '⚠ {name} must be between 0 and {limit} cm: with that value the bars fall outside the section.',
   'flex.step.badHole': '⚠ The void must fit inside the section: b_h less than b and h_h less than h.',
+  'flex.step.badDemand': '⚠ The demands (Pu, Mu, Muy) must be numbers.',
   'flex.step.badSteel': '⚠ The given steel must be an area in cm², 0 or more.',
   'flex.step.badFlange': '⚠ hf must be less than h: a flange deeper than the beam does not make a T section.',
   'flex.step.flangeNarrow': '⚠ bf is less than bw: the flange is narrower than the web, so the section is not a T. If there is a single width, use the rectangular sheet.',

@@ -26,6 +26,7 @@ import { REBAR_DB, type ElementVerification, type VerifStatus } from './cirsoc20
 import { evaluateBeamSection } from './cirsoc201-beam-kernel';
 import { computeColumnCapacity, computeColumnLayout, computeBiaxialCapacity } from '../../station-design-forces';
 import { getColumnCapacityKernel } from '../../column-capacity-kernel';
+import { hasCertify, callCertify } from '../../wasm-solver';
 
 export interface EngineRecheck {
   edition: RegulationEdition;
@@ -41,6 +42,13 @@ export interface EngineRecheck {
   unavailable: boolean;
   /** TypeScript checks the engine does not cover yet. */
   notRechecked: string[];
+  /**
+   * The certified beam check (`certify_cirsoc201_members`, interval arithmetic over the same
+   * formulas): the exact utilisation of flexure, ductility and shear lies in
+   * [lower, upper]. `ok` = provably below 1. Absent when the build has no certify export or the
+   * member is not a beam check; `reason` when the certificate was refused.
+   */
+  certified?: { ok: boolean; lower: number; upper: number; reason?: string };
 }
 
 const fail = (s: VerifStatus): boolean => s === 'fail';
@@ -67,13 +75,25 @@ export function engineRecheckElement(
   const f = v.flexure;
   const d = v.h - v.cover - stirrupM - f.barDia / 2000;
   const dPrime = f.barDiaComp ? v.cover + stirrupM + f.barDiaComp / 2000 : 0;
-  const beam = f.AsProv > 0 ? evaluateBeamSection({
+  /*
+   * The axial force acts on the shear and, for a beam, on the flexure too (finding 17; the same
+   * signed force `verifyElement` sized the beam with). A column's beam-style flexure is checked
+   * without it: the column check below is the one that reads the axial force with the moment.
+   */
+  const shearNu = opts.NuShear ?? v.Nu;
+  const flexNu = v.elementType === 'beam' ? shearNu : 0;
+  const query = (NuCompression: number) => evaluateBeamSection({
     edition, fc: v.fc * 1e6, fy: v.fy * 1e6, b: v.b, h: v.h, d,
     As: f.AsProv * 1e-4,
     AsComp: f.AsComp ? f.AsComp * 1e-4 : 0, dPrime,
     Av: v.shear.stirrupLegs * barArea(v.shear.stirrupDia) * 1e-4, s: v.shear.spacing,
-    Ag: v.b * v.h, NuCompression: (opts.NuShear ?? v.Nu) * 1e3,
-  }) : null;
+    Ag: v.b * v.h, NuCompression: NuCompression * 1e3,
+  });
+  const flexAnswer = f.AsProv > 0 ? query(flexNu) : null;
+  const shearAnswer = f.AsProv > 0 ? (flexNu === shearNu ? flexAnswer : query(shearNu)) : null;
+  const beam = flexAnswer && shearAnswer
+    ? { ...flexAnswer, Vc: shearAnswer.Vc, Vs: shearAnswer.Vs, phiVn: shearAnswer.phiVn, shearValid: shearAnswer.shearValid }
+    : null;
   if (!beam) {
     rc.unavailable = true;
   } else {
@@ -88,6 +108,30 @@ export function engineRecheckElement(
       if (!fail(f.status) && !(rc.ductilityRatio <= 1)) {
         rc.disagreements.push('ductility');
         out.flexure.status = 'fail';
+      }
+    }
+    // The same check, certified (interval arithmetic over the shared formulas).
+    if (v.elementType === 'beam' && hasCertify('certify_cirsoc201_members')) {
+      try {
+        const [res] = callCertify('certify_cirsoc201_members', [JSON.stringify({
+          members: [{
+            elementId: v.elementId, fc: v.fc * 1e6, fy: v.fy * 1e6, b: v.b, h: v.h, d,
+            asTension: f.AsProv * 1e-4,
+            ...(f.AsComp ? { asCompression: f.AsComp * 1e-4, dPrime } : {}),
+            av: v.shear.stirrupLegs * barArea(v.shear.stirrupDia) * 1e-4, sStirrup: v.shear.spacing,
+            ag: v.b * v.h, edition,
+          }],
+          demands: [{
+            forces: { elementId: v.elementId, mu: f.Mu * 1e3, vu: v.shear.Vu * 1e3, axialCompression: shearNu * 1e3 },
+            bound: { n: 0, my: 0, mz: 0, vy: 0 },
+          }],
+        })]) as Array<{ certified: boolean; certifiedOk: boolean; utilizationLower: number; utilizationUpper: number; reason?: string }>;
+        if (res) {
+          rc.certified = { ok: res.certified && res.certifiedOk, lower: res.utilizationLower, upper: res.utilizationUpper,
+            ...(res.reason ? { reason: res.reason } : {}) };
+        }
+      } catch (e) {
+        rc.certified = { ok: false, lower: 0, upper: 0, reason: String((e as Error)?.message ?? e) };
       }
     }
     rc.shearRatio = beam.shearValid && beam.phiVn > 0 ? v.shear.Vu / (beam.phiVn / 1e3) : Infinity;

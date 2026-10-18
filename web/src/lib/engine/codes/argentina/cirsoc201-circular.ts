@@ -45,7 +45,7 @@ export interface CircularParams {
   deductDisplacedConcrete?: boolean;
   /** Points on the curve. */
   nPoints?: number;
-  /** CIRSOC 201 edition (a spiral's φ is 0,70 in 2005 and 0,75 in 2025). Default 2005. */
+  /** CIRSOC 201 edition (a spiral's φ is 0,70 in 2005 and 0,75 in 2025). Default 2025. */
   edition?: Cirsoc201EditionLike;
 }
 
@@ -105,7 +105,7 @@ function ringBars(p: CircularParams): Bar[] {
 function materialsOf(p: CircularParams) {
   return {
     fc: p.fc, fy: p.fy, confinement: p.confinement ?? 'ties',
-    deductDisplacedConcrete: p.deductDisplacedConcrete ?? true, edition: p.edition ?? '2005',
+    deductDisplacedConcrete: p.deductDisplacedConcrete ?? true, edition: p.edition ?? '2025',
   } as const;
 }
 

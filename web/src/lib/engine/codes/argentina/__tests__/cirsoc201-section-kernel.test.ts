@@ -21,10 +21,10 @@ describe('CIRSOC 201 section kernel', () => {
   it('rejects malformed geometry, materials and queries', () => {
     const ok = Float64Array.of(25e6, 420e6, 200e9, 2025, 0, 1);
     const square = Float64Array.of(-0.15, -0.15, 0.15, -0.15, 0.15, 0.15, -0.15, 0.15);
-    expect(() => new Cirsoc201SectionKernel(new Float64Array(8), new Uint32Array([0, 5, 4]), new Float64Array(), ok)).toThrow();
-    expect(() => new Cirsoc201SectionKernel(square, new Uint32Array([0, 4]), new Float64Array(), Float64Array.of(25e6, 420e6, 200e9, 2019, 0, 1))).toThrow();
-    expect(() => new Cirsoc201SectionKernel(square, new Uint32Array([0, 4]), Float64Array.of(0, 0, -1e-4), ok)).toThrow();
-    const section = new Cirsoc201SectionKernel(square, new Uint32Array([0, 4]), new Float64Array(), ok);
+    expect(() => new Cirsoc201SectionKernel(new Float64Array(8), new Uint32Array([0, 5, 4]), new Float64Array(), new Float64Array(), ok)).toThrow();
+    expect(() => new Cirsoc201SectionKernel(square, new Uint32Array([0, 4]), new Float64Array(), new Float64Array(), Float64Array.of(25e6, 420e6, 200e9, 2019, 0, 1))).toThrow();
+    expect(() => new Cirsoc201SectionKernel(square, new Uint32Array([0, 4]), new Float64Array(), Float64Array.of(0, 0, -1e-4), ok)).toThrow();
+    const section = new Cirsoc201SectionKernel(square, new Uint32Array([0, 4]), new Float64Array(), new Float64Array(), ok);
     try {
       expect(() => section.points(1, 0, Float64Array.of(NaN))).toThrow();
       expect(() => section.ray(NaN, 0)).toThrow();

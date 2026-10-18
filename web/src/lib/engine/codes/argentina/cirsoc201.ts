@@ -296,8 +296,8 @@ export const ASSUMED_FLEXURE_BAR_DIA_MM = 16;
 
 export interface FlexureOptions {
   /**
-   * Bar diameter the tension steel will actually be, mm — sets `d` and is not revised.
-   * Omitted, `d` starts from Ø16 and follows the bars the design chooses.
+   * Bar diameter the tension steel will be, mm — sets the `d` the requirement is sized and
+   * reported at. Omitted: Ø16. Either way the bars chosen are checked where THEY sit.
    */
   barDiameterMm?: number;
   /** CIRSOC 201 edition. Absent: 2025, the edition in force. */
@@ -357,6 +357,7 @@ export function checkFlexure(
   let rebar!: { count: number; dia: number; area: number; label: string };
   let rebarComp: { count: number; dia: number; area: number; label: string } | undefined;
   let check!: NonNullable<ReturnType<typeof evaluateBeamSection>>;
+  let first: { d: number; design: EngineFlexureDesign; AsMin: number; AsDesign: number } | undefined;
   for (let pass = 0; pass < 5; pass++) {
     d = effectiveDepth(h, cover, stirrupDia, barDia);
     design = engineFlexureDesign(edition, fc, fy, b, h, d, dPrimeAssumed, MuAbs, Nu, flange);
@@ -364,10 +365,11 @@ export function checkFlexure(
     // No steel within the engine's search (tension steel up to 10 % of Ag) works: report that
     // bound, which is above every feasible requirement, so the answer never falls as Mu rises.
     AsDesign = design.kind === 'impossible' ? 0.10 * Ag * 1e4 : Math.max(design.As, AsMin);
+    first ??= { d, design, AsMin, AsDesign };
     rebar = selectRebar(AsDesign);
     rebarComp = design.kind === 'doubly' ? selectRebar(Math.max(design.AsComp, AsMin * 0.5)) : undefined;
     // The verdict: the engine's check of the bars chosen, at the depths those bars give.
-    const dReal = fixedDia !== undefined ? d : effectiveDepth(h, cover, stirrupDia, rebar.dia);
+    const dReal = effectiveDepth(h, cover, stirrupDia, rebar.dia);
     const dPrimeReal = rebarComp ? cover + stirrupDia / 1000 + rebarComp.dia / 2000 : 0;
     const r = evaluateBeamSection({
       edition, fc: fc * 1e6, fy: fy * 1e6, b, h, d: dReal,
@@ -376,11 +378,46 @@ export function checkFlexure(
     });
     if (!r) throw new Cirsoc201EngineUnavailable('beam flexure check');
     check = r;
-    const passes = r.flexureValid && r.phiMn / 1e3 >= MuAbs && !(ductilityApplies && r.epsilonT < r.epsilonTMin);
-    if (passes || design.kind === 'impossible' || fixedDia !== undefined || rebar.dia === barDia) break;
+    /*
+     * Bars come in whole numbers, so the tension steel provided is more than required — and a
+     * section sized AT the ductility limit then falls below it. Top up the compression steel
+     * until the bars actually chosen are ductile again (a search; each step is the engine's
+     * check), as a designer would, rather than hand back a section the check rejects.
+     */
+    if (r.flexureValid && ductilityApplies && r.epsilonT < r.epsilonTMin && design.kind !== 'impossible') {
+      const compDia = rebarComp?.dia ?? ASSUMED_FLEXURE_BAR_DIA_MM;
+      const dPrimeTop = cover + stirrupDia / 1000 + compDia / 2000;
+      const ask = (AsCompCm2: number) => evaluateBeamSection({
+        edition, fc: fc * 1e6, fy: fy * 1e6, b, h, d: dReal, As: rebar.area * 1e-4,
+        AsComp: AsCompCm2 * 1e-4, dPrime: dPrimeTop, Ag, NuCompression: Nu * 1e3, bf: flange?.bf, hf: flange?.hf,
+      });
+      const ok = (x: number) => { const q = ask(x); return !!q && q.flexureValid && q.epsilonT >= q.epsilonTMin && q.phiMn / 1e3 >= MuAbs; };
+      const hiComp = 0.08 * Ag * 1e4;
+      if (dPrimeTop < dReal && ok(hiComp)) {
+        let lo = rebarComp?.area ?? 0, hi = hiComp;
+        for (let k = 0; k < 50; k++) { const mid = (lo + hi) / 2; if (ok(mid)) hi = mid; else lo = mid; }
+        rebarComp = selectRebar(hi);
+        // Checked where THOSE bars sit.
+        const q = evaluateBeamSection({
+          edition, fc: fc * 1e6, fy: fy * 1e6, b, h, d: dReal, As: rebar.area * 1e-4,
+          AsComp: rebarComp.area * 1e-4, dPrime: cover + stirrupDia / 1000 + rebarComp.dia / 2000,
+          Ag, NuCompression: Nu * 1e3, bf: flange?.bf, hf: flange?.hf,
+        });
+        if (q) check = q;
+      }
+    }
+    const passes = check.flexureValid && check.phiMn / 1e3 >= MuAbs && !(ductilityApplies && check.epsilonT < check.epsilonTMin);
+    if (passes || design.kind === 'impossible' || rebar.dia === barDia) break;
     barDia = rebar.dia;
   }
-  const isDoubly = design.kind === 'doubly';
+  /*
+   * The requirement reported is the one at the stated depth (the assumed bar, or the caller's):
+   * it is what a worked example prints, and it rises with the moment. The bars, and the verdict,
+   * are those of the last pass, at the depth the chosen bars give.
+   */
+  const barsDesign = design;
+  ({ d, design, AsMin, AsDesign } = first!);
+  const isDoubly = barsDesign.kind === 'doubly' || rebarComp !== undefined;
   steps.push(`d = ${(d * 100).toFixed(1)} cm, d' = ${(dPrimeAssumed * 100).toFixed(1)} cm`);
   steps.push(`Mu = ${MuAbs.toFixed(2)} kN·m${Nu !== 0 ? `, Nu = ${Nu.toFixed(2)} kN (+ compresión)` : ''}`);
   steps.push(`As,mín = ${AsMin.toFixed(2)} cm²`);
@@ -392,7 +429,8 @@ export function checkFlexure(
       `εt = ${(design.epsilonT * 1000).toFixed(2)} ‰${design.epsilonTMin > 0 ? ` ≥ εt,mín = ${(design.epsilonTMin * 1000).toFixed(2)} ‰` : ''}`,
     );
     if (rebarComp) {
-      steps.push(`A's,req = ${design.AsComp.toFixed(2)} cm² → armadura compresión: ${rebarComp.label} (${rebarComp.area.toFixed(2)} cm²)`);
+      steps.push(`A's,req = ${design.AsComp.toFixed(2)} cm² → armadura compresión: ${rebarComp.label} (${rebarComp.area.toFixed(2)} cm²), ` +
+        `dúctil con las barras elegidas`);
     }
   }
   steps.push(`As,req (tracción) = ${AsDesign.toFixed(2)} cm²`);
@@ -413,7 +451,7 @@ export function checkFlexure(
     status = 'fail';
     steps.push(`⚠ εt = ${(epsilonTProv * 1000).toFixed(2)} ‰ < εt,mín = ${(check.epsilonTMin * 1000).toFixed(2)} ‰ (${edition === '2005' ? '§10.3.5' : '§9.3.3.1'})`);
   }
-  if (design.kind === 'impossible') status = 'fail';
+  if (design.kind === 'impossible' || barsDesign.kind === 'impossible') status = 'fail';
   if (AsDesign > AsMaxPractical) {
     status = 'fail';
     steps.push(

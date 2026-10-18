@@ -136,11 +136,88 @@ pub struct SectionPoint {
 
 type Pt = [f64; 2];
 
-/// A polygonal section with bars, prepared once and asked many times.
+/// One boundary of the concrete: a polygon (any winding) or an exact circle.
+#[derive(Debug, Clone)]
+pub enum Ring {
+    Polygon(Vec<Pt>),
+    Circle { c: Pt, r: f64 },
+}
+
+impl Ring {
+    fn area_moments(&self) -> (f64, f64, f64) {
+        match self {
+            Ring::Polygon(p) => {
+                let (a, mx, my) = ring_area_moments(p);
+                let s = a.signum();
+                (s * a, s * mx, s * my)
+            }
+            Ring::Circle { c, r } => {
+                let a = std::f64::consts::PI * r * r;
+                (a, a * c[0], a * c[1])
+            }
+        }
+    }
+    fn shifted(self, by: Pt) -> Ring {
+        match self {
+            Ring::Polygon(p) => Ring::Polygon(p.into_iter().map(|q| [q[0] - by[0], q[1] - by[1]]).collect()),
+            Ring::Circle { c, r } => Ring::Circle { c: [c[0] - by[0], c[1] - by[1]], r },
+        }
+    }
+    /// (max, min) of n·p over the ring.
+    fn extent(&self, nx: f64, ny: f64) -> (f64, f64) {
+        match self {
+            Ring::Polygon(p) => p.iter().fold((f64::NEG_INFINITY, f64::INFINITY), |(mx, mn), q| {
+                let s = nx * q[0] + ny * q[1];
+                (mx.max(s), mn.min(s))
+            }),
+            Ring::Circle { c, r } => {
+                let s = nx * c[0] + ny * c[1];
+                let n = (nx * nx + ny * ny).sqrt();
+                (s + r * n, s - r * n)
+            }
+        }
+    }
+    fn finite(&self) -> bool {
+        match self {
+            Ring::Polygon(p) => p.iter().flatten().all(|v| v.is_finite()),
+            Ring::Circle { c, r } => c[0].is_finite() && c[1].is_finite() && r.is_finite() && *r > 0.0,
+        }
+    }
+}
+
+/// Area and first moments of the part of a circle where n·p ≥ level (n a unit vector): the
+/// segment at distance t = level − n·c from the centre has A = r²·acos(t/r) − t·√(r² − t²) and
+/// its centroid (2/3)·(r² − t²)^{3/2}/A beyond the centre along n. None when undecided.
+fn clipped_circle<T: Real>(c: Pt, r: f64, nx: f64, ny: f64, level: T) -> Option<[T; 3]> {
+    let zero = T::exact(0.0);
+    let rr = T::exact(r);
+    let t = level - (T::exact(nx) * T::exact(c[0]) + T::exact(ny) * T::exact(c[1]));
+    let full = || {
+        let a = T::pi() * rr * rr;
+        [a, a * T::exact(c[0]), a * T::exact(c[1])]
+    };
+    match rr.le(t) {
+        Tri::True => return Some([zero; 3]),
+        Tri::Unknown => return None,
+        Tri::False => {}
+    }
+    match t.le(-rr) {
+        Tri::True => return Some(full()),
+        Tri::Unknown => return None,
+        Tri::False => {}
+    }
+    let h2 = (rr * rr - t * t).max(zero);
+    let h = h2.sqrt();
+    let a = rr * rr * t.dv(rr).max(T::exact(-1.0)).min(T::exact(1.0)).acos() - t * h;
+    let m = T::exact(2.0).dv(T::exact(3.0)) * h2 * h;
+    Some([a, a * T::exact(c[0]) + T::exact(nx) * m, a * T::exact(c[1]) + T::exact(ny) * m])
+}
+
+/// A section (polygons and circles) with bars, prepared once and asked many times.
 #[derive(Debug, Clone)]
 pub struct Section {
-    /// Outer ring first, then holes; any winding; coordinates relative to the gross centroid.
-    rings: Vec<Vec<Pt>>,
+    /// Outer ring first, then holes; coordinates relative to the gross centroid.
+    rings: Vec<Ring>,
     /// x, y (relative to the gross centroid), area.
     bars: Vec<[f64; 3]>,
     pub code: SectionCode,
@@ -229,9 +306,16 @@ fn clipped<T: Real>(ring: &[Pt], nx: f64, ny: f64, level: T, cut: &mut Vec<[T; 2
 }
 
 impl Section {
-    /// `rings`: outer ring then holes. `bars`: x, y, area. Refuses data that describe no section.
+    /// `rings`: outer polygon then polygon holes. `bars`: x, y, area.
     pub fn new(rings: Vec<Vec<Pt>>, bars: Vec<[f64; 3]>, code: SectionCode) -> Result<Section, &'static str> {
-        let finite = rings.iter().flatten().flatten().chain(bars.iter().flatten()).all(|v| v.is_finite())
+        Self::with_rings(rings.into_iter().map(Ring::Polygon).collect(), bars, code)
+    }
+
+    /// `rings`: the outer boundary then holes, polygons or circles. Refuses data that describe
+    /// no section.
+    pub fn with_rings(rings: Vec<Ring>, bars: Vec<[f64; 3]>, code: SectionCode) -> Result<Section, &'static str> {
+        let finite = rings.iter().all(Ring::finite)
+            && bars.iter().flatten().all(|v| v.is_finite())
             && [code.fc, code.fy, code.es].iter().all(|v| v.is_finite());
         if !finite {
             return Err("section data are not finite");
@@ -239,7 +323,7 @@ impl Section {
         if !(code.fc > 0.0 && code.fy > 0.0 && code.es > 0.0) {
             return Err("f'c, fy and Es must be positive");
         }
-        if rings.is_empty() || rings[0].len() < 3 {
+        if rings.is_empty() || rings.iter().any(|r| matches!(r, Ring::Polygon(p) if p.len() < 3)) {
             return Err("the outline needs at least three vertices");
         }
         if bars.iter().any(|b| b[2] < 0.0) {
@@ -247,8 +331,8 @@ impl Section {
         }
         let (mut ag, mut sx, mut sy) = (0.0, 0.0, 0.0);
         for (i, r) in rings.iter().enumerate() {
-            let (a, mx, my) = ring_area_moments(r);
-            let sign = if i == 0 { 1.0 } else { -1.0 } * a.signum();
+            let (a, mx, my) = r.area_moments();
+            let sign = if i == 0 { 1.0 } else { -1.0 };
             ag += sign * a;
             sx += sign * mx;
             sy += sign * my;
@@ -257,10 +341,7 @@ impl Section {
             return Err("the outline encloses no concrete");
         }
         let centroid = [sx / ag, sy / ag];
-        let rings = rings
-            .into_iter()
-            .map(|r| r.into_iter().map(|p| [p[0] - centroid[0], p[1] - centroid[1]]).collect())
-            .collect();
+        let rings = rings.into_iter().map(|r| r.shifted(centroid)).collect();
         let bars: Vec<[f64; 3]> = bars.into_iter().map(|b| [b[0] - centroid[0], b[1] - centroid[1], b[2]]).collect();
         let ast = bars.iter().map(|b| b[2]).sum();
         Ok(Section { rings, bars, code, ag, ast, centroid })
@@ -290,13 +371,7 @@ impl Section {
 
     /// Extreme projections of the outline on (nx, ny).
     fn extent(&self, nx: f64, ny: f64) -> (f64, f64) {
-        let (mut max, mut min) = (f64::NEG_INFINITY, f64::INFINITY);
-        for p in &self.rings[0] {
-            let s = nx * p[0] + ny * p[1];
-            max = max.max(s);
-            min = min.min(s);
-        }
-        (max, min)
+        self.rings[0].extent(nx, ny)
     }
 
     /// Depth of the section along (nx, ny) and the depth of the most distant bar, dt.
@@ -327,7 +402,11 @@ impl Section {
         let mut cut = Vec::new();
         let mut z = [zero; 3];
         for (i, ring) in self.rings.iter().enumerate() {
-            let Some(part) = clipped::<T>(ring, nx, ny, level, &mut cut) else { return bad };
+            let part = match ring {
+                Ring::Polygon(p) => clipped::<T>(p, nx, ny, level, &mut cut),
+                Ring::Circle { c, r } => clipped_circle::<T>(*c, *r, nx, ny, level),
+            };
+            let Some(part) = part else { return bad };
             for j in 0..3 {
                 z[j] = if i == 0 { z[j] + part[j] } else { z[j] - part[j] };
             }
@@ -770,6 +849,26 @@ mod tests {
         let o = Section::new(vec![outer], vec![], code(Cirsoc201Edition::E2025)).unwrap();
         let (p, q) = (m.point(0.6, 0.8, 0.2), o.point(0.6, 0.8, 0.2));
         assert!((p.s.mnx - q.s.mnx).abs() < 1e-6 && (p.s.mny - q.s.mny).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_exact_circle_gives_the_segment_closed_form() {
+        let s = Section::with_rings(vec![Ring::Circle { c: [0.0, 0.0], r: 0.25 }], vec![], code(Cirsoc201Edition::E2025)).unwrap();
+        assert!((s.gross_area() - std::f64::consts::PI * 0.0625).abs() < 1e-15);
+        for a in [0.05, 0.15, 0.25, 0.35, 0.48] {
+            let theta = 2.0 * ((0.25 - a) / 0.25_f64).acos();
+            let area = 0.0625 * (theta - theta.sin()) / 2.0;
+            let zc = 4.0 * 0.25 * (theta / 2.0).sin().powi(3) / (3.0 * (theta - theta.sin()));
+            let p = s.point(0.0, 1.0, a / 0.85);
+            let k = 0.85 * 25e6;
+            assert!((p.s.pn / k - area).abs() < 1e-12, "{a}: {} vs {area}", p.s.pn / k);
+            assert!((-p.s.mnx / k - area * zc).abs() < 1e-12, "{a}");
+            let iv = s.state::<Interval>(0.0, 1.0, Interval::exact(a / 0.85), a / 0.85);
+            assert!(iv.pn.lo <= p.s.pn && p.s.pn <= iv.pn.hi, "{iv:?}");
+        }
+        // A ring: the hole's segment is subtracted.
+        let ring = Section::with_rings(vec![Ring::Circle { c: [0.0, 0.0], r: 0.5 }, Ring::Circle { c: [0.0, 0.0], r: 0.3 }], vec![], code(Cirsoc201Edition::E2025)).unwrap();
+        assert!((ring.gross_area() - std::f64::consts::PI * (0.25 - 0.09)).abs() < 1e-14);
     }
 
     #[test]

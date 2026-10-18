@@ -805,6 +805,7 @@ const es: Record<string, string> = {
   'flex.step.badDimension': '⚠ {name} tiene que ser mayor que 0. Revisá el dato.',
   'flex.step.badCover': '⚠ {name} tiene que estar entre 0 y {limit} cm: con ese valor las barras quedan fuera de la sección.',
   'flex.step.badHole': '⚠ El hueco tiene que entrar en la sección: b_h menor que b y h_h menor que h.',
+  'flex.step.badDemand': '⚠ Las solicitaciones (Pu, Mu, Muy) tienen que ser números.',
   'flex.step.badSteel': '⚠ La armadura dada tiene que ser un área en cm², 0 o más.',
   'flex.step.badFlange': '⚠ hf tiene que ser menor que h: un ala más alta que la viga no forma una sección T.',
   'flex.step.flangeNarrow': '⚠ bf es menor que bw: el ala queda más angosta que el alma y la sección no es una T. Si el ancho es uno solo, usá la hoja rectangular.',

@@ -7,7 +7,7 @@
 use wasm_bindgen::prelude::*;
 
 use crate::postprocess::cirsoc201_check::Cirsoc201Edition;
-use crate::postprocess::cirsoc201_section::{Confinement, Section, SectionCode, SectionPoint, Utilisation};
+use crate::postprocess::cirsoc201_section::{Confinement, Ring, Section, SectionCode, SectionPoint, Utilisation};
 
 /// Values per section state in the outputs: `[Pn, Mnx, Mny, εt, c, φ, φPn, φMnx, φMny]`.
 pub const STATE_LEN: usize = 9;
@@ -43,22 +43,26 @@ fn push_util(out: &mut Vec<f64>, u: &Utilisation) {
     out.extend_from_slice(&[u.ratio, u.phi_pn, u.phi_mn, u.c, u.eps_t, u.phi, u.nx, u.ny, u.axial_only as u8 as f64]);
 }
 
-/// Build a section from flat buffers. `params`: `[fc, fy, Es, edition, confinement, deduct]`.
-pub fn section_from_buffers(points: &[f64], offsets: &[u32], bars: &[f64], params: &[f64]) -> Result<Section, &'static str> {
+/// Build a section from flat buffers: polygon rings (`points`, `offsets`), then exact circles
+/// (`circles`: cx, cy, r each); the first ring of all is the outer boundary, the rest holes.
+/// `params`: `[fc, fy, Es, edition, confinement, deduct]`.
+pub fn section_from_buffers(points: &[f64], offsets: &[u32], circles: &[f64], bars: &[f64], params: &[f64]) -> Result<Section, &'static str> {
     if points.len() % 2 != 0
         || bars.len() % 3 != 0
+        || circles.len() % 3 != 0
         || params.len() != 6
-        || offsets.len() < 2
+        || offsets.is_empty()
         || offsets.first() != Some(&0)
         || offsets.last().copied().map(|n| n as usize) != Some(points.len() / 2)
         || offsets.windows(2).any(|w| w[0] > w[1])
     {
         return Err("Invalid RC section buffers");
     }
-    let rings = offsets
+    let mut rings: Vec<Ring> = offsets
         .windows(2)
-        .map(|w| points[w[0] as usize * 2..w[1] as usize * 2].chunks_exact(2).map(|p| [p[0], p[1]]).collect())
+        .map(|w| Ring::Polygon(points[w[0] as usize * 2..w[1] as usize * 2].chunks_exact(2).map(|p| [p[0], p[1]]).collect()))
         .collect();
+    rings.extend(circles.chunks_exact(3).map(|c| Ring::Circle { c: [c[0], c[1]], r: c[2] }));
     let code = SectionCode {
         fc: params[0],
         fy: params[1],
@@ -67,7 +71,10 @@ pub fn section_from_buffers(points: &[f64], offsets: &[u32], bars: &[f64], param
         confinement: confinement_of(params[4])?,
         deduct_displaced_concrete: params[5] != 0.0,
     };
-    Section::new(rings, bars.chunks_exact(3).map(|b| [b[0], b[1], b[2]]).collect(), code)
+    if params.iter().any(|v| !v.is_finite()) {
+        return Err("Invalid RC section buffers");
+    }
+    Section::with_rings(rings, bars.chunks_exact(3).map(|b| [b[0], b[1], b[2]]).collect(), code)
 }
 
 fn finite(values: &[f64]) -> Result<(), JsValue> {
@@ -81,11 +88,12 @@ pub struct Cirsoc201SectionKernel {
 
 #[wasm_bindgen]
 impl Cirsoc201SectionKernel {
-    /// `points`/`offsets`: the outline's rings (outer first, then holes) as x, y pairs;
+    /// `points`/`offsets`: polygon rings as x, y pairs; `circles`: exact circles as cx, cy, r;
+    /// the first ring (polygons before circles) is the outer boundary, the rest are holes.
     /// `bars`: x, y, area triples; `params`: `[fc, fy, Es, edition, confinement, deduct]`.
     #[wasm_bindgen(constructor)]
-    pub fn new(points: &[f64], offsets: &[u32], bars: &[f64], params: &[f64]) -> Result<Cirsoc201SectionKernel, JsValue> {
-        section_from_buffers(points, offsets, bars, params).map(|s| Cirsoc201SectionKernel { s }).map_err(JsValue::from_str)
+    pub fn new(points: &[f64], offsets: &[u32], circles: &[f64], bars: &[f64], params: &[f64]) -> Result<Cirsoc201SectionKernel, JsValue> {
+        section_from_buffers(points, offsets, circles, bars, params).map(|s| Cirsoc201SectionKernel { s }).map_err(JsValue::from_str)
     }
 
     /// `[Ag, Ast, Po, φPn,max, φPnt,max (negative), β1, centroid x, centroid y]`.
@@ -194,12 +202,16 @@ mod tests {
     #[test]
     fn rejects_invalid_buffers() {
         let params = [25e6, 420e6, 200e9, 2025.0, 0.0, 1.0];
-        assert!(section_from_buffers(&[0.; 8], &[0, 5, 4], &[], &params).is_err());
-        assert!(section_from_buffers(&[0.; 8], &[0, 4], &[], &params[..5]).is_err());
+        assert!(section_from_buffers(&[0.; 8], &[0, 5, 4], &[], &[], &params).is_err());
+        assert!(section_from_buffers(&[0.; 8], &[0, 4], &[], &[], &params[..5]).is_err());
         let square = [-0.15, -0.15, 0.15, -0.15, 0.15, 0.15, -0.15, 0.15];
-        assert!(section_from_buffers(&square, &[0, 4], &[], &[25e6, 420e6, 200e9, 2019.0, 0.0, 1.0]).is_err());
-        assert!(section_from_buffers(&square, &[0, 4], &[], &[25e6, 420e6, 200e9, 2025.0, 2.0, 1.0]).is_err());
-        let s = section_from_buffers(&square, &[0, 4], &[0.0, 0.1, 3e-4], &params).unwrap();
+        assert!(section_from_buffers(&square, &[0, 4], &[], &[], &[25e6, 420e6, 200e9, 2019.0, 0.0, 1.0]).is_err());
+        assert!(section_from_buffers(&square, &[0, 4], &[], &[], &[25e6, 420e6, 200e9, 2025.0, 2.0, 1.0]).is_err());
+        let s = section_from_buffers(&square, &[0, 4], &[], &[0.0, 0.1, 3e-4], &params).unwrap();
         assert!((s.gross_area() - 0.09).abs() < 1e-15);
+        let c = section_from_buffers(&[], &[0], &[0.0, 0.0, 0.25], &[], &params).unwrap();
+        assert!((c.gross_area() - std::f64::consts::PI * 0.0625).abs() < 1e-15);
+        assert!(section_from_buffers(&[], &[0], &[0.0, 0.0, -0.25], &[], &params).is_err());
+        assert!(section_from_buffers(&[], &[0], &[], &[], &params).is_err());
     }
 }

@@ -162,12 +162,19 @@ function utilisationFrom(v: Float64Array): SectionUtilisation {
 
 export function prepareSection(outline: Outline, bars: readonly Bar[], mat: Materials): PreparedSection {
   const Section = cirsoc201Engine('Section');
-  const { outer, holes } = outlineRings(outline);
-  const rings = [outer, ...holes];
+  /*
+   * A circle goes to the engine as a circle — its compressed segment is computed exactly
+   * (r²·acos(t/r) − t·√(r² − t²)) — and only the drawing uses the 360-gon.
+   */
+  const circles = outline.kind === 'circle'
+    ? [0, 0, outline.D / 2, ...(outline.Dint && outline.Dint > 0 ? [0, 0, outline.Dint / 2] : [])]
+    : [];
+  const rings = outline.kind === 'circle' ? [] : (() => { const r = outlineRings(outline); return [r.outer, ...r.holes]; })();
   const offsets = new Uint32Array(rings.length + 1);
   for (let i = 0; i < rings.length; i++) offsets[i + 1] = offsets[i] + rings[i].length;
   const kernel: SectionKernelInstance = new Section(
     Float64Array.from(rings.flatMap((ring) => ring.flatMap((p) => [p.x, p.y]))), offsets,
+    Float64Array.from(circles),
     Float64Array.from(bars.flatMap((b) => [b.x, b.y, b.area])),
     Float64Array.of(mat.fc * 1e6, mat.fy * 1e6, ES_MPA * 1e6, editionCode(mat.edition),
       confinementCode(mat.confinement), (mat.deductDisplacedConcrete ?? true) ? 1 : 0),

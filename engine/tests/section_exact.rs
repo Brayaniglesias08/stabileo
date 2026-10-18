@@ -497,7 +497,7 @@ fn rc_section_kernel_matches_a_hand_strain_compatibility_calculation() {
     let params = [25e6, 420e6, 200e9, 2025.0, 0.0, 1.0];
     let ring = [-0.15, -0.25, 0.15, -0.25, 0.15, 0.25, -0.15, 0.25];
     let bars = [-0.10, -0.20, 3e-4, 0.10, -0.20, 3e-4, -0.10, 0.20, 3e-4, 0.10, 0.20, 3e-4];
-    let k = section_from_buffers(&ring, &[0, 4], &bars, &params).unwrap_or_else(|_| panic!("valid section"));
+    let k = section_from_buffers(&ring, &[0, 4], &[], &bars, &params).unwrap_or_else(|_| panic!("valid section"));
     let p = k.point(0.0, 1.0, 0.15);
     // kN, kN·m in the hand calculation; the engine is SI.
     let got = [p.s.pn / 1e3, p.s.mnx / 1e3, p.s.mny / 1e3, p.s.eps_t, p.c];
@@ -509,7 +509,7 @@ fn rc_section_kernel_matches_a_hand_strain_compatibility_calculation() {
     // the engine must give the same axial force.
     let turned: Vec<f64> = [0.25, -0.15, 0.25, 0.15, -0.25, 0.15, -0.25, -0.15].to_vec();
     let tb = [0.20, -0.10, 3e-4, 0.20, 0.10, 3e-4, -0.20, -0.10, 3e-4, -0.20, 0.10, 3e-4];
-    let k2 = section_from_buffers(&turned, &[0, 4], &tb, &params).unwrap_or_else(|_| panic!("valid section"));
+    let k2 = section_from_buffers(&turned, &[0, 4], &[], &tb, &params).unwrap_or_else(|_| panic!("valid section"));
     let o2 = k2.point(1.0, 0.0, 0.15);
     assert!((o2.s.pn / 1e3 - 788.0625).abs() < 1e-9 && (o2.s.mny / 1e3 - 247.236328125).abs() < 1e-9, "{o2:?}");
 }

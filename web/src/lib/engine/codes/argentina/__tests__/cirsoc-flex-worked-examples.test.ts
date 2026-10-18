@@ -91,7 +91,7 @@ describe('FST — flanged section in simple bending', () => {
   const r = checkFlexureFlanged(
     { fc: 25, fy: 420, cover: coverFor(0.032), b: 0.12, h: 0.40, stirrupDia: 0 },
     { bf: 1.37, hf: 0.10, bw: 0.12 },
-    52,
+    52, '2005',
   );
 
   it('asks for the same steel', () => {
@@ -154,7 +154,7 @@ describe('FCR — rectangular section under axial load and bending', () => {
   it('what the panel actually uses lands within 10 % of the published steel', () => {
     const sized = designRectColumn(
       { fc: 25, fy: 420, cover: 0.042, b: 0.30, h: 0.30, stirrupDia: 0 },
-      500, 100, 8,
+      500, 100, 8, 20, '2005',
     );
     expect(sized).not.toBeNull();
     const ratio = sized!.AstCm2 / 21.3354;
@@ -171,6 +171,7 @@ describe('FCR-CIR — circular column', () => {
   const geom = {
     D: 0.40, fc: 25, fy: 420, cover: 0.03, barCount: 12,
     confinement: 'spiral' as const,
+    edition: '2005' as const, // the workbook's
   };
 
   it('agrees exactly on §10.9.1 bounds', () => {
@@ -189,8 +190,16 @@ describe('FCR-CIR — circular column', () => {
      * to compare against.
      */
     const chk = checkColumnCircular({ ...geom, AstCm2: 86.5608 }, 1000, 300);
-    expect(chk.epsT).toBeCloseTo(0.0021, 4); // compression-controlled here
-    expect(chk.phi).toBeCloseTo(0.70, 10);
+    expect(chk.epsT).toBeCloseTo(0.0021, 4); // at the edge of compression control here
+    /*
+     * The neutral axis is solved now, not read off the nearest sample, so εt sits a hair past
+     * εy and φ is on the 2005 spiral ramp's first step: 0,70 + 0,20·(εt − εy)/(0,005 − εy).
+     * Its floor is the regulation's 0,70 — never ACI 318-08's 0,75.
+     */
+    const ey = 420 / 200000;
+    const expected = chk.epsT <= ey ? 0.70 : 0.70 + 0.20 * (chk.epsT - ey) / (0.005 - ey);
+    expect(chk.phi).toBeCloseTo(expected, 10);
+    expect(chk.phi).toBeLessThan(0.701);
   });
 
   it('lands within 5 % of the published steel', () => {

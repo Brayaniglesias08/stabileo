@@ -230,6 +230,10 @@ function validate(i: FlexInput): EngineMessage[] {
   const verifyingByArea = i.mode === 'verify'
     && !(i.kase === 'FCR' && i.levels.some((l) => l.areaCm2 > 0));
   if (verifyingByArea && !(finite(i.AstGiven) && i.AstGiven >= 0)) out.push(msg('flex.step.badSteel'));
+  /* The engine refuses a demand that is not a number; say so here, in the reader's terms. */
+  const beam = i.kase === 'FSR' || i.kase === 'FST';
+  const demands = [i.Mu, ...(beam ? [] : [i.Pu]), ...(i.kase === 'FCO' ? [i.Muy] : [])];
+  if (!demands.every(finite)) out.push(msg('flex.step.badDemand'));
 
   switch (i.kase) {
     case 'FSR':

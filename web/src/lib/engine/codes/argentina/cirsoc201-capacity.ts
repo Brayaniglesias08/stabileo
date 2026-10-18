@@ -9,7 +9,7 @@
  * here — a damped fixed-point on fs, and a sampled diagram read by linear interpolation — is the
  * oracle in `__tests__/differential/oracle/cirsoc201-capacity.ts`.
  *
- * Edition: these helpers serve the CIRSOC_FLEX calculator and default to 2005, its edition.
+ * Edition: default 2025, the edition in force; the CIRSOC_FLEX calculator passes its own.
  */
 
 import { minFlexuralSteelCm2, yieldStrain, tensionControlledStrain, COLUMN_STEEL_RATIO, type Cirsoc201EditionLike } from './cirsoc201-basis';
@@ -82,7 +82,7 @@ function steelSteps(fy: number, epsilonT: number, fs: number): string {
 export function rectCapacity(
   params: ConcreteDesignParams,
   AsCm2: number,
-  edition: Cirsoc201EditionLike = '2005',
+  edition: Cirsoc201EditionLike = '2025',
 ): Capacity {
   const { fc, fy, b, h } = params;
   const s = engineCapacity(params, AsCm2, edition);
@@ -121,7 +121,7 @@ export function flangedCapacity(
   params: ConcreteDesignParams,
   geom: FlangedGeometry,
   AsCm2: number,
-  edition: Cirsoc201EditionLike = '2005',
+  edition: Cirsoc201EditionLike = '2025',
 ): Capacity & { withinFlange: boolean } {
   const { fc, fy, h } = params;
   const { bf, hf, bw } = geom;
@@ -210,7 +210,7 @@ export function rectColumnCheck(
   Mu: number,
   _barCount = 8,
   barDia = 20,
-  edition: Cirsoc201EditionLike = '2005',
+  edition: Cirsoc201EditionLike = '2025',
 ): ColumnCheck {
   const { fc, fy, b, h, cover, stirrupDia } = params;
   /* The diagram measures to the bar centre; the params carry clear cover. */
@@ -241,7 +241,7 @@ export function designRectColumn(
   Mu: number,
   barCount = 8,
   barDia = 20,
-  edition: Cirsoc201EditionLike = '2005',
+  edition: Cirsoc201EditionLike = '2025',
 ): { AstCm2: number; check: ColumnCheck } | null {
   const Ag = params.b * params.h;
   const sized = sizeByBisection(

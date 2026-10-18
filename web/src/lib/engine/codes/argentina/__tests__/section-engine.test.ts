@@ -85,12 +85,13 @@ describe('the engine reproduces the circular closed form', () => {
       /* First moment against area × the closed form's centroid. */
       expect(viaPoly.my, `first moment at a=${a}`).toBeCloseTo(exact.area * exact.zc, 4);
       /*
-       * And the ENGINE, which owns the arithmetic: plain concrete (no bars), f'c ≤ 28 so
-       * β1 = 0,85, c = a/β1. Pn = 0,85·f'c·A, Mnx = −0,85·f'c·A·zc (compressed top).
+       * And the ENGINE, which owns the arithmetic and integrates the circle exactly (the
+       * 360-gon is only for drawing): plain concrete, f'c ≤ 28 so β1 = 0,85, c = a/β1.
+       * Pn = 0,85·f'c·A, Mnx = −0,85·f'c·A·zc (compressed top) — to twelve figures.
        */
       const p = sectionPoint({ kind: 'circle', D }, [], { fc: 25, fy: 420 }, Math.PI / 2, a / 0.85);
-      expect(p.Pn / (0.85 * 25000), `engine area at a=${a}`).toBeCloseTo(exact.area, 4);
-      expect(-p.Mnx / (0.85 * 25000), `engine first moment at a=${a}`).toBeCloseTo(exact.area * exact.zc, 4);
+      expect(p.Pn / (0.85 * 25000), `engine area at a=${a}`).toBeCloseTo(exact.area, 12);
+      expect(-p.Mnx / (0.85 * 25000), `engine first moment at a=${a}`).toBeCloseTo(exact.area * exact.zc, 12);
     }
   });
 

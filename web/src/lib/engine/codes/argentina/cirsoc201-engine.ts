@@ -27,7 +27,7 @@ export interface SectionKernelInstance {
   free(): void;
 }
 export type SectionKernelConstructor = new (points: Float64Array, offsets: Uint32Array,
-  bars: Float64Array, params: Float64Array) => SectionKernelInstance;
+  circles: Float64Array, bars: Float64Array, params: Float64Array) => SectionKernelInstance;
 
 export interface Cirsoc201Engine {
   Section: SectionKernelConstructor;

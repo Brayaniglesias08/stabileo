@@ -378,13 +378,6 @@ fn flexure_at<T: Real>(m: &Cirsoc201MemberData, b1: T, c: T, nu: T) -> (T, T, T,
     (cc + cs - t - nu, mn, a, eps_t, fst, fsc)
 }
 
-/// Nominal flexural strength by strain compatibility, generic over `Real`. None when the
-/// inputs describe no section (no tension steel, a non-positive dimension or strength) or the
-/// neutral axis cannot be found (enclosed, for intervals).
-pub(crate) fn nominal_flexure_r<T: Real>(m: &Cirsoc201MemberData) -> Option<FlexureStateR<T>> {
-    nominal_flexure_axial_r::<T>(m, T::exact(0.0), 0.0)
-}
-
 /// Nominal flexural strength with an axial force `nu` (N, compression positive) acting at the
 /// gross centroid, about which the moment is taken (22.2; 22.4 for the axial force). `nu_f64`
 /// is the f64 value of `nu`, used to place the root (the interval version certifies it).
