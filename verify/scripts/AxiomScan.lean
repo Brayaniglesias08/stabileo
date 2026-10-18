@@ -1,8 +1,10 @@
 /-
-Exhaustive axiom audit of the `Certify` library, run by `scripts/check-axioms.sh` with
-`lake env lean scripts/AxiomScan.lean` after `lake build`.
+Exhaustive axiom audit of the `Certify` library and the `certcheck` executable. Run by
+`scripts/check-axioms.sh`, which replaces the `import` line below with an import of EVERY
+module under `Certify/` (discovered from the file system, so a module that `Certify.lean`
+does not import is still scanned) plus `CertCheck`.
 
-For every constant declared in a `Certify.*` module (theorems, lemmas and the executable
+For every constant declared in a `Certify.*` module or in `CertCheck` (theorems, lemmas and the executable
 check functions alike) it collects the axioms the constant depends on and fails on any axiom
 outside Lean's standard three (`propext`, `Classical.choice`, `Quot.sound`). This catches
 `sorry` (`sorryAx`), `native_decide` (in Lean 4.34 an auxiliary `axiom …native_decide.ax_*`; earlier
@@ -26,7 +28,7 @@ run_cmd do
   for (name, ci) in env.constants.map₁.toList do
     let some idx := env.getModuleIdxFor? name | continue
     let some mod := env.header.moduleNames[idx.toNat]? | continue
-    unless (`Certify).isPrefixOf mod do continue
+    unless (`Certify).isPrefixOf mod || mod == `CertCheck do continue
     scanned := scanned + 1
     if ci matches .thmInfo _ then theorems := theorems + 1
     if ci matches .axiomInfo _ then

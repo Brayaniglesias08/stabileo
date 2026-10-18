@@ -10,8 +10,36 @@
 #   any top-level soundness theorem (`#print axioms`, printed for review), and behind any
 #   constant of the Certify library at all (scripts/AxiomScan.lean, which also rejects
 #   `axiom`, `@[implemented_by]` and `@[extern]` in Certify).
+# The source grep also rejects `axiom`, `implemented_by` and `extern`, and every module
+# under Certify/ must be imported by Certify.lean, so `lake build` checks all of them.
+#
+#   scripts/check-axioms.sh [--scan-only]
+#
+# --scan-only runs only the exhaustive scan (scripts/test-axiom-gate.sh uses it to show the
+# scan alone catches what it plants).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# Every library module, from the file system (not from Certify.lean's imports).
+mapfile -t modules < <(find Certify -name '*.lean' | sort | sed 's|\.lean$||; s|/|.|g')
+
+# The exhaustive scan: every constant of every module above and of CertCheck.
+scan() {
+	lake build "${modules[@]/#/+}" +CertCheck
+	local f
+	f=$(mktemp -d)/AxiomScanAll.lean
+	{
+		printf 'import %s\n' "${modules[@]}" CertCheck
+		sed '/^import /d' scripts/AxiomScan.lean
+	} > "$f"
+	lake env lean "$f"
+	rm -rf "$(dirname "$f")"
+}
+
+if [ "${1:-}" = "--scan-only" ]; then
+	scan
+	exit 0
+fi
 
 # --- pins ---------------------------------------------------------------------------
 toolchain=$(tr -d '[:space:]' < lean-toolchain)
@@ -39,9 +67,24 @@ if [ -f .lake/packages/mathlib/lean-toolchain ]; then
 fi
 echo "pins ok: $toolchain, mathlib $lake_rev ($manifest_commit)"
 
-# --- forbidden tactics ----------------------------------------------------------------
+# --- forbidden tactics and declarations ------------------------------------------------
 if grep -rnwE --include='*.lean' -e 'sorry|admit|native_decide' Certify Certify.lean CertCheck.lean; then
 	echo "error: sorry/admit/native_decide found" >&2
+	exit 1
+fi
+if grep -rnE --include='*.lean' -e '^[[:space:]]*(@\[[^]]*\][[:space:]]*)?((private|protected|noncomputable|unsafe)[[:space:]]+)*axiom[[:space:]]' \
+	-e 'implemented_by|@\[extern|[[:space:],]extern[[:space:]]+"' Certify Certify.lean CertCheck.lean; then
+	echo "error: axiom / implemented_by / extern declaration found" >&2
+	exit 1
+fi
+
+# --- every module is part of the library build ------------------------------------------
+missing=()
+for m in "${modules[@]}"; do
+	grep -qxF "import $m" Certify.lean || missing+=("$m")
+done
+if [ ${#missing[@]} -gt 0 ]; then
+	echo "error: Certify.lean does not import: ${missing[*]} (lake build would not check them)" >&2
 	exit 1
 fi
 
@@ -112,5 +155,5 @@ if [ "$(echo "$out" | grep -c 'depends on axioms\|does not depend on any axioms'
 fi
 
 # --- every constant of the library ------------------------------------------------------
-lake env lean scripts/AxiomScan.lean
+scan
 echo "axioms ok"
