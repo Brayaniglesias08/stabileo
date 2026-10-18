@@ -702,6 +702,13 @@ pub(crate) fn prescribed_displacements_2d(input: &SolverInput, dof_num: &DofNumb
 }
 
 fn prepare_static_2d_impl(input: &SolverInput, force_dense: bool) -> Result<PreparedStatic2D<'_>, String> {
+    // The prepared (factor-once) path assembles no constraints. Every caller
+    // routes constrained models elsewhere today; refusing here keeps a new
+    // caller from silently solving the model without them (the dense
+    // reference did: found by the metamorphic relabel check).
+    if !input.constraints.is_empty() {
+        return Err("prepared static solve does not support constraints: solve the model with solve_2d (constrained solver)".into());
+    }
     let dof_num = DofNumbering::build_2d(input);
     let mut pre_solve_diags = super::pre_solve_gates::run_pre_solve_gates_2d(input);
     validate_solver_options(&input.solver_options, &mut pre_solve_diags);
@@ -2124,6 +2131,13 @@ pub(crate) fn prescribed_displacements_3d(input: &SolverInput3D, dof_num: &DofNu
 }
 
 pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, String> {
+    // The prepared (factor-once) path assembles no constraints. Every caller
+    // routes constrained models elsewhere today; refusing here keeps a new
+    // caller from silently solving the model without them (the dense
+    // reference did: found by the metamorphic relabel check).
+    if !input.constraints.is_empty() {
+        return Err("prepared static solve does not support constraints: solve the model with solve_3d (constrained solver)".into());
+    }
     // Expand curved beams into frame elements before solving
     let input = expand_curved_beams_3d(input);
     let n_nodes = input.nodes.len();
@@ -4208,6 +4222,92 @@ pub(crate) fn validate_loads_2d(input: &SolverInput, loads: &[SolverLoad]) -> Re
         }
     }
 
+    refuse_moments_without_rotation_2d(input, loads)
+}
+
+/// 2D twin of `refuse_moments_without_rotation_3d`: a nodal moment on a node
+/// whose rotation nothing stiffens (every frame hinged there, only trusses,
+/// a constraint that ties translations only) sits on a DOF held by the
+/// assembler's artificial stiffness. The plain solver caught that with a
+/// "local mechanism" heuristic on the size of the rotation; the constrained
+/// path did not, and returned a rotation of ~1e5 rad as an answer (found by
+/// the metamorphic energy check, docs/verification/METAMORPHIC.md). Refused
+/// by node on every path, before solving.
+pub(crate) fn refuse_moments_without_rotation_2d(input: &SolverInput, loads: &[SolverLoad]) -> Result<(), String> {
+    let moments: Vec<&SolverNodalLoad> = loads
+        .iter()
+        .filter_map(|l| match l {
+            SolverLoad::Nodal(n) if n.my != 0.0 => Some(n),
+            _ => None,
+        })
+        .collect();
+    if moments.is_empty() {
+        return Ok(());
+    }
+    let lost = |node: usize, why: &str| {
+        format!(
+            "Nodal moment at node {node} is not supported: {why}, so the moment would not reach the structure. \
+             Apply it as a force couple, or connect the node rigidly to a frame"
+        )
+    };
+    if DofNumbering::dofs_per_node_2d(input) < 3 {
+        return Err(lost(moments[0].node_id, "the model has no rotational degrees of freedom (trusses carry translations only)"));
+    }
+    let mut carried: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for e in input.elements.values() {
+        if e.elem_type != "frame" {
+            continue;
+        }
+        if !e.hinge_start { carried.insert(e.node_i); }
+        if !e.hinge_end { carried.insert(e.node_j); }
+    }
+    for c in input.connectors.values() {
+        let finite_arm = {
+            let (a, b) = (input.nodes.values().find(|n| n.id == c.node_i), input.nodes.values().find(|n| n.id == c.node_j));
+            match (a, b) {
+                (Some(a), Some(b)) => ((b.x - a.x).powi(2) + (b.z - a.z).powi(2)).sqrt() > crate::element::connector::ZERO_LENGTH,
+                _ => false,
+            }
+        };
+        if c.k_moment > 0.0 || (finite_arm && c.k_shear > 0.0) {
+            carried.extend([c.node_i, c.node_j]);
+        }
+    }
+    for s in input.supports.values() {
+        let rot = matches!(s.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ") || s.kz.unwrap_or(0.0) > 0.0;
+        if rot {
+            carried.insert(s.node_id);
+        }
+    }
+    // Constraints, conservatively: a node counts as carried whenever a
+    // constraint may couple its rotation to something stiff.
+    for c in &input.constraints {
+        match c {
+            Constraint::RigidLink(r) => {
+                carried.insert(r.master_node);
+                if r.dofs.contains(&2) { carried.insert(r.slave_node); }
+            }
+            Constraint::Diaphragm(d) => {
+                carried.insert(d.master_node);
+            }
+            Constraint::EqualDOF(e) => {
+                if e.dofs.contains(&2) { carried.extend([e.master_node, e.slave_node]); }
+            }
+            Constraint::EccentricConnection(e) => {
+                carried.insert(e.master_node);
+                if !e.releases.get(2).copied().unwrap_or(false) { carried.insert(e.slave_node); }
+            }
+            Constraint::LinearMPC(m) => carried.extend(m.terms.iter().filter(|t| t.dof == 2).map(|t| t.node_id)),
+        }
+    }
+    // A rotation tied by a constraint to a node that is itself carried is
+    // carried; one pass per constraint chain link is enough for the
+    // conservative rule above (masters are always counted).
+    for m in moments {
+        if !carried.contains(&m.node_id) {
+            return Err(lost(m.node_id, "no unhinged frame, rotational support, connector or constraint gives that node rotational stiffness"));
+        }
+    }
     Ok(())
 }
 

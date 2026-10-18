@@ -7,7 +7,7 @@ use crate::checks2::{guarded, hash, rel_for};
 use crate::response::{Kind, Resp};
 use crate::tally::{Tally, Verdict};
 use dedaliano_engine::element::compute_local_axes_3d;
-use dedaliano_engine::metamorphic::compare::{compare, compare_scaled, Flat, Report};
+use dedaliano_engine::metamorphic::compare::{compare_floored, compare_with_floor, Flat, Report};
 use dedaliano_engine::metamorphic::conditioning::{self, Conditioning, INCONCLUSIVE};
 use dedaliano_engine::metamorphic::relabel::Relabel;
 use dedaliano_engine::metamorphic::transform::Iso3;
@@ -45,9 +45,26 @@ fn same(a: &Ana3, tc: &Case3, expected: Result<Resp, String>, cond: &Conditionin
     };
     let rel = rel_for(a.name, a.iter_tol, &c2);
     match run(a, tc) {
-        Ok(got) => judge(compare(&got.flat(), &expected.flat(), c2.lchar, rel), rel),
+        Ok(got) => judge(compare_with_floor(&got.flat(), &expected.flat(), c2.lchar, rel, load_floor_3d(&tc.s, c2.lchar)), rel),
         Err(e) => Verdict::Fail(format!("original solved but transformed model failed: {e}")),
     }
+}
+
+/// Magnitude of the applied loads (force units), see `load_floor_2d`.
+pub fn load_floor_3d(s: &SolverInput3D, lchar: f64) -> f64 {
+    let len = |id: usize| -> f64 {
+        s.elements.get(&id.to_string()).and_then(|e| {
+            let (a, b) = (s.nodes.get(&e.node_i.to_string())?, s.nodes.get(&e.node_j.to_string())?);
+            Some(((b.x - a.x).powi(2) + (b.y - a.y).powi(2) + (b.z - a.z).powi(2)).sqrt())
+        }).unwrap_or(0.0)
+    };
+    s.loads.iter().map(|l| match l {
+        SolverLoad3D::Nodal(n) => n.fx.abs() + n.fy.abs() + n.fz.abs() + (n.mx.abs() + n.my.abs() + n.mz.abs()) / lchar,
+        SolverLoad3D::Distributed(d) => [d.q_xi, d.q_xj, d.q_yi, d.q_yj, d.q_zi, d.q_zj].iter().fold(0.0f64, |a, b| a.max(b.abs())) * len(d.element_id),
+        SolverLoad3D::PointOnElement(p) => p.py.abs() + p.pz.abs(),
+        SolverLoad3D::Pressure(p) | SolverLoad3D::QuadPressure(p) | SolverLoad3D::Quad9Pressure(p) | SolverLoad3D::SolidShellPressure(p) | SolverLoad3D::CurvedShellPressure(p) => p.pressure.abs() * lchar * lchar,
+        _ => 0.0,
+    }).sum()
 }
 
 pub fn scale_loads_3d(loads: &[SolverLoad3D], k: f64) -> Vec<SolverLoad3D> {
@@ -155,7 +172,7 @@ fn superposition(a: &Ana3, c: &Case3, base: &Resp, cond: &Conditioning) -> Verdi
                 for it in exp.0.iter_mut() {
                     it.v.iter_mut().for_each(|x| *x /= k);
                 }
-                judge(compare(&r.flat(), &exp.flat(), cond.lchar, rel), rel)
+                judge(compare_with_floor(&r.flat(), &exp.flat(), cond.lchar, rel, load_floor_3d(&c.s, cond.lchar) * k), rel)
             }
             Err(e) => Verdict::Fail(format!("scaled loads failed: {e}")),
         };
@@ -193,12 +210,13 @@ fn superposition(a: &Ana3, c: &Case3, base: &Resp, cond: &Conditioning) -> Verdi
     let db = Flat::lin_comb(1.0, &rb, -1.0, &r0);
     let exp_ab = Flat::lin_comb(1.0, &Flat::lin_comb(1.0, &da, 1.0, &db), 1.0, &r0);
     let scale = Flat::lin_comb(1.0, &Flat::abs_comb(1.0, &ra, 1.0, &rb), 2.0, &Flat::abs_comb(1.0, &r0, 0.0, &r0));
-    if let v @ Verdict::Fail(_) = judge(compare_scaled(&rab, &exp_ab, &scale, cond.lchar, rel).map_err(|e| format!("R(A+B) ≠ R(A)+R(B)−R(∅): {e}")), rel) {
+    let floor = load_floor_3d(&c.s, cond.lchar) * (1.0 + k.abs());
+    if let v @ Verdict::Fail(_) = judge(compare_floored(&rab, &exp_ab, &scale, cond.lchar, rel, floor).map_err(|e| format!("R(A+B) ≠ R(A)+R(B)−R(∅): {e}")), rel) {
         return v;
     }
     let exp_k = Flat::lin_comb(k, &da, 1.0, &r0);
     let scale_k = Flat::abs_comb(k, &ra, 1.0 + k.abs(), &r0);
-    judge(compare_scaled(&rk, &exp_k, &scale_k, cond.lchar, rel).map_err(|e| format!("R(kA) ≠ k·R(A): {e}")), rel)
+    judge(compare_floored(&rk, &exp_k, &scale_k, cond.lchar, rel, floor).map_err(|e| format!("R(kA) ≠ k·R(A): {e}")), rel)
 }
 
 fn free_nodes(c: &Case3) -> Vec<usize> {

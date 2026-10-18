@@ -4,7 +4,7 @@ use crate::ana2::{Ana2, Law};
 use crate::case::Case2;
 use crate::response::{Kind, Resp};
 use crate::tally::{Tally, Verdict};
-use dedaliano_engine::metamorphic::compare::{compare, compare_scaled, Flat};
+use dedaliano_engine::metamorphic::compare::{compare_floored, compare_with_floor, Flat};
 use dedaliano_engine::metamorphic::conditioning::{self, Conditioning, INCONCLUSIVE};
 use dedaliano_engine::metamorphic::relabel::Relabel;
 use dedaliano_engine::metamorphic::transform::Iso2;
@@ -57,7 +57,7 @@ fn same(a: &Ana2, tc: &Case2, expected: Result<Resp, String>, cond: &Conditionin
     };
     let rel = rel_for(a.name, a.iter_tol, &c2);
     match run(a, tc) {
-        Ok(got) => judge(compare(&got.flat(), &expected.flat(), c2.lchar, rel), rel),
+        Ok(got) => judge(compare_with_floor(&got.flat(), &expected.flat(), c2.lchar, rel, load_floor_2d(&tc.s, c2.lchar)), rel),
         // The original solved; the same structure, transformed, must too.
         Err(e) => Verdict::Fail(format!("original solved but transformed model failed: {e}")),
     }
@@ -153,6 +153,22 @@ pub fn check_case(ctx: &Ctx, c: &Case2, anas: &[Ana2], invariants: &[&str]) {
     }
 }
 
+/// Magnitude of the applied loads (force units): Σ|F| + Σ|M|/L + Σ|q|·L_e.
+pub fn load_floor_2d(s: &SolverInput, lchar: f64) -> f64 {
+    let len = |id: usize| -> f64 {
+        s.elements.get(&id.to_string()).and_then(|e| {
+            let (a, b) = (s.nodes.get(&e.node_i.to_string())?, s.nodes.get(&e.node_j.to_string())?);
+            Some(((b.x - a.x).powi(2) + (b.z - a.z).powi(2)).sqrt())
+        }).unwrap_or(0.0)
+    };
+    s.loads.iter().map(|l| match l {
+        SolverLoad::Nodal(n) => n.fx.abs() + n.fz.abs() + n.my.abs() / lchar,
+        SolverLoad::Distributed(d) => d.q_i.abs().max(d.q_j.abs()) * len(d.element_id),
+        SolverLoad::PointOnElement(p) => p.p.abs() + p.px.unwrap_or(0.0).abs() + p.my.unwrap_or(0.0).abs() / lchar,
+        SolverLoad::Thermal(_) => 0.0,
+    }).sum()
+}
+
 pub fn hash(s: &str) -> u64 {
     s.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3))
 }
@@ -200,12 +216,13 @@ fn superposition(a: &Ana2, c: &Case2, base: &Resp, cond: &Conditioning) -> Verdi
     let sum = Flat::lin_comb(1.0, &da, 1.0, &db);
     let exp_ab = Flat::lin_comb(1.0, &sum, 1.0, &r0);
     let scale = Flat::lin_comb(1.0, &Flat::abs_comb(1.0, &ra, 1.0, &rb), 2.0, &Flat::abs_comb(1.0, &r0, 0.0, &r0));
-    if let v @ Verdict::Fail(_) = judge(compare_scaled(&rab, &exp_ab, &scale, cond.lchar, rel).map_err(|e| format!("R(A+B) ≠ R(A)+R(B)−R(∅): {e}")), rel) {
+    let floor = load_floor_2d(&c.s, cond.lchar) * (1.0 + k.abs());
+    if let v @ Verdict::Fail(_) = judge(compare_floored(&rab, &exp_ab, &scale, cond.lchar, rel, floor).map_err(|e| format!("R(A+B) ≠ R(A)+R(B)−R(∅): {e}")), rel) {
         return v;
     }
     let exp_k = Flat::lin_comb(k, &da, 1.0, &r0);
     let scale_k = Flat::abs_comb(k, &ra, 1.0 + k.abs(), &r0);
-    judge(compare_scaled(&rk, &exp_k, &scale_k, cond.lchar, rel).map_err(|e| format!("R(kA) ≠ k·R(A): {e}")), rel)
+    judge(compare_floored(&rk, &exp_k, &scale_k, cond.lchar, rel, floor).map_err(|e| format!("R(kA) ≠ k·R(A): {e}")), rel)
 }
 
 /// Load factors: loads × k ⇒ factor / k (k > 0).
@@ -218,7 +235,7 @@ fn inverse_law(a: &Ana2, c: &Case2, base: &Resp, cond: &Conditioning) -> Verdict
             for it in exp.0.iter_mut() {
                 it.v.iter_mut().for_each(|x| *x /= k);
             }
-            judge(compare(&r.flat(), &exp.flat(), cond.lchar, rel), rel)
+            judge(compare_with_floor(&r.flat(), &exp.flat(), cond.lchar, rel, load_floor_2d(&c.s, cond.lchar) * k), rel)
         }
         Err(e) => Verdict::Fail(format!("scaled loads failed: {e}")),
     }
@@ -317,9 +334,20 @@ fn energy(a: &Ana2, c: &Case2, cond: &Conditioning, rng: &mut Rng) -> Verdict {
         return Verdict::NotApplicable;
     }
     let lscale = cond.lchar;
+    // Moments only where an unhinged frame end gives the rotation stiffness.
+    let rot: std::collections::HashSet<usize> = s
+        .elements
+        .values()
+        .filter(|e| e.elem_type == "frame")
+        .flat_map(|e| [(!e.hinge_start).then_some(e.node_i), (!e.hinge_end).then_some(e.node_j)])
+        .flatten()
+        .collect();
     s.loads = nodes
         .iter()
-        .map(|&n| SolverLoad::Nodal(SolverNodalLoad { node_id: n, fx: rng.range(-10.0, 10.0), fz: rng.range(-10.0, 10.0), my: rng.range(-10.0, 10.0) * lscale }))
+        .map(|&n| {
+            let m = if rot.contains(&n) { lscale } else { 0.0 };
+            SolverLoad::Nodal(SolverNodalLoad { node_id: n, fx: rng.range(-10.0, 10.0), fz: rng.range(-10.0, 10.0), my: rng.range(-10.0, 10.0) * m })
+        })
         .collect();
     let cc = Case2 { s: s.clone(), ..c.clone() };
     let r = match run(a, &cc) {

@@ -44,9 +44,9 @@ pub struct Conditioning {
 }
 
 impl Conditioning {
-    /// Relative tolerance of a direct linear solve: n · ε · κ · geom.
+    /// Relative tolerance of a direct linear solve: 4·(n + 24)·ε·κ·geom.
     pub fn rel(&self) -> f64 {
-        (self.n.max(1) as f64) * f64::EPSILON * self.kappa.max(1.0) * self.geom
+        4.0 * (self.n as f64 + 24.0) * f64::EPSILON * self.kappa.max(1.0) * self.geom
     }
     /// Combine the conditioning of the two models being compared.
     pub fn worst(&self, o: &Conditioning) -> Conditioning {

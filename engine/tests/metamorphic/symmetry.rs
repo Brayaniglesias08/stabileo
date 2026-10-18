@@ -14,7 +14,7 @@ use crate::ana3::Ana3;
 use crate::case::{Case2, Case3};
 use crate::checks2::guarded;
 use crate::tally::{Tally, Verdict};
-use dedaliano_engine::metamorphic::compare::compare;
+use dedaliano_engine::metamorphic::compare::compare_with_floor;
 use dedaliano_engine::metamorphic::conditioning::{self, INCONCLUSIVE};
 use dedaliano_engine::metamorphic::relabel::Relabel;
 use dedaliano_engine::metamorphic::transform::{transform_2d, transform_3d, Iso2, Iso3};
@@ -99,13 +99,18 @@ pub fn symmetrize_2d(name: &str, half: &SolverInput, anti: bool) -> Option<Sym2>
     for s in img.supports.values() {
         if axis.contains(&s.node_id) {
             let orig = half.supports.values().find(|o| o.id == s.id)?;
-            if !same_support_2d(orig, s) {
+            if !same_support_2d(orig, s) || (anti && orig.dz.unwrap_or(0.0) != 0.0) {
                 return None;
             }
             continue;
         }
         let id = s.id + smax;
-        full.supports.insert(id.to_string(), SolverSupport { id, node_id: nm(s.node_id), ..s.clone() });
+        let mut s2 = SolverSupport { id, node_id: nm(s.node_id), ..s.clone() };
+        if anti {
+            // Prescribed displacements are actions too: antisymmetric copy.
+            (s2.dx, s2.dz, s2.dry) = (s.dx.map(|v| -v), s.dz.map(|v| -v), s.dry.map(|v| -v));
+        }
+        full.supports.insert(id.to_string(), s2);
     }
     for c in img.connectors.values() {
         if axis.contains(&c.node_i) || axis.contains(&c.node_j) {
@@ -160,7 +165,7 @@ pub fn check_2d(tally: &Tally, sym: &Sym2, anti: bool, anas: &[Ana2]) {
                     if rel > INCONCLUSIVE {
                         Verdict::Inconclusive(rel)
                     } else {
-                        match compare(&r.flat(), &exp.flat(), cond.lchar, rel) {
+                        match compare_with_floor(&r.flat(), &exp.flat(), cond.lchar, rel, crate::checks2::load_floor_2d(&c.s, cond.lchar)) {
                             Ok(rep) => Verdict::Pass(rep.worst),
                             Err(e) => Verdict::Fail(format!("{} response not {}: {e}", if anti { "antisymmetric" } else { "symmetric" }, if anti { "antisymmetric" } else { "symmetric" })),
                         }
@@ -262,13 +267,20 @@ pub fn symmetrize_3d(name: &str, half: &SolverInput3D, anti: bool) -> Option<Sym
                 && orig.is_inclined.unwrap_or(false) == s.is_inclined.unwrap_or(false)
                 && !orig.is_inclined.unwrap_or(false)
                 && [orig.kx, orig.ky, orig.kz, orig.krx, orig.kry, orig.krz] == [s.kx, s.ky, s.kz, s.krx, s.kry, s.krz]
-                && [orig.dx, orig.dy, orig.drx, orig.dry].iter().all(|d| d.unwrap_or(0.0) == 0.0);
+                && [orig.dx, orig.dy, orig.drx, orig.dry].iter().all(|d| d.unwrap_or(0.0) == 0.0)
+                && !(anti && orig.dz.unwrap_or(0.0) != 0.0 || anti && orig.drz.unwrap_or(0.0) != 0.0);
             if !same {
                 return None;
             }
             continue;
         }
-        full.supports.insert(format!("{k}"), SolverSupport3D { node_id: nm(s.node_id), ..s.clone() });
+        let mut s2 = SolverSupport3D { node_id: nm(s.node_id), ..s.clone() };
+        if anti {
+            for d in [&mut s2.dx, &mut s2.dy, &mut s2.dz, &mut s2.drx, &mut s2.dry, &mut s2.drz] {
+                *d = d.map(|v| -v);
+            }
+        }
+        full.supports.insert(format!("{k}"), s2);
         k += 1;
     }
     for c in img.connectors.values() {
@@ -321,7 +333,7 @@ pub fn check_3d(tally: &Tally, sym: &Sym3, anti: bool, anas: &[Ana3]) {
                     if rel > INCONCLUSIVE {
                         Verdict::Inconclusive(rel)
                     } else {
-                        match compare(&r.flat(), &exp.flat(), cond.lchar, rel) {
+                        match compare_with_floor(&r.flat(), &exp.flat(), cond.lchar, rel, crate::checks3::load_floor_3d(&c.s, cond.lchar)) {
                             Ok(rep) => Verdict::Pass(rep.worst),
                             Err(e) => Verdict::Fail(format!("response not {}: {e}", if anti { "antisymmetric" } else { "C2-symmetric" })),
                         }

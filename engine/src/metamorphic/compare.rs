@@ -189,6 +189,11 @@ pub fn compare(actual: &Flat, expected: &Flat, lchar: f64, rel: f64) -> Result<R
     compare_scaled(actual, expected, expected, lchar, rel)
 }
 
+/// As [`compare`] with a force floor (see [`compare_floored`]).
+pub fn compare_with_floor(actual: &Flat, expected: &Flat, lchar: f64, rel: f64, force_floor: f64) -> Result<Report, String> {
+    compare_floored(actual, expected, expected, lchar, rel, force_floor)
+}
+
 fn check_shape(a: &Flat, e: &Flat) -> Result<(), String> {
     for (name, x, y) in [("translation", &a.t, &e.t), ("rotation", &a.r, &e.r), ("force", &a.f, &e.f), ("moment", &a.m, &e.m), ("stress", &a.s, &e.s), ("scalar", &a.x, &e.x)] {
         if x.vals.len() != y.vals.len() {
@@ -256,10 +261,20 @@ impl Flat {
 /// As [`compare`] but with family scales from `scale_src` instead of
 /// `expected` (for linear combinations, where `expected` may cancel).
 pub fn compare_scaled(actual: &Flat, expected: &Flat, scale_src: &Flat, lchar: f64, rel: f64) -> Result<Report, String> {
+    compare_floored(actual, expected, scale_src, lchar, rel, 0.0)
+}
+
+/// As [`compare_scaled`], with the force scale floored by `force_floor`
+/// (the magnitude of the applied loads): a member or reaction force that is
+/// zero in exact arithmetic comes out as round-off of the loads that pass
+/// through the structure, not of the (zero) force family itself.
+pub fn compare_floored(actual: &Flat, expected: &Flat, scale_src: &Flat, lchar: f64, rel: f64, force_floor: f64) -> Result<Report, String> {
     check_shape(actual, expected)?;
     check_shape(scale_src, expected)?;
     let diff = Flat::lin_comb(1.0, actual, -1.0, expected);
-    let (t, r, f, m) = (scale_src.t.maxabs(), scale_src.r.maxabs(), scale_src.f.maxabs(), scale_src.m.maxabs());
+    let (t, r) = (scale_src.t.maxabs(), scale_src.r.maxabs());
+    let f = scale_src.f.maxabs().max(force_floor);
+    let m = scale_src.m.maxabs().max(force_floor * lchar);
     let l = lchar.max(f64::MIN_POSITIVE);
     let fams: [(&str, &Family, &Family, f64); 6] = [
         ("translation", &diff.t, &scale_src.t, t.max(r * l)),
