@@ -77,14 +77,18 @@ shows a warning.
 * **Refinement** (`refine.rs`). Every shell-type element is split in four (DKT into four
   triangles; MITC4 and curved shells into four quads; MITC9 into four MITC9 on the parent's
   quadratic geometry; solid-shells into four in the plane, one element through the thickness),
-  twice by default: h → h/2 → h/4. Geometry mode `smooth` (default) places new edge nodes on the
-  cubic Hermite curve through the edge ends with tangents normal to the nodal normals (averaged
-  over elements within 30°, or the curved shells' directors), so a coarse faceted roof converges
-  to the curved roof; `faceted` keeps the model exactly as drawn. Folds, edges shared by three or
+  twice by default: h → h/2 → h/4. Geometry mode `smooth` (default) places a new edge node on
+  a quadratic surface fitted by least squares to the nodes around the edge ends (in a frame
+  normal to the edge's elements), so a coarse faceted roof converges to the curved roof; a fit
+  rather than averaged nodal normals because averaged normals are biased at free edges, which
+  only see one side. `faceted` keeps the model exactly as drawn. Folds, edges shared by three or
   more elements and edges carrying a frame member stay straight. Frame members along split
   edges are split at the same node (exact), with releases kept at the outer ends and member loads
   split. New nodes between supported nodes get the restraints both share, and interpolated
-  prescribed displacements; springs are not copied (caveat `springsNotDistributed`). Pressures,
+  prescribed displacements, unless the edge is a chord across a fully supported element that
+  no supported line runs along (the diagonal of a corner triangle whose three nodes sit on two
+  different supported edges is not a line support); springs are not copied (caveat
+  `springsNotDistributed`). Pressures,
   temperatures and self-weight go to every child, edge loads to the children on that edge, nodal
   loads stay on their node. Models with constraints, connectors or curved beams are refused.
   No p-refinement is offered (MITC4 → MITC9 would be one; not implemented).
