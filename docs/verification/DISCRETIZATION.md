@@ -108,7 +108,59 @@ shows a warning.
 from the energy identity ‖u − uh‖²E = ‖u‖²E − ‖uh‖²E (‖uh‖²E = Σ uₑᵀKₑuₑ with each family's own
 stiffness) and ‖u‖²E from the Navier series or the Richardson limit of the refinement sequence.
 
-RESULTS_TABLE
+**Effectivity index θ = η / ‖σ − σh‖**, simply supported square plate (side 1, t = 0.01,
+ν = 0.3, uniform load), true error against the exact Kirchhoff moments (Navier series) over the
+same points and components:
+
+| Element | n = 4 | n = 8 | n = 16 |
+|---|---|---|---|
+| MITC4 | 1.12 | 1.05 | 1.01 |
+| Curved shell | 1.12 | 1.05 | 1.01 |
+| DKT | 1.48 | 1.28 | 1.10 |
+| MITC9 | 0.97 | 0.82 | 0.42* |
+| SHB8 solid-shell | 0.74 | 0.46 | 0.24** |
+
+\* MITC9 converges to the Reissner–Mindlin solution, whose soft simple support has a
+twisting-moment boundary layer the Kirchhoff moments lack; on fine meshes the "true error" is that
+model difference, which a mesh-error estimator rightly does not report.
+\*\* The solid-shell's centre deflection is ≈ 18 % low on this thin plate and does not improve
+under refinement (0.80, 0.81, 0.82 of Kirchhoff): its 3D constitutive law stiffens thin-plate
+bending by (1 − ν)(1 − ν²)/((1 + ν)(1 − 2ν)) ≈ 1.23 (Poisson thickness locking). That is a model
+error of the element, not a discretization error, and no recovery-based estimate can see it.
+Until the element is fixed the solid-shell estimate covers its mesh error only.
+
+Scordelis–Lo roof (curved shell, 4 × 4 refined three times, true error from the energy
+identity against the Richardson limit): θ = 1.01, 0.98, 0.93, 0.87. MITC9 on the 4 × 4 mesh:
+θ = 0.99. (For flat MITC4 facets on a curved roof the energy identity does not hold between
+meshes — each mesh is a different polyhedron — so θ is not measured there.)
+
+**Richardson extrapolation** from a coarse model refined three times (smooth geometry),
+extrapolated from the last three meshes:
+
+| Benchmark | Element | Coarse | Meshes | Extrapolated | Reference |
+|---|---|---|---|---|---|
+| Scordelis–Lo, free-edge uz | MITC4 | 4 × 4 | 0.3162, 0.3043, 0.3024, 0.3022 | 0.3022 (p = 3.3) | 0.3024 |
+| | curved shell | 4 × 4 | 0.2641, 0.2899, 0.2981, 0.3005 | 0.3015 (p = 1.8) | 0.3024 |
+| | MITC9 | 4 × 4 | 0.3049, 0.3022, 0.3038, 0.3055 | not converging*** | 0.3024 |
+| Pinched cylinder, radial u | MITC4 | 8 × 8 | 1.376, 1.702, 1.807, 1.839 (×10⁻⁵) | 1.853e-5 (p = 1.7) | 1.8248e-5 |
+| | curved shell | 8 × 8 | 1.451, 1.728, 1.813, 1.839 (×10⁻⁵) | 1.851e-5 (p = 1.7) | 1.8248e-5 |
+| Hemisphere (18° hole), ux | MITC4 | 8 × 8 | 0.0929, 0.0929, 0.0932, 0.0934 | 0.0935 | 0.093 (0.0924–0.094) |
+| | curved shell | 8 × 8 | 0.0902, 0.0924, 0.0930, 0.0933 | 0.0935 | 0.093 |
+| Morley 30° skew plate, w_c | DKT | 4 × 4 | 1.809, 1.225, 1.074, 1.027 | 1.006 (p = 1.7) | 1 (Kirchhoff) |
+| | MITC4 | 4 × 4 | 0.877, 0.841, 0.841, 0.886 | oscillating: no extrapolation | 1 |
+| SS square plate, w_c | MITC4 / DKT / MITC9 | 4 × 4 | | 1.006 / 1.001 / 1.007 | 1 (0.00406 qa⁴/D) |
+| Clamped square plate, w_c | MITC4 / DKT / MITC9 | 4 × 4 | | 1.006 / 1.004 / 1.006 | 1 (0.00126 qa⁴/D) |
+
+Plate values are ratios to the Kirchhoff reference; the Reissner–Mindlin elements converge to the
+Mindlin solution, ≈ 0.6 % above it for t/a = 0.01. The pinched cylinder's point load is a
+singularity of Reissner–Mindlin theory (the displacement under it grows logarithmically), so its
+extrapolation overshoots slightly. Starting the curved benchmarks from 4 × 4 (22.5° per element)
+leaves a geometry error the smooth reconstruction cannot remove (the cylinder extrapolates to
+1.94e-5): the reconstruction approximates the surface from the coarse nodes, it does not know it.
+
+\*\*\* MITC9 on Scordelis–Lo drifts up by ≈ 0.5 % per refinement from this mesh; the check says
+"not converging" instead of extrapolating, which is the point of having it.
+
 
 ## References
 
