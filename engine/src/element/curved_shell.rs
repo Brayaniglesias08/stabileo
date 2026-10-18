@@ -1340,7 +1340,8 @@ pub fn curved_shell_pressure_load(
     f
 }
 
-/// Compute self-weight load vector.
+/// Compute self-weight load vector (global, kN): ∫ (ρ/1000)·h·N_i·g dA with ρ in
+/// kg/m³ and g in m/s².
 pub fn curved_shell_self_weight_load(
     coords: &[[f64; 3]; 4],
     _dirs: &[[f64; 3]; 4],
@@ -1372,7 +1373,9 @@ pub fn curved_shell_self_weight_load(
         let gravity = [gx, gy, gz];
 
         for i in 0..4 {
-            let w = rho * h * da * w_g * n_shape[i];
+            // ρ in kg/m³ and g in m/s² (SolverQuadSelfWeightLoad): /1000 gives kN, as in
+            // quad_self_weight_load. Without it the self-weight was 1000× too large (SH-12).
+            let w = rho / 1000.0 * h * da * w_g * n_shape[i];
             for k in 0..3 {
                 f[i * 6 + k] += w * gravity[k];
             }
