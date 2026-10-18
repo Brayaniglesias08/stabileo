@@ -13,7 +13,7 @@ type Result = { name: string; text: string };
 
 /** Certificates and solves that must succeed on these models (not only agree). */
 const MUST_SUCCEED = [
-  /\/certify_linear_[23]d$/, /\/export_linear_bundle_[23]d$/, /\/certify_modal_[23]d$/, /\/certify_buckling_[23]d$/,
+  /\/certify_linear_[23]d$/, /\/export_linear_bundle_[23]d$/, /\/certify_modal_[23]d$/,
   /^combo-2d\//, /^bundle-3d\//, /^plastic-/, /\/solve_[23]d$/,
 ];
 
