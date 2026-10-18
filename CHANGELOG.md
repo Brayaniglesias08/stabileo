@@ -11,6 +11,24 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Nodal masses in the engine (2026-10-18)
+
+The engine took mass only from material density. `SolverInput`/`SolverInput3D` now take
+`masses`: lumped **nodal** masses (t per direction, rotary inertia in t·m²), mass per length along
+members (**line**, t/m) and, in 3D, per area over shells (**area**, t/m²). They are assembled into
+every mass matrix (dense and sparse, inclined-support frames, before constraint reduction), so
+modal, mass participation, spectral, time history, harmonic, Guyan/Craig–Bampton and their
+certificates all see them; mass ratios divide by the mass per direction. Models without `masses`
+give the same results as before. (#341)
+
+- Validated against closed forms (SDOF, 2-DOF, torsional SDOF, cantilever with a tip mass),
+  equivalent models (raised density, slave masses through a diaphragm, an MPC in place of an
+  inclined support), the Bathe–Wilson frame and the SAC LA 3-storey case with the acceptance
+  suite's mass stubs replaced by nodal masses: `engine/tests/nodal_masses.rs`.
+- Web: the mass source sends load mass as line and area masses instead of copies of the material
+  with a raised density (same modes to 1e-10, tested), and point masses — with a button for floor
+  masses on the diaphragm masters — from the mass-source panel (en/es/pt).
+
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
 **BREAKING (results): steel members bent about both axes without axial force are now checked by
