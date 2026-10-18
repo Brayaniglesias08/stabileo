@@ -412,6 +412,12 @@ pub fn validate_constraint_refs(
                 if !node_ids.contains(&dia.master_node) {
                     return Err(format!("Constraint {}: Diaphragm master node {} does not exist", i, dia.master_node));
                 }
+                // Any other name used to fall back to "XY" silently.
+                if !matches!(dia.plane.as_str(), "XY" | "XZ" | "YZ") {
+                    return Err(format!(
+                        "Constraint {}: Diaphragm plane '{}' is not one of XY, XZ, YZ", i, dia.plane
+                    ));
+                }
                 for &slave in &dia.slave_nodes {
                     if !node_ids.contains(&slave) {
                         return Err(format!("Constraint {}: Diaphragm slave node {} does not exist", i, slave));
@@ -620,6 +626,34 @@ fn mpc_dependent_term(mpc: &LinearMPCConstraint, dof_num: &DofNumbering) -> Opti
     largest(true).or_else(|| largest(false))
 }
 
+/// The equations a diaphragm writes for one slave, as (slave DOF, optional
+/// (master rotation DOF, coefficient)): u_s = u_m + coefficient·θ_m, the
+/// in-plane part of u_s = u_m + θ × r with r = slave − master.
+///
+/// 3D: XY ties (ux, uy) to θz: (−Δy, +Δx); YZ ties (uy, uz) to θx: (−Δz, +Δy);
+/// XZ ties (ux, uz) to θy: (+Δz, −Δx) — XZ is not a cyclic pair, so its signs
+/// are not those of XY with (Δx, Δz) substituted.
+///
+/// 2D (the model lives in the XZ plane, θ positive from +x toward +z, i.e.
+/// about −y; `r` = (Δx, Δz, 0) as `get_node_offset` returns it): "XZ" and the
+/// legacy default "XY" are the in-plane rigid body u_x = −Δz·θ, u_z = +Δx·θ;
+/// "YZ" leaves only u_z,s = u_z,m (its rotation θx does not exist in 2D and
+/// every Δy is zero).
+fn diaphragm_rows(plane: &str, is_2d: bool, r: (f64, f64, f64)) -> Vec<(usize, Option<(usize, f64)>)> {
+    let (dx, dy, dz) = r;
+    if is_2d {
+        return match plane {
+            "YZ" => vec![(1, None)],
+            _ => vec![(0, Some((2, -dy))), (1, Some((2, dx)))],
+        };
+    }
+    match plane {
+        "XZ" => vec![(0, Some((4, dz))), (2, Some((4, -dx)))],
+        "YZ" => vec![(1, Some((3, -dz))), (2, Some((3, dy)))],
+        _ => vec![(0, Some((5, -dy))), (1, Some((5, dx)))],
+    }
+}
+
 /// Collect dependent DOFs from a single constraint, returning (slave_global, [master_globals]).
 fn collect_dependent_dofs(
     constraint: &Constraint,
@@ -648,8 +682,9 @@ fn collect_dependent_dofs(
                     if let Some(&m) = dof_num.map.get(&(rl.master_node, dof)) {
                         masters.push(m);
                     }
-                    // Rotation coupling DOFs
-                    if dof_num.dofs_per_node <= 3 {
+                    // Rotation coupling DOFs (2D: θ = DOF 2; 3D: DOFs 3..5,
+                    // absent in a translation-only model)
+                    if nodes_2d.is_some() {
                         if let Some(&rz) = dof_num.map.get(&(rl.master_node, 2)) {
                             masters.push(rz);
                         }
@@ -665,22 +700,17 @@ fn collect_dependent_dofs(
             }
         }
         Constraint::Diaphragm(dia) => {
-            let is_3d = dof_num.dofs_per_node > 3;
-            let (d0, d1, dr) = match dia.plane.as_str() {
-                "XZ" => (0usize, 2usize, 4usize),  // ux, uz, ry
-                "YZ" => (1, 2, 3),                   // uy, uz, rx
-                _ if is_3d => (0, 1, 5),             // 3D XY: ux, uy, rz
-                _ => (0, 1, 2),                      // 2D XY: ux, uz, ry
-            };
             for &slave_id in &dia.slave_nodes {
-                for &dof in &[d0, d1] {
+                for (dof, rot) in diaphragm_rows(&dia.plane, nodes_2d.is_some(), (0.0, 0.0, 0.0)) {
                     if let Some(&s) = dof_num.map.get(&(slave_id, dof)) {
                         let mut masters = Vec::new();
                         if let Some(&m) = dof_num.map.get(&(dia.master_node, dof)) {
                             masters.push(m);
                         }
-                        if let Some(&m) = dof_num.map.get(&(dia.master_node, dr)) {
-                            masters.push(m);
+                        if let Some((dr, _)) = rot {
+                            if let Some(&m) = dof_num.map.get(&(dia.master_node, dr)) {
+                                masters.push(m);
+                            }
                         }
                         result.push((s, masters));
                     }
@@ -698,7 +728,8 @@ fn collect_dependent_dofs(
         }
         Constraint::EccentricConnection(ec) => {
             let dpn = dof_num.dofs_per_node;
-            let all_dofs: Vec<usize> = (0..dpn.min(if dpn <= 3 { 3 } else { 6 })).collect();
+            let is_2d = nodes_2d.is_some();
+            let all_dofs: Vec<usize> = (0..dpn.min(if is_2d { 3 } else { 6 })).collect();
             for &dof in &all_dofs {
                 if ec.releases.get(dof).copied().unwrap_or(false) { continue; }
                 if let Some(&slave_global) = dof_num.map.get(&(ec.slave_node, dof)) {
@@ -706,7 +737,7 @@ fn collect_dependent_dofs(
                     if let Some(&m) = dof_num.map.get(&(ec.master_node, dof)) {
                         masters.push(m);
                     }
-                    if dpn > 3 {
+                    if !is_2d {
                         for rot_dof in 3..6 {
                             if let Some(&rd) = dof_num.map.get(&(ec.master_node, rot_dof)) {
                                 masters.push(rd);
@@ -787,7 +818,11 @@ pub fn build_constraint_transform(
                         // 3D: u_slave = u_master + ω_master × r
                         let mut terms = Vec::new();
 
-                        if dof_num.dofs_per_node <= 3 {
+                        // Branch on the model's dimension, not on DOFs per
+                        // node: a 3D model of trusses alone has 3 DOFs per
+                        // node, and the 2D branch read its DOF 2 (uz) as the
+                        // master rotation.
+                        if node_by_id_2d.is_some() {
                             // 2D rigid link
                             if let Some(&master_dof) = dof_num.map.get(&(rl.master_node, dof)) {
                                 terms.push((master_dof, 1.0));
@@ -859,53 +894,25 @@ pub fn build_constraint_transform(
             }
 
             Constraint::Diaphragm(dia) => {
-                // Diaphragm: in-plane rigid body motion
-                // All slave nodes share master's in-plane translation + rotation
-                let is_3d = dof_num.dofs_per_node > 3;
-                let (d0, d1, dr) = match dia.plane.as_str() {
-                    "XZ" => (0usize, 2usize, 4usize), // ux, uz, ry
-                    "YZ" => (1, 2, 3),                  // uy, uz, rx
-                    _ if is_3d => (0, 1, 5),            // 3D XY: ux, uy, rz
-                    _ => (0, 1, 2),                      // 2D XY: ux, uz, ry
-                };
-
+                // Diaphragm: in-plane rigid body motion around the master
+                // (`diaphragm_rows`); out-of-plane DOFs stay independent.
+                let is_2d = node_by_id_2d.is_some();
                 for &slave_id in &dia.slave_nodes {
-                    let (dx, dy, dz) = get_node_offset(
+                    let r = get_node_offset(
                         dia.master_node, slave_id,
                         node_by_id_2d.as_ref(), node_by_id_3d.as_ref(),
                     );
-                    // Offset in the diaphragm plane
-                    let (off_0, off_1) = match dia.plane.as_str() {
-                        "XZ" => (dx, dz),
-                        "YZ" => (dy, dz),
-                        _ => (dx, dy),
-                    };
-
-                    // u0_slave = u0_master - off_1 * θ_master
-                    if let Some(&s_dof) = dof_num.map.get(&(slave_id, d0)) {
+                    for (dof, rot) in diaphragm_rows(&dia.plane, is_2d, r) {
+                        let Some(&s_dof) = dof_num.map.get(&(slave_id, dof)) else { continue };
                         let mut terms = Vec::new();
-                        if let Some(&m_dof) = dof_num.map.get(&(dia.master_node, d0)) {
+                        if let Some(&m_dof) = dof_num.map.get(&(dia.master_node, dof)) {
                             terms.push((m_dof, 1.0));
                         }
-                        if let Some(&m_r) = dof_num.map.get(&(dia.master_node, dr)) {
-                            if off_1.abs() > 1e-15 {
-                                terms.push((m_r, -off_1));
-                            }
-                        }
-                        if !terms.is_empty() {
-                            eqs.push((s_dof, terms));
-                        }
-                    }
-
-                    // u1_slave = u1_master + off_0 * θ_master
-                    if let Some(&s_dof) = dof_num.map.get(&(slave_id, d1)) {
-                        let mut terms = Vec::new();
-                        if let Some(&m_dof) = dof_num.map.get(&(dia.master_node, d1)) {
-                            terms.push((m_dof, 1.0));
-                        }
-                        if let Some(&m_r) = dof_num.map.get(&(dia.master_node, dr)) {
-                            if off_0.abs() > 1e-15 {
-                                terms.push((m_r, off_0));
+                        if let Some((dr, coef)) = rot {
+                            if let Some(&m_r) = dof_num.map.get(&(dia.master_node, dr)) {
+                                if coef.abs() > 1e-15 {
+                                    terms.push((m_r, coef));
+                                }
                             }
                         }
                         if !terms.is_empty() {
@@ -929,8 +936,9 @@ pub fn build_constraint_transform(
                 // Like RigidLink but with explicit offset and optional releases
                 let (dx, dy, dz) = (ec.offset_x, ec.offset_y, ec.offset_z);
                 let dpn = dof_num.dofs_per_node;
+                let is_2d = node_by_id_2d.is_some();
 
-                let all_dofs: Vec<usize> = (0..dpn.min(if dpn <= 3 { 3 } else { 6 })).collect();
+                let all_dofs: Vec<usize> = (0..dpn.min(if is_2d { 3 } else { 6 })).collect();
                 for &dof in &all_dofs {
                     // Check if this DOF is released
                     let released = ec.releases.get(dof).copied().unwrap_or(false);
@@ -939,7 +947,7 @@ pub fn build_constraint_transform(
                     if let Some(&slave_global) = dof_num.map.get(&(ec.slave_node, dof)) {
                         let mut terms = Vec::new();
 
-                        if dpn <= 3 {
+                        if is_2d {
                             // 2D eccentric connection
                             if let Some(&master_dof) = dof_num.map.get(&(ec.master_node, dof)) {
                                 terms.push((master_dof, 1.0));

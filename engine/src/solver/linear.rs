@@ -3833,13 +3833,23 @@ pub(crate) fn build_reactions_2d_inclined(
 ) -> Vec<Reaction> {
     let mut reactions = build_reactions_2d(input, dof_num, reactions_vec, f_r, nf, u_full);
 
-    // Back-transform inclined support reactions from rotated to global frame
+    // Back-transform inclined support reactions from rotated to global frame.
+    // `build_reactions_2d` leaves the rotated slots of an inclined roller as
+    // (0, R_n): the tangent is free and its spring force is skipped there.
+    // A spring on the roller (kx, ky) is assembled in GLOBAL axes before the
+    // rotation, so its force −k·u is added here in global axes (it used to be
+    // dropped, and the reactions did not balance the loads).
     for it in inclined_transforms {
         if let Some(r) = reactions.iter_mut().find(|r| r.node_id == it.node_id) {
             let rotated = [r.rx, r.rz];
             // r_global = R^T * r_rotated
             r.rx = it.r[0][0] * rotated[0] + it.r[1][0] * rotated[1];
             r.rz = it.r[0][1] * rotated[0] + it.r[1][1] * rotated[1];
+            for sup in input.supports.values().filter(|s| s.node_id == it.node_id && s.support_type == "inclinedRoller") {
+                let (ux, uz) = (u_full[it.dofs[0]], u_full[it.dofs[1]]);
+                r.rx -= sup.kx.unwrap_or(0.0).max(0.0) * ux;
+                r.rz -= sup.ky.unwrap_or(0.0).max(0.0) * uz;
+            }
         }
     }
 
@@ -3938,14 +3948,27 @@ pub(crate) fn build_reactions_3d_inclined(
 ) -> Vec<Reaction3D> {
     let mut reactions = build_reactions_3d(input, dof_num, reactions_vec, f_r, nf, u_full);
 
-    // Back-transform inclined support reactions from rotated to global frame
+    // Back-transform inclined support reactions from rotated to global frame.
+    // Only the normal slot (0) is restrained: its reaction R_n is in the
+    // rotated frame. The tangential slots are free; `build_reactions_3d` put
+    // −k·u of the GLOBAL springs ky, kz there (u is already global) and
+    // dropped kx (slot 0 is restrained). The springs are assembled in global
+    // axes before the rotation, so the reaction is Rᵀ[R_n, 0, 0] − k·u with
+    // k·u in global components. Rotating the spring forces together with
+    // R_n broke global equilibrium.
     for it in inclined_transforms {
         if let Some(r) = reactions.iter_mut().find(|r| r.node_id == it.node_id) {
-            let rotated = [r.fx, r.fy, r.fz];
-            // r_global = R^T * r_rotated
-            r.fx = it.r[0][0] * rotated[0] + it.r[1][0] * rotated[1] + it.r[2][0] * rotated[2];
-            r.fy = it.r[0][1] * rotated[0] + it.r[1][1] * rotated[1] + it.r[2][1] * rotated[2];
-            r.fz = it.r[0][2] * rotated[0] + it.r[1][2] * rotated[1] + it.r[2][2] * rotated[2];
+            let rn = r.fx;
+            let mut f = [it.r[0][0] * rn, it.r[0][1] * rn, it.r[0][2] * rn];
+            if let Some(sup) = input.supports.values().find(|s| s.node_id == it.node_id && s.is_inclined.unwrap_or(false)) {
+                let k = [sup.kx, sup.ky, sup.kz].map(|v| v.unwrap_or(0.0).max(0.0));
+                for c in 0..3 {
+                    f[c] -= k[c] * u_full[it.dofs[c]];
+                }
+            }
+            r.fx = f[0];
+            r.fy = f[1];
+            r.fz = f[2];
         }
     }
 

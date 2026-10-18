@@ -642,3 +642,30 @@ fn py_stiff_clay_is_continuous() {
     let (pb, _) = soil_curves::py_stiff_clay(su, gamma, d, z, eps50, y50 * (1.0 + 1e-9));
     close("p at y50", pa, pb, 1e-6);
 }
+
+/// AC-14 (FIXED): a 3D "XZ" diaphragm writes u_s = u_m + θy·ŷ × r in the XZ
+/// plane: u_x,s = u_x,m + θy·Δz, u_z,s = u_z,m − θy·Δx. The engine used the
+/// XY pattern with (Δx, Δz) in place of (Δx, Δy), which flips both signs
+/// (XY and YZ are cyclic, XZ is not): a rigid rotation of the floor strained
+/// the members tied to it.
+#[test]
+fn diaphragm_xz_3d_kinematics_hold_in_results() {
+    let (dx, dz) = (2.0, 1.0);
+    let input = in3(json!({
+        "nodes": {"1": {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0}, "2": {"id": 2, "x": 0.0, "y": 0.0, "z": 3.0},
+                  "3": {"id": 3, "x": dx, "y": 0.0, "z": 3.0 + dz}, "4": {"id": 4, "x": dx, "y": 0.0, "z": 0.0}},
+        "materials": {"1": {"id": 1, "e": MAT, "nu": 0.3}},
+        "sections": {"1": {"id": 1, "a": 0.01, "iy": 1e-4, "iz": 1e-4, "j": 1e-4}},
+        "elements": {"1": frame3(1, 1, 2), "2": frame3(2, 3, 4)},
+        "supports": {"1": sup3(1, [true; 6]), "4": sup3(4, [true; 6]),
+                     "2": sup3(2, [false, true, false, true, false, true])},
+        "loads": [{"type": "nodal", "data": {"nodeId": 2, "fx": 10.0, "fy": 0.0, "fz": -5.0, "mx": 0.0, "my": 3.0, "mz": 0.0}}],
+        "constraints": [{"type": "diaphragm", "masterNode": 2, "slaveNodes": [3], "plane": "XZ"}],
+    }));
+    let r = solve_3d(&input).unwrap();
+    let (m, s) = (d3(&r, 2), d3(&r, 3));
+    assert!(m.ry.abs() > 1e-6, "master must rotate");
+    let scale = s.ux.abs().max(s.uz.abs());
+    assert!((s.ux - (m.ux + m.ry * dz)).abs() < 1e-10 * scale, "ux: {} vs {}", s.ux, m.ux + m.ry * dz);
+    assert!((s.uz - (m.uz - m.ry * dx)).abs() < 1e-10 * scale, "uz: {} vs {}", s.uz, m.uz - m.ry * dx);
+}
