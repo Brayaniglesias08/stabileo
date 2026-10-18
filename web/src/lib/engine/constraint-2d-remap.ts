@@ -15,9 +15,9 @@
  *   3D dofs 1/3/5 (uy/rx/rz)         out-of-plane — dropped (the 2D solve
  *                                    restrains those implicitly)
  *
- * Constraints left without any in-plane DOF are dropped entirely. Diaphragms
- * pass through verbatim: the Rust transform is dimension-aware for them
- * (constraints.rs picks [ux, uz, ry] when dofs_per_node <= 3).
+ * Constraints left without any in-plane DOF are dropped entirely. A diaphragm
+ * keeps what its plane ties in the X–Z plane: an XZ diaphragm stays one (a
+ * rigid body in the model plane), a floor (XY) ties ux, a YZ wall ties uz.
  */
 
 import type { Constraint3D } from './types-3d';
@@ -77,11 +77,22 @@ export function constraintsTo2D(constraints: Constraint3D[] | undefined): Constr
         });
         break;
       }
-      case 'diaphragm':
-        // The Rust transform handles diaphragms dimension-awarely (2D picks
-        // ux/uz/ry itself) — no user-authored DOF indices to translate.
-        out.push(c);
+      case 'diaphragm': {
+        // A diaphragm is a rigid body in ITS plane; the 2D model is the X–Z
+        // plane, and a 2D diaphragm is a rigid body in that plane (ux, uz, ry
+        // all tied). Only an XZ diaphragm is that. A floor (XY, the default)
+        // meets the frame along X: what it ties in 2D is ux alone. Passed
+        // through verbatim it made the floor beams rigid in vertical bending
+        // too (uz_slave = uz_master + dx·θ, θ_slave = θ_master). A YZ wall
+        // meets the frame along Z: uz alone.
+        const plane = (c.plane ?? 'XY').toUpperCase();
+        if (plane === 'XZ') { out.push(c); break; }
+        const dof = plane === 'YZ' ? 1 : 0;
+        for (const s of c.slaveNodes) {
+          if (s !== c.masterNode) out.push({ type: 'equalDOF', masterNode: c.masterNode, slaveNode: s, dofs: [dof] });
+        }
         break;
+      }
     }
   }
   return out;
