@@ -579,10 +579,10 @@ pub fn refine_uniform(input: &SolverInput3D, mode: GeometryMode) -> Result<Refin
     // Whether the edge p–q (both ends supported) carries a line support.
     let line_edge = |p: usize, q: usize| -> bool {
         let Some(fs) = b.edge_facets.get(&key(p, q)) else { return true };
-        if fs.iter().any(|&f| b.facets[f].0.iter().any(|&n| !supported(n))) {
+        if fs.iter().all(|&f| b.facets[f].0.iter().any(|&n| !supported(n))) {
             return true;
         }
-        // Every element on it is fully supported: only a continuation of a supported line counts.
+        // An element on it is fully supported: only a continuation of a supported line counts.
         let cos10 = 10.0_f64.to_radians().cos();
         let along = |from: usize, to: usize| {
             let d = unit(sub(&b.c(to), &b.c(from)));
