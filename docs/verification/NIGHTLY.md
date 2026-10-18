@@ -14,14 +14,14 @@ mean the finding is fixed. Close the issue in the PR that fixes it.
 | | `opensees-diff` (OpenSees, 2D/3D static, buckling, modal, P-Delta, time history, plates, shells) | | ~15 min | ~15 min |
 | | `codeaster-diff` (Code_Aster 18.1, 3D linear with releases, connectors, constraints, thermal, inclined supports) | | ~10 min | ~10 min |
 | | `fuzz` (4 targets × 30 min) | | ~40 min | ~2.7 h |
-| | `mutants` (8 of 64 shards) | | ≤ 5.5 h | ≤ 44 h |
+| | `mutants` (8 of 64 shards) | | ~2.5 h | ~20 h |
 | | `bench` (criterion, informational) | | ~20 min | ~20 min |
 | `differential.yml` | Frame3DD, PyNite, Mystran, Kratos, CalculiX | 04:30 | ~25 min | ~2 h |
 | `verify.yml` | `lean`, `symbolic`, `kani` (nightly tier) | 05:00 | ~2 h | ~2.2 h |
 | `mutation-ts.yml` | Stryker over the safety-relevant TypeScript | 03:17 | ≤ 5 h | ≤ 5 h |
 | `supply-chain.yml` | cargo deny / audit, npm audit | 06:00 | ~2 min | ~3 min |
 
-Total: about 55 runner-hours a night at most, 45 of them mutation testing; standard
+Total: about 35 runner-hours a night, 20 of them mutation testing; standard
 GitHub-hosted runners are free for this public repository, so the cost is runner
 concurrency, not money. Everything starts between 03:00 and 06:00 UTC (night in Argentina),
 when pull requests are not waiting for runners.
@@ -29,9 +29,12 @@ when pull requests are not waiting for runners.
 ## Mutants rotation
 
 `scripts/mutants.sh` covers ~23,000 mutants (certificate code, the linear solver core, the
-element kernels). Each one is a rebuild of the engine and its test binaries plus a test run,
-about a minute on a 4-vCPU runner with two in parallel: one full pass is ~200 runner-hours, far
-more than a night. The `plan` job of `nightly.yml` splits the mutants into 64 shards and picks
+element kernels). Each one is a rebuild of the engine and its test binaries plus a test run.
+On the first scheduled run that was ~4 min per mutant (a full non-incremental rebuild with debug
+info, linked by the default linker, then every test binary in turn), and no shard finished in
+300 minutes. With incremental builds, no debug info, mold and nextest (which stops at the first
+failing test) it is ~40 s of build and a few seconds of tests, ~22 s of wall clock per mutant with
+two in parallel: one full pass is ~140 runner-hours, still far more than a night. The `plan` job of `nightly.yml` splits the mutants into 64 shards and picks
 8 each night from the day number, so every mutant is tested once every 8 nights. Each shard
 has a 320-minute budget; if it does not finish, the job fails saying how far it got
 (`scripts/mutants-summary.py`), and `MUTANTS_TOTAL` in `nightly.yml` must go up.

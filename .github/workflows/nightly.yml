@@ -8,8 +8,8 @@ name: Nightly verification
 # `verification-failure` issue (verification-alert.yml).
 #
 # Runtime budget (GitHub-hosted 4-vCPU runners, free for this public repo;
-# docs/verification/NIGHTLY.md): ~40 runner-hours a night, mostly mutants;
-# wall clock ~5.5 h.
+# docs/verification/NIGHTLY.md): ~25 runner-hours a night, mostly mutants;
+# wall clock ~3 h.
 #
 # The proofs (Lean, Kani, symbolic) run in verify.yml, the other differential
 # programs (Frame3DD, PyNite, Mystran, Kratos, CalculiX) in differential.yml,
@@ -47,7 +47,7 @@ env:
 jobs:
   # Which jobs run, and which mutants shards tonight. The mutants scope
   # (scripts/mutants.sh: certificate code, linear solver core, element
-  # kernels) has ~23,000 mutants at ~1 min each: one pass is far more than a
+  # kernels) has ~23,000 mutants at ~25 s each: one pass is far more than a
   # night of runners, so it is split into MUTANTS_TOTAL shards and
   # MUTANTS_SLOTS of them run each night, rotating with the day number. Every
   # mutant is tested once every MUTANTS_TOTAL / MUTANTS_SLOTS nights.
@@ -61,9 +61,9 @@ jobs:
     steps:
       - id: plan
         env:
-          ONLY: ${{ inputs.only || (github.event_name == 'push' && 'mutants codeaster-diff') || '' }}
-          SHARDS: ${{ inputs.mutants_shards || (github.event_name == 'push' && '[0, 1]') || '' }}
-          TOTAL: ${{ inputs.mutants_total || (github.event_name == 'push' && '1024') || '' }}
+          ONLY: ${{ inputs.only || (github.event_name == 'push' && 'mutants') || '' }}
+          SHARDS: ${{ inputs.mutants_shards || (github.event_name == 'push' && '[0, 40]') || '' }}
+          TOTAL: ${{ inputs.mutants_total || (github.event_name == 'push' && '64') || '' }}
           MUTANTS_TOTAL: 64
           MUTANTS_SLOTS: 8
         run: |
