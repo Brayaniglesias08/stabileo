@@ -3985,6 +3985,12 @@ fn reject_ambiguous_shared_supports<'a>(sups: impl Iterator<Item = (usize, &'a s
     Ok(())
 }
 
+/// The 2D support types DofNumbering and assembly understand ("free" restrains
+/// nothing, on purpose).
+const SUPPORT_TYPES_2D: [&str; 11] = [
+    "fixed", "pinned", "rollerX", "rollerY", "rollerZ", "guidedX", "guidedY", "guidedZ", "inclinedRoller", "spring", "free",
+];
+
 fn zero_or_none(v: Option<f64>) -> bool {
     v.is_none_or(|x| x == 0.0)
 }
@@ -4030,6 +4036,18 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
             if !v.is_finite() {
                 return Err(format!("Support {}: numeric fields must be finite", sup.id));
             }
+        }
+    }
+    // An unknown type restrained nothing, silently (a typo like "fixd" left the
+    // node free).
+    for sup in input.supports.values() {
+        if !SUPPORT_TYPES_2D.contains(&sup.support_type.as_str()) {
+            return Err(format!(
+                "Support {}: unknown type '{}' (expected one of {})",
+                sup.id,
+                sup.support_type,
+                SUPPORT_TYPES_2D.join(", ")
+            ));
         }
     }
     reject_ambiguous_shared_supports(input.supports.iter().map(|(k, s)| (s.node_id, k.as_str(), plain_rigid_2d(s))))?;

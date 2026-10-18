@@ -194,7 +194,7 @@ fn prestress_straight_tendon_camber() {
         kx: None, ky: None, kz: None, dx: None, dz: None, dry: None, angle: None,
     });
     supports.insert("s2".into(), SolverSupport {
-        id: 2, node_id: 3, support_type: "roller".into(),
+        id: 2, node_id: 3, support_type: "rollerX".into(),
         kx: None, ky: None, kz: None, dx: None, dz: None, dry: None, angle: None,
     });
 
@@ -293,7 +293,7 @@ fn prestress_parabolic_tendon() {
         kx: None, ky: None, kz: None, dx: None, dz: None, dry: None, angle: None,
     });
     supports.insert("s2".into(), SolverSupport {
-        id: 2, node_id: 11, support_type: "roller".into(),
+        id: 2, node_id: 11, support_type: "rollerX".into(),
         kx: None, ky: None, kz: None, dx: None, dz: None, dry: None, angle: None,
     });
 

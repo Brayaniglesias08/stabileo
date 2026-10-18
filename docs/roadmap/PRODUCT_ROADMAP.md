@@ -103,8 +103,55 @@ What remains after the October 2026 safety wave (certified solver, differential 
 9. **Reproducibility and provenance.** Every report records the version, commit and certificate hashes, so anyone can reproduce it bit for bit.
 10. **Opt-in field telemetry.** Solver refusals, diagnostics and crashes from real use (opt-in, no model content without consent), to learn how real models fail.
 11. **More formal proofs.** More kernels proved in Lean, and machine-checked correspondence between the Rust implementation and the proved algorithm for the critical kernels.
+12. **Performance and scale regression tracking.** Solve time, memory, iteration counts and sparse/dense crossover tracked per release on the benchmark and acceptance models (docs/VERIFICATION.md layer 8), with a failing gate on large regressions.
 
-Beyond software: an independent licensed structural engineer reviews worked examples, clause readings and sample reports; real anonymised projects from engineering firms join the acceptance suite.
+Beyond software: an independent licensed structural engineer reviews worked examples, clause readings and sample reports; real anonymised projects from engineering firms (with their SAP2000/ETABS/RFEM models and results, and the architect's IFC/DWG where available) join the acceptance suite and the BIM-import corpus; the design-code manuals with worked examples (AISC Design Examples, INTI/CIRSOC example books, AWC NDS, TMS 402, AISI Cold-Formed Steel Design Manual) are obtained so checks are tested against published numbers rather than hand-worked ones.
+
+### Engineering coverage backlog
+
+Places where Stabileo still computes something unverified, refuses something engineers need, or has two implementations of the same rule.
+
+1. **One proven implementation: TypeScript calls the engine.** Every engineering result comes from the Rust engine (certified where possible); TypeScript only formats, searches and draws, and keeps its old duplicates only as test oracles (`docs/verification/TS_ENGINE_LOGIC.md`). Remaining areas:
+   - concrete: every CIRSOC 201 section shape (flanged, circular, capacity, interaction diagrams, `cirsoc-flex`), slabs (`losas.ts`), bar layouts and the legacy designer, which should size against the engine;
+   - steel inputs still computed in TypeScript and fed to the Rust checker: Cb (`moment-gradient.ts`), J/Cw/Z (`section-constants.ts`), unbraced lengths, torsional and flange buckling, material family, the effective net area from end connections;
+   - analysis duplicates: diagrams, station forces and design forces, combinations, spectral combination, moving loads, plastic collapse, direct analysis, prestress, rigid diaphragms, kinematic checks, shell load integration and stresses, torsion flow, warping, mass sources;
+   - footings (eccentricity, service vs factored loads, flexure) and load generation (wind, snow, seismic, combinations) in Rust;
+   - no silent fallbacks: when the engine is unavailable the app says so instead of computing in TypeScript;
+   - the teaching solvers (`steps/*`, `solver-detailed*`) are checked against the engine on every model they support.
+2. **Missing design checks:** RC biaxial bending, torsion and slenderness magnification (today not re-checked, and each result says so); CIRSOC 301 F.7–F.11 (boxes, tubes, tees, angles in flexure — refused today); angles in flexure; EC3 Class 1/2 plastic interaction (6.2.9.1); cantilever load-height Cb; beam flexure with axial force; the legacy CIRSOC 201 column verdict computed as compression when the member is in tension; CIRSOC 301 angle arrangements other than back to back (star, starred, single angles in other configurations).
+3. **Certificates still missing:** large-displacement (co-rotational) and material-nonlinear results; masonry, connections, foundations and serviceability checks.
+4. **Published worked examples** for masonry, foundations, serviceability, timber and cold-formed steel, and published (not only hand-worked) examples for CIRSOC 301, AISC E7 and EC3 Class 4.
+5. **Mechanism detection everywhere:** the exact free-motion check in 2D and with constraints, connectors and inclined supports, and for local mechanisms, with zero false positives on the model corpus.
+6. **Known solver gaps:** material-nonlinear continues after an unconverged increment instead of returning the last converged state; co-rotational refuses prescribed displacements and thermal loads; 3D truss-only nodes inside frames are refused; harmonic refuses a response point on a constrained DOF; spectral analysis reports no shell stresses; beam lumped/consistent mass has no rotary inertia (an option for it, as Kratos and other codes include, matters for modal results of deep members).
+7. **A public-benchmark acceptance suite** (CSI and Dlubal verification examples using their independent references, the SAC buildings, FEMA P-695 archetypes) as a release gate.
+8. **Example models that are still not realistic:** the token live load in `la-bombonera`, cable-stayed bridge stays without pretension (large dead-load deflection), the offshore deck sag under the flare. Examples teach users; each should model what it claims to.
+9. **Reports built from the design results:** the PRO report's slab-steel section was removed because it invented its load, span and f'c; rebuild it from the slab design's own results.
+10. **Hardening what stays in TypeScript** (search, detailing, drawing): property tests for detailing invariants (As provided ≥ As required, spacing and cover, no bar collisions, development lengths) and nightly Stryker mutation testing with surviving mutants triaged.
+
+### Solver and proof depth
+
+Closing the gap between "proven" and "right".
+
+1. **End-to-end certificates.** Today a certificate proves the solution of the f64 `K` and `f` as assembled, not that they represent the model. An independent checker re-assembles `K` and `f` from the model JSON in interval arithmetic from closed-form element formulas (frames first, then shells), so a certificate covers model → K → result.
+2. **Trusted computing base, audited and enforced.** No `sorry` and no extra axioms in Lean (`#print axioms` in CI), pinned Lean/mathlib; a document listing everything a certificate assumes; the IEEE rounding the proofs model checked where the code runs (no fast-math or unexpected FMA, identical WASM results across Chrome, Firefox and Safari).
+3. **A second, independent certificate checker** (e.g. MPFR or exact rationals) beside the Lean one; agreement of two independently written checkers.
+4. **Properties of the design checks,** proved or exhaustively tested: more reinforcement or a larger section never lowers capacity, a larger load never lowers the utilization ratio, φ within its code limits.
+5. **Validation against physical experiments,** not only verification: published laboratory tests (RC beams and columns, shake-table frames, Vecchio–Collins panels, connection tests) for the nonlinear material models (concrete, fiber sections, plastic hinges, contact), following ASME V&V 10 / NAFEMS practice.
+6. **Convergence-order tests (method of manufactured solutions)** for every shell, plate and solid element: the observed rate matches the theory.
+7. **Nonlinear and dynamic robustness:** convergence criteria audited (force, displacement, energy norms), load-step and time-step sensitivity tests, energy-drift monitoring in time history, path following past limit points.
+8. **Numerical stress tests:** extreme stiffness ratios, ~10⁶-DOF models, near-singular and unit-extreme models; measure where accuracy degrades and refuse beyond it.
+9. **Engine code hygiene:** line and branch coverage per module (llvm-cov), Miri for any `unsafe`, strict clippy, overflow checks on index arithmetic, `cargo audit` in CI.
+10. **Documented, peer-reviewed element derivations** in `docs/SOLVER_REFERENCE.md`: each formulation's derivation and assumptions, reviewable by an independent engineer.
+
+### Release safety
+
+Pushes to main deploy straight to users (GitHub Pages), so a merge is a release.
+
+1. **Staging before production:** deploy main to a staging URL first; promote to production on a tagged release after the full suite, the acceptance suite and a smoke check pass.
+2. **Versioned releases with notes:** every release has a version, release notes in English and Spanish, and a prominent "results may change" section listing result-affecting changes and who is affected.
+3. **Users of saved projects are told what changed for their model** (see the re-check prompt above), and stale results are marked until re-run.
+4. **Dependency upgrades** go through the same gates; major upgrades of numerics-related crates (e.g. exact arithmetic) must leave results bit-identical.
+5. **Steel results stay labelled experimental** ("Proven bound", no pass styling) until an independent engineer has reviewed the CIRSOC 301 checks.
 
 ## Daily, Weekly, Monthly Priority Lens
 
