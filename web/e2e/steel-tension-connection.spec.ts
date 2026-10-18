@@ -3,13 +3,14 @@
  * EVALUATED until its ends are described; "Add the end connection" selects it, the editor
  * previews An, U and Ae, Apply writes both ends, and the rupture ratio appears.
  */
-import { test, expect } from './fixtures';
+import { test, expect, CURRENT_STAMP } from './fixtures';
 
 test.use({ viewport: { width: 1400, height: 1000 } });
 
 const project = {
   version: '2.0', name: 'Hanger in tension', analysisMode: 'pro',
   snapshot: {
+    solvedWith: CURRENT_STAMP,
     nodes: [[1, { id: 1, x: 0, y: 0, z: 4 }], [2, { id: 2, x: 0, y: 0, z: 0 }]],
     elements: [[1, { id: 1, type: 'frame', nodeI: 1, nodeJ: 2, materialId: 1, sectionId: 1 }]],
     materials: [[1, { id: 1, name: 'F-24', e: 200000, nu: 0.3, rho: 78.5, fy: 235, fu: 360 }]],

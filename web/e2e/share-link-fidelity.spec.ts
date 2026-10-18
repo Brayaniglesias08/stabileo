@@ -29,7 +29,7 @@
  * times the threshold that used to warn about it.
  */
 
-import { test, expect, loadModel } from './fixtures';
+import { test, expect, loadModel, CURRENT_STAMP } from './fixtures';
 
 type Page = import('@playwright/test').Page;
 
@@ -124,6 +124,7 @@ test.describe('@smoke a share link carries the whole model', () => {
     const ok = await page.evaluate((f) => window.__stabileoActions.loadProject(f), {
       version: '2.0', name: 'big', timestamp: '2026-01-01T00:00:00.000Z', analysisMode: '3d',
       snapshot: {
+        solvedWith: CURRENT_STAMP,
         name: 'big', localAxisConvention: 'zUpStrongAxis', nodes, elements,
         materials: [[1, { id: 1, name: 'Acero A36', e: 200000, nu: 0.3, rho: 78.5, fy: 250 }]],
         sections: [[1, { id: 1, name: 'IPN 300', a: 0.0069, iy: 9.8e-05, iz: 4.51e-06, j: 4.666e-07, b: 0.125, h: 0.3, shape: 'I', tw: 0.0108, tf: 0.0162 }]],

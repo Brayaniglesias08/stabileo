@@ -30,7 +30,7 @@
  * `__stabileoActions.loadProject`, the same deserializer File → Open uses.
  */
 import type { Page, Locator } from '@playwright/test';
-import { test, expect } from './fixtures';
+import { test, expect, CURRENT_STAMP } from './fixtures';
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 
 /* ──────────────────────────── i18n keys ──────────────────────────── */
@@ -114,6 +114,7 @@ function project(name: string, mode: '2d' | '3d', g: Gen): Record<string, unknow
   return {
     version: '2.0', name, timestamp: '2026-01-01T00:00:00.000Z', analysisMode: mode,
     snapshot: {
+      solvedWith: CURRENT_STAMP,
       name, localAxisConvention: 'zUpStrongAxis',
       nodes, materials: MATERIALS, sections: SECTIONS, elements, supports, loads,
       loadCases: CASES, combinations: [],

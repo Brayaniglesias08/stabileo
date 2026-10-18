@@ -4,13 +4,14 @@
  * reason — the proven-bound badge from the engine gate, and the calculation in the interface
  * language. An angle strut is not evaluated until its end condition (E.5) is stated.
  */
-import { test, expect } from './fixtures';
+import { test, expect, CURRENT_STAMP } from './fixtures';
 
 test.use({ viewport: { width: 1400, height: 1000 } });
 
 const project = {
   version: '2.0', name: 'Steel results', analysisMode: 'pro',
   snapshot: {
+    solvedWith: CURRENT_STAMP,
     nodes: [
       [1, { id: 1, x: 0, y: 0, z: 0 }], [2, { id: 2, x: 3, y: 0, z: 0 }],
       [3, { id: 3, x: 0, y: 2, z: 4 }], [4, { id: 4, x: 0, y: 2, z: 0 }],

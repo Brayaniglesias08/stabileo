@@ -1,7 +1,7 @@
 /**
  * PRO 10/10: tapered members from the edit panel, and the shed generator's tapered columns.
  */
-import { test, expect, loadModel } from './fixtures';
+import { test, expect, loadModel, CURRENT_STAMP } from './fixtures';
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -52,6 +52,7 @@ test.describe('@smoke PRO direct analysis', () => {
     const project = {
       version: '2.0', name: 'Stable and unstable combinations', analysisMode: 'pro',
       snapshot: {
+        solvedWith: CURRENT_STAMP,
         nodes: [[1, { id: 1, x: 0, y: 0, z: 0 }], [2, { id: 2, x: 0, y: 0, z: 4 }]],
         elements: [[1, { id: 1, type: 'frame', nodeI: 1, nodeJ: 2, materialId: 1, sectionId: 1 }]],
         materials: [[1, { id: 1, name: 'Steel', e: 200000, nu: .3, rho: 0, fy: 355 }]],

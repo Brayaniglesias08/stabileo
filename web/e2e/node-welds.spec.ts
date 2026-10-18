@@ -1,4 +1,4 @@
-import { test, expect, openBasicProjectPanel } from './fixtures';
+import { test, expect, openBasicProjectPanel, CURRENT_STAMP } from './fixtures';
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 
 test('@smoke a fallback paste keeps the existing support at a welded destination', async ({ page }) => {
@@ -8,6 +8,7 @@ test('@smoke a fallback paste keeps the existing support at a welded destination
   const project = {
     version: '2.0', name: 'Paste support', analysisMode: '2d',
     snapshot: {
+      solvedWith: CURRENT_STAMP,
       name: 'Paste support',
       nodes: [[1, { id: 1, x: 0, y: 0 }], [2, { id: 2, x: 4, y: 0 }], [3, { id: 3, x: 1, y: 1 }]],
       elements: [[1, { id: 1, nodeI: 1, nodeJ: 2, type: 'frame', materialId: 1, sectionId: 1, releaseI: {}, releaseJ: {} }]],
@@ -94,6 +95,7 @@ test('@smoke a second fallback paste welds onto the first without stacking a mem
   const project = {
     version: '2.0', name: 'Paste twice', analysisMode: '2d',
     snapshot: {
+      solvedWith: CURRENT_STAMP,
       name: 'Paste twice',
       nodes: [[1, { id: 1, x: 0, y: 0 }], [2, { id: 2, x: 4, y: 0 }]],
       elements: [[1, { id: 1, nodeI: 1, nodeJ: 2, type: 'frame', materialId: 1, sectionId: 1, releaseI: {}, releaseJ: {} }]],
