@@ -167,6 +167,37 @@ pub fn add_geometric_stiffness_2d(
     emit_geometric_stiffness_2d(input, dof_num, u, &mut |gi, gj, v| k_global[gi * n + gj] += v);
 }
 
+/// Each 2D element's mean axial force (tension positive) at displacements `u`:
+/// EA·(δ/L − α·ΔT), the force the geometric stiffness is built from. Under an
+/// axial span load N varies along the member and its end values can both be zero
+/// while the member is in compression; δ/L is the mean of N/EA over the length.
+pub(crate) fn mean_axial_forces_2d(
+    input: &SolverInput,
+    dof_num: &DofNumbering,
+    u: &[f64],
+) -> std::collections::HashMap<usize, f64> {
+    let node_by_id: std::collections::HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
+    let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> = input.materials.values().map(|m| (m.id, m)).collect();
+    let sec_by_id: std::collections::HashMap<usize, &SolverSection> = input.sections.values().map(|s| (s.id, s)).collect();
+    let dt_by_elem = uniform_dt_2d(input);
+    let at = |node: usize, i: usize| dof_num.global_dof(node, i).map(|d| u[d]).unwrap_or(0.0);
+    let mut out = std::collections::HashMap::new();
+    for elem in input.elements.values() {
+        let (Some(ni), Some(nj)) = (node_by_id.get(&elem.node_i), node_by_id.get(&elem.node_j)) else { continue };
+        let (Some(mat), Some(sec)) = (mat_by_id.get(&elem.material_id), sec_by_id.get(&elem.section_id)) else { continue };
+        let (dx, dz) = (nj.x - ni.x, nj.z - ni.z);
+        let l = (dx * dx + dz * dz).sqrt();
+        if l < 1e-15 {
+            continue;
+        }
+        let (c, s) = (dx / l, dz / l);
+        let delta = (at(elem.node_j, 0) - at(elem.node_i, 0)) * c + (at(elem.node_j, 1) - at(elem.node_i, 1)) * s;
+        let dt = dt_by_elem.get(&elem.id).copied().unwrap_or(0.0);
+        out.insert(elem.id, mat.e * 1000.0 * sec.a * (delta / l - THERMAL_ALPHA * dt));
+    }
+    out
+}
+
 /// The 2D geometric stiffness of every element, emitted entry by entry: the
 /// sparse P-Delta tangent collects it as triplets instead of a dense matrix.
 /// Mirrors `emit_geometric_stiffness_3d`.

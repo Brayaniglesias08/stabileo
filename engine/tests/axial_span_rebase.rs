@@ -141,3 +141,26 @@ fn diagram_certificate_bounds_n_between_stations_under_an_axial_span_load() {
     assert!(worst > 1e-9, "the case must exercise the gap (worst excursion {worst})");
     assert!(worst <= gap + 1e-9, "N leaves the station envelope by {worst} > certified gap {gap}");
 }
+
+/// Codex review of #437: a cantilever under an axial load q = 10 − 5x (toward the free end
+/// near the root, away from it near the tip) has N(0) = N(L) = 0 but N < 0 inside, mean
+/// −20/3. Buckling's compression gate read the end average and refused it ("No compressed
+/// elements"), though Kg is built from the mean force.
+#[test]
+fn buckling_sees_compression_from_an_axial_span_load_with_zero_end_forces() {
+    let input = make_input(
+        vec![(1, 0.0, 0.0), (2, 4.0, 0.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, 0.01, 1e-4)],
+        vec![(1, "frame", 1, 2, 1, 1, false, false)],
+        vec![(1, 1, "fixed")],
+        vec![axial(1, 10.0, -10.0, None, None)],
+    );
+    let lin = solve_2d(&input).unwrap();
+    let ef = &lin.element_forces[0];
+    assert!(ef.n_start.abs() < 1e-9 && ef.n_end.abs() < 1e-9, "ends {} {}", ef.n_start, ef.n_end);
+    let r = dedaliano_engine::solver::buckling::solve_buckling_2d(&input, 1).expect("compressed inside the span");
+    assert!(r.modes[0].load_factor > 0.0);
+    let d = r.element_data.iter().find(|d| d.element_id == 1).expect("the member is reported as compressed");
+    assert!((d.axial_force + 20.0 / 3.0).abs() < 1e-6, "mean N {}", d.axial_force);
+}
