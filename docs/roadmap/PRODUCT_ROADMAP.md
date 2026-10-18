@@ -132,7 +132,7 @@ Places where Stabileo still computes something unverified, refuses something eng
 
 Closing the gap between "proven" and "right".
 
-1. **End-to-end certificates.** Today a certificate proves the solution of the f64 `K` and `f` as assembled, not that they represent the model. An independent checker re-assembles `K` and `f` from the model JSON in interval arithmetic from closed-form element formulas (frames first, then shells), so a certificate covers model → K → result.
+1. **End-to-end certificates.** Today a certificate proves the solution of the f64 `K` and `f` as assembled, not that they represent the model. An independent checker re-assembles `K` and `f` from the model JSON in interval arithmetic from closed-form element formulas (frames first, then shells), so a certificate covers model → K → result. *Frames and trusses (2D and 3D) done: `endToEnd` on the linear certificate, [CERTIFY.md](../verification/CERTIFY.md#end-to-end-certificates); shells, connectors, curved beams and warping next.*
 2. **Trusted computing base, audited and enforced.** No `sorry` and no extra axioms in Lean (`#print axioms` in CI), pinned Lean/mathlib; a document listing everything a certificate assumes; the IEEE rounding the proofs model checked where the code runs (no fast-math or unexpected FMA, identical WASM results across Chrome, Firefox and Safari).
 3. **A second, independent certificate checker** (e.g. MPFR or exact rationals) beside the Lean one; agreement of two independently written checkers.
 4. **Properties of the design checks,** proved or exhaustively tested: more reinforcement or a larger section never lowers capacity, a larger load never lowers the utilization ratio, φ within its code limits.
