@@ -205,3 +205,149 @@ fn diaphragm_2d_slave_rotation_equals_master() {
     close("ux3", d3.ux, d2.ux, d2.ux.abs(), 1e-9);
     close("uz3", d3.uz, d2.uz + 5.0 * d2.ry, d2.ux.abs(), 1e-9);
 }
+
+// ─── Which DOFs a diaphragm couples: by the model's dimension, not by its
+// DOF count (Codex review of #397) ────────────────────────────────────────
+
+/// A 3D all-truss tower: four corner posts, braced, a horizontal XY
+/// diaphragm on the top nodes, a vertical load on a slave.
+fn truss_tower() -> SolverInput3D {
+    let mut nodes = serde_json::Map::new();
+    let mut elements = serde_json::Map::new();
+    let mut supports = serde_json::Map::new();
+    let mut id = 0;
+    let mut bar = |a: usize, b: usize, elements: &mut serde_json::Map<String, Value>| {
+        id += 1;
+        elements.insert(id.to_string(), json!({"id": id, "type": "truss", "nodeI": a, "nodeJ": b, "materialId": 1, "sectionId": 1}));
+    };
+    for (i, &(x, y)) in PLAN.iter().enumerate() {
+        nodes.insert((i + 1).to_string(), json!({"id": i + 1, "x": x, "y": y, "z": 0.0}));
+        nodes.insert((i + 5).to_string(), json!({"id": i + 5, "x": x, "y": y, "z": H}));
+        supports.insert((i + 1).to_string(), json!({"nodeId": i + 1, "rx": true, "ry": true, "rz": true, "rrx": false, "rry": false, "rrz": false}));
+    }
+    for i in 0..4 {
+        let j = (i + 1) % 4;
+        bar(i + 1, i + 5, &mut elements); // post
+        bar(i + 1, j + 5, &mut elements); // side brace
+        bar(i + 5, j + 5, &mut elements); // top chord
+    }
+    serde_json::from_value(json!({
+        "nodes": nodes,
+        "materials": {"1": {"id": 1, "e": 200000.0, "nu": 0.3}},
+        "sections": {"1": {"id": 1, "a": 0.002, "iy": 1e-6, "iz": 1e-6, "j": 1e-6}},
+        "elements": elements,
+        "supports": supports,
+        "loads": [{"type": "nodal", "data": {"nodeId": 7, "fx": 0.0, "fy": 0.0, "fz": -50.0, "mx": 0.0, "my": 0.0, "mz": 0.0}}],
+        "constraints": [{"type": "diaphragm", "masterNode": 5, "slaveNodes": [6, 7, 8], "plane": "XY"}],
+    }))
+    .unwrap()
+}
+
+#[test]
+fn diaphragm_in_an_all_truss_3d_model_is_refused() {
+    // An all-truss 3D model has 3 DOFs per node. The DOF-count test took it
+    // for 2D and used index 2 — uz — as the "rotation": the new tie made
+    // uz_slave = uz_master, so a vertical load on a slave bypassed its post.
+    // Without rotational DOFs the floor's rotation cannot be represented.
+    let err = solve_3d(&truss_tower()).unwrap_err();
+    assert!(err.contains("no rotational DOFs"), "{err}");
+}
+
+#[test]
+fn diaphragm_in_an_all_truss_2d_model_is_refused() {
+    let input: SolverInput = serde_json::from_value(json!({
+        "nodes": {"1": {"id": 1, "x": 0.0, "z": 0.0}, "2": {"id": 2, "x": 0.0, "z": 3.0},
+                  "3": {"id": 3, "x": 4.0, "z": 3.0}, "4": {"id": 4, "x": 4.0, "z": 0.0}},
+        "materials": {"1": {"id": 1, "e": 200000.0, "nu": 0.3}},
+        "sections": {"1": {"id": 1, "a": 0.01, "iz": 1e-4}},
+        "elements": {
+            "1": {"id": 1, "type": "truss", "nodeI": 1, "nodeJ": 2, "materialId": 1, "sectionId": 1},
+            "2": {"id": 2, "type": "truss", "nodeI": 4, "nodeJ": 3, "materialId": 1, "sectionId": 1},
+            "3": {"id": 3, "type": "truss", "nodeI": 1, "nodeJ": 3, "materialId": 1, "sectionId": 1}
+        },
+        "supports": {"1": {"id": 1, "nodeId": 1, "type": "pinned"}, "4": {"id": 4, "nodeId": 4, "type": "pinned"}},
+        "loads": [{"type": "nodal", "data": {"nodeId": 2, "fx": 10.0, "fz": 0.0, "my": 0.0}}],
+        "constraints": [{"type": "diaphragm", "masterNode": 2, "slaveNodes": [3], "plane": "XY"}]
+    }))
+    .unwrap();
+    let err = solve_2d(&input).unwrap_err();
+    assert!(err.contains("no rotational DOFs"), "{err}");
+}
+
+/// A 3D frame whose two column tops lie in a vertical XZ plane (a wall-like
+/// diaphragm), loaded in that plane.
+fn xz_frame(constraint: Value) -> SolverInput3D {
+    serde_json::from_value(json!({
+        "nodes": {
+            "1": {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0}, "2": {"id": 2, "x": 0.0, "y": 0.0, "z": 3.0},
+            "3": {"id": 3, "x": 5.0, "y": 0.0, "z": 0.0}, "4": {"id": 4, "x": 5.0, "y": 0.0, "z": 4.0}
+        },
+        "materials": {"1": {"id": 1, "e": 30000.0, "nu": 0.2}},
+        "sections": {"1": {"id": 1, "a": 0.15, "iy": 3.125e-3, "iz": 1.125e-3, "j": 2.8e-3}},
+        "elements": {
+            "1": {"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2, "materialId": 1, "sectionId": 1},
+            "2": {"id": 2, "type": "frame", "nodeI": 3, "nodeJ": 4, "materialId": 1, "sectionId": 1}
+        },
+        "supports": {
+            "1": {"nodeId": 1, "rx": true, "ry": true, "rz": true, "rrx": true, "rry": true, "rrz": true},
+            "3": {"nodeId": 3, "rx": true, "ry": true, "rz": true, "rrx": true, "rry": true, "rrz": true}
+        },
+        "loads": [
+            {"type": "nodal", "data": {"nodeId": 2, "fx": 40.0, "fy": 0.0, "fz": -10.0, "mx": 0.0, "my": 0.0, "mz": 0.0}},
+            {"type": "nodal", "data": {"nodeId": 4, "fx": 0.0, "fy": 5.0, "fz": -30.0, "mx": 0.0, "my": 0.0, "mz": 0.0}}
+        ],
+        "constraints": [constraint],
+    }))
+    .unwrap()
+}
+
+#[test]
+fn xz_diaphragm_moves_as_a_rigid_body_about_y() {
+    // For rotation θy about Y, a point at offset (dx, dz) moves by
+    // (+θy·dz, −θy·dx) in (x, z) (ω × r). The XZ diaphragm used the XY
+    // pattern (−dz, +dx): the slave followed −θy while the master turned by
+    // +θy. Reference: a rigid link on ux, uz, ry, which uses ω × r.
+    let a = solve_3d(&xz_frame(json!({"type": "diaphragm", "masterNode": 2, "slaveNodes": [4], "plane": "XZ"}))).unwrap();
+    let b = solve_3d(&xz_frame(json!({"type": "rigidLink", "masterNode": 2, "slaveNode": 4, "dofs": [0, 2, 4]}))).unwrap();
+    let scale = [2, 4].iter().flat_map(|&n| disp(&b, n)).fold(0.0f64, |m, v| m.max(v.abs()));
+    assert!(scale > 1e-6);
+    for n in [2, 4] {
+        let (da, db) = (disp(&a, n), disp(&b, n));
+        for k in 0..6 {
+            close(&format!("node {n} dof {k}"), da[k], db[k], scale, 1e-9);
+        }
+    }
+}
+
+#[test]
+fn a_2d_diaphragm_lies_in_the_model_plane_whatever_it_is_called() {
+    // A 2D model is the X–Z plane. "XZ" mapped to 3D indices (0, 2, 4) — the
+    // 2D rotation slot and a DOF that does not exist; it is the model plane,
+    // as "XY" (the historical name) is. "YZ" is not a 2D plane: refused.
+    let model = |plane: &str| -> SolverInput {
+        serde_json::from_value(json!({
+            "nodes": {"1": {"id": 1, "x": 0.0, "z": 0.0}, "2": {"id": 2, "x": 0.0, "z": 3.0},
+                      "3": {"id": 3, "x": 5.0, "z": 3.0}, "4": {"id": 4, "x": 5.0, "z": 0.0}},
+            "materials": {"1": {"id": 1, "e": 200000.0, "nu": 0.3}},
+            "sections": {"1": {"id": 1, "a": 0.01, "iz": 1e-4}},
+            "elements": {
+                "1": {"id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2, "materialId": 1, "sectionId": 1},
+                "2": {"id": 2, "type": "frame", "nodeI": 4, "nodeJ": 3, "materialId": 1, "sectionId": 1}
+            },
+            "supports": {"1": {"id": 1, "nodeId": 1, "type": "fixed"}, "4": {"id": 4, "nodeId": 4, "type": "fixed"}},
+            "loads": [{"type": "nodal", "data": {"nodeId": 2, "fx": 10.0, "fz": -5.0, "my": 0.0}}],
+            "constraints": [{"type": "diaphragm", "masterNode": 2, "slaveNodes": [3], "plane": plane}]
+        }))
+        .unwrap()
+    };
+    let xy = solve_2d(&model("XY")).unwrap();
+    let xz = solve_2d(&model("XZ")).unwrap();
+    for (a, b) in xy.displacements.iter().zip(&xz.displacements) {
+        assert_eq!(a.node_id, b.node_id);
+        for (u, v) in [(a.ux, b.ux), (a.uz, b.uz), (a.ry, b.ry)] {
+            assert!((u - v).abs() <= 1e-12 * u.abs().max(1e-9), "node {}: {u} vs {v}", a.node_id);
+        }
+    }
+    let err = solve_2d(&model("YZ")).unwrap_err();
+    assert!(err.contains("not the plane of a 2D model"), "{err}");
+}
