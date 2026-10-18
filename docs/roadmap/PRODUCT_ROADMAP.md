@@ -84,7 +84,7 @@ The Product Thesis orders what to build for firms to buy. This section ranks wha
 
 9. **Collaboration** — versioned, branchable models, comments on members, engineer/checker approvals (see CRDT collaboration).
 
-10. **Digital twin** — sensor data and model updating after construction or an earthquake (see `beyond_roadmap_opportunities.md` §10).
+10. **Digital twin** — sensor data and model updating after construction or an earthquake (see [`../research/beyond_roadmap_opportunities.md`](../research/beyond_roadmap_opportunities.md) §10).
 
 Order of work: 1–3 first (they remove the largest time sink, catch the errors tests cannot, and are unique), then 4–5.
 
@@ -771,6 +771,6 @@ Do not prioritize these before the core product is clearly trusted:
 - `SOLVER_ROADMAP.md` — solver mechanics and validation sequencing
 - `POSITIONING.md` — market framing and competitive wedge
 - `../research/rc_design_and_bbs.md` — RC design and BBS research
-- `beyond_roadmap_opportunities.md` — GNN surrogates, digital twins, UQ, advanced research opportunities
+- `../research/beyond_roadmap_opportunities.md` — GNN surrogates, digital twins, UQ, advanced research opportunities
 - `../research/cypecad_competitive_gap_and_parity_plan.md` — unified CYPECAD competitive gap analysis and parity plan
 - `../research/post_roadmap_software_stack.md` — platform adjacencies after roadmap execution
