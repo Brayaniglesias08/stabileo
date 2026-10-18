@@ -158,6 +158,13 @@ pub fn check_case(ctx: &Ctx, c: &Case3, anas: &[Ana3], invariants: &[&str]) {
                     let rl = Relabel::random_3d(&c.s, seed);
                     same(a, &c.relabel(&rl, seed), Ok(base.relabel(&rl)), &cond)
                 }
+                "reversal" => {
+                    let flipped: std::collections::HashSet<usize> = c.s.elements.values().map(|e| e.id).filter(|_| rng.f64() < 0.5).collect();
+                    match dedaliano_engine::metamorphic::reversal::reverse_3d(&c.s, &|id| flipped.contains(&id)) {
+                        Ok(s) => same(a, &Case3 { s, ..c.clone() }, base.reverse(&flipped, true), &cond),
+                        Err(e) => Verdict::Unrepresentable(e.to_string()),
+                    }
+                }
                 "units" => {
                     let (l, f) = [(1e-3, 1e3), (25.0, 1e-2), (0.3048, 4.448)][rng.below(3)];
                     let u = Units::froude(l, f);

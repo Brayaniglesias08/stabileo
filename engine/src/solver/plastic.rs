@@ -631,7 +631,7 @@ pub fn solve_plastic_2d(input: &PlasticInput) -> Result<PlasticResult, String> {
     let mut rot_restrained: std::collections::HashSet<usize> = current_input
         .supports
         .values()
-        .filter(|s| matches!(s.support_type.as_str(), "fixed" | "guidedX" | "guidedY") || s.kz.unwrap_or(0.0) > 0.0)
+        .filter(|s| matches!(s.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ") || s.kz.unwrap_or(0.0) > 0.0)
         .map(|s| s.node_id)
         .collect();
     for c in &current_input.constraints {

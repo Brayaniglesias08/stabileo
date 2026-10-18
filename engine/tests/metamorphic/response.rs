@@ -177,6 +177,28 @@ impl Resp {
         Ok(o)
     }
 
+    /// Expected response after reversing the members in `flipped` (see
+    /// dedaliano_engine::metamorphic::reversal for the end-force maps).
+    pub fn reverse(&self, flipped: &std::collections::HashSet<usize>, three_d: bool) -> Result<Resp, String> {
+        let mut o = self.clone();
+        for it in o.0.iter_mut() {
+            let Some(e) = it.elem else { continue };
+            if !flipped.contains(&e) {
+                continue;
+            }
+            let v = it.v.clone();
+            it.v = match (it.tag.as_str(), three_d, v.len()) {
+                ("N", _, 2) => vec![v[1], v[0]],
+                ("V", false, 2) => vec![v[1], v[0]],
+                ("M", false, 2) => vec![-v[1], -v[0]],
+                ("V", true, 4) => vec![-v[1], -v[0], v[3], v[2]],
+                ("M", true, 6) => vec![v[1], v[0], -v[3], -v[2], v[5], v[4]],
+                _ => return Err(format!("no reversal map for member quantity {}", it.tag)),
+            };
+        }
+        Ok(o)
+    }
+
     pub fn relabel(&self, rl: &Relabel) -> Resp {
         let mut o = self.clone();
         for it in o.0.iter_mut() {

@@ -25,8 +25,8 @@ mod tally;
 
 use tally::Tally;
 
-pub const INV_2D: &[&str] = &["rotation", "mirror", "relabel", "units", "superposition", "reciprocity", "energy", "symmetry"];
-pub const INV_3D: &[&str] = &["rotation", "relabel", "units", "superposition", "reciprocity", "energy", "symmetry"];
+pub const INV_2D: &[&str] = &["rotation", "mirror", "relabel", "reversal", "units", "superposition", "reciprocity", "energy", "symmetry"];
+pub const INV_3D: &[&str] = &["rotation", "relabel", "reversal", "units", "superposition", "reciprocity", "energy", "symmetry"];
 
 fn seed() -> u64 {
     std::env::var("METAMORPHIC_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(20261018)

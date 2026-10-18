@@ -18,6 +18,7 @@
 //!   reported as [`Unrepresentable`], never silently approximated;
 //! * [`relabel`]: node / element / support / material / section renumbering
 //!   and reordering of every map and load list;
+//! * [`reversal`]: member orientation reversal (node_i ↔ node_j);
 //! * [`units`]: consistent unit scaling (length × λ, force × φ, time × τ) of
 //!   every dimensioned input, and the dimensional law results obey;
 //! * [`compare`]: result flattening and comparison with tolerances from
@@ -27,6 +28,7 @@
 pub mod compare;
 pub mod conditioning;
 pub mod relabel;
+pub mod reversal;
 pub mod transform;
 pub mod units;
 

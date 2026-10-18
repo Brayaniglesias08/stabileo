@@ -45,8 +45,8 @@ fn count_support_restraints_2d(sup: &SolverSupport) -> (i32, bool) {
     match sup.support_type.as_str() {
         "fixed" => { r = 3; has_rot = true; }
         "pinned" => { r = 2; }
-        "rollerX" | "rollerY" | "inclinedRoller" => { r = 1; }
-        "guidedX" | "guidedY" => { r = 2; has_rot = true; }
+        "rollerX" | "rollerY" | "rollerZ" | "inclinedRoller" => { r = 1; }
+        "guidedX" | "guidedY" | "guidedZ" => { r = 2; has_rot = true; }
         "spring" => {
             if sup.kx.unwrap_or(0.0) > 0.0 { r += 1; }
             if sup.ky.unwrap_or(0.0) > 0.0 { r += 1; }
@@ -367,7 +367,7 @@ fn expected_zero_rotations_2d(
     let mut rot_restrained = std::collections::HashSet::new();
     for sup in input.supports.values() {
         match sup.support_type.as_str() {
-            "fixed" | "guidedX" | "guidedY" => { rot_restrained.insert(sup.node_id); }
+            "fixed" | "guidedX" | "guidedY" | "guidedZ" => { rot_restrained.insert(sup.node_id); }
             _ => {
                 if sup.kz.unwrap_or(0.0) > 0.0 {
                     rot_restrained.insert(sup.node_id);

@@ -501,6 +501,7 @@ pub fn rows() -> Vec<Ana3> {
                     gravity_direction: None,
                 };
                 let r = moving_loads::solve_moving_loads_3d(&inp)?;
+                let span: f64 = r.path.iter().map(|p| p.length).sum();
                 let mut o = Resp::default();
                 for (k, e) in &r.elements {
                     let id = Some(k.parse::<usize>().map_err(|e| e.to_string())?);
@@ -509,6 +510,12 @@ pub fn rows() -> Vec<Ana3> {
                     o.push(None, id, "Vz", Kind::Pair(Dim::FORCE, false), vec![e.vz_max_pos, e.vz_max_neg]);
                     o.push(None, id, "Vy", Kind::Pair(Dim::FORCE, false), vec![e.vy_max_pos, e.vy_max_neg]);
                     o.push(None, id, "N", Kind::Pair(Dim::FORCE, false), vec![e.n_max_pos, e.n_max_neg]);
+                }
+                for t in ["My", "Mz"] {
+                    o.set_floor(t, c.p.axle * span);
+                }
+                for t in ["Vy", "Vz", "N"] {
+                    o.set_floor(t, c.p.axle);
                 }
                 Ok(o)
             },

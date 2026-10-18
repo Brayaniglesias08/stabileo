@@ -518,6 +518,7 @@ pub fn rows() -> Vec<Ana2> {
                     path_element_ids: Some(path.clone()),
                 };
                 let r = moving_loads::solve_moving_loads_2d(&inp)?;
+                let span: f64 = r.path.iter().map(|p| p.length).sum();
                 let mut o = Resp::default();
                 for (k, e) in &r.elements {
                     let id = Some(k.parse::<usize>().map_err(|e| e.to_string())?);
@@ -525,6 +526,10 @@ pub fn rows() -> Vec<Ana2> {
                     o.push(None, id, "V", Kind::Pair(Dim::FORCE, true), vec![e.v_max_pos, e.v_max_neg]);
                     o.push(None, id, "N", Kind::Pair(Dim::FORCE, false), vec![e.n_max_pos, e.n_max_neg]);
                 }
+                // Natural sizes: the axle weight and its moment over the span.
+                o.set_floor("M", c.p.axle * span);
+                o.set_floor("V", c.p.axle);
+                o.set_floor("N", c.p.axle);
                 Ok(o)
             },
         },
