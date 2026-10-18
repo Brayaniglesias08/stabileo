@@ -64,7 +64,19 @@ pub(crate) fn orphan_rotation_dofs_3d(input: &SolverInput3D, dof_num: &DofNumber
             Constraint::EccentricConnection(e) => { tied.insert(e.master_node); tied.insert(e.slave_node); }
         }
     }
-    let tol = if max_diag > 0.0 { max_diag * 1e-12 } else { 1e-14 };
+    // Relative to the largest ROTATIONAL diagonal (same units, F·L): against
+    // the overall maximum — a translational stiffness, F/L — a real but
+    // small rotational stiffness fell under the threshold in a model in
+    // millimetres with one stiff member, was taken for an orphan and locked
+    // by the artificial spring (found by the metamorphic unit-scaling check).
+    // K is positive semi-definite, so a zero diagonal means a zero row.
+    let max_rot = dof_num
+        .node_order
+        .iter()
+        .flat_map(|&nid| (3..6).filter_map(move |l| dof_num.map.get(&(nid, l)).copied()))
+        .fold(0.0f64, |m, d| m.max(diag(d).abs()));
+    let _ = max_diag;
+    let tol = if max_rot > 0.0 { max_rot * 1e-12 } else { 1e-14 };
     for &node_id in &dof_num.node_order {
         if tied.contains(&node_id) {
             continue;
@@ -496,25 +508,21 @@ pub fn assemble_stiffness_2d(input: &SolverInput, dof_num: &DofNumbering) -> Sti
         // DOFs all-zero) still surfaces as a singular-matrix error.
         let nf = dof_num.n_free;
         let already: std::collections::HashSet<usize> = artificial_dofs.iter().copied().collect();
-        let orphan_tol = if max_diag > 0.0 { max_diag * 1e-12 } else { 1e-14 };
         let mut idx_to_local: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
         for (&(_, ld), &idx) in &dof_num.map {
             if idx < nf {
                 idx_to_local.insert(idx, ld);
             }
         }
+        // Against the largest rotational diagonal (same units), not the
+        // overall maximum: see `orphan_rotation_dofs_3d`. K is positive
+        // semi-definite, so a zero diagonal is a zero row.
+        let max_rot = dof_num.map.iter().filter(|(&(_, ld), _)| ld == 2).fold(0.0f64, |m, (_, &d)| m.max(k_global[d * n + d].abs()));
+        let orphan_tol = if max_rot > 0.0 { max_rot * 1e-12 } else { 1e-14 };
         for i in 0..nf {
             if already.contains(&i) { continue; }
             if idx_to_local.get(&i).copied() != Some(2) { continue; }
-            let mut all_zero = true;
-            for j in 0..n {
-                if k_global[i * n + j].abs() > orphan_tol
-                    || k_global[j * n + i].abs() > orphan_tol
-                {
-                    all_zero = false;
-                    break;
-                }
-            }
+            let all_zero = k_global[i * n + i].abs() <= orphan_tol;
             if all_zero {
                 k_global[i * n + i] += artificial_k;
                 artificial_dofs.push(i);

@@ -284,12 +284,12 @@ fn superposition(a: &Ana2, c: &Case2, base: &Resp, cond: &Conditioning) -> Verdi
     let k = -2.5;
     let rel = rel_for(a.name, a.iter_tol, cond) * 4.0;
     let r = (|| -> Result<(Flat, Flat, Flat, Flat, Flat), String> {
-        let ra = run(a, &c.with_loads(la.clone()))?.flat();
-        let rb = run(a, &c.with_loads(lb.clone()))?.flat();
-        let rab = run(a, &c.with_loads(ab))?.flat();
-        let rk = run(a, &c.with_loads(scale_loads_2d(&la, k)))?.flat();
+        let ra = run(a, &c.with_loads(la.clone()))?.without_stress().flat();
+        let rb = run(a, &c.with_loads(lb.clone()))?.without_stress().flat();
+        let rab = run(a, &c.with_loads(ab))?.without_stress().flat();
+        let rk = run(a, &c.with_loads(scale_loads_2d(&la, k)))?.without_stress().flat();
         let r0 = match run(a, &c.with_loads(vec![])) {
-            Ok(r) => r.flat(),
+            Ok(r) => r.without_stress().flat(),
             Err(_) => Flat::lin_comb(0.0, &ra, 0.0, &ra),
         };
         Ok((ra, rb, rab, rk, r0))

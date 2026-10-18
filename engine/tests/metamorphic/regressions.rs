@@ -389,3 +389,33 @@ fn spectral_cqc_base_shear_independent_of_mode_basis() {
     };
     close(shear(&c.relabel(&rl, 11)), shear(&c), 1e-7, "base shear");
 }
+
+#[test]
+#[ignore]
+fn probe_units_3d() {
+    use dedaliano_engine::metamorphic::units::{scale_3d, Units};
+    let f = std::env::var("PFILE").unwrap();
+    let s: SolverInput3D = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+    let base = linear::solve_3d(&s).unwrap();
+    let pick = |r: &AnalysisResults3D| r.displacements.iter().map(|d| (d.node_id, d.ux, d.uz, d.ry)).collect::<Vec<_>>();
+    println!("base {:?}", pick(&base));
+    for (l, fo) in [(1e-3, 1e3), (25.0, 1e-2), (0.3048, 4.448), (1.0, 7.0), (2.0, 1.0)] {
+        let u = Units::froude(l, fo);
+        let r = linear::solve_3d(&scale_3d(&s, &u)).unwrap();
+        let v: Vec<_> = pick(&r).iter().map(|&(n, a, b, c)| (n, a / l, b / l, c)).collect();
+        println!("{l} {fo}: {:?}", v);
+    }
+}
+
+#[test]
+#[ignore]
+fn probe_krx() {
+    let f = "tests/metamorphic_corpus/feature_matrix/3d-spring-support--rotational--spring-restrained-beam-with.json";
+    let s: SolverInput3D = serde_json::from_str(&std::fs::read_to_string(f).unwrap()).unwrap();
+    for k in 0..4 {
+        let iso = Iso3::about_z(std::f64::consts::FRAC_PI_2 * k as f64);
+        let t = dedaliano_engine::metamorphic::transform::transform_3d(&s, &iso).unwrap();
+        let sup = t.supports.values().find(|x| x.node_id == 1).unwrap();
+        println!("k={k} flags {:?} springs {:?} -> {:?}", (sup.rrx, sup.rry, sup.rrz), (sup.krx, sup.kry, sup.krz), linear::solve_3d(&t).map(|r| r.displacements.len()).map_err(|e| e.chars().take(80).collect::<String>()));
+    }
+}

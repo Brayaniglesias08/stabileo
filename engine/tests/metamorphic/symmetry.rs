@@ -166,7 +166,7 @@ pub fn check_2d(tally: &Tally, sym: &Sym2, anti: bool, anas: &[Ana2]) {
                         continue;
                     }
                     if anti {
-                        exp.0.iter_mut().for_each(|i| i.v.iter_mut().for_each(|x| *x = -*x));
+                        exp.0.iter_mut().filter(|i| !matches!(i.kind, crate::response::Kind::Stress)).for_each(|i| i.v.iter_mut().for_each(|x| *x = -*x));
                     }
                     let rel = crate::checks2::rel_for(a.name, a.iter_tol, &cond) * 2.0;
                     if rel > INCONCLUSIVE {
@@ -344,7 +344,7 @@ pub fn check_3d(tally: &Tally, sym: &Sym3, anti: bool, anas: &[Ana3]) {
                         continue;
                     }
                     if anti {
-                        exp.0.iter_mut().for_each(|i| i.v.iter_mut().for_each(|x| *x = -*x));
+                        exp.0.iter_mut().filter(|i| !matches!(i.kind, crate::response::Kind::Stress)).for_each(|i| i.v.iter_mut().for_each(|x| *x = -*x));
                     }
                     let rel = crate::checks2::rel_for(a.name, a.iter_tol, &cond) * 2.0;
                     if rel > INCONCLUSIVE {

@@ -69,7 +69,8 @@ pub fn modal_resp_3d(r: &modal::ModalResult3D) -> Resp {
         for i in 0..6 {
             cum[i] += t[i];
         }
-        if r.modes.get(k + 1).map_or(true, |n| n.frequency > m.frequency * (1.0 + 1e-3)) {
+        // Only boundaries with a known gap above (see the 2D version).
+        if r.modes.get(k + 1).is_some_and(|n| n.frequency > m.frequency * (1.0 + 1e-3)) {
             o.push(None, None, &format!("meff{k:02}"), Kind::T3(Dim::MASS), cum.to_vec());
             o.set_floor(&format!("meff{k:02}"), r.total_mass);
         }
@@ -436,10 +437,13 @@ pub fn rows() -> Vec<Ana3> {
                     comps.push(harmonic::solve_harmonic_3d(&inp)?);
                 }
                 let mut o = Resp::default();
+                let us = linear::solve_3d(&c.s).map(|r| r.displacements.iter().fold(0.0f64, |m, d| m.max(d.ux.abs()).max(d.uy.abs()).max(d.uz.abs()))).unwrap_or(0.0);
                 for k in 0..c.p.freqs.len() {
                     let p = |i: usize| &comps[i].response_points[k];
                     o.push(Some(node), None, &format!("H_re{k}"), Kind::V3(Dim::LEN), vec![p(0).real, p(1).real, p(2).real]);
                     o.push(Some(node), None, &format!("H_im{k}"), Kind::V3(Dim::LEN), vec![p(0).imag, p(1).imag, p(2).imag]);
+                    o.set_floor(&format!("H_re{k}"), us);
+                    o.set_floor(&format!("H_im{k}"), us);
                 }
                 Ok(o)
             },

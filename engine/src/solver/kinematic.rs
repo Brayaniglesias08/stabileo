@@ -211,23 +211,20 @@ pub fn analyze_kinematics_2d(input: &SolverInput) -> KinematicResult {
                 idx_to_local.insert(idx, ld);
             }
         }
-        let max_abs = k_ff.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
-        let orphan_tol = (1e-10f64).max(max_abs * 1e-10);
+        // A zero diagonal of the positive semi-definite K_ff is a zero row.
+        // Judged against the largest ROTATIONAL diagonal (same units): the
+        // overall largest entry is a translational stiffness, so the old
+        // "max |K| · 1e-10, at least 1e-10" test depended on the model's
+        // units (found by the metamorphic unit-scaling check).
+        let max_rot = (0..nf).filter(|i| idx_to_local.get(i).is_some_and(|&ld| ld == 2)).fold(0.0f64, |m, i| m.max(k_ff[i * nf + i].abs()));
+        let orphan_tol = if max_rot > 0.0 { max_rot * 1e-10 } else { 0.0 };
         let mut orphans = Vec::new();
         for i in 0..nf {
             // Only suppress rotation DOFs (local_dof = 2 in 2D)
             if idx_to_local.get(&i).copied() != Some(2) {
                 continue;
             }
-            let mut all_zero = true;
-            for j in 0..nf {
-                if k_ff[i * nf + j].abs() > orphan_tol
-                    || k_ff[j * nf + i].abs() > orphan_tol
-                {
-                    all_zero = false;
-                    break;
-                }
-            }
+            let all_zero = k_ff[i * nf + i].abs() <= orphan_tol;
             if all_zero {
                 orphans.push(i);
             }
@@ -257,14 +254,12 @@ pub fn analyze_kinematics_2d(input: &SolverInput) -> KinematicResult {
     };
 
     // LU rank analysis (on reduced system if constraints present)
-    let tol = {
-        let mut max_diag = 0.0f64;
-        for i in 0..ns {
-            max_diag = max_diag.max(k_s[i * ns + i].abs());
-        }
-        (1e-10f64).max(max_diag * 1e-10)
-    };
-    let (_rank, zero_pivot_dofs_reduced) = lu_rank(&k_s, ns, tol);
+    // Rank of the Jacobi-scaled matrix D^{-1/2}·K·D^{-1/2}: pivots are then
+    // dimensionless (≤ 1), so the 1e-10 rank tolerance means the same thing in
+    // metres and millimetres. Against the largest raw diagonal (with an
+    // absolute floor) a model's mechanism count changed with its units.
+    let k_s = jacobi_scaled(k_s, ns);
+    let (_rank, zero_pivot_dofs_reduced) = lu_rank(&k_s, ns, 1e-10);
 
     // Map zero-pivot DOFs back to physical free DOFs
     let zero_pivot_dofs = if let Some(ref cs) = cs {
@@ -428,12 +423,13 @@ fn fast_solvable_2d(
         // element pair, and a hinge-condensed rotation row is exactly zero — so
         // "an entry exists" is not "stiffness couples these DOFs". Compare
         // values, at the orphan-rotation guard's own tolerance.
-        let touch_tol = if max_diag > 0.0 { max_diag * 1e-12 } else { 1e-14 };
+        // Relative to the two diagonals the entry couples (unit-independent).
+        let kd = k.diagonal();
         let mut touched_offdiag = std::collections::HashSet::new();
         for col in 0..k.n {
             for p in k.col_ptr[col]..k.col_ptr[col + 1] {
                 let row = k.row_idx[p];
-                if row != col && k.values[p].abs() > touch_tol {
+                if row != col && k.values[p].abs() > 1e-12 * (kd[row].abs() * kd[col].abs()).sqrt() {
                     touched_offdiag.insert(row);
                     touched_offdiag.insert(col);
                 }
@@ -457,13 +453,16 @@ fn fast_solvable_2d(
     // internal hinge, factored "fine" and was called solvable. Every pivot must clear the
     // dense rank's own tolerance, relative to the largest diagonal; the artificial springs
     // on the expected pin rotations, checked above, are the only pivots excused.
-    let tol = (1e-10f64).max(max_diag * 1e-10);
+    // Each pivot against its own original diagonal: the Schur-complement
+    // pivot over K_jj is dimensionless, the same test as the dense path's
+    // rank of the Jacobi-scaled matrix.
+    let kd = k.diagonal();
     let artificial: std::collections::HashSet<usize> = sasm.artificial_dofs.iter().copied().collect();
     let sym = &factor.symbolic;
     for j in 0..sym.n {
         if artificial.contains(&sym.perm[j]) { continue; }
         let d = factor.l_values[sym.l_col_ptr[j]];
-        if d * d < tol { return None; }
+        if d * d < 1e-10 * kd[sym.perm[j]].abs() { return None; }
     }
 
     Some({
@@ -646,23 +645,20 @@ pub fn analyze_kinematics_3d(input: &SolverInput3D) -> KinematicResult {
                 idx_to_local.insert(idx, ld);
             }
         }
-        let max_abs = k_ff.iter().fold(0.0f64, |m, &v| m.max(v.abs()));
-        let orphan_tol = (1e-10f64).max(max_abs * 1e-10);
+        // A zero diagonal of the positive semi-definite K_ff is a zero row.
+        // Judged against the largest ROTATIONAL diagonal (same units): the
+        // overall largest entry is a translational stiffness, so the old
+        // "max |K| · 1e-10, at least 1e-10" test depended on the model's
+        // units (found by the metamorphic unit-scaling check).
+        let max_rot = (0..nf).filter(|i| idx_to_local.get(i).is_some_and(|&ld| (3..=5).contains(&ld))).fold(0.0f64, |m, i| m.max(k_ff[i * nf + i].abs()));
+        let orphan_tol = if max_rot > 0.0 { max_rot * 1e-10 } else { 0.0 };
         let mut orphans = Vec::new();
         for i in 0..nf {
             match idx_to_local.get(&i).copied() {
                 Some(3) | Some(4) | Some(5) => {}
                 _ => continue,
             }
-            let mut all_zero = true;
-            for j in 0..nf {
-                if k_ff[i * nf + j].abs() > orphan_tol
-                    || k_ff[j * nf + i].abs() > orphan_tol
-                {
-                    all_zero = false;
-                    break;
-                }
-            }
+            let all_zero = k_ff[i * nf + i].abs() <= orphan_tol;
             if all_zero {
                 orphans.push(i);
             }
@@ -691,14 +687,12 @@ pub fn analyze_kinematics_3d(input: &SolverInput3D) -> KinematicResult {
         k_ff
     };
 
-    let tol = {
-        let mut max_diag = 0.0f64;
-        for i in 0..ns {
-            max_diag = max_diag.max(k_s[i * ns + i].abs());
-        }
-        (1e-10f64).max(max_diag * 1e-10)
-    };
-    let (_rank, zero_pivot_dofs_reduced) = lu_rank(&k_s, ns, tol);
+    // Rank of the Jacobi-scaled matrix D^{-1/2}·K·D^{-1/2}: pivots are then
+    // dimensionless (≤ 1), so the 1e-10 rank tolerance means the same thing in
+    // metres and millimetres. Against the largest raw diagonal (with an
+    // absolute floor) a model's mechanism count changed with its units.
+    let k_s = jacobi_scaled(k_s, ns);
+    let (_rank, zero_pivot_dofs_reduced) = lu_rank(&k_s, ns, 1e-10);
 
     // Map zero-pivot DOFs back to physical free DOFs
     let zero_pivot_dofs = if let Some(ref cs) = cs {
@@ -907,4 +901,18 @@ fn build_diagnosis_2d(
             if unconstrained_dofs.len() > 8 { "..." } else { "" },
         )
     }
+}
+
+/// D^{-1/2}·K·D^{-1/2} with D = diag(K) (rows with a zero diagonal are left
+/// zero: by positive semi-definiteness the whole row is).
+fn jacobi_scaled(mut k: Vec<f64>, n: usize) -> Vec<f64> {
+    let d: Vec<f64> = (0..n).map(|i| k[i * n + i].abs().sqrt()).collect();
+    for i in 0..n {
+        for j in 0..n {
+            if d[i] > 0.0 && d[j] > 0.0 {
+                k[i * n + j] /= d[i] * d[j];
+            }
+        }
+    }
+    k
 }

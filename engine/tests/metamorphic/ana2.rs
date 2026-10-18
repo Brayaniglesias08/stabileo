@@ -105,7 +105,9 @@ pub fn modal_resp(r: &modal::ModalResult) -> Resp {
         cum[2] += g[1] * g[1];
         // Modes inside a cluster can mix; compare cumulative sums only at
         // well-separated boundaries.
-        let sep = r.modes.get(k + 1).map_or(true, |n| n.frequency > m.frequency * (1.0 + 1e-3));
+        // The last computed mode may be one of a repeated pair whose partner
+        // was not computed: only boundaries with a known gap above.
+        let sep = r.modes.get(k + 1).is_some_and(|n| n.frequency > m.frequency * (1.0 + 1e-3));
         if sep {
             o.push(None, None, &format!("meff{k:02}"), Kind::T2(Dim::MASS), cum.to_vec());
             o.set_floor(&format!("meff{k:02}"), r.total_mass);
@@ -453,10 +455,14 @@ pub fn rows() -> Vec<Ana2> {
                     comps.push(harmonic::solve_harmonic_2d(&inp)?);
                 }
                 let mut o = Resp::default();
+                // Natural size: the largest static displacement (the ω = 0 response).
+                let us = linear::solve_2d(&c.s).map(|r| r.displacements.iter().fold(0.0f64, |m, d| m.max(d.ux.abs()).max(d.uz.abs()))).unwrap_or(0.0);
                 for k in 0..c.p.freqs.len() {
                     let (a, b) = (&comps[0].response_points[k], &comps[1].response_points[k]);
                     o.push(Some(node), None, &format!("H_re{k}"), Kind::V2(Dim::LEN), vec![a.real, b.real]);
                     o.push(Some(node), None, &format!("H_im{k}"), Kind::V2(Dim::LEN), vec![a.imag, b.imag]);
+                    o.set_floor(&format!("H_re{k}"), us);
+                    o.set_floor(&format!("H_im{k}"), us);
                 }
                 Ok(o)
             },

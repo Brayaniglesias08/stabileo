@@ -470,6 +470,21 @@ fn harmonic_modal_from_eigen(
     if nk < n {
         let top = eigen.values.iter().cloned().fold(0.0f64, f64::max);
         lambda_omit = lambda_omit.min(top);
+        // The eigensolve stopped somewhere inside the spectrum, possibly in
+        // the middle of a repeated eigenvalue: then which members of that
+        // eigenspace were kept exactly and which only through the static
+        // correction depended on the arbitrary basis the solver returned, and
+        // the response changed when the model was merely rotated or
+        // renumbered (found by the metamorphic rotation check). The top
+        // cluster of the computed set is therefore left to the correction
+        // in full; the correction stays valid because its bound λ_omit is
+        // that cluster's eigenvalue.
+        let cut = top * (1.0 - 1e-6);
+        let before = mode_indices.len();
+        mode_indices.retain(|&j| eigen.values[j] < cut);
+        if mode_indices.len() < before {
+            lambda_omit = lambda_omit.min(cut);
+        }
     }
 
     if mode_indices.is_empty() {

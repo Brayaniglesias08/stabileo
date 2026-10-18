@@ -87,7 +87,10 @@ fn rotate_diag3(r: &M3, d: [f64; 3]) -> Option<[f64; 3]> {
             }
         }
     }
-    Some([k[0][0], k[1][1], k[2][2]])
+    // Entries that are round-off of zero are zero: a positive spring on a
+    // restrained DOF frees it (dof.rs), so 1e-28 must not stand for 0.
+    let snap = |v: f64| if v.abs() <= AXIS_TOL * scale { 0.0 } else { v };
+    Some([snap(k[0][0]), snap(k[1][1]), snap(k[2][2])])
 }
 fn rotate_diag2(q: &M2, d: [f64; 2]) -> Option<[f64; 2]> {
     let k01 = q[0][0] * d[0] * q[1][0] + q[0][1] * d[1] * q[1][1];
@@ -97,7 +100,8 @@ fn rotate_diag2(q: &M2, d: [f64; 2]) -> Option<[f64; 2]> {
     }
     let k00 = q[0][0] * d[0] * q[0][0] + q[0][1] * d[1] * q[0][1];
     let k11 = q[1][0] * d[0] * q[1][0] + q[1][1] * d[1] * q[1][1];
-    Some([k00, k11])
+    let snap = |v: f64| if v.abs() <= AXIS_TOL * scale { 0.0 } else { v };
+    Some([snap(k00), snap(k11)])
 }
 
 /// Image of a set of coordinate axes under R, if it is again a set of axes.

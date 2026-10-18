@@ -78,6 +78,10 @@ impl Resp {
     pub fn scalar(&mut self, tag: &str, dim: Dim, v: f64) {
         self.push(None, None, tag, Kind::Local(dim, false), vec![v]);
     }
+    /// Without the stress invariants (von Mises is not linear in the loads).
+    pub fn without_stress(&self) -> Resp {
+        Resp(self.0.iter().filter(|i| !matches!(i.kind, Kind::Stress)).cloned().collect())
+    }
     pub fn set_floor(&mut self, tag: &str, floor: f64) {
         for it in self.0.iter_mut().filter(|i| i.tag == tag) {
             it.floor = floor;
