@@ -41,6 +41,6 @@ for i in "${!plants[@]}"; do
 		echo "FAIL: the full gate accepted: ${plants[$i]}" >&2
 		exit 1
 	fi
-	echo "ok: rejected ${expects[$i]#* on }${expects[$i]%% *} plant in $target"
+	echo "ok: ${expects[$i]} rejected (planted in $target)"
 done
 echo "axiom gate self-test ok"

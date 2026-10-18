@@ -77,9 +77,13 @@ The script fails on:
   theorems (linear, Gram, bundle, interval inclusion, buckling, modal counting, Kahan,
   forces, plastic, combinations), printed in the log. Only `propext`,
   `Classical.choice` and `Quot.sound` are allowed;
+- **`axiom`, `implemented_by` and `extern` in the sources** (grep), and any module under
+  `Certify/` that `Certify.lean` does not import (`lake build` would not check it);
 - **extra axioms anywhere in the library**: `scripts/AxiomScan.lean` walks every
-  constant declared in a `Certify.*` module, theorems and the executable `check`
-  functions alike. It collects their axioms with `Lean.collectAxioms`, so a lemma left out
+  constant declared in any module under `Certify/` and in `CertCheck`, theorems and the
+  executable `check` functions alike. The module list comes from the file system, not
+  from `Certify.lean`'s imports, so the JSON reader `BundleParse` (imported only by
+  `CertCheck` until this audit) is covered. It collects their axioms with `Lean.collectAxioms`, so a lemma left out
   of the named list cannot hide a `sorry`. It also rejects any `axiom` declaration, and
   any `@[implemented_by]` or `@[extern]`. Those would make `certcheck` run code other
   than the code the theorems are about.
@@ -87,7 +91,10 @@ The script fails on:
 Audit result (October 2026): no `sorry`, `admit`, `native_decide`, `axiom`,
 `implemented_by` or `extern` in the sources. All 884 constants of the library, 404 of
 them theorems, depend only on the standard three axioms. The scan was checked against a
-probe module holding a `native_decide` proof and an `axiom`; it rejected both. (In Lean
+probe module holding a `native_decide` proof and an `axiom`; it rejected both. CI runs
+`scripts/test-axiom-gate.sh`. It plants an `axiom`, an `@[implemented_by]` and an
+`@[extern]` in `BundleParse.lean`, and requires both the scan alone and the full gate to
+reject each one. (In Lean
 4.34, `native_decide` shows up as an auxiliary `axiom …native_decide.ax_*`.)
 
 ## What Kani covers
