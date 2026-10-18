@@ -351,26 +351,6 @@ fn navier_true_error(m: &SolverInput3D, r: &AnalysisResults3D, t: f64, nu: f64) 
     best.sqrt()
 }
 
-#[test]
-fn zz_effectivity_navier_plate() {
-    let d = plate_rigidity();
-    let (w_exact, wc_exact) = navier(d);
-    println!("Navier plate: ‖u‖²_E = {w_exact:.6e}, w_c = {wc_exact:.6e}");
-    for fam in [Fam::Mitc4, Fam::Dkt, Fam::Mitc9, Fam::Curved, Fam::Solid] {
-        for n in [4, 8, 16] {
-            let m = square_plate(fam, n, false);
-            let r = solve(&m.input);
-            let est = estimate(&m.input, &r);
-            let true_err = navier_true_error(&m.input, &r, 0.01, 0.3);
-            let wc = mid_disp(&r, m.grid[n / 2][n / 2])[2].abs();
-            println!(
-                "{fam:?} n={n:2}: w_c/ref={:.4} ‖e‖/‖u‖={:.4} η/‖u‖={:.4} θ={:.3}",
-                wc / wc_exact, true_err / w_exact.sqrt(), est.error_norm / w_exact.sqrt(), est.error_norm / true_err
-            );
-        }
-    }
-}
-
 /// Scordelis–Lo roof (quarter): R = 25, L = 50, 40°, t = 0.25, E = 4.32e8, ν = 0, weight 90
 /// per unit area. Reference midspan free-edge vertical displacement 0.3024 (MacNeal–Harder).
 fn scordelis(fam: Fam, n: usize) -> Model {
@@ -388,43 +368,6 @@ fn scordelis(fam: Fam, n: usize) -> Model {
         f.iter().any(|&b| b).then_some(f)
     };
     surface(fam, n, n, 0.25, 4.32e8 / 1000.0, 0.0, &map, &bc, Load::Weight([0.0, 0.0, -90.0]))
-}
-
-#[test]
-fn convergence_scordelis_lo() {
-    for fam in [Fam::Mitc4, Fam::Mitc9, Fam::Curved] {
-        let base = scordelis(fam, 4);
-        let target = base.grid[0][4].0;
-        let mut models = vec![base.input.clone()];
-        for _ in 0..3 {
-            models.push(refine_uniform(models.last().unwrap(), GeometryMode::Smooth).unwrap().input);
-        }
-        let mut uz = Vec::new();
-        let mut w = Vec::new();
-        let mut eta = Vec::new();
-        for m in &models {
-            let r = solve(m);
-            uz.push(disp(&r, target)[2].abs());
-            w.push(energy_norm_sq(m, &r));
-            eta.push(estimate(m, &r).error_norm);
-        }
-        let (uz_ext, p) = extrapolate(&uz[1..]);
-        let (w_ext, pw) = extrapolate(&w[1..]);
-        println!("{fam:?} Scordelis–Lo uz: {uz:?} → {uz_ext:.5} (p={p:?}), ref 0.3024");
-        for k in 0..models.len() {
-            let te = (w_ext - w[k]).max(0.0).sqrt();
-            println!("   level {k}: η/‖u‖={:.4} ‖e‖/‖u‖={:.4} θ={:.3} (energy p={pw:?})", eta[k] / w_ext.sqrt(), te / w_ext.sqrt(), eta[k] / te);
-        }
-    }
-}
-
-#[test]
-fn smoke_convergence_study() {
-    let m = square_plate(Fam::Mitc4, 4, false);
-    let s = convergence_study_3d(&m.input, &ConvergenceOptions::default()).unwrap();
-    println!("{}", serde_json::to_string_pretty(&s).unwrap());
-    assert!(!s.certified);
-    let _ = nodal;
 }
 
 /// Refine `m` `levels` times (smooth geometry) and solve each; returns the inputs and results.
@@ -502,49 +445,258 @@ fn morley(fam: Fam, n: usize) -> (Model, f64) {
     (m, 4.08e-4 * l.powi(4) / d)
 }
 
-#[test]
-fn convergence_classic_benchmarks() {
-    for fam in [Fam::Mitc4, Fam::Curved] {
-        let m = pinched_cylinder(fam, 4);
-        let id = m.grid[0][0].0;
-        let seq = sequence(&m.input, 3);
-        let v: Vec<f64> = seq.iter().map(|(_, r)| disp(r, id)[1].abs()).collect();
-        let (ext, p) = extrapolate(&v[1..]);
-        println!("{fam:?} pinched cylinder: {v:?} → {ext:.5e} (p={p:?}) ref 1.8248e-5");
+// ==================== Effectivity ====================
 
-        let m = hemisphere(fam, 4);
-        let id = m.grid[0][0].0;
-        let seq = sequence(&m.input, 3);
-        let v: Vec<f64> = seq.iter().map(|(_, r)| disp(r, id)[0].abs()).collect();
-        let (ext, p) = extrapolate(&v[1..]);
-        println!("{fam:?} hemisphere: {v:?} → {ext:.5} (p={p:?}) ref 0.093");
+/// Effectivity on the Navier plate against the exact Kirchhoff moments. The Reissner–Mindlin
+/// elements (MITC4, MITC9, curved shell) converge to the Mindlin solution, whose soft simple
+/// support has a twisting-moment boundary layer of width ~t the Kirchhoff moments lack: once the
+/// discretization error falls to that model difference (MITC9 on fine meshes) θ drops, rightly
+/// (the estimator measures the mesh, not the theory). The solid-shell's centre deflection is
+/// ~18 % low (its 3D constitutive law stiffens bending by 1/(1 − ν²)·(1 − ν)/((1 + ν)(1 − 2ν))
+/// in thin plates): a model error no recovery can see, so its θ is reported, not asserted.
+#[test]
+fn zz_effectivity_navier_plate() {
+    let d = plate_rigidity();
+    let (w_exact, wc_exact) = navier(d);
+    let norm = w_exact.sqrt();
+    let mut table = Vec::new();
+    for fam in [Fam::Mitc4, Fam::Dkt, Fam::Mitc9, Fam::Curved, Fam::Solid] {
+        let mut prev_eta = f64::INFINITY;
+        for n in [4, 8, 16] {
+            let m = square_plate(fam, n, false);
+            let r = solve(&m.input);
+            let est = estimate(&m.input, &r);
+            assert!(!est.certified);
+            let true_err = navier_true_error(&m.input, &r, 0.01, 0.3);
+            let theta = est.error_norm / true_err;
+            let wc = mid_disp(&r, m.grid[n / 2][n / 2])[2].abs();
+            println!("{fam:?} n={n:2}: w_c/ref={:.4} ‖e‖/‖u‖={:.4} η/‖u‖={:.4} θ={theta:.3}", wc / wc_exact, true_err / norm, est.error_norm / norm);
+            table.push((fam, n, theta));
+            assert!(est.error_norm < prev_eta, "{fam:?}: the estimate falls under refinement");
+            prev_eta = est.error_norm;
+        }
     }
+    for (fam, n, theta) in table {
+        let band = match (fam, n) {
+            (Fam::Mitc4 | Fam::Curved, 8 | 16) => Some((0.9, 1.15)),
+            (Fam::Mitc4 | Fam::Curved, _) => Some((0.9, 1.25)),
+            (Fam::Dkt, 16) => Some((0.9, 1.2)),
+            (Fam::Dkt, 8) => Some((0.9, 1.35)),
+            (Fam::Mitc9, 4) => Some((0.85, 1.15)),
+            _ => None,
+        };
+        if let Some((lo, hi)) = band {
+            assert!(theta > lo && theta < hi, "{fam:?} n={n}: effectivity {theta:.3} outside [{lo}, {hi}]");
+        }
+    }
+}
+
+/// A uniform membrane stretch on a distorted mesh is reproduced exactly by every element and by
+/// the recovery: the estimate is zero.
+#[test]
+fn zz_estimate_vanishes_for_uniform_stress() {
     for fam in [Fam::Mitc4, Fam::Dkt, Fam::Mitc9] {
-        let (m, wref) = morley(fam, 4);
-        let id = m.grid[2][2].0;
-        let seq = sequence(&m.input, 3);
-        let v: Vec<f64> = seq.iter().map(|(_, r)| disp(r, id)[2].abs()).collect();
-        let (ext, p) = extrapolate(&v[1..]);
-        println!("{fam:?} Morley: {:?} → {:.4} (p={p:?}) ref 1", v.iter().map(|x| x / wref).collect::<Vec<_>>(), ext / wref);
-        for clamped in [false, true] {
-            let m = square_plate(fam, 4, clamped);
-            let id = m.grid[2][2].0;
-            let seq = sequence(&m.input, 3);
-            let wref = if clamped { 0.00126 } else { 0.00406 } / plate_rigidity();
-            let v: Vec<f64> = seq.iter().map(|(_, r)| disp(r, id)[2].abs() / wref).collect();
-            let (ext, p) = extrapolate(&v[1..]);
-            println!("{fam:?} square plate clamped={clamped}: {v:?} → {ext:.4} (p={p:?})");
+        let map = |u: f64, v: f64| {
+            // A smooth, non-affine distortion of the unit square.
+            let (x, y) = (u + 0.08 * (PI * u).sin() * (PI * v).sin(), v + 0.05 * (2.0 * PI * u).sin() * v);
+            ([x, y, 0.0], [0.0, 0.0, 1.0])
+        };
+        let bc = |i: usize, j: usize, _mx: usize, _my: usize| -> Option<[bool; 6]> {
+            Some([true, i == 0 && j == 0, true, true, true, true])
+        };
+        let mut m = surface(fam, 4, 4, 0.1, 200_000.0, 0.3, &map, &bc, Load::None);
+        // Prescribed stretch ux = 1e-3·x at every node, uy free: a uniform stress field.
+        for s in m.input.supports.values_mut() {
+            let n = &m.input.nodes[&s.node_id.to_string()];
+            s.rx = true;
+            s.dx = Some(1e-3 * n.x);
+        }
+        let r = solve(&m.input);
+        let est = estimate(&m.input, &r);
+        assert!(est.solution_norm > 0.0);
+        assert!(est.relative_error.unwrap() < 1e-6, "{fam:?}: uniform stress, estimate {:?}", est.relative_error);
+    }
+}
+
+// ==================== Convergence: classic benchmarks ====================
+
+fn richardson_of(m: &SolverInput3D, levels: usize, read: &dyn Fn(&AnalysisResults3D) -> f64) -> (Vec<f64>, f64, Option<f64>) {
+    let v: Vec<f64> = sequence(m, levels).iter().map(|(_, r)| read(r)).collect();
+    let (ext, p) = extrapolate(&v[v.len() - 3..]);
+    (v, ext, p)
+}
+
+/// Scordelis–Lo from a 4 × 4 mesh refined three times (smooth geometry): the extrapolated
+/// midspan free-edge deflection against 0.3024, and the effectivity of the curved shell, whose
+/// refinement keeps the energy identity (MITC4 facets change the geometry from mesh to mesh, so
+/// ‖u‖²_E − ‖u_h‖²_E is not the error there).
+#[test]
+fn convergence_scordelis_lo() {
+    for (fam, tol) in [(Fam::Mitc4, 0.01), (Fam::Curved, 0.01), (Fam::Mitc9, 0.015)] {
+        let base = scordelis(fam, 4);
+        let target = base.grid[0][4].0;
+        let seq = sequence(&base.input, 3);
+        let uz: Vec<f64> = seq.iter().map(|(_, r)| disp(r, target)[2].abs()).collect();
+        let (p, ext, _, status) = richardson(&uz[1..]);
+        let ext = ext.unwrap_or(uz[3]);
+        println!("{fam:?} Scordelis–Lo uz: {uz:?} → {ext:.5} (p={p:?}, {status}), ref 0.3024");
+        assert!((ext / 0.3024 - 1.0).abs() < tol, "{fam:?}: extrapolated {ext:.5} vs 0.3024");
+        if fam == Fam::Curved {
+            let w: Vec<f64> = seq.iter().map(|(m, r)| energy_norm_sq(m, r)).collect();
+            let (w_ext, _) = extrapolate(&w[1..]);
+            for (k, (m, r)) in seq.iter().enumerate() {
+                let theta = estimate(m, r).error_norm / (w_ext - w[k]).sqrt();
+                println!("   level {k}: θ = {theta:.3}");
+                assert!(theta > 0.8 && theta < 1.15, "curved shell Scordelis–Lo level {k}: θ = {theta:.3}");
+            }
+        }
+        if fam == Fam::Mitc9 {
+            // On the model as drawn the energy identity holds against the refined sequence.
+            let w: Vec<f64> = seq.iter().map(|(m, r)| energy_norm_sq(m, r)).collect();
+            let theta = estimate(&seq[0].0, &seq[0].1).error_norm / (w[3] - w[0]).sqrt();
+            println!("   MITC9 level 0: θ = {theta:.3}");
+            assert!(theta > 0.8 && theta < 1.2);
         }
     }
 }
 
 #[test]
-fn explore() {
-    let m = square_plate(Fam::Dkt, 8, false);
-    let rf = refine_uniform(&m.input, GeometryMode::Faceted).unwrap().input;
-    let r = solve(&rf);
-    println!("DKT refined 8->16: {:.4}", disp(&r, m.grid[4][4].0)[2].abs() / (0.00406 / plate_rigidity()));
-    let m = scordelis(Fam::Mitc4, 4);
-    let seq = sequence(&m.input, 3);
-    println!("MITC4 Scordelis refined: {:?}", seq.iter().map(|(_, r)| disp(r, m.grid[0][4].0)[2].abs()).collect::<Vec<_>>());
+fn convergence_pinched_cylinder_and_hemisphere() {
+    for fam in [Fam::Mitc4, Fam::Curved] {
+        let m = pinched_cylinder(fam, 8);
+        let id = m.grid[0][0].0;
+        let (v, ext, p) = richardson_of(&m.input, 3, &|r| disp(r, id)[1].abs());
+        println!("{fam:?} pinched cylinder: {v:?} → {ext:.5e} (p={p:?}), ref 1.8248e-5");
+        assert!((ext / 1.8248e-5 - 1.0).abs() < 0.03, "{fam:?} pinched cylinder {ext:.4e}");
+
+        let m = hemisphere(fam, 8);
+        let id = m.grid[0][0].0;
+        let (v, ext, p) = richardson_of(&m.input, 3, &|r| disp(r, id)[0].abs());
+        println!("{fam:?} hemisphere: {v:?} → {ext:.5} (p={p:?}), ref 0.093 (0.0924–0.094)");
+        assert!(ext > 0.0924 * 0.98 && ext < 0.094 * 1.02, "{fam:?} hemisphere {ext:.5}");
+    }
+}
+
+/// Plates: Morley's skew plate (DKT; the Mindlin elements are not in the asymptotic range on
+/// these meshes, which the check reports instead of extrapolating) and the simply supported and
+/// clamped squares against Timoshenko's coefficients.
+#[test]
+fn convergence_plates() {
+    let (m, wref) = morley(Fam::Dkt, 4);
+    let id = m.grid[2][2].0;
+    let (v, ext, p) = richardson_of(&m.input, 3, &|r| disp(r, id)[2].abs());
+    println!("DKT Morley: {:?} → {:.4} (p={p:?})", v.iter().map(|x| x / wref).collect::<Vec<_>>(), ext / wref);
+    assert!((ext / wref - 1.0).abs() < 0.02);
+
+    let (m, wref) = morley(Fam::Mitc4, 4);
+    let id = m.grid[2][2].0;
+    let v: Vec<f64> = sequence(&m.input, 3).iter().map(|(_, r)| disp(r, id)[2].abs() / wref).collect();
+    let (_, _, _, status) = richardson(&v[1..]);
+    println!("MITC4 Morley: {v:?} ({status})");
+    assert_ne!(status, "converging", "MITC4 on Morley is not asymptotic at these meshes and must say so");
+
+    for fam in [Fam::Mitc4, Fam::Dkt, Fam::Mitc9] {
+        for clamped in [false, true] {
+            let m = square_plate(fam, 4, clamped);
+            let id = m.grid[2][2].0;
+            // Timoshenko & Woinowsky-Krieger: 0.00406 (simply supported), 0.00126 (clamped).
+            let wref = if clamped { 0.00126 } else { 0.00406 } / plate_rigidity();
+            let (v, ext, p) = richardson_of(&m.input, 3, &|r| disp(r, id)[2].abs() / wref);
+            println!("{fam:?} square plate clamped={clamped}: {v:?} → {ext:.4} (p={p:?})");
+            assert!((ext - 1.0).abs() < 0.012, "{fam:?} clamped={clamped}: {ext:.4}");
+        }
+    }
+}
+
+// ==================== Refinement ====================
+
+fn total_reaction(r: &AnalysisResults3D) -> [f64; 3] {
+    r.reactions.iter().fold([0.0; 3], |a, x| [a[0] + x.fx, a[1] + x.fy, a[2] + x.fz])
+}
+
+/// A plate on two edge beams: refinement splits the beams at the new edge nodes (so they stay
+/// connected), carries the member and pressure loads over with the same totals, and gives the
+/// new edge nodes the supports of their neighbours, but not the diagonal of a corner triangle.
+#[test]
+fn refinement_keeps_loads_supports_and_members() {
+    let mut m = square_plate(Fam::Dkt, 4, false);
+    m.input.sections.insert("1".into(), SolverSection3D {
+        id: 1, name: None, a: 0.01, iy: 1e-5, iz: 1e-5, j: 2e-5, cw: None, as_y: None, as_z: None,
+    });
+    let mut eid = 1000;
+    for j in 0..4 {
+        let (a, b) = (m.grid[2][j].0, m.grid[2][j + 1].0);
+        m.input.elements.insert(eid.to_string(), SolverElement3D {
+            id: eid, elem_type: "frame".into(), node_i: a, node_j: b, material_id: 1, section_id: 1,
+            release_my_start: false, release_my_end: false, release_mz_start: false, release_mz_end: false,
+            release_t_start: false, release_t_end: false, local_yx: None, local_yy: None, local_yz: None, roll_angle: None,
+        });
+        m.input.loads.push(SolverLoad3D::Distributed(SolverDistributedLoad3D {
+            element_id: eid, q_xi: 0.0, q_xj: 0.0, q_yi: 0.0, q_yj: 0.0, q_zi: -2.0, q_zj: -2.0, a: None, b: None,
+        }));
+        eid += 1;
+    }
+    let r0 = solve(&m.input);
+    let refined = refine_uniform(&m.input, GeometryMode::Smooth).unwrap();
+    let rf = &refined.input;
+    assert_eq!(rf.plates.len(), 4 * m.input.plates.len());
+    assert_eq!(rf.elements.len(), 8, "each beam along a split edge is split in two");
+    // Every beam end is a node of the refined shell mesh.
+    let shell_nodes: std::collections::HashSet<usize> = rf.plates.values().flat_map(|p| p.nodes).collect();
+    assert!(rf.elements.values().all(|e| shell_nodes.contains(&e.node_i) && shell_nodes.contains(&e.node_j)));
+    let r1 = solve(rf);
+    let (t0, t1) = (total_reaction(&r0), total_reaction(&r1));
+    assert!((t0[2] - t1[2]).abs() < 1e-9 * t0[2].abs(), "total load preserved: {t0:?} vs {t1:?}");
+    // Supported nodes: the boundary of the 8 × 8 mesh, no more.
+    let supported: std::collections::HashSet<usize> = rf.supports.values().map(|s| s.node_id).collect();
+    for n in rf.nodes.values() {
+        let on_edge = n.x.abs() < 1e-9 || n.y.abs() < 1e-9 || (n.x - 1.0).abs() < 1e-9 || (n.y - 1.0).abs() < 1e-9;
+        assert_eq!(supported.contains(&n.id), on_edge, "node {} at ({}, {})", n.id, n.x, n.y);
+    }
+}
+
+#[test]
+fn refinement_refuses_what_it_cannot_extend() {
+    let mut m = square_plate(Fam::Mitc4, 2, false);
+    m.input.constraints.push(Constraint::EqualDOF(EqualDOFConstraint { master_node: m.grid[1][1].0, slave_node: m.grid[1][2].0, dofs: vec![0] }));
+    let err = convergence_study_3d(&m.input, &ConvergenceOptions::default()).unwrap_err();
+    assert_eq!(err, "constraints");
+}
+
+/// A frame-only model has nothing to estimate and says why: exact members.
+#[test]
+fn frames_only_estimate_says_exact() {
+    let mut input = empty_input();
+    input.materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
+    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-5, iz: 1e-5, j: 2e-5, cw: None, as_y: None, as_z: None });
+    input.nodes.insert("1".into(), SolverNode3D { id: 1, x: 0.0, y: 0.0, z: 0.0 });
+    input.nodes.insert("2".into(), SolverNode3D { id: 2, x: 4.0, y: 0.0, z: 0.0 });
+    input.elements.insert("1".into(), SolverElement3D {
+        id: 1, elem_type: "frame".into(), node_i: 1, node_j: 2, material_id: 1, section_id: 1,
+        release_my_start: false, release_my_end: false, release_mz_start: false, release_mz_end: false,
+        release_t_start: false, release_t_end: false, local_yx: None, local_yy: None, local_yz: None, roll_angle: None,
+    });
+    input.supports.insert("1".into(), support(1, [true; 6]));
+    input.loads.push(nodal(2, [0.0, 0.0, -10.0]));
+    let r = solve(&input);
+    let e = estimate(&input, &r);
+    assert_eq!(e.relative_error, None);
+    assert!(e.notes.contains(&"framesExact".to_string()) && e.notes.contains(&"noShellElements".to_string()));
+    let json = serde_json::to_value(&e).unwrap();
+    assert_eq!(json["certified"], serde_json::json!(false));
+}
+
+/// Curved-shell self-weight takes its density in kg/m³ like every other shell (it used to weigh
+/// 1000× too much).
+#[test]
+fn curved_shell_self_weight_matches_quads() {
+    let w = |fam: Fam| {
+        let map = |u: f64, v: f64| ([u, v, 0.0], [0.0, 0.0, 1.0]);
+        let bc = |i: usize, j: usize, mx: usize, my: usize| (i == 0 || j == 0 || i == mx || j == my).then_some([true; 6]);
+        let m = surface(fam, 2, 2, 0.2, 30_000.0, 0.2, &map, &bc, Load::Weight([0.0, 0.0, -9.81]));
+        total_reaction(&solve(&m.input))[2]
+    };
+    let (q, c) = (w(Fam::Mitc4), w(Fam::Curved));
+    // ρ = 1000/t kg/m³ with g = 9.81: 9.81 kN/m² over 1 m².
+    assert!((q - 9.81).abs() < 1e-9 && (c - 9.81).abs() < 1e-9, "quad {q}, curved {c}");
 }
