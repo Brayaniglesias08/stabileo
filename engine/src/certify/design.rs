@@ -1236,6 +1236,7 @@ mod tests {
                 AiscElement { kind: AiscElementKind::RolledFlange, b: 0.1525, t: 0.0154, count: Some(4.0), kc: None },
                 AiscElement { kind: AiscElementKind::Web, b: 0.255, t: 0.0099, count: None, kc: None },
             ]),
+            lcz: None,
             load_position: None,
         }
     }

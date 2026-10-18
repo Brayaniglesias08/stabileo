@@ -41,6 +41,7 @@ fn w14x22() -> SteelMemberData {
         depth: Some(0.348),
         flange_slenderness: None,
         compression_elements: None,
+        lcz: None,
         load_position: None,
     }
 }
