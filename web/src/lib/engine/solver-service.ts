@@ -1407,10 +1407,13 @@ export function buildSolverLoads3D(
     if (l.type === 'nodal') {
       const vertical = get2DDisplayNodalLoadVertical(l.data);
       const moment = get2DDisplayNodalLoadMoment(l.data);
+      // Standing in X–Z the plane is a reflection of the drawn X–Y one, (x, y) → (x, 0, y): a
+      // counter-clockwise couple as drawn is about −Y there, as the reactions read (embedded My is
+      // the plane's with its sign turned). It went in as +Y, the mirror image of the load drawn.
       solverLoads.push({
         type: 'nodal',
         data: project2DToXZ
-          ? { nodeId: l.data.nodeId, fx: l.data.fx, fy: 0, fz: vertical, mx: 0, my: moment, mz: 0 }
+          ? { nodeId: l.data.nodeId, fx: l.data.fx, fy: 0, fz: vertical, mx: 0, my: -moment, mz: 0 }
           : { nodeId: l.data.nodeId, fx: l.data.fx, fy: vertical, fz: 0, mx: 0, my: 0, mz: moment },
       });
     } else if (l.type === 'nodal3d') {
@@ -1793,6 +1796,11 @@ export function buildSolverInput3D(
         const supportDz = s.dz ?? s.dy;
         const supportDry = s.dry ?? s.drz;
         const embedded2D = project2DToXZ && !s.dofRestraints && is2DSupportType(s.type);
+        // A plane support's prescribed rotation is the plane's θ, counter-clockwise as drawn; standing
+        // in X–Z that is a rotation about −Y (θy = −θ, docs/solver/assembly-constraints.md §2.3), as
+        // for a nodal couple in `buildSolverLoads3D`. It went in unchanged: the support turned the
+        // other way from the one the plane solve turns it.
+        const embeddedDry = supportDry === undefined ? undefined : -supportDry;
         /*
          * A plane support's springs are kx, ky (vertical) and kz (rotation);
          * a space support's are kx, ky, kz (translations) and krx, kry, krz.
@@ -1814,7 +1822,7 @@ export function buildSolverInput3D(
           dy: embedded2D ? undefined : s.dy,
           dz: embedded2D ? supportDz : s.dz,
           drx: embedded2D ? undefined : s.drx,
-          dry: embedded2D ? supportDry : s.dry,
+          dry: embedded2D ? embeddedDry : s.dry,
           drz: embedded2D ? undefined : s.drz,
           normalX: s.normalX, normalY: s.normalY, normalZ: s.normalZ,
           isInclined: s.isInclined,
