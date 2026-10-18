@@ -15,7 +15,8 @@
 //!   source {citation, where, independence}, modelling [notes],
 //!   references [{quantity, ..selector.., value, tolAbs?, tolRel?, tolBasis}],
 //!   model (SolverInput / SolverInput3D).
-//! Quantities: "frequency" (Hz) / "period" (s) / "loadFactor" with `mode`
+//! Quantities: "frequency" (Hz) / "period" (s) / "eigenvalue" (omega^2,
+//! (rad/s)^2) / "loadFactor" with `mode`
 //! (1-based); "displacement" / "reaction" with `node` + `component`;
 //! "elementForce" with `element` + `component` (field names of the result
 //! structs, e.g. "ux", "rz", "mStart"). Reference values are in the engine's
@@ -89,11 +90,15 @@ fn computed(result: &Value, r: &Value) -> f64 {
         v[c].as_f64().unwrap_or_else(|| panic!("component {c} missing for {q}"))
     };
     match q {
-        "frequency" | "period" | "loadFactor" => {
+        "frequency" | "period" | "loadFactor" | "eigenvalue" => {
             let mode = r["mode"].as_u64().expect("mode") as usize;
             let modes = result["modes"].as_array().expect("modes");
             assert!(mode >= 1 && mode <= modes.len(), "mode {mode} not computed ({} modes)", modes.len());
-            field(&modes[mode - 1], q)
+            if q == "eigenvalue" {
+                field(&modes[mode - 1], "omega").powi(2)
+            } else {
+                field(&modes[mode - 1], q)
+            }
         }
         "displacement" | "reaction" => {
             let list = if q == "displacement" { &result["displacements"] } else { &result["reactions"] };
@@ -111,7 +116,7 @@ fn computed(result: &Value, r: &Value) -> f64 {
 fn describe(r: &Value) -> String {
     let q = r["quantity"].as_str().unwrap();
     match q {
-        "frequency" | "period" | "loadFactor" => format!("{q} mode {}", r["mode"]),
+        "frequency" | "period" | "loadFactor" | "eigenvalue" => format!("{q} mode {}", r["mode"]),
         "elementForce" => format!("{q} el {} {}", r["element"], r["component"].as_str().unwrap()),
         _ => format!("{q} node {} {}", r["node"], r["component"].as_str().unwrap()),
     }
@@ -186,6 +191,7 @@ const CASES: &[&str] = &[
     "asce_shm_120dof_undamaged",
     "asce_shm_120dof_damage_i",
     "asce_shm_120dof_damage_ii",
+    "bathe_wilson_10bay_9storey",
 ];
 
 macro_rules! cases {
@@ -199,4 +205,5 @@ cases!(
     asce_shm_120dof_undamaged,
     asce_shm_120dof_damage_i,
     asce_shm_120dof_damage_ii,
+    bathe_wilson_10bay_9storey,
 );
