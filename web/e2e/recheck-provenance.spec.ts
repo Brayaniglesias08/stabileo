@@ -32,7 +32,7 @@ function oldProject(materialId: 1 | 2, type: 'truss' | 'frame') {
         [2, { id: 2, type, nodeI: 3, nodeJ: 2, materialId, sectionId: 1, releaseI: rel, releaseJ: rel }],
         [3, { id: 3, type, nodeI: 1, nodeJ: 2, materialId, sectionId: 1, releaseI: rel, releaseJ: rel }],
       ],
-      supports: [[1, { id: 1, nodeId: 1, type: 'pinned3d' }], [2, { id: 2, nodeId: 2, type: 'pinned3d' }]],
+      supports: [[1, { id: 1, nodeId: 1, type: 'fixed3d' }], [2, { id: 2, nodeId: 2, type: 'fixed3d' }]],
       loads: [{ type: 'nodal3d', data: { id: 1, nodeId: 3, fx: 0, fy: 0, fz: -20, mx: 0, my: 0, mz: 0, caseId: 1 } }],
       loadCases: [{ id: 1, type: 'D', name: 'Dead Load' }],
       combinations: [],
@@ -45,7 +45,7 @@ const recheck = (page: Page) => page.evaluate(() => window.__stabileo.recheck())
 
 test.describe('@smoke re-check prompt for old projects', () => {
   test('a steel project lists the CIRSOC 301 tension change; the notice holds until acknowledged', async ({ pro: page }) => {
-    expect(await page.evaluate((f) => window.__stabileoActions.loadProject(f), oldProject(1, 'truss'))).toBe(true);
+    expect(await page.evaluate((f) => window.__stabileoActions.loadProject(f), oldProject(1, 'frame'))).toBe(true);
     const notice = page.getByTestId('recheck-notice');
     await expect(notice).toBeVisible();
     await expect(notice.locator('[data-change-id="cirsoc301-tension-needs-connection"]')).toBeVisible();
@@ -86,7 +86,7 @@ test.describe('@smoke re-check prompt for old projects', () => {
   });
 
   test('a project stamped with this version opens silently', async ({ pro: page }) => {
-    const f = oldProject(1, 'truss');
+    const f = oldProject(1, 'frame');
     const stamp = await page.evaluate(() => window.__stabileo.recheck().stampVersion);
     (f.snapshot as Record<string, unknown>).solvedWith = { id: 'e2e', resultsVersion: stamp, analyses: ['linear'] };
     expect(await page.evaluate((x) => window.__stabileoActions.loadProject(x), f)).toBe(true);
@@ -97,7 +97,12 @@ test.describe('@smoke re-check prompt for old projects', () => {
 
 test.describe('@smoke reproducible results', () => {
   test('worker and main thread, and two solves, give the same bits; reproduce confirms it', async ({ pro: page }) => {
-    await page.evaluate(() => window.__stabileoActions.loadExample('3d-portal-frame'));
+    // A model without combinations: with them, "all loads" is the sum of the case solves (another
+    // computation than one direct solve), so the thread comparison would compare two algorithms.
+    const f = oldProject(1, 'frame');
+    const stamp = await page.evaluate(() => window.__stabileo.recheck().stampVersion);
+    (f.snapshot as Record<string, unknown>).solvedWith = { id: 'e2e', resultsVersion: stamp, analyses: ['linear'] };
+    expect(await page.evaluate((x) => window.__stabileoActions.loadProject(x), f)).toBe(true);
     await page.evaluate(() => window.__stabileoActions.solve());
     // The base solve's hash, whatever result the view settled on after the solve.
     const baseHash = () => page.evaluate(() => {
