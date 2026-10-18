@@ -58,13 +58,17 @@ pub struct Item {
     pub tag: String,
     pub kind: Kind,
     pub v: Vec<f64>,
+    /// Smallest magnitude the item is compared against (in its own units):
+    /// e.g. an effective-mass tensor of a mode with no participation is
+    /// compared on the total mass, not on its own ~0 entries.
+    pub floor: f64,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Resp(pub Vec<Item>);
 
 fn item(node: Option<usize>, elem: Option<usize>, tag: &str, kind: Kind, v: Vec<f64>) -> Item {
-    Item { node, elem, tag: tag.into(), kind, v }
+    Item { node, elem, tag: tag.into(), kind, v, floor: 0.0 }
 }
 
 impl Resp {
@@ -73,6 +77,16 @@ impl Resp {
     }
     pub fn scalar(&mut self, tag: &str, dim: Dim, v: f64) {
         self.push(None, None, tag, Kind::Local(dim, false), vec![v]);
+    }
+    pub fn set_floor(&mut self, tag: &str, floor: f64) {
+        for it in self.0.iter_mut().filter(|i| i.tag == tag) {
+            it.floor = floor;
+        }
+    }
+    /// Keep only items whose key (node, element, tag) is also in `other`.
+    pub fn common(&self, other: &Resp) -> Resp {
+        let keys: std::collections::HashSet<(Option<usize>, Option<usize>, String)> = other.0.iter().map(|i| (i.node, i.elem, i.tag.clone())).collect();
+        Resp(self.0.iter().filter(|i| keys.contains(&(i.node, i.elem, i.tag.clone()))).cloned().collect())
     }
     /// Keep only items on the given nodes/elements (drop padding).
     pub fn retain_ids(&mut self, nodes: &std::collections::HashSet<usize>, elems: &std::collections::HashSet<usize>) {
@@ -188,6 +202,7 @@ impl Resp {
                 Kind::Stress => u.stress(),
             };
             it.v.iter_mut().for_each(|x| *x *= k);
+            it.floor *= k;
         }
         o
     }
@@ -217,7 +232,11 @@ impl Resp {
             // Local scalars without a translation/force/moment family are
             // compared on their own magnitude; tensors and pairs on the whole
             // quantity's magnitude.
-            let whole = it.v.iter().fold(0.0f64, |a, &b| a.max(b.abs()));
+            let whole = it.v.iter().fold(it.floor, |a, &b| a.max(b.abs()));
+            if it.floor > 0.0 {
+                let fam = match family { b't' => &mut f.t, b'r' => &mut f.r, b'f' => &mut f.f, b'm' => &mut f.m, b's' => &mut f.s, _ => &mut f.x };
+                fam.floor = fam.floor.max(it.floor);
+            }
             for (k, &v) in it.v.iter().enumerate() {
                 match family {
                     b't' => f.push_t(lab(k), v),

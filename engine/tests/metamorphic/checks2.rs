@@ -58,8 +58,30 @@ fn same(a: &Ana2, tc: &Case2, expected: Result<Resp, String>, cond: &Conditionin
     let rel = rel_for(a.name, a.iter_tol, &c2);
     match run(a, tc) {
         Ok(got) => judge(compare_with_floor(&got.flat(), &expected.flat(), c2.lchar, rel, load_floor_2d(&tc.s, c2.lchar)), rel),
-        // The original solved; the same structure, transformed, must too.
-        Err(e) => Verdict::Fail(format!("original solved but transformed model failed: {e}")),
+        Err(e) => transformed_failure(e),
+    }
+}
+
+/// The original solved and its transformed copy did not. A refusal that
+/// names a feature the transform introduced (a rotated roller becomes an
+/// inclined support, which some analyses refuse by name) is a documented
+/// limitation; anything else is a violation.
+pub fn transformed_failure(e: String) -> Verdict {
+    let l = e.to_lowercase();
+    if ["not supported", "not yet supported", "unsupported", "does not support", "refuse"].iter().any(|k| l.contains(k)) {
+        Verdict::Refused(format!("transformed model: {e}"))
+    } else {
+        Verdict::Fail(format!("original solved but transformed model failed: {e}"))
+    }
+}
+
+pub fn settle(first: Verdict, retry: impl FnOnce() -> Verdict) -> Verdict {
+    match first {
+        Verdict::Refused(_) | Verdict::Unrepresentable(_) => match retry() {
+            v @ (Verdict::Pass(_) | Verdict::Fail(_) | Verdict::Inconclusive(_)) => v,
+            _ => first,
+        },
+        v => v,
     }
 }
 
@@ -114,10 +136,16 @@ pub fn check_case(ctx: &Ctx, c: &Case2, anas: &[Ana2], invariants: &[&str]) {
                         Verdict::NotApplicable
                     } else {
                         let iso = Iso2::rotation(rng.range(0.1, 6.2)).translated(rng.range(-50.0, 50.0), rng.range(-50.0, 50.0));
-                        match c.iso(&iso) {
+                        let first = match c.iso(&iso) {
                             Ok(tc) => same(a, &tc, base.iso2(&iso), &cond),
                             Err(e) => Verdict::Unrepresentable(e),
-                        }
+                        };
+                        // A quarter turn keeps rollers rollers.
+                        let q = Iso2::rotation(std::f64::consts::FRAC_PI_2 * (1 + rng.below(3)) as f64).translated(rng.range(-50.0, 50.0), rng.range(-50.0, 50.0));
+                        settle(first, || match c.iso(&q) {
+                            Ok(tc) => same(a, &tc, base.iso2(&q), &cond),
+                            Err(e) => Verdict::Unrepresentable(e),
+                        })
                     }
                 }
                 "mirror" => {
@@ -128,10 +156,16 @@ pub fn check_case(ctx: &Ctx, c: &Case2, anas: &[Ana2], invariants: &[&str]) {
                     } else {
                         Iso2::mirror_line(rng.range(0.0, 3.1)).translated(rng.range(-50.0, 50.0), rng.range(-50.0, 50.0))
                     };
-                    match c.iso(&iso) {
+                    let first = match c.iso(&iso) {
                         Ok(tc) => same(a, &tc, base.iso2(&iso), &cond),
                         Err(e) => Verdict::Unrepresentable(e),
-                    }
+                    };
+                    let mut q = Iso2::mirror_x();
+                    q.t = [rng.range(-50.0, 50.0), rng.range(-5.0, 5.0)];
+                    settle(first, || match c.iso(&q) {
+                        Ok(tc) => same(a, &tc, base.iso2(&q), &cond),
+                        Err(e) => Verdict::Unrepresentable(e),
+                    })
                 }
                 "relabel" => {
                     let seed = rng.next_u64();

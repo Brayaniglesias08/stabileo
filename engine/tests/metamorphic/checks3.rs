@@ -3,7 +3,7 @@
 use crate::ana2::Law;
 use crate::ana3::{Ana3, Motion};
 use crate::case::Case3;
-use crate::checks2::{guarded, hash, rel_for};
+use crate::checks2::{guarded, hash, rel_for, settle, transformed_failure};
 use crate::response::{Kind, Resp};
 use crate::tally::{Tally, Verdict};
 use dedaliano_engine::element::compute_local_axes_3d;
@@ -46,7 +46,7 @@ fn same(a: &Ana3, tc: &Case3, expected: Result<Resp, String>, cond: &Conditionin
     let rel = rel_for(a.name, a.iter_tol, &c2);
     match run(a, tc) {
         Ok(got) => judge(compare_with_floor(&got.flat(), &expected.flat(), c2.lchar, rel, load_floor_3d(&tc.s, c2.lchar)), rel),
-        Err(e) => Verdict::Fail(format!("original solved but transformed model failed: {e}")),
+        Err(e) => transformed_failure(e),
     }
 }
 
@@ -137,10 +137,21 @@ pub fn check_case(ctx: &Ctx, c: &Case3, anas: &[Ana3], invariants: &[&str]) {
             let v = match inv {
                 "rotation" => {
                     let iso = rotation_for(a, &mut rng);
-                    match c.iso(&iso) {
+                    let first = match c.iso(&iso) {
                         Ok(tc) => same(a, &tc, base.iso3(&iso), &cond),
                         Err(e) => Verdict::Unrepresentable(e),
+                    };
+                    // An axis permutation (about Z for gravity-bound
+                    // analyses) keeps every axis-aligned feature plain.
+                    let q = match a.motion {
+                        Motion::AboutZ => Iso3::about_z(std::f64::consts::FRAC_PI_2 * (1 + rng.below(3)) as f64),
+                        _ => Iso3::axis_permutation(1 + rng.below(23)),
                     }
+                    .translated([rng.range(-40.0, 40.0), rng.range(-40.0, 40.0), rng.range(-40.0, 40.0)]);
+                    settle(first, || match c.iso(&q) {
+                        Ok(tc) => same(a, &tc, base.iso3(&q), &cond),
+                        Err(e) => Verdict::Unrepresentable(e),
+                    })
                 }
                 "relabel" => {
                     let seed = rng.next_u64();

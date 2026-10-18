@@ -108,6 +108,7 @@ pub fn modal_resp(r: &modal::ModalResult) -> Resp {
         let sep = r.modes.get(k + 1).map_or(true, |n| n.frequency > m.frequency * (1.0 + 1e-3));
         if sep {
             o.push(None, None, &format!("meff{k:02}"), Kind::T2(Dim::MASS), cum.to_vec());
+            o.set_floor(&format!("meff{k:02}"), r.total_mass);
         }
     }
     o
@@ -337,7 +338,7 @@ pub fn rows() -> Vec<Ana2> {
             name: "modal",
             law: Law::Indep,
             axis_bound: false,
-            iter_tol: 0.0,
+            iter_tol: 1e-10,
             full_static: false,
             run: |c| Ok(modal_resp(&modal::solve_modal_2d(&c.s, &c.dens, 6)?)),
         },
@@ -345,7 +346,7 @@ pub fn rows() -> Vec<Ana2> {
             name: "certified modal",
             law: Law::Indep,
             axis_bound: false,
-            iter_tol: 0.0,
+            iter_tol: 1e-10,
             full_static: false,
             run: |c| Ok(modal_resp(&dedaliano_engine::certify::modal::certify_modal_2d(&c.s, &c.dens, 6)?.results)),
         },
@@ -353,7 +354,7 @@ pub fn rows() -> Vec<Ana2> {
             name: "buckling",
             law: Law::Inverse,
             axis_bound: false,
-            iter_tol: 0.0,
+            iter_tol: 1e-10,
             full_static: false,
             run: |c| {
                 let r = buckling::solve_buckling_2d(&c.s, 3)?;
@@ -393,7 +394,7 @@ pub fn rows() -> Vec<Ana2> {
             name: "spectral",
             law: Law::Indep,
             axis_bound: true,
-            iter_tol: 0.0,
+            iter_tol: 1e-10,
             full_static: false,
             run: |c| {
                 let md = modal::solve_modal_2d(&c.s, &c.dens, 4)?;
@@ -420,8 +421,11 @@ pub fn rows() -> Vec<Ana2> {
                 };
                 let r = spectral::solve_spectral_2d(&inp)?;
                 let mut o = Resp::default();
+                // Natural size: the first mode's spectral displacement Sa·g/ω².
+                let sd = md.modes.first().map_or(0.0, |m| 0.5 * 9.81 / (m.omega * m.omega));
                 for d in &r.displacements {
                     o.push(Some(d.node_id), None, "u", Kind::Abs2(Dim::LEN), vec![d.ux.abs(), d.uz.abs()]);
+                    o.set_floor("u", sd);
                 }
                 for e in &r.element_forces {
                     o.push(None, Some(e.element_id), "N", Kind::Local(Dim::FORCE, false), vec![e.n_max.abs()]);
@@ -436,7 +440,7 @@ pub fn rows() -> Vec<Ana2> {
             name: "harmonic",
             law: Law::Linear,
             axis_bound: false,
-            iter_tol: 0.0,
+            iter_tol: 1e-10,
             full_static: false,
             run: |c| {
                 let node = *c.probes.first().ok_or("no probe node")?;

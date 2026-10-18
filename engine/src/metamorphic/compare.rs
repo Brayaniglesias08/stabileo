@@ -19,6 +19,9 @@ pub struct Family {
     /// tensor or an envelope pair is compared on the magnitude of the whole
     /// quantity, a lone scalar on its own).
     pub scales: Vec<f64>,
+    /// Lower bound on the family's magnitude scale (a quantity's natural
+    /// size when the values themselves can legitimately all vanish).
+    pub floor: f64,
 }
 
 impl Family {
@@ -31,7 +34,7 @@ impl Family {
         self.scales.push(scale);
     }
     pub fn maxabs(&self) -> f64 {
-        self.vals.iter().fold(0.0f64, |a, &b| a.max(b.abs()))
+        self.vals.iter().fold(self.floor, |a, &b| a.max(b.abs()))
     }
 }
 
@@ -213,6 +216,7 @@ impl Flat {
             vals: u.vals.iter().zip(&v.vals).map(|(p, q)| a * p + b * q).collect(),
             labels: u.labels.clone(),
             scales: u.scales.iter().zip(&v.scales).map(|(p, q)| a.abs() * p + b.abs() * q).collect(),
+            floor: a.abs() * u.floor + b.abs() * v.floor,
         };
         Flat { t: c(&x.t, &y.t), r: c(&x.r, &y.r), f: c(&x.f, &y.f), m: c(&x.m, &y.m), s: c(&x.s, &y.s), x: c(&x.x, &y.x) }
     }
@@ -223,6 +227,7 @@ impl Flat {
             vals: u.vals.iter().zip(&v.vals).map(|(p, q)| (a * p).abs() + (b * q).abs()).collect(),
             labels: u.labels.clone(),
             scales: u.scales.iter().zip(&v.scales).map(|(p, q)| a.abs() * p + b.abs() * q).collect(),
+            floor: a.abs() * u.floor + b.abs() * v.floor,
         };
         Flat { t: c(&x.t, &y.t), r: c(&x.r, &y.r), f: c(&x.f, &y.f), m: c(&x.m, &y.m), s: c(&x.s, &y.s), x: c(&x.x, &y.x) }
     }

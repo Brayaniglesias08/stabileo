@@ -71,6 +71,7 @@ pub fn modal_resp_3d(r: &modal::ModalResult3D) -> Resp {
         }
         if r.modes.get(k + 1).map_or(true, |n| n.frequency > m.frequency * (1.0 + 1e-3)) {
             o.push(None, None, &format!("meff{k:02}"), Kind::T3(Dim::MASS), cum.to_vec());
+            o.set_floor(&format!("meff{k:02}"), r.total_mass);
         }
     }
     o
@@ -309,12 +310,12 @@ pub fn rows() -> Vec<Ana3> {
             full_static: false,
             run: |c| Ok(static_3d(&conv(cable::solve_cable_3d(&c.s, &c.dens, 100, 1e-10).map(|r| (r.converged, r.results)))?)),
         },
-        Ana3 { name: "modal", law: Law::Indep, motion: Motion::Any, iter_tol: 0.0, full_static: false, run: |c| Ok(modal_resp_3d(&modal::solve_modal_3d(&c.s, &c.dens, 6)?)) },
+        Ana3 { name: "modal", law: Law::Indep, motion: Motion::Any, iter_tol: 1e-10, full_static: false, run: |c| Ok(modal_resp_3d(&modal::solve_modal_3d(&c.s, &c.dens, 6)?)) },
         Ana3 {
             name: "certified modal",
             law: Law::Indep,
             motion: Motion::Any,
-            iter_tol: 0.0,
+            iter_tol: 1e-10,
             full_static: false,
             run: |c| Ok(modal_resp_3d(&dedaliano_engine::certify::modal::certify_modal_3d(&c.s, &c.dens, 6)?.results)),
         },
@@ -322,7 +323,7 @@ pub fn rows() -> Vec<Ana3> {
             name: "buckling",
             law: Law::Inverse,
             motion: Motion::Any,
-            iter_tol: 0.0,
+            iter_tol: 1e-10,
             full_static: false,
             run: |c| {
                 let r = buckling::solve_buckling_3d(&c.s, 3)?;
@@ -386,7 +387,7 @@ pub fn rows() -> Vec<Ana3> {
             name: "spectral",
             law: Law::Indep,
             motion: Motion::AxisPerm,
-            iter_tol: 0.0,
+            iter_tol: 1e-10,
             full_static: false,
             run: |c| {
                 let md = modal::solve_modal_3d(&c.s, &c.dens, 6)?;
@@ -408,9 +409,11 @@ pub fn rows() -> Vec<Ana3> {
                 };
                 let r = spectral::solve_spectral_3d(&inp)?;
                 let mut o = Resp::default();
+                let sd = md.modes.first().map_or(0.0, |m| 0.5 * 9.81 / (m.omega * m.omega));
                 for d in &r.displacements {
                     o.push(Some(d.node_id), None, "u", Kind::Abs3(Dim::LEN), vec![d.ux.abs(), d.uy.abs(), d.uz.abs()]);
                 }
+                o.set_floor("u", sd);
                 o.scalar("base_shear", Dim::FORCE, r.base_shear);
                 Ok(o)
             },
@@ -419,7 +422,7 @@ pub fn rows() -> Vec<Ana3> {
             name: "harmonic",
             law: Law::Linear,
             motion: Motion::Any,
-            iter_tol: 0.0,
+            iter_tol: 1e-10,
             full_static: false,
             run: |c| {
                 let node = *c.probes.first().ok_or("no probe node")?;

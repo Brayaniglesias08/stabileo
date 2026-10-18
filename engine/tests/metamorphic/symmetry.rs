@@ -125,6 +125,8 @@ pub fn symmetrize_2d(name: &str, half: &SolverInput, anti: bool) -> Option<Sym2>
     }
     let mut case = Case2::new(format!("{name}/{}", if anti { "anti" } else { "sym" }), full);
     case.path = None;
+    // Single-node responses (harmonic) are read on the symmetry line.
+    case.probes = axis.clone();
     Some(Sym2 { case, iso, pair })
 }
 
@@ -157,7 +159,12 @@ pub fn check_2d(tally: &Tally, sym: &Sym2, anti: bool, anas: &[Ana2]) {
             Ok(r) => match r.iso2(&sym.iso) {
                 Err(e) => Verdict::Unrepresentable(e),
                 Ok(img) => {
-                    let mut exp = img.relabel(&sym.pair);
+                    let mut exp = img.relabel(&sym.pair).common(&r);
+                    let r = r.common(&exp);
+                    if r.0.is_empty() {
+                        tally.record(a.name, "symmetry", &c.name, Verdict::NotApplicable);
+                        continue;
+                    }
                     if anti {
                         exp.0.iter_mut().for_each(|i| i.v.iter_mut().for_each(|x| *x = -*x));
                     }
@@ -302,6 +309,7 @@ pub fn symmetrize_3d(name: &str, half: &SolverInput3D, anti: bool) -> Option<Sym
     }
     let mut case = Case3::new(format!("{name}/{}", if anti { "anti" } else { "sym" }), full);
     case.path = None;
+    case.probes = axis.clone();
     Some(Sym3 { case, iso, pair })
 }
 
@@ -325,7 +333,12 @@ pub fn check_3d(tally: &Tally, sym: &Sym3, anti: bool, anas: &[Ana3]) {
             Ok(r) => match r.iso3(&sym.iso) {
                 Err(e) => Verdict::Unrepresentable(e),
                 Ok(img) => {
-                    let mut exp = img.relabel(&sym.pair);
+                    let mut exp = img.relabel(&sym.pair).common(&r);
+                    let r = r.common(&exp);
+                    if r.0.is_empty() {
+                        tally.record(a.name, "symmetry", &c.name, Verdict::NotApplicable);
+                        continue;
+                    }
                     if anti {
                         exp.0.iter_mut().for_each(|i| i.v.iter_mut().for_each(|x| *x = -*x));
                     }
