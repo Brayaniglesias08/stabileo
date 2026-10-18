@@ -51,7 +51,14 @@
   /** Start from CIRSOC 101, strength and service, for the loads the model has. */
   function seed() {
     const present = presentSymbols(modelStore.model.loadCases);
-    const specs = [...generateCombinations({ present }), ...generateServiceCombinations({ present })];
+    let specs;
+    try {
+      specs = [...generateCombinations({ present }), ...generateServiceCombinations({ present })];
+    } catch (err) {
+      // The combinations are the engine's; without it, say so rather than seed nothing silently.
+      uiStore.toast(`${t('engine.failed')} ${(err as Error)?.message ?? err}`, 'error');
+      return;
+    }
     const ids = freshRuleIds(rules, specs.length);
     write([...rules, ...specs.map((s, i) => specToRule(s, ids[i]!))]);
   }
