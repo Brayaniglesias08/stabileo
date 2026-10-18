@@ -72,6 +72,8 @@ fn cantilever_frame_3d(
     sections.insert("1".into(), SolverSection3D {
         id: 1, name: None, a, iy, iz, j,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();
@@ -256,6 +258,8 @@ fn make_mixed_frame_shell_model() -> (SolverInput3D, usize, usize) {
         id: 1, name: None,
         a: col_a, iy: col_i, iz: col_i, j: 2.0 * col_i,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     // 4 column elements (frame): base -> plate corner
@@ -834,6 +838,8 @@ fn shell_nonlinear_08_multi_element_cantilever_convergence() {
     sections.insert("1".into(), SolverSection3D {
         id: 1, name: None, a, iy: i_val, iz: i_val, j: j_val,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();

@@ -1975,6 +1975,8 @@ fn benchmark_mixed_frame_shell_building() {
         id: 1, name: None,
         a: 0.09, iy: 6.75e-4, iz: 6.75e-4, j: 1.0e-3,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
     let mut mats = HashMap::new();
     mats.insert("1".to_string(), SolverMaterial { id: 1, e, nu });

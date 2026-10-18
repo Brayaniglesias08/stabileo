@@ -426,6 +426,8 @@ fn validation_timoshenko_3d_deep_beam() {
     secs_map.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: AREA, iy, iz, j, cw: None,
         as_y: Some(as_y), as_z: Some(as_z),
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elems_map = HashMap::new();

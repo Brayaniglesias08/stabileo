@@ -2419,6 +2419,8 @@ fn make_cantilever_frame_3d(n_elem: usize) -> SolverInput3D {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.0625, iy: 2.0e-4, iz: 3.2552e-4, j: 5.0e-4,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();

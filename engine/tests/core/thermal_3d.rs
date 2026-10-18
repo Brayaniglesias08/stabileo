@@ -36,6 +36,8 @@ fn make_3d_input(
         secs_map.insert(id.to_string(), SolverSection3D {
             id, name: None, a, iy, iz, j,
             cw: None, as_y: None, as_z: None,
+            shear_center_y: None,
+            shear_center_z: None,
         });
     }
     let mut elems_map = HashMap::new();

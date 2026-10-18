@@ -1222,6 +1222,19 @@ pub fn solve_corotational_3d(
         return Err("Corotational 3D solver does not support shell elements. \
             Use the linear solver for models with plates, quads, or shells.".into());
     }
+    // The co-rotational element carries the Wagner term of a doubly symmetric
+    // section (internal torque and tangent) but not the shear-centre coupling of
+    // a monosymmetric one: refused rather than missing its flexural-torsional
+    // instability without a word.
+    if let Some(sec) = input.sections.values().find(|s| {
+        s.shear_center_y.is_some_and(|v| v != 0.0) || s.shear_center_z.is_some_and(|v| v != 0.0)
+    }) {
+        return Err(format!(
+            "Corotational 3D solver does not model a shear-centre offset (section {}): \
+             flexural-torsional coupling is not included. Use linear buckling or P-Delta.",
+            sec.id
+        ));
+    }
 
     // Expand curved beams before DOF numbering and assembly.
     // As in 2D: no prescribed-displacement term, and
@@ -1766,6 +1779,17 @@ fn assemble_frame_corotational_3d(
     }
     current_length_shears(&mut f_local, l0, l_n);
 
+    // Wagner torque P·r0²·θ' (doubly symmetric section, r0² = (Iy + Iz)/A): the
+    // axial stress on fibres helixed by the twist. It is what makes a compressed
+    // member lose torsional stiffness, and the tangent below carries the same term.
+    let kg_sec = super::geometric_stiffness::KgSection { r0_sq: if a > 0.0 { (iy + iz) / a } else { 0.0 }, y0: 0.0, z0: 0.0 };
+    let axial_p = -f_local[0]; // Tension positive
+    if !elem.release_t_start && !elem.release_t_end {
+        let tw = axial_p * kg_sec.r0_sq / l_n * (d_nat[9] - d_nat[3]);
+        f_local[3] -= tw;
+        f_local[9] += tw;
+    }
+
     // Corotated transformation matrix
     let t_n = frame_transform_3d(&ex_n, &ey_n, &ez_n);
 
@@ -1790,11 +1814,10 @@ fn assemble_frame_corotational_3d(
     // Tangent stiffness: T_n^T * K_local * T_n
     let k_glob = transform_stiffness(&k_local, &t_n, 12);
 
-    // Geometric stiffness (Przemieniecki formula)
-    let axial_p = -f_local[0]; // Tension positive
+    // Geometric stiffness (Przemieniecki formula, plus the Wagner term above)
     // Condensed for the end releases: a released end rotation belongs to no
     // one, and the uncondensed matrix put −4·P·L/30 on it.
-    let k_geo_local = super::geometric_stiffness::frame_kg_local_3d(axial_p, l_n, &Hinge3D::from_elem(elem));
+    let k_geo_local = super::geometric_stiffness::frame_kg_local_3d(axial_p, l_n, &Hinge3D::from_elem(elem), &kg_sec);
     let k_geo_global = transform_stiffness(&k_geo_local, &t_n, 12);
 
     // Scatter to global

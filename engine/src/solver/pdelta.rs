@@ -678,8 +678,8 @@ mod tests {
         let mut materials = HashMap::new();
         materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
         let mut sections = HashMap::new();
-        sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.012, iy: 1.5e-4, iz: 1.5e-4, j: 2.0e-6, cw: None, as_y: None, as_z: None });
-        sections.insert("2".into(), SolverSection3D { id: 2, name: None, a: 0.008, iy: 2.5e-4, iz: 1.0e-5, j: 1.0e-6, cw: None, as_y: None, as_z: None });
+        sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.012, iy: 1.5e-4, iz: 1.5e-4, j: 2.0e-6, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None });
+        sections.insert("2".into(), SolverSection3D { id: 2, name: None, a: 0.008, iy: 2.5e-4, iz: 1.0e-5, j: 1.0e-6, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None });
         SolverInput3D {
             solver_options: None,
             nodes, materials, sections, elements, supports, loads, constraints, left_hand: None,

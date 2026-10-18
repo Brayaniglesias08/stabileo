@@ -147,7 +147,7 @@ fn constrained_frame_only_model_has_no_shell_stresses() {
     let mut mats = HashMap::new();
     mats.insert("1".into(), SolverMaterial { id: 1, e: 30_000_000.0, nu: 0.2 });
     let mut secs = HashMap::new();
-    secs.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.09, iy: 6.75e-4, iz: 6.75e-4, j: 1.0e-3, cw: None, as_y: None, as_z: None });
+    secs.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.09, iy: 6.75e-4, iz: 6.75e-4, j: 1.0e-3, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None });
     let mut elems = HashMap::new();
     elems.insert("1".into(), SolverElement3D {
         id: 1, elem_type: "frame".into(), node_i: 1, node_j: 2, material_id: 1, section_id: 1,

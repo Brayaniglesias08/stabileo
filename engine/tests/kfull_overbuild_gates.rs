@@ -63,6 +63,8 @@ fn make_cantilever_3d(n_elem: usize) -> SolverInput3D {
             cw: None,
             as_y: None,
             as_z: None,
+            shear_center_y: None,
+            shear_center_z: None,
         },
     );
 

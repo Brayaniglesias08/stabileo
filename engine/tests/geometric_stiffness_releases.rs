@@ -40,8 +40,8 @@ fn frame_with_leaning_column(p: f64, lateral: f64) -> SolverInput3D {
     let nodes = [(1, 0.0, 0.0), (2, 0.0, H), (3, 6.0, 0.0), (4, 6.0, H)]
         .into_iter().map(|(id, x, z)| (id.to_string(), SolverNode3D { id, x, y: 0.0, z })).collect();
     let sections = HashMap::from([
-        ("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: I, iz: I, j: 2.0 * I, cw: None, as_y: None, as_z: None }),
-        ("2".into(), SolverSection3D { id: 2, name: None, a: 1.0, iy: I, iz: I, j: 2.0 * I, cw: None, as_y: None, as_z: None }),
+        ("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: I, iz: I, j: 2.0 * I, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None }),
+        ("2".into(), SolverSection3D { id: 2, name: None, a: 1.0, iy: I, iz: I, j: 2.0 * I, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None }),
     ]);
     let elements = HashMap::from([
         ("1".into(), frame(1, 1, 2, 1, false, false)), // the cantilever
@@ -103,7 +103,7 @@ fn fixed_pinned_column(released: bool) -> SolverInput3D {
     SolverInput3D {
         solver_options: None,
         nodes, materials: HashMap::from([("1".into(), SolverMaterial { id: 1, e: E, nu: 0.3 })]),
-        sections: HashMap::from([("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: I, iz: I, j: 2.0 * I, cw: None, as_y: None, as_z: None })]),
+        sections: HashMap::from([("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: I, iz: I, j: 2.0 * I, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None })]),
         elements,
         supports: HashMap::from([("1".into(), support(1, true, false)), ("2".into(), head)]),
         loads: vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: top, fx: 0.0, fy: 0.0, fz: -1000.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None })],

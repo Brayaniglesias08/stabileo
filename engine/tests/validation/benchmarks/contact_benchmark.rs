@@ -529,6 +529,8 @@ fn benchmark_contact_3d_gap_closure() {
     let mut secs_map = HashMap::new();
     secs_map.insert("1".to_string(), dedaliano_engine::types::SolverSection3D {
         id: 1, name: None, a, iy, iz, j, cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elems_map = HashMap::new();

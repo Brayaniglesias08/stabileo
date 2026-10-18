@@ -289,6 +289,8 @@ pub fn random_3d_model(seed: u64) -> SolverInput3D {
                 cw: None,
                 as_y: None,
                 as_z: None,
+                shear_center_y: None,
+                shear_center_z: None,
             },
         );
     }

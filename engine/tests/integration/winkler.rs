@@ -112,6 +112,8 @@ fn make_3d_beam_on_foundation(
     sections.insert("0".to_string(), SolverSection3D {
         id: 0, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 2e-4,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let solver = SolverInput3D {

@@ -149,7 +149,7 @@ impl B3 {
             .map(|(k, s)| {
                 (
                     (k + 1).to_string(),
-                    SolverSection3D { id: k + 1, name: None, a: s.a, iy: s.iy, iz: s.iz, j: s.j, cw: None, as_y: None, as_z: None },
+                    SolverSection3D { id: k + 1, name: None, a: s.a, iy: s.iy, iz: s.iz, j: s.j, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None },
                 )
             })
             .collect();

@@ -245,6 +245,8 @@ fn make_frame_with_released_beam(n_stories: usize, n_bays: usize) -> SolverInput
     let mut secs = HashMap::new();
     secs.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: A, iy: IY, iz: IZ, j: J, cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut sups = HashMap::new();
