@@ -1,14 +1,17 @@
 //! Certified response-spectrum results. See "Response spectrum" in
 //! `docs/verification/CERTIFY.md`.
 //!
-//! The certified quantity is the spectral response (SRSS or CQC, as the solver
-//! combines) of the **exact lowest `m` modes** of the pencil `(K, M)` — `m` the
+//! The certified quantity is the spectral response (SRSS or CQC, as requested — the
+//! rule applies to every quantity: displacements, each end's signed member force, base
+//! shear) of the **exact lowest `m` modes** of the pencil `(K, M)` — `m` the
 //! number of modes given — with the spectrum evaluated at the exact periods.
 //! Nothing the input says about frequencies, participation factors or
 //! effective masses is trusted; the given mode shapes and ω are candidates.
 //!
 //! Per mode, with `C = K^{-1/2}MK^{-1/2}`, `y = K^{1/2}φ`, `b = K^{-1/2}Mr`
-//! (`r` the influence vector), the exact peak modal displacement is
+//! (`Mr` the ground-motion load (M·r)_f: the full mass times the rigid translation of
+//! every node, supports included, so the inertia a consistent mass couples to the moving
+//! supports is part of it), the exact peak modal displacement is
 //!
 //! `u* = φ (φᵀMr)/(φᵀMφ) · Sa(T)/ω² = K^{-1/2} Π b · Sa(T)`,
 //!
@@ -35,7 +38,10 @@ use crate::linalg::sparse::CscMatrix;
 use crate::solver::assembly::assemble_stiffness_sparse_3d;
 use crate::solver::dof::DofNumbering;
 use crate::solver::linear::{compute_internal_forces_2d_with_loads, compute_internal_forces_3d_with_loads};
-use crate::solver::mass_matrix::{assemble_mass_matrix_2d_sparse, assemble_mass_matrix_3d_sparse};
+use crate::solver::mass_matrix::{
+    assemble_mass_matrix_2d_sparse, assemble_mass_matrix_2d_sparse_block, assemble_mass_matrix_3d_sparse,
+    assemble_mass_matrix_3d_sparse_block,
+};
 use crate::solver::sparse_assembly::assemble_stiffness_sparse_2d;
 use crate::solver::spectral::{solve_spectral_2d, solve_spectral_3d, CombinationRule, SpectralResult, SpectralResult3D};
 use crate::types::*;
@@ -159,8 +165,10 @@ struct Problem<'a> {
     m: CscMatrix,
     /// Computed (λ̃ = ω̃², φ̃ on free DOFs), in input order.
     modes: Vec<(f64, Vec<f64>)>,
-    /// Influence vector on free DOFs.
-    r: Vec<f64>,
+    /// The ground-motion load (M·r)_f on the free DOFs: the full mass times the rigid
+    /// translation of every node, supports included, enclosed. With a consistent mass the
+    /// free DOFs carry M_fr·r_r besides M_ff·r_f, as the solver's participation does.
+    mr: Vec<Interval>,
     spectrum: &'a DesignSpectrum,
     /// (9.81 if in g)·importance/reduction, enclosed.
     scale: Interval,
@@ -192,6 +200,7 @@ fn certify_2d_inner(input: &SpectralInput, results: &SpectralResult) -> Result<S
         return Err("unsupported: inclined supports".into());
     }
     let m = assemble_mass_matrix_2d_sparse(solver, &dof, &input.densities);
+    let m_full = assemble_mass_matrix_2d_sparse_block(solver, &dof, &input.densities, dof.n_total);
     let modes = input
         .modes
         .iter()
@@ -214,7 +223,7 @@ fn certify_2d_inner(input: &SpectralInput, results: &SpectralResult) -> Result<S
         k: stiff.k_ff,
         m,
         modes,
-        r: influence(&dof, dir),
+        mr: ground_load(&m_full, &dof, dir),
         spectrum: &input.spectrum,
         scale: scale(&input.spectrum, input.importance_factor, input.reduction_factor),
         cqc_xi: cqc_xi(input.rule.as_deref(), input.xi)?,
@@ -262,6 +271,7 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
         return Err("unsupported: inclined supports".into());
     }
     let m = assemble_mass_matrix_3d_sparse(solver, &dof, &input.densities);
+    let m_full = assemble_mass_matrix_3d_sparse_block(solver, &dof, &input.densities, dof.n_total);
     let modes = input
         .modes
         .iter()
@@ -288,7 +298,7 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
         k: stiff.k_ff,
         m,
         modes,
-        r: influence(&dof, dir),
+        mr: ground_load(&m_full, &dof, dir),
         spectrum: &input.spectrum,
         scale: scale(&input.spectrum, input.importance_factor, input.reduction_factor),
         cqc_xi: cqc_xi(input.rule.as_deref(), input.xi)?,
@@ -336,16 +346,18 @@ pub fn certify_spectral_results_3d(input: &SpectralInput3D, results: &SpectralRe
     certify_3d_inner(input, results).unwrap_or_else(SpectralCertificate::uncertified)
 }
 
-fn influence(dof: &DofNumbering, dir: usize) -> Vec<f64> {
-    let mut r = vec![0.0; dof.n_free];
+/// (M·r)_f enclosed: `m_full` the mass over all DOFs, r = 1 on every node's translation
+/// along `dir` (supports included), the free rows kept.
+fn ground_load(m_full: &CscMatrix, dof: &DofNumbering, dir: usize) -> Vec<Interval> {
+    let mut r = vec![0.0; dof.n_total];
     for &node in &dof.node_order {
         if let Some(&d) = dof.map.get(&(node, dir)) {
-            if d < dof.n_free {
-                r[d] = 1.0;
-            }
+            r[d] = 1.0;
         }
     }
-    r
+    let mut mr = sym_mul(m_full, &r);
+    mr.truncate(dof.n_free);
+    mr
 }
 
 fn scale(spectrum: &DesignSpectrum, importance: Option<f64>, reduction: Option<f64>) -> Interval {
@@ -432,7 +444,7 @@ fn mode_cores(p: &Problem) -> Result<Vec<ModeCore>, String> {
     if p.modes.is_empty() {
         return Err("no modes".into());
     }
-    if p.m.n != n || p.r.len() != n {
+    if p.m.n != n || p.mr.len() != n {
         return Err("dimension mismatch".into());
     }
     let kv: Vec<Interval> = p.k.values.iter().map(|&x| Interval::point(x)).collect();
@@ -448,8 +460,8 @@ fn mode_cores(p: &Problem) -> Result<Vec<ModeCore>, String> {
     let sorted: Vec<(f64, Vec<f64>)> = order.iter().map(|&i| p.modes[i].clone()).collect();
     let iso = isolate_modes(&p.k, &kv, &p.m, &mv, sigma_k, &sorted)?;
 
-    let mr = sym_mul(&p.m, &p.r);
-    let mr_norm = norm_up(&mr).ok_or("non-finite M·r")?;
+    let mr = &p.mr;
+    let mr_norm = norm_up(mr).ok_or("non-finite M·r")?;
     let two_pi = Interval::new(2.0 * std::f64::consts::PI, up(2.0 * std::f64::consts::PI));
     let mut out: Vec<Option<ModeCore>> = (0..p.modes.len()).map(|_| None).collect();
     for (&idx, is) in order.iter().zip(&iso) {
@@ -479,7 +491,7 @@ fn mode_cores(p: &Problem) -> Result<Vec<ModeCore>, String> {
         if !(pkp.lo > 0.0) {
             return Err(format!("mode {}: φᵀKφ not certified positive", idx + 1));
         }
-        let pmr = dot(phi, &mr);
+        let pmr = dot(phi, mr);
         let alpha = pmr.div(pkp) * sa;
         let e = up(up(up(sin_theta * mr_norm) * sa.mag()) / sigma_k);
         // meff = λ‖Πb‖², ‖Πb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθ‖Mr‖/√σ_K.
