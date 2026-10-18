@@ -1388,7 +1388,8 @@ pub fn curved_shell_pressure_load(
     f
 }
 
-/// Compute self-weight load vector.
+/// Compute self-weight load vector: `rho` in kg/m³ and g in m/s², forces in kN, as for the
+/// other shell families (it used to omit the /1000 and weigh 1000× too much).
 pub fn curved_shell_self_weight_load(
     coords: &[[f64; 3]; 4],
     _dirs: &[[f64; 3]; 4],
@@ -1420,7 +1421,8 @@ pub fn curved_shell_self_weight_load(
         let gravity = [gx, gy, gz];
 
         for i in 0..4 {
-            let w = rho * h * da * w_g * n_shape[i];
+            // Density in kg/m³ to kN like the other shells: w = ρ/1000 · h · g per area.
+            let w = rho / 1000.0 * h * da * w_g * n_shape[i];
             for k in 0..3 {
                 f[i * 6 + k] += w * gravity[k];
             }

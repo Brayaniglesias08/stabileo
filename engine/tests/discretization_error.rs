@@ -434,8 +434,9 @@ fn hemisphere(fam: Fam, n: usize) -> Model {
         f.iter().any(|&b| b).then_some(f)
     };
     let mut m = surface(fam, n, n, 0.04, 68250.0, 0.3, &map, &bc, Load::None);
-    m.input.loads.push(nodal(m.grid[0][0].0, [2.0, 0.0, 0.0]));
-    m.input.loads.push(nodal(m.grid[0][n].0, [0.0, -2.0, 0.0]));
+    // Each load lies on a symmetry plane: the quarter carries half of it.
+    m.input.loads.push(nodal(m.grid[0][0].0, [1.0, 0.0, 0.0]));
+    m.input.loads.push(nodal(m.grid[0][n].0, [0.0, -1.0, 0.0]));
     m
 }
 
@@ -490,5 +491,33 @@ fn convergence_classic_benchmarks() {
             let (ext, p) = extrapolate(&v[1..]);
             println!("{fam:?} square plate clamped={clamped}: {v:?} → {ext:.4} (p={p:?})");
         }
+    }
+}
+
+#[test]
+fn explore() {
+    // DKT: direct vs refined
+    for n in [8, 16] {
+        let m = square_plate(Fam::Dkt, n, false);
+        let r = solve(&m.input);
+        let wref = 0.00406 / plate_rigidity();
+        println!("DKT direct n={n}: {:.4}", mid_disp(&r, m.grid[n/2][n/2])[2].abs() / wref);
+    }
+    let m = square_plate(Fam::Dkt, 8, false);
+    let rf = refine_uniform(&m.input, GeometryMode::Faceted).unwrap().input;
+    let r = solve(&rf);
+    println!("DKT refined 8->16: {:.4}", disp(&r, m.grid[4][4].0)[2].abs() / (0.00406 / plate_rigidity()));
+    // MITC4 Scordelis direct
+    for n in [8, 16, 32] {
+        let m = scordelis(Fam::Mitc4, n);
+        let r = solve(&m.input);
+        println!("MITC4 Scordelis direct n={n}: {:.5}", disp(&r, m.grid[0][n].0)[2].abs());
+    }
+    // shear energy fraction
+    for fam in [Fam::Mitc4, Fam::Dkt] {
+        let m = square_plate(fam, 8, true);
+        let r = solve(&m.input);
+        let e = estimate(&m.input, &r);
+        println!("{fam:?} sampled energy / uKu = {:.4}", e.solution_norm.powi(2) / energy_norm_sq(&m.input, &r));
     }
 }
