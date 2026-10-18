@@ -364,7 +364,12 @@ jobs:
       - name: Run criterion benchmarks (quick)
         working-directory: engine
         run: cargo bench --bench solver_bench --bench assembly_bench --bench workflow_bench -- --sample-size 10 --warm-up-time 1 --measurement-time 3
-        timeout-minutes: 20
+        # Informational, as it was in ci.yml: the dense-LU 15x15 quad9 case
+        # alone needs ~5 min for 10 samples on the runner, and a slow runner
+        # is not a correctness failure. Whatever finished is uploaded below;
+        # a failure to compile still fails the step above.
+        timeout-minutes: 25
+        continue-on-error: true
       - name: Upload criterion reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
