@@ -191,7 +191,12 @@ certificates: linear, bundle export, P-Delta, buckling, modal, spectral, time hi
 harmonic, plastic, multi-case, and steel design. To these it adds the certificate
 bundles of `verify/samples` (linear 3D, combinations, plastic 2D and 3D). Every output
 is reduced to a canonical string with each float as its bit pattern. The spec asserts
-that every browser's strings equal Node's, and that the certified cases succeed. CI:
+that every browser's strings equal Node's. It also asserts that the Node run meets the
+requirements of `checks.mjs`. Each certificate kind is read field by field: every load
+case, combination and envelope of a multi-case result, and every steel member. So the
+runtimes can never agree only on failed results. `checks.test.mjs` shows that each
+requirement and the comparison fail when a single field or bit is flipped.
+`serve.test.mjs` shows that the static server serves only its roots. CI:
 the `determinism` job of `ci.yml`. Locally, from `web/` after `npm run wasm`:
 
     node determinism/node-run.mjs                       # per-case digests in Node
