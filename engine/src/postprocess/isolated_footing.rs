@@ -881,7 +881,7 @@ pub fn footing_ratio_enclosures<T: Real>(f: &IsolatedFootingData) -> Result<[T; 
     };
     let msc_y = axis(b, f.factored_moment_b, f.eccentricity_b, cb + d, ch + d);
     let msc_x = axis(l, f.factored_moment_l, f.eccentricity_l, ch + d, cb + d);
-    let msc = (msc_x.sq() + msc_y.sq()).sqrt();
+    let msc = (msc_x.sq() + msc_y.sq()).max(zero).sqrt();
     let tol = x(f.moment_tolerance.unwrap_or(0.02));
     let threshold = tol * (demand * d).max(T::lit(1e-9));
     decided(msc.le(threshold), "an unbalanced moment below the significance threshold (8.4.4.2)")?;
