@@ -1226,6 +1226,66 @@ pub fn curved_shell_stresses(
     }
 }
 
+/// Plane stress (σ11, σ22, σ12) at the 2×2×2 integration points (ζ = ±1/√3), in the local
+/// frame of each point, with the volume each stands for. The same B matrix and plane-stress law
+/// as the stiffness (transverse shear, which the stiffness ties with ANS, is not sampled), minus
+/// the thermal strain α·(ΔT + ζ·ΔTg/2) of `curved_shell_thermal_load`.
+pub fn curved_shell_stress_samples(
+    coords: &[[f64; 3]; 4],
+    dirs: &[[f64; 3]; 4],
+    u: &[f64],
+    e_mod: f64,
+    nu: f64,
+    h: f64,
+    alpha: f64,
+    dt_uniform: f64,
+    dt_gradient: f64,
+) -> Vec<super::ShellStressSample> {
+    let c = e_mod / (1.0 - nu * nu);
+    let mut out = Vec::with_capacity(8);
+    for &(zeta, w_z) in &gauss_thickness() {
+        for &((xi, eta), w_ip) in &gauss_2x2() {
+            let (g1, g2, g3, det_j) = covariant_basis(coords, dirs, h, xi, eta, zeta);
+            if det_j.abs() < 1e-30 { continue; }
+            let (e1, e2, e3) = local_frame(&g1, &g2, &g3);
+            let j_mat = [
+                [g1[0], g2[0], g3[0]],
+                [g1[1], g2[1], g3[1]],
+                [g1[2], g2[2], g3[2]],
+            ];
+            let Some(inv_j) = invert_3x3(&j_mat) else { continue };
+            let b = build_b_matrix_at_point(coords, dirs, h, xi, eta, zeta, &e1, &e2, &e3, &inv_j);
+            let mut strain = [0.0; 3];
+            for (s, row) in strain.iter_mut().enumerate() {
+                for col in 0..24 {
+                    *row += b[s][col] * u[col];
+                }
+            }
+            let eps_th = alpha * (dt_uniform + zeta * dt_gradient / 2.0);
+            strain[0] -= eps_th;
+            strain[1] -= eps_th;
+            let n = shape_functions(xi, eta);
+            let mut pos = [0.0; 3];
+            for i in 0..4 {
+                for k in 0..3 {
+                    pos[k] += n[i] * (coords[i][k] + zeta * 0.5 * h * dirs[i][k]);
+                }
+            }
+            out.push(super::ShellStressSample {
+                xi, eta, zeta, pos,
+                frame: [e1, e2, e3],
+                sigma: [
+                    c * (strain[0] + nu * strain[1]),
+                    c * (nu * strain[0] + strain[1]),
+                    c * (1.0 - nu) / 2.0 * strain[2],
+                ],
+                weight: det_j.abs() * w_ip * w_z,
+            });
+        }
+    }
+    out
+}
+
 /// Compute nodal von Mises stresses (at 4 Gauss points, extrapolated to nodes).
 pub fn curved_shell_nodal_von_mises(
     coords: &[[f64; 3]; 4],

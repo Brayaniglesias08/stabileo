@@ -939,6 +939,9 @@ const CERTIFY_EXPORTS = [
   'export_linear_bundle_2d', 'export_linear_bundle_3d',
   'export_plastic_bundle_2d', 'export_plastic_bundle_3d',
   'export_combination_bundle_2d', 'export_combination_bundle_3d',
+  // Not certificates: the discretization-error estimate and convergence check
+  // (docs/verification/DISCRETIZATION.md) ride the same worker path because they re-solve too.
+  'estimate_discretization_3d', 'convergence_study_3d',
 ] as const;
 export type CertifyExport = (typeof CERTIFY_EXPORTS)[number];
 const certifyExports = new Map<string, (...args: any[]) => any>();

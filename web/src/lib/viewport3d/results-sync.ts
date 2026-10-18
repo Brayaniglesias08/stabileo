@@ -21,6 +21,7 @@ import { createDiagramGroup3D, createEnvelopeDiagramGroup3D } from '../three/dia
 import { structureNodes } from '../three/node-scale';
 import { COLORS, setGroupColor, disposeObject, axialForceColor, verificationStateColor, createTextSpriteCached, heatmapColor } from '../three/selection-helpers';
 import { verificationStore } from '../store/verification.svelte';
+import { discretizationStore } from '../store/discretization.svelte';
 import { createReactionArrow, createConstraintForceArrow } from '../three/create-load-arrow';
 import { dofQuantity } from '../utils/units';
 import type { Diagram3DKind } from '../engine/diagrams-3d';
@@ -474,6 +475,21 @@ export function syncColorMap3D(ctx: ResultsSyncContext): void {
   const wireframe = uiStore.renderMode3D === 'wireframe';
   const eb = ctx.elementsBatched;
 
+  // The discretization-error map (an estimate, `store/discretization.svelte.ts`) takes over the
+  // shells while it is switched on; members are dimmed so the shells read.
+  if (r3d && discretizationStore.showMap && discretizationStore.applies() && discretizationStore.estimate.status === 'done') {
+    clearHeatmapMeshes(ctx);
+    forEachElementVisual(ctx, (id, group) => {
+      if (group) { showOriginalMeshes(group, true); setGroupColor(group, 0x888888); }
+      eb.setBaseColor(id, 0x888888);
+    });
+    eb.flush();
+    applyDiscretizationMap(ctx);
+    resultsStore.setColourScale(null);
+    ctx.colorMapApplied = true;
+    return;
+  }
+
   // Restore default state if not in color mode
   if (!r3d || (dt !== 'axialColor' && dt !== 'colorMap' && dt !== 'verification')) {
     if (ctx.colorMapApplied) {
@@ -909,6 +925,26 @@ function applyShellContour(
       if (child instanceof THREE.Mesh && child.userData?.shellFace) {
         applyShellNodalColors(child, values, field.range, isQuad, contourOptions.bands);
         displaceShellFace(child, corners, resultsStore.deformedScale, isQuad);
+      }
+    });
+  }
+}
+
+/**
+ * Paint each plate and quad by its estimated discretization error (one colour per element, on
+ * the scale of the global percentage; `mapRange` is also the scale of the panel's legend). Shells without an indicator keep their colour.
+ */
+function applyDiscretizationMap(ctx: ResultsSyncContext): void {
+  const values = discretizationStore.elementMap();
+  const range = discretizationStore.mapRange();
+  for (const [key, group] of ctx.shellGroups) {
+    const v = values.get(key);
+    if (v === undefined) { restoreShellColor(group); continue; }
+    const isQuad = key.startsWith('q');
+    group.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.userData?.shellFace) {
+        applyShellNodalColors(child, isQuad ? [v, v, v, v] : [v, v, v], range, isQuad, 0);
+        displaceShellFace(child, null, 0, isQuad);
       }
     });
   }

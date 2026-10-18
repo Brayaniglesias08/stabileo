@@ -460,6 +460,61 @@ pub fn solid_shell_stresses(
     }
 }
 
+/// In-plane stress samples at the 2×2×2 integration points, for discretization-error
+/// estimation: the in-plane strains (ε11, ε22, γ12) of the compatible B in the mid-surface frame
+/// of each point (e3 along ∂x/∂ζ, e1 along ∂x/∂ξ), turned into stress with the plane-stress law.
+/// The thickness strain and the transverse shears, which the stiffness replaces with ANS fields,
+/// are not sampled: the estimate covers the membrane and bending energy, as for the shells.
+pub fn solid_shell_inplane_samples(
+    coords: &[[f64; 3]; 8],
+    u: &[f64],
+    e: f64,
+    nu: f64,
+) -> Vec<super::ShellStressSample> {
+    let c = e / (1.0 - nu * nu);
+    let mut out = Vec::with_capacity(8);
+    for &(xi, eta, zeta, w) in &gauss_2x2x2() {
+        let dn = shape_derivatives_hex8(xi, eta, zeta);
+        let (j, ji, det_j) = jacobian_3d(coords, &dn);
+        if !(det_j.abs() > 1e-30) { continue; }
+        let dn_dx = physical_derivatives(&ji, &dn);
+        let b = build_b_matrix(&dn_dx);
+        let mut s = [0.0; 6];
+        for (r, v) in s.iter_mut().enumerate() {
+            for col in 0..24 {
+                *v += b[r * 24 + col] * u[col];
+            }
+        }
+        // Global strain tensor from Voigt [εxx, εyy, εzz, γxy, γyz, γxz].
+        let eps = [
+            [s[0], 0.5 * s[3], 0.5 * s[5]],
+            [0.5 * s[3], s[1], 0.5 * s[4]],
+            [0.5 * s[5], 0.5 * s[4], s[2]],
+        ];
+        let norm = |v: [f64; 3]| { let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt(); [v[0] / l, v[1] / l, v[2] / l] };
+        let e3 = norm(j[2]);
+        let d = j[0][0] * e3[0] + j[0][1] * e3[1] + j[0][2] * e3[2];
+        let e1 = norm([j[0][0] - d * e3[0], j[0][1] - d * e3[1], j[0][2] - d * e3[2]]);
+        let e2 = [e3[1] * e1[2] - e3[2] * e1[1], e3[2] * e1[0] - e3[0] * e1[2], e3[0] * e1[1] - e3[1] * e1[0]];
+        let proj = |a: &[f64; 3], bv: &[f64; 3]| -> f64 {
+            let mut acc = 0.0;
+            for p in 0..3 { for q in 0..3 { acc += a[p] * eps[p][q] * bv[q]; } }
+            acc
+        };
+        let (e11, e22, g12) = (proj(&e1, &e1), proj(&e2, &e2), 2.0 * proj(&e1, &e2));
+        let n = shape_functions_hex8(xi, eta, zeta);
+        let mut pos = [0.0; 3];
+        for i in 0..8 { for k in 0..3 { pos[k] += n[i] * coords[i][k]; } }
+        out.push(super::ShellStressSample {
+            xi, eta, zeta, pos,
+            frame: [e1, e2, e3],
+            sigma: [c * (e11 + nu * e22), c * (nu * e11 + e22), c * (1.0 - nu) / 2.0 * g12],
+            weight: det_j.abs() * w,
+        });
+    }
+    out
+}
+
 /// Average stress tensor at element centroid (for geometric stiffness).
 pub fn solid_shell_avg_stress(
     coords: &[[f64; 3]; 8],

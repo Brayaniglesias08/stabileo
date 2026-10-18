@@ -3,6 +3,7 @@ import { modelStore } from './model.svelte';
 import { uiStore } from './ui.svelte';
 import { resultsStore } from './results.svelte';
 import { certificateStore } from './certificate.svelte';
+import { discretizationStore } from './discretization.svelte';
 import { historyStore } from './history.svelte';
 import { dsmStepsStore } from './dsmSteps.svelte';
 import { fmStepsStore } from './fmSteps.svelte';
@@ -121,7 +122,8 @@ resultsStore._setNormalise3D(
 );
 
 // Each base linear solve published is certified in the background (`certificate.svelte.ts`).
-resultsStore._setOnStaticPublish((r, dim) => certificateStore.track(r, dim));
+// …and its discretization error estimated (`discretization.svelte.ts`: an estimate, not certified).
+resultsStore._setOnStaticPublish((r, dim) => { certificateStore.track(r, dim); discretizationStore.track(r, dim); });
 resultsStore._setOnComboPublish((pc, pco, dim) => certificateStore.trackCombinations(pc, pco, dim));
 
 resultsStore._setOnResultsPublish(() => {

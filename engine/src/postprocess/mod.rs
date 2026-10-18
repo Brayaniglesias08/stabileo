@@ -22,3 +22,4 @@ pub mod beam_stations;
 pub mod design_demands;
 pub mod result_summary;
 pub mod station_buffer;
+pub mod discretization;
