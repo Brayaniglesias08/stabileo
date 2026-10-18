@@ -13,16 +13,11 @@ name: Verify
 # (Kani's nightly tier included); a failure alerts (verification-alert.yml).
 
 on:
+  # Every pull request, so that lean, symbolic and kani can be required checks
+  # on main: a required check that never reports blocks the merge. The
+  # `changes` job skips them when nothing they check changed (a skipped job
+  # counts as passed for branch protection).
   pull_request:
-    paths:
-      - "verify/**"
-      - "engine/src/**"
-      - "docs/verification/**"
-      - "tools/symbolic/**"
-      - "engine/tests/symbolic_elements.rs"
-      - "flake.nix"
-      - "flake.lock"
-      - ".github/workflows/verify.yml"
   push:
     branches: [main]
   schedule:
@@ -33,8 +28,35 @@ on:
 permissions:
   contents: read
 
+env:
+  # The proofs run when a pull request touches one of these paths.
+  VERIFY_PATHS: '^(verify/|engine/src/|engine/Cargo\.toml$|Cargo\.lock$|docs/verification/|tools/symbolic/|engine/tests/symbolic_elements\.rs$|flake\.(nix|lock)$|scripts/kani|\.github/workflows/verify\.yml$)'
+
 jobs:
+  # Pull requests only. If this job fails, the proofs run anyway (fail safe).
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      verify: ${{ steps.filter.outputs.verify }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename')
+          echo "$files"
+          if grep -qE "$VERIFY_PATHS" <<<"$files"; then verify=true; else verify=false; fi
+          echo "verify=$verify" | tee -a "$GITHUB_OUTPUT"
+
   lean:
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.verify == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -67,6 +89,8 @@ jobs:
   # engine/tests/symbolic_elements.rs must reproduce the committed file. The
   # generated test itself runs in ci.yml's engine suite.
   symbolic:
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.verify == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -80,6 +104,8 @@ jobs:
         run: python -I tools/symbolic/gen.py --check
 
   kani:
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.verify == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:

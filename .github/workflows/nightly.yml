@@ -20,6 +20,7 @@ on:
   # file is on main, so the branch is tested through push.
   push:
     branches: [ci/verification-jobs]
+    paths: [.github/workflows/nightly.yml, scripts/mutants*]
   schedule:
     - cron: "0 5 * * *"
   workflow_dispatch:
