@@ -179,7 +179,8 @@ fn aisc_e1c_w14x132_inelastic_flexural_buckling() {
 
 /// [AISC] Example E.1D, W14×90, Lcx = 30 ft, Lcy = 15 ft, pp. E-10 – E-12.
 ///
-/// Printed: Ag = 26.5 in², rx = 6.14, ry = 3.70 in; Lcx/rx = 58.6 governs;
+/// Printed: Ag = 26.5 in², rx = 6.14, ry = 3.70 in, torsional length 15 ft;
+/// Lcx/rx = 58.6 governs;
 /// Fe = 83.3 ksi (E3-4); Fn = 38.9 ksi (E3-2); Pn = 1,030 kips; φcPn = 927 kips.
 #[test]
 fn aisc_e1d_w14x90_major_axis_governs() {
@@ -189,6 +190,9 @@ fn aisc_e1d_w14x90_major_axis_governs() {
         rz: 3.70,
         lby: 360.0,
         lbz: 180.0,
+        // "y-y axis and torsional unbraced lengths of 15 ft" (E4 does not
+        // govern; without the torsional length the check is refused, D19).
+        lcz: Some(180.0),
         // Manual Table 1-1: bf = 14.5, tf = 0.710, tw = 0.440, h/tw = 25.9;
         // bf/2tf = 10.2 < 13.5: no slender element.
         compression_elements: rolled_i(14.5, 0.710, 25.9 * 0.440, 0.440),
@@ -404,7 +408,8 @@ fn aisc_e10_hss_slender_walls_three_lengths() {
         assert!(r.unevaluated.is_empty(), "{:?}", r.unevaluated);
         published(r.ae.unwrap(), ae, THREE_SF, "Ae");
         published(r.phi_pn_compression / 0.90, pn, THREE_SF, "Pn");
-        published(r.phi_pn_compression, phi_pn, THREE_SF, "φcPn");
+        // The table's φcPn is 0.90 × its rounded Pn, rounded again: 0.6 %.
+        published(r.phi_pn_compression, phi_pn, 0.006, "φcPn");
     }
 }
 
