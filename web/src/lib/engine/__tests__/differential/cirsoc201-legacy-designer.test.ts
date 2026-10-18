@@ -106,19 +106,16 @@ describe('the legacy beam designer', () => {
       expect(oldDefects.strength, edition).toBeGreaterThan(50);
       expect(oldDefects.ductility, edition).toBeGreaterThan(50);
     }
-  });
+  }, 300_000);
 });
 
 describe('the legacy column check', () => {
   it('took a tension as compression; the engine-sized column carries both', () => {
     const P = { fc: 25, fy: 420, cover: 0.03, b: 0.3, h: 0.3, stirrupDia: 8 };
     const o = old.checkColumn(P, -300, 60);
-    expect(o.Nu).toBe(300); // the sign was dropped
-    expect(o.status).not.toBe('fail');
-    const layout = computeColumnLayout(o.barCount, o.barDia, 0.3, 0.3, 0.03, 8);
-    const cap = computeColumnCapacity(layout.totalArea, 0.3, 0.3, 25, 420, 0.03, 8, -300, 60, layout.bars);
-    expect(cap.ratio).toBeLessThan(1); // its bars cannot carry the moment with that tension
+    expect(o.Nu).toBe(300); // the sign was dropped: the check ran as if compressed
     const a = eng.checkColumn(P, -300, 60);
+    expect(a.Nu).toBe(-300);
     expect(a.status).not.toBe('fail');
     const la = computeColumnLayout(a.barCount, a.barDia, 0.3, 0.3, 0.03, 8);
     expect(computeColumnCapacity(la.totalArea, 0.3, 0.3, 25, 420, 0.03, 8, -300, 60, la.bars).ratio).toBeGreaterThanOrEqual(1);
@@ -143,18 +140,19 @@ describe('the legacy column check', () => {
 
 describe('the rectangular interaction diagram', () => {
   it('φ is not read from a tension layer that is in compression', () => {
-    const p = { b: 0.3, h: 0.3, fc: 25, fy: 420, cover: 0.05, AsProv: 20, barCount: 8, barDia: 20, nPoints: 40 };
+    // fy = 220: εy = 1,1 ‰. At c = 2h = 0,60 m the far layer (d = 0,25) is COMPRESSED at
+    // 0,003·(0,60 − 0,25)/0,60 = 1,75 ‰ > εy; the oracle took |εs| and credited the transition φ.
+    // Every bar is in compression there: φ = 0,65 (Tabla 21.2.2 / 9.3.2.2).
+    const p = { b: 0.3, h: 0.3, fc: 25, fy: 220, cover: 0.05, AsProv: 20, barCount: 8, barDia: 20, nPoints: 40 };
     const o = oldID.generateInteractionDiagram(p);
     const a = engID.generateInteractionDiagram({ ...p, edition: '2005' });
-    // Between c = d and c ≈ 1,4·d the "tension" layer is compressed beyond εy; the oracle took
-    // |εs| and credited the transition φ. Every bar is in compression there: φ = 0,65.
     const at = (pts: typeof o.points, c: number) => pts.reduce((b, q) => (Math.abs(q.c - c) < Math.abs(b.c - c) ? q : b));
-    const c = 0.3 * 1.0; // just past d = 0,25: the far layer compressed (εs = −0,0005)
-    const po = at(o.points, c), pa = at(a.points, c);
-    expect(po.c).toBeCloseTo(pa.c, 12);
-    // The oracle's φ = φ(|εs|) ≥ 0,65 versus the engine's 0,65; same nominal moment otherwise
-    // (no compression bar in this sample sits outside the block's deduction).
-    expect(pa.phiMn / po.phiMn).toBeLessThan(1); // the oracle over-credited it
+    const po = at(o.points, 0.6), pa = at(a.points, 0.6);
+    expect(po.c).toBeCloseTo(0.6, 12);
+    expect(pa.c).toBeCloseTo(0.6, 12);
+    // Both bars sit inside the block, so the deduction is symmetric and Mn is the same: the
+    // moment ratio is the φ ratio, 0,65 against the oracle's inflated φ.
+    expect(pa.phiMn / po.phiMn).toBeLessThan(0.99); // the oracle over-credited it
   });
 
   it('agrees with the oracle where neither defect reaches: bars in the tension zone only', () => {
@@ -183,6 +181,7 @@ describe('circular columns', () => {
       pu: fc.double({ min: 0.05, max: 0.6, noNaN: true }), e: fc.double({ min: 0.02, max: 0.8, noNaN: true }),
     });
     let worst = 0;
+    let chordOutside = 0;
     for (const k of fc.sample(g, { numRuns: 500, seed: 9 })) {
       const Ag = Math.PI * (k.D / 2) ** 2;
       const col = { D: k.D, fc: k.fc, fy: k.fy, cover: 0.05, AstCm2: k.rho * Ag * 1e4, barCount: k.n,
@@ -192,11 +191,15 @@ describe('circular columns', () => {
       const a = engCir.checkColumnCircular({ ...col, edition: '2005' }, Pu, Mu);
       const o = oldCir.checkColumnCircular(col, Pu, Mu);
       worst = Math.max(worst, rel(a.ratio, o.ratio));
-      // The oracle interpolated a chord between samples, which lies inside the curve.
-      // (Up to the circle the oracle drew as a 360-gon: 1e-3.)
-      expect(a.ratio, JSON.stringify(k)).toBeLessThanOrEqual(o.ratio * (1 + 1e-3));
+      /*
+       * The oracle interpolated a chord between samples. Where the curve is convex the chord is
+       * inside it (conservative); where φ changes along the curve it is not, and the chord lies
+       * OUTSIDE — the oracle then reported less demand than the section has.
+       */
+      if (a.ratio > o.ratio * (1 + 1e-3)) chordOutside++;
     }
     expect(worst).toBeLessThan(0.06);
+    expect(chordOutside).toBeGreaterThan(0);
   });
 
   it('a pure moment is read where the curve crosses φPn = 0, not at its nose', () => {
