@@ -4028,7 +4028,8 @@ function createModelStore() {
       // And from the mass source, where a stale case id would come to mean whatever case
       // takes that number next.
       if (model.massSource?.kind === 'custom') {
-        model.massSource = { kind: 'custom', factors: model.massSource.factors.filter(f => f.caseId !== id) };
+        // Only the removed case's row goes: the weights and point masses stay.
+        model.massSource = { ...model.massSource, factors: model.massSource.factors.filter(f => f.caseId !== id) };
       }
       // And the self-weight rule: a row for a case that no longer exists would still load the
       // single solve (which takes every stated row) and not the combinations.
@@ -4144,9 +4145,12 @@ function createModelStore() {
      */
     setMassSource(ms: MassSource | null): void {
       if (!_undoBatching) _pushUndo?.();
-      // The weights stay through a change of the case factors unless the change names them.
+      // The weights and point masses stay through a change of the case factors unless the
+      // change names them.
       const kept = model.massSource?.weights;
       if (kept?.length && (!ms || !('weights' in ms))) ms = ms ? { ...ms, weights: kept } : { kind: 'custom', factors: [], weights: kept };
+      const keptPoints = model.massSource?.points;
+      if (keptPoints?.length && (!ms || !('points' in ms))) ms = ms ? { ...ms, points: keptPoints } : { kind: 'custom', factors: [], points: keptPoints };
       model.massSource = normalizeMassSource(ms ? JSON.parse(JSON.stringify(ms)) : undefined);
       this.bumpModelVersion();
     },

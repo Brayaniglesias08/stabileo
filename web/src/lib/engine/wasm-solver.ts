@@ -495,6 +495,8 @@ export function input3DToWireObject(input: SolverInput3D): Record<string, any> {
     constraints: plainDeepCopy(input.constraints ?? []),
     connectors: input.connectors ? mapToPlainObj(input.connectors) : {},
     leftHand: input.leftHand ?? false,
+    // Nodal, line and area masses (the mass source); absent when there are none.
+    ...(input.masses ? { masses: plainDeepCopy(input.masses) } : {}),
   };
 }
 
