@@ -15,12 +15,15 @@ Usage:
 
 Every OpenSees run happens in a fresh interpreter (openseespy keeps state
 across ops.wipe()). Models are reported as ok / mismatch, or skipped as
-unsupported (no clean OpenSees equivalent), stabileo_failed /
-ill_conditioned (mechanisms and near-singular systems, where neither answer
-is meaningful) or unloaded.
+unsupported (no clean OpenSees equivalent), ill_conditioned (stabileo
+warns, or OpenSees' scaled condition number exceeds 1e12: no unique answer
+to compare) or unloaded. A model stabileo refuses is checked against
+OpenSees: refused (OpenSees finds no unique answer either), false_reject
+(OpenSees' stiffness is regular: flagged), not_applicable (buckling with
+no positive load factor on either side), or stabileo_failed (undecided).
 
-Exit status: 0 = no discrepancy above tolerance, 1 = discrepancies,
-2 = harness error.
+Exit status: 0 = no discrepancy above tolerance, 1 = mismatch or
+false_reject, 2 = harness error.
 
 Conventions (read from the engine source, see README.md):
   * E is in MPa in the JSON; the engine uses E*1000 (kN/m^2). Lengths m,
@@ -1693,6 +1696,39 @@ def _int_keys(r):
 # Models whose scaled stiffness condition number exceeds this are reported as
 # ill-conditioned instead of compared (results carry < ~4 significant digits).
 KAPPA_MAX = 1e12
+# A model stabileo refuses whose OpenSees stiffness is better conditioned than
+# this is a false rejection (the threshold of stabileo's singular-pivot test,
+# engine/src/solver/definiteness.rs, cannot flag a regular model below it).
+KAPPA_REGULAR = 1e10
+# OpenSees' own reasons for not taking a model that say it has no unique
+# answer either: a load on a rotation nothing stiffens, a rotational mechanism.
+REFUSED_TOO = ("nodal moment on a rotation-free", "rotational mechanism")
+
+
+def classify_refusal(r, ores):
+    """stabileo refused the static model in r ('stabileo_failed'); OpenSees'
+    outcome for the same model decides whether that was right:
+
+      refused       OpenSees finds no unique answer either (scaled condition
+                    number above KAPPA_MAX, or its translator rejects the
+                    model for the same reason): a correct refusal, not a
+                    failure;
+      false_reject  OpenSees' stiffness is regular (kappa < KAPPA_REGULAR):
+                    flagged like a mismatch;
+      stabileo_failed  anything in between, or OpenSees failed too.
+    """
+    kappa = ores.get("kappa")
+    if "unsupported" in ores:
+        if any(t in ores["unsupported"] for t in REFUSED_TOO):
+            return dict(r, status="refused", why=r["why"] + [f"opensees: {ores['unsupported']}"])
+        return dict(r, why=r["why"] + [f"opensees: unsupported ({ores['unsupported']})"])
+    if "failed" in ores or kappa is None:
+        return r
+    if kappa > KAPPA_MAX:
+        return dict(r, status="refused", why=r["why"] + [f"opensees kappa={kappa:.1e}"], kappa=kappa)
+    if kappa < KAPPA_REGULAR:
+        return dict(r, status="false_reject", why=r["why"] + [f"opensees kappa={kappa:.1e}"], kappa=kappa)
+    return dict(r, why=r["why"] + [f"opensees kappa={kappa:.1e}"], kappa=kappa)
 
 
 def run_one(name, model, binary, tol, verbose, dump_dir=None):
@@ -1705,7 +1741,11 @@ def run_one(name, model, binary, tol, verbose, dump_dir=None):
     try:
         sres = normalize_stabileo(stabileo(model, binary), dim)
     except RuntimeError as ex:
-        return dict(name=name, dim=dim, status="stabileo_failed", why=[str(ex)[:200]])
+        r = classify_refusal(dict(name=name, dim=dim, status="stabileo_failed", why=[str(ex)[:200]]),
+                             opensees_isolated(model))
+        if r["status"] == "false_reject" and dump_dir:
+            _dump(dump_dir, name, model)
+        return r
     ill = sorted(set(sres["diags"]) & ILL_CONDITIONED)
     if ill:
         return dict(name=name, dim=dim, status="ill_conditioned", why=ill)
@@ -1758,6 +1798,18 @@ def run_ext(name, job, binary, tol, dump_dir=None):
         return dict(base, status="unsupported", why=why)
     try:
         lin = normalize_stabileo(stabileo(_probe_loads(d) if kind in MASS_MODES else d, binary), dim)
+    except RuntimeError as ex:
+        r = classify_refusal(dict(base, status="stabileo_failed", why=[str(ex)[:200]]),
+                             opensees_isolated(_probe_loads(d) if kind in MASS_MODES else d))
+        if r["status"] == "false_reject" and dump_dir:
+            _dump(dump_dir, name, job)
+        return r
+    # The static probe flags a mechanism or a near-singular stiffness: no
+    # unique modes / load factors either, whatever the eigen solver then does.
+    ill = sorted(set(lin["diags"]) & ILL_CONDITIONED)
+    if ill:
+        return dict(base, status="ill_conditioned", why=ill)
+    try:
         sres = lin if kind == "shell" else normalize_ext(kind, stabileo_job(job, binary), dim)
     except RuntimeError as ex:
         ores = opensees_isolated(job)  # a model OpenSees cannot take either is not a failure
@@ -1768,10 +1820,18 @@ def run_ext(name, job, binary, tol, dump_dir=None):
             # A rigid-body mode (a member hanging on hinges, say): the static
             # probe does not load it, the eigenproblem finds it.
             return dict(base, status="ill_conditioned", why=[f"mechanism (OpenSees omega_1 = {v[0]:.1e})"])
-        return dict(base, status="stabileo_failed", why=[str(ex)[:200]])
-    ill = sorted(set(lin["diags"]) & ILL_CONDITIONED)
-    if ill:
-        return dict(base, status="ill_conditioned", why=ill)
+        if kind == "buckling" and "failed" not in ores and not v and \
+                ("No compressed elements" in str(ex) or "No positive buckling load factors" in str(ex)):
+            # Nothing buckles under this load (no member in compression, or
+            # none whose compression reaches a free DOF): OpenSees' K + Kg
+            # eigenproblem has no positive load factor either.
+            return dict(base, status="not_applicable", why=[str(ex)[:200], "opensees: no positive load factor"])
+        r = dict(base, status="stabileo_failed", why=[str(ex)[:200]])
+        if kind == "buckling" and v:
+            r = dict(r, status="false_reject", why=r["why"] + [f"opensees load factors {v[:3]}"])
+            if dump_dir:
+                _dump(dump_dir, name, job)
+        return r
     ores = opensees_isolated(job)
     if kind == "pdelta" and not (sres["converged"] and sres["stable"]):
         # Beyond the buckling load: no stable equilibrium to compare (the
@@ -1874,7 +1934,7 @@ def main():
         results = list(pool.map(lambda j: run_one(j[0], j[1], a.bin, a.tol, a.verbose, a.dump_dir), jobs))
     for r in results:
         name = r["name"]
-        if a.verbose or r["status"] == "mismatch":
+        if a.verbose or r["status"] in FLAGGED:
             extra = r.get("why") or {k: f"{v:.1e}" for k, v in r.get("max_err", {}).items()}
             print(f"{r['status']:16} {name}  {extra}")
             for w in r.get("worst", [])[:5] if r["status"] == "mismatch" else []:
@@ -1898,14 +1958,19 @@ def main():
             for k, v in r["max_err"].items():
                 g[k] = max(g.get(k, 0.0), v)
         print("max normalized error over compared models:", {k: f"{v:.2e}" for k, v in sorted(g.items())})
-    for st in ("unsupported", "stabileo_failed", "opensees_failed"):
-        reasons = Counter(w for r in results if r["status"] == st for w in r["why"])
+    for st in ("unsupported", "refused", "not_applicable", "false_reject", "stabileo_failed", "opensees_failed"):
+        reasons = Counter(w[:120] for r in results if r["status"] == st for w in r["why"][:1])
         if reasons:
             print(f"{st} reasons:", dict(reasons))
     if a.report:
         with open(a.report, "w") as f:
             json.dump(results, f, indent=1, default=str)
-    return 1 if cnt.get("mismatch") else 0
+    return 1 if any(cnt.get(st) for st in FLAGGED) else 0
+
+
+# Statuses that fail the run (and are dumped): a disagreement, or stabileo
+# refusing a model OpenSees solves with a regular stiffness.
+FLAGGED = ("mismatch", "false_reject")
 
 
 if __name__ == "__main__":

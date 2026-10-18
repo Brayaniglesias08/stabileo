@@ -4226,7 +4226,89 @@ pub(crate) fn validate_loads_2d(input: &SolverInput, loads: &[SolverLoad]) -> Re
         }
     }
 
+    refuse_moments_without_rotation_2d(input, loads)?;
+
     Ok(())
+}
+
+/// The 2D counterpart of `refuse_moments_without_rotation_3d`. A nodal moment
+/// on a node that nothing gives rotational stiffness — every frame hinged
+/// there, only trusses, or a model without rotation DOFs — would be lost: the
+/// rotation is an orphan DOF held by the assembler's artificial spring
+/// (1e-10 of the largest diagonal), which took the whole moment, and the
+/// reactions never saw it. The solver only stopped when the resulting rotation
+/// exceeded 100 rad, so a moment below about 1e-8 of the stiffest diagonal
+/// (3 kN·m on a 10 m² bar) vanished without a warning.
+pub(crate) fn refuse_moments_without_rotation_2d(input: &SolverInput, loads: &[SolverLoad]) -> Result<(), String> {
+    let moments: Vec<&SolverNodalLoad> = loads
+        .iter()
+        .filter_map(|l| match l {
+            SolverLoad::Nodal(n) if n.my != 0.0 => Some(n),
+            _ => None,
+        })
+        .collect();
+    if moments.is_empty() {
+        return Ok(());
+    }
+    if DofNumbering::dofs_per_node_2d(input) < 3 {
+        return Err(moment_lost_2d(
+            moments[0].node_id,
+            "the model has no rotational degrees of freedom (trusses carry translations only)",
+        ));
+    }
+    let mut carried: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for e in input.elements.values() {
+        if e.elem_type != "frame" {
+            continue;
+        }
+        if !e.hinge_start { carried.insert(e.node_i); }
+        if !e.hinge_end { carried.insert(e.node_j); }
+    }
+    let node_xz: std::collections::HashMap<usize, (f64, f64)> =
+        input.nodes.values().map(|n| (n.id, (n.x, n.z))).collect();
+    for c in input.connectors.values() {
+        // A connector stiffens the end rotations through its rotational
+        // spring, or through the rigid arms of a finite-length shear spring.
+        let l = match (node_xz.get(&c.node_i), node_xz.get(&c.node_j)) {
+            (Some(a), Some(b)) => ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt(),
+            _ => 0.0,
+        };
+        if c.k_moment > 0.0 || (c.k_shear > 0.0 && l > crate::element::connector::ZERO_LENGTH) {
+            carried.extend([c.node_i, c.node_j]);
+        }
+    }
+    for c in &input.constraints {
+        match c {
+            Constraint::RigidLink(r) => carried.extend([r.master_node, r.slave_node]),
+            Constraint::Diaphragm(d) => { carried.insert(d.master_node); carried.extend(&d.slave_nodes); }
+            Constraint::LinearMPC(m) => carried.extend(m.terms.iter().map(|t| t.node_id)),
+            Constraint::EqualDOF(e) => carried.extend([e.master_node, e.slave_node]),
+            Constraint::EccentricConnection(e) => carried.extend([e.master_node, e.slave_node]),
+        }
+    }
+    for s in input.supports.values() {
+        let rigid = matches!(s.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ");
+        let spring = s.support_type == "spring" && s.kz.unwrap_or(0.0) > 0.0;
+        if rigid || spring {
+            carried.insert(s.node_id);
+        }
+    }
+    for m in moments {
+        if !carried.contains(&m.node_id) {
+            return Err(moment_lost_2d(
+                m.node_id,
+                "no unhinged frame end, rotational support, rotational connector or constraint gives that node rotational stiffness (every frame is hinged there, or only trusses reach it)",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn moment_lost_2d(node: usize, why: &str) -> String {
+    format!(
+        "Nodal moment at node {node} is not supported: {why}, so the moment would not reach the structure. \
+         Apply it as a force couple, or connect the node to an unhinged frame end"
+    )
 }
 
 pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
