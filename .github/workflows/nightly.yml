@@ -61,7 +61,7 @@ jobs:
     steps:
       - id: plan
         env:
-          ONLY: ${{ inputs.only || (github.event_name == 'push' && 'codeaster-diff') || '' }}
+          ONLY: ${{ inputs.only || (github.event_name == 'push' && 'mutants codeaster-diff') || '' }}
           SHARDS: ${{ inputs.mutants_shards || (github.event_name == 'push' && '[0, 1]') || '' }}
           TOTAL: ${{ inputs.mutants_total || (github.event_name == 'push' && '1024') || '' }}
           MUTANTS_TOTAL: 64
@@ -306,7 +306,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
-          tool: cargo-mutants
+          tool: cargo-mutants,nextest
       - name: Mutants (shard ${{ matrix.shard }}/${{ needs.plan.outputs.mutants_total }})
         env:
           SHARD: ${{ matrix.shard }}/${{ needs.plan.outputs.mutants_total }}
@@ -315,14 +315,15 @@ jobs:
         run: |
           # Each mutant is a rebuild of the engine and its test binaries: keep
           # it incremental (rust-cache turns incremental off), without debug
-          # info, and linked by mold. cargo-mutants builds from the workspace
+          # info, and linked by mold; nextest runs the test binaries in
+          # parallel rather than one after the other. cargo-mutants builds from the workspace
           # root, where engine/.cargo/config.toml does not apply.
           export CARGO_INCREMENTAL=1 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
           export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang
           export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
           status=0
           timeout --signal=INT --kill-after=5m "${BUDGET_MIN}m" \
-            ./scripts/mutants.sh --shard "$SHARD" --jobs 2 || status=$?
+            ./scripts/mutants.sh --shard "$SHARD" --jobs 2 --test-tool nextest || status=$?
           python3 scripts/mutants-summary.py mutants.out "$SHARD" || true
           if [ "$status" -eq 124 ]; then
             echo "::error::mutants shard $SHARD did not finish within ${BUDGET_MIN} min (see the summary above for how far it got); raise MUTANTS_TOTAL in nightly.yml"
