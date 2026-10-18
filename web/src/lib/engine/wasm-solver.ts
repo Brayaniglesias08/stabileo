@@ -8,7 +8,10 @@ import { registerCollisionKernel } from './detailing/collision-kernel';
  * WASM solver wrapper — replaces the pure-TS solver pipeline.
  * Serializes SolverInput (with Maps) → JSON → Rust/WASM → JSON → AnalysisResults.
  *
- * Uses dynamic imports so the app works without the WASM build (falls back to JS solver).
+ * The engine is the only source of engineering results. There is no JS solver to fall back to:
+ * until `initSolver()` has finished, or if the WASM build is missing, every entry point here
+ * either throws or returns a value its caller must read as "not computed" — never a number
+ * computed some other way.
  */
 
 import { mergeAllHingedJoints2D, restrainOrphanRotations2D } from './orphan-rotations-2d';
@@ -154,7 +157,7 @@ let wasmExtractBeamStations3d: ((json: string) => string) | null = null;
 let wasmExtractBeamStationsGrouped: ((json: string) => string) | null = null;
 let wasmExtractBeamStationsGrouped3d: ((json: string) => string) | null = null;
 
-// Design Checks (not yet compiled into WASM binary — graceful fallback via ?? null)
+// Design checks. A build without one of them leaves it null, and the wrapper says so.
 let wasmCheckSteelMembers: ((json: string) => string) | null = null;
 let wasmCheckRcMembers: ((json: string) => string) | null = null;
 let wasmCheckTimberMembers: ((json: string) => string) | null = null;
