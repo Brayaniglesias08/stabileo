@@ -1,5 +1,11 @@
 # Stabileo documentation · Documentación
 
+## Release notes · Notas de la versión
+
+**0.2.0 (2026-10-18): results change, re-run your projects / los resultados cambian, volvé a
+calcular tus proyectos.** [English](releases/v0.2.0.md) · [Español](releases/v0.2.0.es.md) ·
+[Português](releases/v0.2.0.pt.md)
+
 ## User guide · Guía de usuario
 
 How to use each mode and the theory behind it, written to be read like course notes. No

@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { execSync } from 'child_process';
 import { resolve } from 'path';
 
@@ -75,9 +75,17 @@ function buildCommit(): string {
   }
 }
 
+/** The app version shown in the status bar and the what's-new notice (`lib/build-info.ts`). */
+function appVersion(): string {
+  return JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')).version;
+}
+
 export default defineConfig({
   plugins: [wasmStubPlugin(), svelte()],
-  define: { __STABILEO_COMMIT__: JSON.stringify(buildCommit()) },
+  define: {
+    __STABILEO_COMMIT__: JSON.stringify(buildCommit()),
+    __STABILEO_VERSION__: JSON.stringify(appVersion()),
+  },
   base: process.env.BASE_PATH || '/',
   server: {
     port: 4000,

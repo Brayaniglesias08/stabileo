@@ -14,6 +14,7 @@
   import { fragmentFromCode } from './lib/model/edit/fragment-code';
   import { placementStore } from './lib/store/placement.svelte';
   import StatusBar from './components/StatusBar.svelte';
+  import WhatsNewNotice from './components/WhatsNewNotice.svelte';
   import NodeEditor from './components/NodeEditor.svelte';
   import ElementEditor from './components/ElementEditor.svelte';
   import DespieceInspector from './components/DespieceInspector.svelte';
@@ -2023,6 +2024,10 @@
     <footer class="app-footer">
       <StatusBar />
     </footer>
+  {/if}
+
+  {#if !uiStore.embedMode && !showLanding && !showBlog}
+    <WhatsNewNotice />
   {/if}
 
   <!--
