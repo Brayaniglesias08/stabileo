@@ -11,7 +11,9 @@ import { initSolver } from '../wasm-solver';
  * The legacy designer as it was (2005-style TypeScript sizing). It now sizes against the engine,
  * so the defects these tests feed the gate come from the oracle: the gate must still catch them.
  */
-import { verifyElement as legacyVerifyElement } from './differential/oracle/cirsoc201';
+import { verifyElement as legacyVerify } from './differential/oracle/cirsoc201';
+import type { ElementVerification } from '../codes/argentina/cirsoc201';
+const legacyVerifyElement = (i: VerificationInput) => legacyVerify(i) as unknown as ElementVerification;
 
 const beam = (over: Partial<VerificationInput> = {}): VerificationInput => ({
   elementId: 1, elementType: 'beam', Mu: 120, Vu: 90, Nu: 0,
