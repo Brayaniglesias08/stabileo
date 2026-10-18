@@ -9913,6 +9913,8 @@ const es: Record<string, string> = {
   'discretization.framesExact': "Las barras no tienen error de discretización: rigidez exacta de viga y cargas en barra exactas (estático lineal).",
   'discretization.unestimable.noStrainEnergy': "error de discretización: no se puede estimar (las cáscaras no se deforman; refiná la malla)",
   'discretization.unestimable.unloaded': "error de discretización: nada que estimar (sin carga)",
+  'discretization.unestimable.tooCoarse': "error de discretización: no se puede estimar (ningún elemento tiene un vecino con el cual comparar; refiná la malla)",
+  'discretization.warningTooCoarse': "La malla de cáscaras tiene un solo elemento por región: la recuperación no tiene con qué compararlo, así que no hay estimación posible. Refiná la malla antes de usar estos resultados.",
   'discretization.warningUnestimable': "La malla de cáscaras no se deforma con esta carga (va directo a los apoyos): es demasiado gruesa para cualquier estimación y sus resultados no dicen nada de las cáscaras. Refiná la malla.",
   'discretization.warpingNotEstimated': "{n} barra(s) con torsión de alabeo: su campo de alabeo es aproximado; error de discretización no estimado.",
   'discretization.curvedBeamsNotEstimated': "Las vigas curvas se resuelven como tramos rectos: error de discretización no estimado.",

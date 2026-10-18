@@ -28,7 +28,7 @@ export interface DiscretizationEstimate {
   method: string;
   relativeError?: number | null;
   /** `unloaded` or `noStrainEnergy` when the shells' error could not be estimated (never 0 %). */
-  unestimableReason?: 'unloaded' | 'noStrainEnergy' | null;
+  unestimableReason?: 'unloaded' | 'noStrainEnergy' | 'tooCoarse' | null;
   errorNorm: number;
   solutionNorm: number;
   threshold: number;
@@ -71,8 +71,9 @@ export interface ConvergenceStudy {
  */
 export interface DiscretizationClaims {
   percent: number | null;
-  unestimable: 'unloaded' | 'noStrainEnergy' | null;
-  warnUnestimable: boolean;
+  unestimable: 'unloaded' | 'noStrainEnergy' | 'tooCoarse' | null;
+  /** The i18n key of the warning for an estimate that could not be made, if it warrants one. */
+  warnUnestimable: string | null;
   framesExact: boolean;
   warpingMembers: number;
   variableMembers: number;
@@ -85,7 +86,8 @@ export function discretizationClaims(e: DiscretizationEstimate, variableMembers:
   return {
     percent,
     unestimable,
-    warnUnestimable: unestimable === 'noStrainEnergy',
+    warnUnestimable: unestimable === 'noStrainEnergy' ? 'discretization.warningUnestimable'
+      : unestimable === 'tooCoarse' ? 'discretization.warningTooCoarse' : null,
     framesExact: e.notes.includes('framesExact') && variableMembers === 0,
     warpingMembers: e.inexactMembers?.length ?? 0,
     variableMembers,

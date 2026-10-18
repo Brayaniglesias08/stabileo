@@ -82,7 +82,7 @@
     </div>
 
     {#if claims?.warnUnestimable}
-      <div class="warning" data-testid="discretization-warning">{t('discretization.warningUnestimable')}</div>
+      <div class="warning" data-testid="discretization-warning">{t(claims.warnUnestimable)}</div>
     {:else if warn}
       <div class="warning" data-testid="discretization-warning">{t('discretization.warning').replace('{threshold}', threshold)}</div>
     {/if}

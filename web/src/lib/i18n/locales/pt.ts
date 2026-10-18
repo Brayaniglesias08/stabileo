@@ -9557,6 +9557,8 @@ const pt: Translations = {
   'discretization.framesExact': "As barras não têm erro de discretização: rigidez exata de viga e cargas na barra exatas (estático linear).",
   'discretization.unestimable.noStrainEnergy': "erro de discretização: não pode ser estimado (as cascas não se deformam; refine a malha)",
   'discretization.unestimable.unloaded': "erro de discretização: nada a estimar (sem carga)",
+  'discretization.unestimable.tooCoarse': "erro de discretização: não pode ser estimado (nenhum elemento tem vizinho para comparar; refine a malha)",
+  'discretization.warningTooCoarse': "A malha de cascas tem um só elemento por região: a recuperação não tem com o que compará-lo, então nenhuma estimativa é possível. Refine a malha antes de usar estes resultados.",
   'discretization.warningUnestimable': "A malha de cascas não se deforma com esta carga (ela vai direto aos apoios): é grossa demais para qualquer estimativa e seus resultados não dizem nada sobre as cascas. Refine a malha.",
   'discretization.warpingNotEstimated': "{n} barra(s) com torção de empenamento: seu campo de empenamento é aproximado; erro de discretização não estimado.",
   'discretization.curvedBeamsNotEstimated': "Vigas curvas são resolvidas como trechos retos: erro de discretização não estimado.",

@@ -851,3 +851,22 @@ fn curved_beams_are_not_claimed_exact() {
     assert!(!e.notes.contains(&"framesExact".to_string()), "notes {:?}", e.notes);
     assert!(e.notes.contains(&"curvedBeamsSegmented".to_string()));
 }
+
+/// One clamped MITC4 element with a tip load carries strain, but every recovery patch is the
+/// element itself: the recovered field is its own and the estimate would be ~0 by construction.
+/// Too coarse to estimate, and flagged.
+#[test]
+fn single_element_mesh_is_too_coarse_to_estimate() {
+    let map = |u: f64, v: f64| ([2.0 * u, 0.5 * v, 0.0], [0.0, 0.0, 1.0]);
+    let bc = |i: usize, _j: usize, _mx: usize, _my: usize| (i == 0).then_some([true; 6]);
+    let mut m = surface(Fam::Mitc4, 1, 1, 0.02, 200_000.0, 0.3, &map, &bc, Load::None);
+    for row in [m.grid[1][0].0, m.grid[1][1].0] {
+        m.input.loads.push(nodal(row, [0.0, 0.0, -1.0]));
+    }
+    let r = solve(&m.input);
+    let e = estimate(&m.input, &r);
+    assert!(e.solution_norm > 0.0, "the element is strained");
+    assert_eq!(e.relative_error, None, "estimate {:?} from a patch that is the element itself", e.relative_error);
+    assert_eq!(e.unestimable_reason.as_deref(), Some("tooCoarse"));
+    assert!(e.exceeds_threshold);
+}

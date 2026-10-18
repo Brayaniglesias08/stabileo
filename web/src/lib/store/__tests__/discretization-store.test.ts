@@ -73,7 +73,9 @@ describe('discretization store', () => {
     const c = discretizationClaims(unest as never, 0);
     expect(c.percent).toBeNull();
     expect(c.unestimable).toBe('noStrainEnergy');
-    expect(c.warnUnestimable).toBe(true);
+    expect(c.warnUnestimable).toBe('discretization.warningUnestimable');
+    expect(discretizationClaims({ ...unest, unestimableReason: 'tooCoarse' } as never, 0).warnUnestimable).toBe('discretization.warningTooCoarse');
+    expect(discretizationClaims({ ...unest, unestimableReason: 'unloaded', exceedsThreshold: false } as never, 0).warnUnestimable).toBeNull();
     runCertify.mockImplementationOnce(async () => unest as never);
     wire = { quads: { 3: {} } };
     discretizationStore.track({}, '3d');

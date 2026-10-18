@@ -9924,6 +9924,8 @@ const en: Record<string, string> = {
   'discretization.framesExact': "Frame members have no discretization error: exact beam stiffness and exact member loads (linear static).",
   'discretization.unestimable.noStrainEnergy': "discretization error: cannot be estimated (the shells carry no strain; refine the mesh)",
   'discretization.unestimable.unloaded': "discretization error: nothing to estimate (no load)",
+  'discretization.unestimable.tooCoarse': "discretization error: cannot be estimated (no element has a neighbor to compare with; refine the mesh)",
+  'discretization.warningTooCoarse': "The shell mesh is a single element per region: the recovery has nothing to compare it with, so no estimate is possible. Refine the mesh before using these results.",
   'discretization.warningUnestimable': "The shell mesh carries no strain under this load (it goes straight into the supports): it is too coarse for any estimate, and its results say nothing about the shells. Refine the mesh.",
   'discretization.warpingNotEstimated': "{n} member(s) with warping torsion: their warping field is approximate; discretization error not estimated.",
   'discretization.curvedBeamsNotEstimated': "Curved beams are solved as straight segments: discretization error not estimated.",

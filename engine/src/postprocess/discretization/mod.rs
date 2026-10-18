@@ -68,7 +68,9 @@ pub struct DiscretizationEstimate {
     /// Why the shells' error could not be estimated: `unloaded` (no load, nothing to estimate)
     /// or `noStrainEnergy` (loaded, but the mesh carries no strain above round-off — e.g. a
     /// single simply supported element whose load goes straight into its supports: the mesh is
-    /// too coarse to say anything, refine it). None when estimated or when there are no shells.
+    /// too coarse to say anything, refine it) or `tooCoarse` (no element shares a node with
+    /// another of its kind, so no patch is larger than the element itself). None when estimated
+    /// or when there are no shells.
     pub unestimable_reason: Option<String>,
     /// Estimated energy-norm error η (√(kN·m)).
     pub error_norm: f64,
@@ -93,6 +95,9 @@ pub(crate) struct RawEstimate {
     pub per_element: Vec<(samples::Family, usize, f64, f64)>, // (family, id, η², U)
     /// Σ E·V over the sampled elements: the energy of a unit strain everywhere.
     pub energy_scale: f64,
+    /// Elements that share a node with another element of their recovery group: only those
+    /// have a patch the recovered field can be smoother than their own.
+    pub with_neighbours: usize,
 }
 
 /// Whether anything loads the model: a nonzero reaction or displacement (loads that go straight
@@ -108,6 +113,13 @@ pub(crate) fn raw_estimate(input: &SolverInput3D, results: &AnalysisResults3D) -
     let coords: HashMap<usize, [f64; 3]> = input.nodes.values().map(|n| (n.id, [n.x, n.y, n.z])).collect();
     let rec = recovery::recover(&elems, &coords);
     let mut per_element = Vec::with_capacity(elems.len());
+    let mut by_node: HashMap<(usize, (samples::Family, usize, u64)), usize> = HashMap::new();
+    for e in &elems {
+        for &n in &e.nodes {
+            *by_node.entry((n, e.group_key())).or_default() += 1;
+        }
+    }
+    let with_neighbours = elems.iter().filter(|e| e.nodes.iter().any(|&n| by_node[&(n, e.group_key())] > 1)).count();
     let energy_scale: f64 = elems.iter().map(|e| e.e * e.samples.iter().map(|s| s.weight).sum::<f64>()).sum();
     for (e, nodal) in elems.iter().zip(&rec) {
         let (mut eta2, mut u) = (0.0, 0.0);
@@ -125,7 +137,7 @@ pub(crate) fn raw_estimate(input: &SolverInput3D, results: &AnalysisResults3D) -
         }
         per_element.push((e.family, e.id, eta2, u));
     }
-    Ok(RawEstimate { per_element, energy_scale })
+    Ok(RawEstimate { per_element, energy_scale, with_neighbours })
 }
 
 /// Estimate the discretization error of a 3D linear static solution of `input`.
@@ -142,7 +154,12 @@ pub fn estimate_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Result
         // Strain energy below what a strain of 1e-12 (round-off) everywhere would store is no
         // energy at all: the estimate would be 0/0.
         let floor = 1e-24 * raw.energy_scale;
-        if denom > floor {
+        if denom > floor && raw.with_neighbours == 0 {
+            // Every element alone in its patch (a one-element mesh): the "recovered" field is the
+            // element's own, the estimate would be ~0 by construction and say nothing.
+            unestimable_reason = Some("tooCoarse".to_string());
+            None
+        } else if denom > floor {
             Some((eta2 / denom).sqrt())
         } else {
             unestimable_reason = Some(if is_loaded(results) { "noStrainEnergy" } else { "unloaded" }.to_string());
@@ -188,7 +205,7 @@ pub fn estimate_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Result
         method: "zz-spr".into(),
         // A loaded mesh too coarse to estimate is flagged like one above the threshold.
         exceeds_threshold: relative_error.is_some_and(|r| r > threshold)
-            || unestimable_reason.as_deref() == Some("noStrainEnergy"),
+            || matches!(unestimable_reason.as_deref(), Some("noStrainEnergy" | "tooCoarse")),
         relative_error,
         unestimable_reason,
         error_norm: eta2.sqrt(),
