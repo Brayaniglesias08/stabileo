@@ -64,6 +64,51 @@ Each file ends with **"Discrepancies and open questions for review"**. Every ite
 The OPEN items are where a reviewer's judgement is most needed. For each one, please say
 whether it is acceptable as documented, needs a warning or refusal, or must be fixed.
 
+### Summary as of this writing
+
+| File | Fixed | Open | Documented choice |
+|---|---|---|---|
+| [frames.md](frames.md) | FR-1, FR-2 (and FR-6, a test gap now closed) | FR-3, FR-4, FR-5 | FR-7, FR-8 |
+| [shells.md](shells.md) | SH-2, 3, 4, 5, 10, 11, 12 | SH-1, 6, 7, 8, 9, 15 | SH-13, 14, 16 |
+| [special-elements.md](special-elements.md) | SP-1 to SP-7, SP-9 | SP-10, 11, 12, 14, 15, 17, 18 | SP-8, 13, 16 |
+| [assembly-constraints.md](assembly-constraints.md) | AC-1, 2, 4, 6, 11, 14 | AC-3, 5, 7, 10, 12, 13, 15, 16 | AC-8, 9 |
+| [mass-geometric-dynamics.md](mass-geometric-dynamics.md) | MD-11 (doc) | MD-5, 6, 7, 8, 10, 12 | MD-1 to 4, 9, 13 |
+| [nonlinear.md](nonlinear.md) | NL-1, NL-7 | NL-3, 4, 5, 6, 8, 9, 10, 11, 13, 17 | NL-2, 12, 14, 15, 16 |
+
+### Open items to look at first
+
+These are the open items that can make a result **unconservative**, or wrong without any
+warning:
+
+- **MD-7:** response-spectrum base shear is always combined by SRSS, even when CQC is requested.
+  This is unconservative for closely spaced modes.
+- **MD-8:** frame $K_g$ has no torsional (Wagner) term, so the torsional buckling of low-$GJ$
+  columns (cruciform, angles) is missed. In the test the reported load is 96% too high.
+- **MD-5:** modal participation omits the inertia coupled to the supports.
+- **NL-4, NL-5, NL-6:** the "material nonlinear" solver has three problems:
+  - it reports elastic member forces;
+  - it is a whole-member secant softening, not plasticity;
+  - its 3D yield surface is unconservative compared with the 2D one.
+- **NL-9, NL-11:** imperfections can silently do nothing. The 3D notional loads default to the Y
+  axis, and residual stresses and initial displacements are ignored.
+- **AC-15:** the web's embedding of a flat 2D model into the 3D solver does not negate nodal
+  moments and prescribed rotations. From the code, they act in the opposite sense.
+- **AC-3, AC-5:** the same rigid link or diaphragm means different things in 2D and in 3D.
+- **AC-7, AC-10:**
+  - Winkler member forces omit the foundation reaction.
+  - Some settlements are dropped without a message.
+- **AC-12, AC-13, AC-16:** the p-y, t-z and q-z soil curves depart from the cited references.
+- **SH-6, SH-7, SH-9:**
+  - Curved-shell bending moments are reported as zero.
+  - MITC9 on curved geometry does not reproduce rigid-body motion exactly.
+  - The solid shell has Poisson thickness locking.
+- **SP-12, SP-14, SP-15:**
+  - Cable tension comes out low in indeterminate systems.
+  - The linear solver lets a cable carry compression silently.
+  - Curved-beam axes depend on the plan orientation.
+- **FR-4:** the frame thermal coefficient $\alpha$ and section depth are constants of the engine.
+  The web compensates for them, but direct API users do not get that correction.
+
 ## How to run the checks
 
 ```sh
