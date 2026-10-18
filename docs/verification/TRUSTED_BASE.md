@@ -85,8 +85,10 @@ The script fails on:
   than the code the theorems are about.
 
 Audit result (October 2026): no `sorry`, `admit`, `native_decide`, `axiom`,
-`implemented_by` or `extern` in the sources. Every constant depends only on the standard
-three axioms.
+`implemented_by` or `extern` in the sources. All 884 constants of the library, 404 of
+them theorems, depend only on the standard three axioms. The scan was checked against a
+probe module holding a `native_decide` proof and an `axiom`; it rejected both. (In Lean
+4.34, `native_decide` shows up as an auxiliary `axiom …native_decide.ax_*`.)
 
 ## What Kani covers
 
@@ -159,8 +161,8 @@ to nearest. Audit, October 2026:
   FTZ/DAZ), and Rust does not set FTZ on native targets. `fp_environment.rs` checks
   subnormal operands and results and gradual underflow. The interval code needs no
   special case: one ulp in the subnormal range (2^-1074, absolute) still exceeds the
-  half-ulp rounding error. `interval.rs` `tiny_and_huge_magnitudes` and the new
-  subnormal-product sweep cover it.
+  half-ulp rounding error. `interval.rs` `tiny_and_huge_magnitudes` and the
+  subnormal-product sweep in `fp_environment.rs` cover it.
 - **`next_up` / `next_down`** (Rust `f64::next_up`/`next_down`, stable since 1.86).
   Checked: they step across ±0, the subnormal/normal boundary, binade boundaries, and to
   ±inf and ±MAX, are mutually inverse on a sweep of magnitudes, and are NaN on NaN. The
