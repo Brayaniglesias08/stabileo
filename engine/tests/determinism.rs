@@ -43,6 +43,27 @@ fn answer<T: Serialize>(r: &T) -> String {
     serde_json::to_string(&v).unwrap()
 }
 
+/// The JSON paths where two answers differ (at most five), with both values.
+fn first_difference(a: &str, b: &str) -> String {
+    fn walk(a: &serde_json::Value, b: &serde_json::Value, path: String, out: &mut Vec<String>) {
+        if out.len() >= 5 { return; }
+        match (a, b) {
+            (serde_json::Value::Object(x), serde_json::Value::Object(y)) => {
+                for (k, v) in x { walk(v, y.get(k).unwrap_or(&serde_json::Value::Null), format!("{path}.{k}"), out); }
+            }
+            (serde_json::Value::Array(x), serde_json::Value::Array(y)) if x.len() == y.len() => {
+                for (i, (v, w)) in x.iter().zip(y).enumerate() { walk(v, w, format!("{path}[{i}]"), out); }
+            }
+            _ if a != b => out.push(format!("{path}: {a} vs {b}")),
+            _ => {}
+        }
+    }
+    let (x, y): (serde_json::Value, serde_json::Value) = (serde_json::from_str(a).unwrap(), serde_json::from_str(b).unwrap());
+    let mut out = Vec::new();
+    walk(&x, &y, String::new(), &mut out);
+    out.join("; ")
+}
+
 /// Solve `COPIES` fresh deserializations of `json` and require one answer.
 fn same_every_time<I: DeserializeOwned, R: Serialize>(json: &str, what: &str, solve: impl Fn(&I) -> Result<R, String>) -> usize {
     let mut first: Option<Result<String, String>> = None;
@@ -53,9 +74,11 @@ fn same_every_time<I: DeserializeOwned, R: Serialize>(json: &str, what: &str, so
             None => first = Some(got),
             Some(f) => assert!(
                 *f == got,
-                "{what}: copy {copy} differs from copy 0 (nondeterministic result)\nfirst: {}\nthis:  {}",
-                f.as_ref().map(|s| &s[..s.len().min(400)]).unwrap_or_else(|e| e),
-                got.as_ref().map(|s| &s[..s.len().min(400)]).unwrap_or_else(|e| e),
+                "{what}: copy {copy} differs from copy 0 (nondeterministic result): {}",
+                match (f, &got) {
+                    (Ok(a), Ok(b)) => first_difference(a, b),
+                    (a, b) => format!("{a:?} vs {b:?}"),
+                },
             ),
         }
     }
