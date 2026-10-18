@@ -21,9 +21,11 @@ to compare) or unloaded. A model stabileo refuses is checked against
 OpenSees: refused (OpenSees finds no unique answer either), false_reject
 (OpenSees' stiffness is regular: flagged), not_applicable (buckling with
 no positive load factor on either side), or stabileo_failed (undecided).
+A model stabileo flags ill-conditioned whose OpenSees stiffness is well
+conditioned (kappa < 1e8) is a false_warning (flagged).
 
-Exit status: 0 = no discrepancy above tolerance, 1 = mismatch or
-false_reject, 2 = harness error.
+Exit status: 0 = no discrepancy above tolerance, 1 = mismatch,
+false_reject or false_warning, 2 = harness error.
 
 Conventions (read from the engine source, see README.md):
   * E is in MPa in the JSON; the engine uses E*1000 (kN/m^2). Lengths m,
@@ -1700,6 +1702,9 @@ KAPPA_MAX = 1e12
 # this is a false rejection (the threshold of stabileo's singular-pivot test,
 # engine/src/solver/definiteness.rs, cannot flag a regular model below it).
 KAPPA_REGULAR = 1e10
+# A model stabileo flags ill-conditioned whose OpenSees stiffness is better
+# conditioned than this is a false warning.
+KAPPA_WELL = 1e8
 # OpenSees' own reasons for not taking a model that say it has no unique
 # answer either: a load on a rotation nothing stiffens, a rotational mechanism.
 REFUSED_TOO = ("nodal moment on a rotation-free", "rotational mechanism")
@@ -1747,9 +1752,18 @@ def run_one(name, model, binary, tol, verbose, dump_dir=None):
             _dump(dump_dir, name, model)
         return r
     ill = sorted(set(sres["diags"]) & ILL_CONDITIONED)
-    if ill:
-        return dict(name=name, dim=dim, status="ill_conditioned", why=ill)
     ores = opensees_isolated(model)
+    if ill:
+        # stabileo's warning is checked too: OpenSees must not find the same
+        # stiffness well conditioned.
+        kappa = ores.get("kappa")
+        if kappa is not None and "failed" not in ores and "unsupported" not in ores and kappa < KAPPA_WELL:
+            if dump_dir:
+                _dump(dump_dir, name, model)
+            return dict(name=name, dim=dim, status="false_warning", why=ill + [f"opensees kappa={kappa:.1e}"],
+                        kappa=kappa)
+        return dict(name=name, dim=dim, status="ill_conditioned",
+                    why=ill + ([f"opensees kappa={kappa:.1e}"] if kappa is not None else []))
     if "unsupported" in ores:
         return dict(name=name, dim=dim, status="unsupported", why=[ores["unsupported"]])
     if "failed" in ores:
@@ -1968,9 +1982,10 @@ def main():
     return 1 if any(cnt.get(st) for st in FLAGGED) else 0
 
 
-# Statuses that fail the run (and are dumped): a disagreement, or stabileo
-# refusing a model OpenSees solves with a regular stiffness.
-FLAGGED = ("mismatch", "false_reject")
+# Statuses that fail the run (and are dumped): a disagreement, stabileo
+# refusing a model OpenSees solves with a regular stiffness, or warning about
+# one OpenSees finds well conditioned.
+FLAGGED = ("mismatch", "false_reject", "false_warning")
 
 
 if __name__ == "__main__":
