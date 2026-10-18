@@ -1,0 +1,90 @@
+//! Metamorphic tests: physics invariants on every analysis and the corpus
+//! (docs/verification/METAMORPHIC.md).
+//!
+//! No reference solution is needed: each model is solved, transformed (rigid
+//! rotation, mirror, renumbering, unit change, load splitting, unit loads),
+//! solved again, and the two answers must be related exactly as physics says,
+//! within a tolerance derived from the model's conditioning
+//! (`dedaliano_engine::metamorphic::conditioning`).
+//!
+//! Tiers:
+//! * `metamorphic_pr_*` — every pull request: a fixed sample of the corpus;
+//! * `metamorphic_nightly_*` (`--ignored`) — the whole corpus and many random
+//!   models; `METAMORPHIC_SEED` moves the random part (printed on failure).
+
+mod ana2;
+mod ana3;
+mod case;
+mod checks2;
+mod checks3;
+mod corpus;
+mod regressions;
+mod response;
+mod symmetry;
+mod tally;
+
+use tally::Tally;
+
+pub const INV_2D: &[&str] = &["rotation", "mirror", "relabel", "units", "superposition", "reciprocity", "energy"];
+pub const INV_3D: &[&str] = &["rotation", "relabel", "units", "superposition", "reciprocity", "energy"];
+
+fn seed() -> u64 {
+    std::env::var("METAMORPHIC_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(20261018)
+}
+
+fn finish(name: &str, t: &Tally) {
+    let rep = t.report();
+    println!("== {name} (seed {})\n{rep}", seed());
+    if let Ok(dir) = std::env::var("METAMORPHIC_REPORT_DIR") {
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(format!("{dir}/{name}.txt"), &rep);
+    }
+    let f = t.failures();
+    assert!(f.is_empty(), "{} metamorphic violation(s) (seed {}):\n{}", f.len(), seed(), f.join("\n"));
+}
+
+fn run_2d(name: &str, cases: Vec<case::Case2>, only: Option<&str>) {
+    let t = Tally::default();
+    let ctx = checks2::Ctx { tally: &t, rng_seed: seed() };
+    let anas: Vec<ana2::Ana2> = ana2::rows().into_iter().filter(|a| only.map_or(true, |o| a.name.contains(o))).collect();
+    for c in &cases {
+        checks2::check_case(&ctx, c, &anas, INV_2D);
+    }
+    finish(name, &t);
+}
+
+fn run_3d(name: &str, cases: Vec<case::Case3>, only: Option<&str>) {
+    let t = Tally::default();
+    let ctx = checks3::Ctx { tally: &t, rng_seed: seed() };
+    let anas: Vec<ana3::Ana3> = ana3::rows().into_iter().filter(|a| only.map_or(true, |o| a.name.contains(o))).collect();
+    for c in &cases {
+        checks3::check_case(&ctx, c, &anas, INV_3D);
+    }
+    finish(name, &t);
+}
+
+fn only() -> Option<String> {
+    std::env::var("METAMORPHIC_ONLY").ok()
+}
+
+#[test]
+fn metamorphic_pr_2d() {
+    run_2d("pr_2d", corpus::cases_2d(corpus::Tier::Pr, seed()), only().as_deref());
+}
+
+#[test]
+fn metamorphic_pr_3d() {
+    run_3d("pr_3d", corpus::cases_3d(corpus::Tier::Pr, seed()), only().as_deref());
+}
+
+#[test]
+#[ignore]
+fn metamorphic_nightly_2d() {
+    run_2d("nightly_2d", corpus::cases_2d(corpus::Tier::Nightly, seed()), only().as_deref());
+}
+
+#[test]
+#[ignore]
+fn metamorphic_nightly_3d() {
+    run_3d("nightly_3d", corpus::cases_3d(corpus::Tier::Nightly, seed()), only().as_deref());
+}
