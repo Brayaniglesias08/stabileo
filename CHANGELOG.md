@@ -17,8 +17,10 @@ It should capture what changed, not what should be built next.
 (θz for an XY diaphragm, θ in 2D). The slave nodes' own in-plane rotation was left free, so the
 columns under a rigid floor twisted against nothing at their tops: storeys were too soft in
 torsion and the column end torques came out zero. SAP2000/ETABS diaphragms and OpenSees
-`rigidDiaphragm` tie it. Models with a diaphragm get new results (torsional periods, column
-torques and moments, drifts); models without one are unchanged. (#342)
+`rigidDiaphragm` tie it. Engine inputs with a diaphragm get new results (torsional periods,
+column torques and moments, drifts); models without one are unchanged. Web projects are
+unchanged: the web already added an equalDOF on that rotation for every slave, which is removed
+now that the engine ties it. (#342)
 
 - `engine/src/solver/constraints.rs`: both the dependent-DOF list used by validation and the
   constraint equations tie the slave's in-plane rotation; inclined-support frames go through the
