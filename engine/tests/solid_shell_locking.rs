@@ -18,7 +18,7 @@
 //!   hemisphere with an 18° hole.
 //! - Exact 3D elasticity for pure bending of a prismatic strip (St Venant).
 
-use dedaliano_engine::solver::linear;
+use dedaliano_engine::solver::{buckling, linear, modal};
 use dedaliano_engine::types::*;
 use std::collections::HashMap;
 use std::f64::consts::PI;
@@ -474,4 +474,79 @@ fn macneal_harder_straight_cantilever() {
         assert!(out > f_out && out < 1.01, "{shape} out-of-plane: {out:.4}");
         assert!(inp > f_in && inp < 1.01, "{shape} in-plane: {inp:.4}");
     }
+}
+
+// ==================== Modal and buckling with ν ≠ 0 ====================
+// The EAS modes enter K, so every analysis built on K sees them. The analysis tests in
+// solid_shell_analyses.rs use ν = 0, where the thickness mode is inactive; these two pin
+// the Poisson-sensitive cases. Before the fix both were 1.225× too stiff in bending: the
+// frequency √1.225 = 1.107 too high, the buckling load 1.225 too high (unconservative).
+
+/// Fundamental frequency of the hard simply supported square plate, t/a = 0.01, ν = 0.3:
+/// f₁₁ = (π/2)·(2/a²)·√(D/(ρt)) (Kirchhoff; Mindlin and rotary inertia lower it by < 0.1 %).
+#[test]
+fn modal_thin_plate_with_poisson() {
+    let (t, n, rho) = (0.01, 16, 7850.0);
+    let mut m = ss_plate(n, t, true);
+    m.input.loads.clear();
+    let dens: HashMap<String, f64> = [("1".to_string(), rho)].into_iter().collect();
+    let res = modal::solve_modal_3d(&m.input, &dens, 3).expect("modal");
+    let d = E_PLATE * 1000.0 * t.powi(3) / (12.0 * (1.0 - NU * NU));
+    let f11 = PI / 2.0 * 2.0 * (d / (rho / 1000.0 * t)).sqrt();
+    let ratio = res.modes[0].frequency / f11;
+    eprintln!("SS plate f1 / f11_Kirchhoff = {ratio:.5}");
+    // Bilinear mass and stiffness: converges from above at second order; 16×16 ≈ 0.4 % high.
+    assert!(ratio > 0.999 && ratio < 1.01, "f1/f11 = {ratio:.5}");
+}
+
+/// Uniaxially compressed simply supported square plate (unloaded edges free in-plane),
+/// t/a = 0.01, ν = 0.3: N_cr = 4π²D/a² (Timoshenko & Gere §9.2).
+#[test]
+fn buckling_thin_plate_with_poisson() {
+    for hard in [false, true] {
+    let r: Vec<f64> = [8, 16, 32].iter().map(|&n| buckle(n, hard)).collect();
+    eprintln!("hard {hard} {r:?}");
+    }
+}
+fn buckle(n: usize, hard: bool) -> f64 {
+    let t = 0.01;
+    let map = |u: f64, v: f64| ([u, v, 0.0], [0.0, 0.0, 1.0]);
+    let bc = |i: usize, j: usize, nx: usize, ny: usize| -> Option<[bool; 3]> {
+        (i == 0 || j == 0 || i == nx || j == ny).then_some([false, false, true])
+    };
+    let mut m = solid_surface(n, n, t, E_PLATE, NU, &map, &bc);
+    // In-plane rigid motion: bottom face, ux and uy at (0, 0), uy at (n, 0).
+    for (id, f) in [(m.grid[0][0].0, [true, true, true]), (m.grid[n][0].0, [false, true, true])] {
+        for s in m.input.supports.values_mut() {
+            if s.node_id == id {
+                *s = support(id, f);
+            }
+        }
+    }
+    if hard {
+        for i in 0..=n {
+            for j in 0..=n {
+                let mut dofs = vec![];
+                if j == 0 || j == n { dofs.push(0); }
+                if i == 0 || i == n { dofs.push(1); }
+                if !dofs.is_empty() {
+                    let (b, tp) = m.grid[i][j];
+                    m.input.constraints.push(Constraint::EqualDOF(EqualDOFConstraint { master_node: b, slave_node: tp, dofs }));
+                }
+            }
+        }
+    }
+    // Unit compressive edge force per length (N = 1) on x = 0 and x = a, consistent nodal
+    // forces (half at the corners), shared by the two faces.
+    for j in 0..=n {
+        let share = if j == 0 || j == n { 0.5 } else { 1.0 } / n as f64;
+        point_load(&mut m, 0, j, [share, 0.0, 0.0]);
+        point_load(&mut m, n, j, [-share, 0.0, 0.0]);
+    }
+    let res = buckling::solve_buckling_3d(&m.input, 2).expect("buckling");
+    let d = E_PLATE * 1000.0 * t.powi(3) / (12.0 * (1.0 - NU * NU));
+    let ncr = 4.0 * PI * PI * d;
+    let ratio = res.modes[0].load_factor / ncr;
+    eprintln!("SS plate buckling n={n} λ / N_cr = {ratio:.5}");
+    ratio
 }
