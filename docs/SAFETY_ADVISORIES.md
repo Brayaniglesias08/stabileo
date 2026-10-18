@@ -59,10 +59,12 @@ is filed at the highest one.
 | Step | Deadline |
 |---|---|
 | Triage a new `safety` issue: reproduce, decide whether it reached `main`, assign severity | 2 working days |
+| Contain: set the feature's runtime switch to warn or refuse, or record why none is needed ([#447](https://github.com/lambdaclass/stabileo/issues/447)) | 24 hours after confirmation |
 | Draft the advisory (`Status: draft`) | 5 working days after confirmation |
 | Critical or High with no fix merged within 14 days | Publish the advisory with the workaround, and ship an in-app warning on the affected results before the fix |
 | Fix released | Advisory published the same day, with the fixed version; release notes and in-app notice in that release |
 | Re-check registry entry | In the PR that fixes the defect |
+| Postmortem in `docs/postmortems/` (root cause, why tests missed it, new test kind, variant analysis; [#449](https://github.com/lambdaclass/stabileo/issues/449), [#448](https://github.com/lambdaclass/stabileo/issues/448)); the advisory's "what was wrong" comes from it | 10 working days after the fix |
 
 ## Required content
 
