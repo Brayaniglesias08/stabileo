@@ -32,6 +32,64 @@ pub struct PerModeResult {
     pub modal_force: f64,
 }
 
+/// Check the spectral data the solver trusts (issue #335): every mode has a
+/// finite ω > 0 and period > 0 and finite participation, effective mass and
+/// shape; the spectrum has finite ordinates at finite, strictly increasing
+/// periods; ξ, the importance and reduction factors are finite, ξ ≥ 0 and the
+/// factors > 0. A negative ω made the CQC ratio ω_j/ω_i negative, r^1.5 NaN,
+/// and every combined displacement and force NaN; ω ≤ 0 also dropped the
+/// mode silently (S_d = 0).
+fn validate_spectral(
+    modes: &[(f64, f64, Vec<f64>)],
+    spectrum: &DesignSpectrum,
+    xi: f64,
+    importance: f64,
+    reduction: f64,
+) -> Result<(), String> {
+    for (i, (omega, period, rest)) in modes.iter().enumerate() {
+        // `!(x > 0.0)` also rejects NaN.
+        if !omega.is_finite() || !(*omega > 0.0) {
+            return Err(format!("Spectral analysis: mode {} has omega = {omega}; it must be finite and > 0", i + 1));
+        }
+        if !period.is_finite() || !(*period > 0.0) {
+            return Err(format!("Spectral analysis: mode {} has period = {period}; it must be finite and > 0", i + 1));
+        }
+        if let Some(x) = rest.iter().find(|x| !x.is_finite()) {
+            return Err(format!(
+                "Spectral analysis: mode {} has a non-finite participation factor, effective mass or shape value ({x})",
+                i + 1
+            ));
+        }
+    }
+    if let Some(p) = spectrum.points.iter().find(|p| !p.period.is_finite() || !p.sa.is_finite()) {
+        return Err(format!("Spectral analysis: spectrum point (T = {}, Sa = {}) is not finite", p.period, p.sa));
+    }
+    if spectrum.points.windows(2).any(|w| !(w[0].period < w[1].period)) {
+        return Err("Spectral analysis: spectrum periods must be strictly increasing".into());
+    }
+    if !xi.is_finite() || xi < 0.0 {
+        return Err(format!("Spectral analysis: damping ratio xi = {xi} must be finite and >= 0"));
+    }
+    if !importance.is_finite() || !(importance > 0.0) {
+        return Err(format!("Spectral analysis: importance factor {importance} must be finite and > 0"));
+    }
+    if !reduction.is_finite() || !(reduction > 0.0) {
+        return Err(format!("Spectral analysis: reduction factor {reduction} must be finite and > 0"));
+    }
+    Ok(())
+}
+
+/// Backstop after the combination: a result with a non-finite number (an
+/// overflow on huge but finite input) is refused, never returned.
+fn check_finite_output(disps: &[f64], forces: &[f64], base_shear: f64, per_mode: &[PerModeResult]) -> Result<(), String> {
+    let modal = per_mode.iter().flat_map(|m| [m.period, m.sa, m.sd, m.participation, m.modal_force]);
+    if disps.iter().chain(forces).copied().chain(modal).all(f64::is_finite) && base_shear.is_finite() {
+        Ok(())
+    } else {
+        Err("Spectral analysis: the combined response is not finite (overflow; check the modes, spectrum and factors)".into())
+    }
+}
+
 /// Solve 2D spectral analysis using pre-computed modal data.
 pub fn solve_spectral_2d(input: &SpectralInput) -> Result<SpectralResult, String> {
     super::linear::validate_input_2d(&input.solver)?;
@@ -46,6 +104,15 @@ pub fn solve_spectral_2d(input: &SpectralInput) -> Result<SpectralResult, String
     let xi = input.xi.unwrap_or(0.05);
     let importance_factor = input.importance_factor.unwrap_or(1.0);
     let reduction_factor = input.reduction_factor.unwrap_or(1.0);
+    let checked: Vec<(f64, f64, Vec<f64>)> = modes
+        .iter()
+        .map(|m| {
+            let mut rest = vec![m.participation_x, m.participation_y, m.effective_mass_x, m.effective_mass_y];
+            rest.extend(m.displacements.iter().flat_map(|d| [d.ux, d.uz, d.ry]));
+            (m.omega, m.period, rest)
+        })
+        .collect();
+    validate_spectral(&checked, spectrum, xi, importance_factor, reduction_factor)?;
 
     let dof_num = DofNumbering::build_2d(solver_input);
     let n = dof_num.n_total;
@@ -63,7 +130,8 @@ pub fn solve_spectral_2d(input: &SpectralInput) -> Result<SpectralResult, String
         }
         sa *= importance_factor / reduction_factor;
 
-        let sd = if mode.omega > 1e-10 { sa / (mode.omega * mode.omega) } else { 0.0 };
+        // ω > 0 (validated).
+        let sd = sa / (mode.omega * mode.omega);
 
         let participation = match direction.as_str() {
             "X" => mode.participation_x,
@@ -142,6 +210,7 @@ pub fn solve_spectral_2d(input: &SpectralInput) -> Result<SpectralResult, String
         .map(|pm| pm.modal_force * pm.modal_force)
         .sum::<f64>()
         .sqrt();
+    check_finite_output(&combined_disps, &combined_forces, base_shear, &per_mode)?;
 
     Ok(SpectralResult {
         displacements,
@@ -278,6 +347,18 @@ pub fn solve_spectral_3d(input: &SpectralInput3D) -> Result<SpectralResult3D, St
     let xi = input.xi.unwrap_or(0.05);
     let importance_factor = input.importance_factor.unwrap_or(1.0);
     let reduction_factor = input.reduction_factor.unwrap_or(1.0);
+    let checked: Vec<(f64, f64, Vec<f64>)> = modes
+        .iter()
+        .map(|m| {
+            let mut rest = vec![
+                m.participation_x, m.participation_y, m.participation_z,
+                m.effective_mass_x, m.effective_mass_y, m.effective_mass_z,
+            ];
+            rest.extend(m.displacements.iter().flat_map(|d| [d.ux, d.uy, d.uz, d.rx, d.ry, d.rz]));
+            (m.omega, m.period, rest)
+        })
+        .collect();
+    validate_spectral(&checked, spectrum, xi, importance_factor, reduction_factor)?;
 
     let dof_num = DofNumbering::build_3d(solver_input);
     let n = dof_num.n_total;
@@ -291,7 +372,8 @@ pub fn solve_spectral_3d(input: &SpectralInput3D) -> Result<SpectralResult3D, St
         if spectrum.in_g.unwrap_or(true) { sa *= 9.81; }
         sa *= importance_factor / reduction_factor;
 
-        let sd = if mode.omega > 1e-10 { sa / (mode.omega * mode.omega) } else { 0.0 };
+        // ω > 0 (validated).
+        let sd = sa / (mode.omega * mode.omega);
 
         let participation = match direction.as_str() {
             "X" => mode.participation_x,
@@ -395,6 +477,7 @@ pub fn solve_spectral_3d(input: &SpectralInput3D) -> Result<SpectralResult3D, St
 
     let base_shear: f64 = per_mode.iter()
         .map(|pm| pm.modal_force * pm.modal_force).sum::<f64>().sqrt();
+    check_finite_output(&combined_disps, &combined_forces, base_shear, &per_mode)?;
 
     Ok(SpectralResult3D {
         displacements, element_forces, base_shear, per_mode, rule: rule.to_string(),

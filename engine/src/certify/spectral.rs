@@ -27,6 +27,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use super::finite;
 use super::forces::{force_bounds_2d, force_bounds_3d};
 use super::interval::Interval;
 use super::modal::isolate_modes;
@@ -62,8 +63,13 @@ impl Enclosure {
         Enclosure { lo: i.lo, hi: i.hi }
     }
 
-    /// Upper bound on |exact − x| for every exact value in the enclosure.
+    /// Upper bound on |exact − x| for every exact value in the enclosure;
+    /// +∞ when `x` or the enclosure is not finite (`f64::max` drops NaN, so
+    /// a NaN `x` used to give 0, issue #335).
     pub fn error_of(&self, x: f64) -> f64 {
+        if !(x.is_finite() && self.lo.is_finite() && self.hi.is_finite()) {
+            return f64::INFINITY;
+        }
         up(up(self.hi - x).max(up(x - self.lo))).max(0.0)
     }
 
@@ -115,6 +121,8 @@ pub enum SpectralCertificate {
     Uncertified { reason: String },
 }
 
+super::finite::guarded_enum!(SpectralCertificate);
+
 impl SpectralCertificate {
     fn uncertified(reason: impl Into<String>) -> Self {
         SpectralCertificate::Uncertified { reason: reason.into() }
@@ -139,16 +147,22 @@ pub struct CertifiedSpectral3D {
     pub certificate: SpectralCertificate,
 }
 
-/// Solve 2D spectral analysis and certify it.
+/// Solve 2D spectral analysis and certify it. A non-finite number in the
+/// input or the results is an `Err`.
 pub fn certify_spectral_2d(input: &SpectralInput) -> Result<CertifiedSpectral2D, String> {
+    finite::check_input(input)?;
     let results = solve_spectral_2d(input)?;
+    finite::check_results(&results)?;
     let certificate = certify_spectral_results_2d(input, &results);
     Ok(CertifiedSpectral2D { results, certificate })
 }
 
-/// Solve 3D spectral analysis and certify it.
+/// Solve 3D spectral analysis and certify it. A non-finite number in the
+/// input or the results is an `Err`.
 pub fn certify_spectral_3d(input: &SpectralInput3D) -> Result<CertifiedSpectral3D, String> {
+    finite::check_input(input)?;
     let results = solve_spectral_3d(input)?;
+    finite::check_results(&results)?;
     let certificate = certify_spectral_results_3d(input, &results);
     Ok(CertifiedSpectral3D { results, certificate })
 }
@@ -339,13 +353,25 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
 }
 
 /// Certify given 2D spectral results of `input`.
+/// Uncertified when the input, the results or the bounds are not finite.
 pub fn certify_spectral_results_2d(input: &SpectralInput, results: &SpectralResult) -> SpectralCertificate {
-    certify_2d_inner(input, results).unwrap_or_else(SpectralCertificate::uncertified)
+    let mut c = finite::check_input(input)
+        .and_then(|()| finite::check_results(results))
+        .and_then(|()| certify_2d_inner(input, results))
+        .unwrap_or_else(SpectralCertificate::uncertified);
+    finite::guard(&mut c);
+    c
 }
 
 /// Certify given 3D spectral results of `input`.
+/// Uncertified when the input, the results or the bounds are not finite.
 pub fn certify_spectral_results_3d(input: &SpectralInput3D, results: &SpectralResult3D) -> SpectralCertificate {
-    certify_3d_inner(input, results).unwrap_or_else(SpectralCertificate::uncertified)
+    let mut c = finite::check_input(input)
+        .and_then(|()| finite::check_results(results))
+        .and_then(|()| certify_3d_inner(input, results))
+        .unwrap_or_else(SpectralCertificate::uncertified);
+    finite::guard(&mut c);
+    c
 }
 
 fn influence(dof: &DofNumbering, dir: usize) -> Vec<f64> {
@@ -590,6 +616,13 @@ fn finish(
     reported_base_shear: f64,
 ) -> Result<SpectralCertificate, String> {
     let nf = dof.n_free;
+    // Every reported value is certified against an enclosure: a non-finite
+    // one cannot be (and `error_of` would otherwise be the only guard).
+    if !reported_disp.values().chain(reported_forces.values()).flatten().all(|x| x.is_finite())
+        || !reported_base_shear.is_finite()
+    {
+        return Err("non-finite reported value".into());
+    }
     let rho = match p.cqc_xi {
         Some(xi) => Some(cqc_matrix(cores, xi)?),
         None => None,
