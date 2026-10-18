@@ -78,7 +78,6 @@ Statuses:
 | `ill_conditioned` | stabileo flags it (`stiffness_not_positive_definite`, `residual_high`, ...), or MUMPS cannot reach its residual check (FACTOR_57, also after a FACTOR_11 rerun with the check off) |
 | `refused` | stabileo refuses the model and Code_Aster agrees there is no unique answer: its stiffness is singular (`FACTOR_11`/`FACTOR_42` at `NPREC=10`, or `FACTOR_57`), or the translator rejects the model for the same reason (a nodal moment on a rotation nothing stiffens, a rotational mechanism) |
 | `false_reject` | stabileo refuses a model Code_Aster solves with its singularity check on: flagged |
-| `over_constrained` | a DOF both restrained by a support and tied by a constraint: stabileo warns `over_constrained_dof`, Code_Aster's multipliers are redundant (`FACTOR_42`); the reaction split has no unique answer |
 | `stabileo_failed` | stabileo refuses a model the translator cannot express (undecided) |
 | `unsupported` | uses a feature with no clean Code_Aster equivalent here (shells, warping, ...) |
 | `aster_failed` | Code_Aster fails for another reason: a harness bug |
@@ -121,7 +120,7 @@ the `to_aster.py` docstring.
 | `frame` with `asY`/`asZ` | `POU_D_T` (Timoshenko, exact); `AZ = A/asY`, `AY = A/asZ` (the engine pairs asY with Iy); a missing area is rigid |
 | `truss` | `BARRE` |
 | support springs | `DIS_TR`/`DIS_T` on a POI1 cell, `K_TR_D_N` in global axes |
-| connectors | `DIS_TR` on a SEG2 cell in the connector axes of `element/connector.rs`: `K_TR_D_L` at zero length; `K_TR_L` when finite, written from the rigid-arm kinematics (shear springs at mid-length) |
+| connectors | `DIS_TR` on a SEG2 cell in the connector axes of `element/connector.rs`: `K_TR_D_L` at zero length; `K_TR_L` (global, `to_aster.connector_matrix`) when finite: shear springs at mid-length on rigid arms |
 | releases (My, Mz, T) | the released end on its own node, tied to the joint by `LIAISON_DDL` on the translations and on the kept local rotation components |
 | supports, settlements | `DDL_IMPO`; inclined: `LIAISON_DDL` n·u = 0 |
 | constraints | `LIAISON_DDL` rows written from the documented kinematics (`types/input.rs`, `constraints.rs`), not from the engine's transform |
@@ -132,16 +131,12 @@ the `to_aster.py` docstring.
 ### Code_Aster behaviours the translation works around
 
 - **`K_TR_D_L` on a SEG2 has no lever arm.** Its matrix is `[K, -K; -K, K]`,
-  so a rigid rotation of a finite connector stretches its shear springs.
-  The engine's connector (since 3aa56464) puts the shear springs at
-  mid-length, reached from each end by a rigid arm, so they carry V·L to
-  the ends and K annihilates rigid motions. A finite connector is
-  therefore a full `K_TR_L` matrix (upper triangle, column by column),
-  each spring k·b·bᵀ with b written from the arm kinematics
-  (`to_aster.connector_k_tr_l`). The 99 mismatches of the first nightly run
+  while the engine's finite connector (since 3aa56464) puts its shear
+  springs at mid-length on rigid arms. A finite connector is therefore a
+  full `K_TR_L` (fixed on #326). The 99 mismatches of the first nightly run
   (aster3d seeds 744000-744399, every one with a finite connector) were
-  this; they reproduce identically under Rosetta, so they were not a
-  native-vs-emulated difference, and agree to 1e-12 with `K_TR_L`.
+  this; they reproduce identically under Rosetta (same 99 models, same
+  statuses), so they were not a native-vs-emulated difference.
 
 Each one was found by a disagreement and settled by a closed form or a
 convergence study, never by widening the tolerance:
