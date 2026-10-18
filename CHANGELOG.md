@@ -39,6 +39,22 @@ curved shells, walls in dynamics and heated shells:
 - DKT nodal stresses subtract the thermal strain, and several thermal loads on one shell are
   summed in stress recovery (only the last was used).
 
+Assembly, supports and constraints (`docs/solver/assembly-constraints.md`, tests in
+`derivation_assembly_constraints.rs`). **BREAKING (results)** for the cases listed:
+
+- Rigid links, eccentric connections and diaphragms in 3D truss/cable-only models (3 DOFs per
+  node) read the master's vertical displacement as its rotation. They now branch on the model's
+  dimension.
+- 2D diaphragm planes: "XZ" (the 2D plane) is now the in-plane rigid body, "YZ" ties vertical
+  displacement only, and unknown plane names are refused (they fell back to XY). The 3D "XZ"
+  diaphragm had both rigid-body signs flipped.
+- Reactions at an inclined support that also carries a spring now balance the loads. 3D rotated
+  the spring force with the normal reaction, and 2D dropped it.
+- 3D Winkler `kz` foundation: the translation–rotation coupling signs were not flipped, so a
+  symmetric beam deflected half as much under z as under y.
+- API RP 2A sand p-y: the C1, C2, C3 coefficients now follow the Reese–Cox–Koop formulas. Ultimate
+  resistance was 5× too low near the surface and 16× too low at depth.
+
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
 **BREAKING (results): steel members bent about both axes without axial force are now checked by
