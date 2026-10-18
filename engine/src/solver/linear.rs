@@ -5419,8 +5419,12 @@ pub(crate) fn compute_plate_stresses(
         std::collections::HashMap::new();
     for load in loads_ref {
         if let SolverLoad3D::PlateThermal(tl) = load {
+            // Summed as free strains, (1, Σα·ΔTu, Σα·ΔTg): the load vector sums every
+            // thermal load on an element, and an insert kept only the last (SH-11).
             let alpha = tl.alpha.unwrap_or(1.2e-5);
-            thermal_by_elem.insert(tl.element_id, (alpha, tl.dt_uniform, tl.dt_gradient));
+            let e = thermal_by_elem.entry(tl.element_id).or_insert((1.0, 0.0, 0.0));
+            e.1 += alpha * tl.dt_uniform;
+            e.2 += alpha * tl.dt_gradient;
         }
     }
 
@@ -5451,7 +5455,8 @@ pub(crate) fn compute_plate_stresses(
         let s = crate::element::plate_stress_recovery(&coords, e, nu, plate.thickness, &u_local, alpha, dt_uniform, dt_gradient);
 
         // Also recover nodal stresses for stress smoothing
-        let nodal = crate::element::plate_stress_at_nodes(&coords, e, nu, plate.thickness, &u_local);
+        // Thermal strain subtracted at the nodes as at the centroid (SH-10).
+        let nodal = crate::element::plate_stress_at_nodes_thermal(&coords, e, nu, plate.thickness, &u_local, alpha, dt_uniform, dt_gradient);
         let nodal_vm: Vec<f64> = nodal.iter().map(|ns| ns.von_mises).collect();
 
         stresses.push(PlateStress {
@@ -5498,13 +5503,14 @@ pub(crate) fn compute_quad_stresses(
         std::collections::HashMap::new();
     for load in loads_ref {
         match load {
-            SolverLoad3D::QuadThermal(tl) => {
+            // Summed as free strains, (1, Σα·ΔTu, Σα·ΔTg): an insert kept only the last
+            // thermal load on an element while the load vector sums them all (SH-11).
+            // Quads and quad9s share this map, as they share the QuadStress output.
+            SolverLoad3D::QuadThermal(tl) | SolverLoad3D::Quad9Thermal(tl) => {
                 let alpha = tl.alpha.unwrap_or(1.2e-5);
-                thermal_by_elem.insert(tl.element_id, (alpha, tl.dt_uniform, tl.dt_gradient));
-            }
-            SolverLoad3D::Quad9Thermal(tl) => {
-                let alpha = tl.alpha.unwrap_or(1.2e-5);
-                thermal_by_elem.insert(tl.element_id, (alpha, tl.dt_uniform, tl.dt_gradient));
+                let e = thermal_by_elem.entry(tl.element_id).or_insert((1.0, 0.0, 0.0));
+                e.1 += alpha * tl.dt_uniform;
+                e.2 += alpha * tl.dt_gradient;
             }
             _ => {}
         }
@@ -5672,13 +5678,14 @@ pub(crate) fn compute_quad_nodal_stresses(
         std::collections::HashMap::new();
     for load in loads_ref {
         match load {
-            SolverLoad3D::QuadThermal(tl) => {
+            // Summed as free strains, (1, Σα·ΔTu, Σα·ΔTg): an insert kept only the last
+            // thermal load on an element while the load vector sums them all (SH-11).
+            // Quads and quad9s share this map, as they share the QuadStress output.
+            SolverLoad3D::QuadThermal(tl) | SolverLoad3D::Quad9Thermal(tl) => {
                 let alpha = tl.alpha.unwrap_or(1.2e-5);
-                thermal_by_elem.insert(tl.element_id, (alpha, tl.dt_uniform, tl.dt_gradient));
-            }
-            SolverLoad3D::Quad9Thermal(tl) => {
-                let alpha = tl.alpha.unwrap_or(1.2e-5);
-                thermal_by_elem.insert(tl.element_id, (alpha, tl.dt_uniform, tl.dt_gradient));
+                let e = thermal_by_elem.entry(tl.element_id).or_insert((1.0, 0.0, 0.0));
+                e.1 += alpha * tl.dt_uniform;
+                e.2 += alpha * tl.dt_gradient;
             }
             _ => {}
         }

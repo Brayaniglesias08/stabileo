@@ -183,7 +183,7 @@ fn lumped_end_members_change_the_fundamental_little() {
 /// 1/√(1 + (nπr/L)²) — 1.6%, 6.0%, 12.0% for modes 1–3 — and a Timoshenko beam lower still.
 #[test]
 fn modal_frequencies_are_euler_bernoulli_without_rotary_inertia() {
-    let (l, b, h) = (5.0, 0.3, 1.0);
+    let (l, b, h): (f64, f64, f64) = (5.0, 0.3, 1.0);
     let (a, iz) = (b * h, b * h.powi(3) / 12.0);
     let input = make_beam(40, l, E, a, iz, "pinned", Some("pinned"), vec![]);
     let res = modal::solve_modal_2d(&input, &dens(), 8).unwrap();
@@ -250,7 +250,7 @@ fn modal_static_tip(n: usize, l: f64) -> f64 {
 #[test]
 #[ignore = "open question MD-5: modal Γ omits the M_fr support-coupling inertia that time history includes"]
 fn modal_participation_includes_support_coupled_mass() {
-    let l = 3.0;
+    let l: f64 = 3.0;
     let exact = RHO / 1000.0 * 0.01 * l.powi(4) / (8.0 * E * 1000.0 * 1e-4);
     for n in [1usize, 2, 4, 8] {
         let s = modal_static_tip(n, l);
@@ -264,7 +264,7 @@ fn modal_participation_includes_support_coupled_mass() {
 /// limit is K_ff⁻¹·M_ff·r_f, i.e. tip = ρA·L⁴/EI·(156/1260 − 11/420) for one element.
 #[test]
 fn modal_participation_today_uses_free_block_mass_only() {
-    let l = 3.0;
+    let l: f64 = 3.0;
     let q_over_ei = RHO / 1000.0 * 0.01 / (E * 1000.0 * 1e-4);
     let today = q_over_ei * l.powi(4) * (156.0 / 420.0 / 3.0 - 22.0 / 420.0 / 2.0);
     let s1 = modal_static_tip(1, l);
