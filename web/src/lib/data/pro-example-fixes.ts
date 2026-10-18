@@ -10,7 +10,6 @@ import { gradeById } from './structural-grades';
 
 type Fix = () => void;
 
-const loadsOf = (caseId: number) => modelStore.loads.filter((l) => ((l.data as { caseId?: number }).caseId ?? 1) === caseId);
 const firstCase = (type: string) => modelStore.model.loadCases.find((c) => c.type === type);
 
 /** Members whose section or material name matches. */
@@ -69,44 +68,6 @@ export const PRO_EXAMPLE_FIXES: Readonly<Record<string, Fix>> = {
       if (Math.abs(Math.min(a.x, b.x) - 8) > 1e-6) continue;
       const loaded = Math.min(a.y, b.y) < 10;
       for (const at of [2, 6]) modelStore.addPointLoadOnElement3D(id, at, loaded ? 5 : 0, loaded ? -60 : -25, crane);
-    }
-  },
-
-  /*
-   * Twenty nodal loads carried the wind and the gravity together in the dead-load case, so the
-   * drift under wind could not be read from a wind case. The horizontal part goes to the wind case.
-   */
-  'xl-diagrid-tower': () => {
-    const d = firstCase('D'), w = firstCase('W');
-    if (!d || !w) return;
-    for (const l of loadsOf(d.id)) {
-      if (l.type !== 'nodal3d') continue;
-      const v = l.data as { id: number; nodeId: number; fx: number; fy: number; fz: number; mx: number; my: number; mz: number };
-      if (v.fx === 0 && v.fy === 0) continue;
-      modelStore.addNodalLoad3D(v.nodeId, v.fx, v.fy, 0, 0, 0, 0, w.id);
-      modelStore.updateLoad(v.id, { fx: 0, fy: 0 });
-    }
-  },
-
-  /*
-   * The loads were written for a Y-up model: the dead and wind loads as local qY, which on a
-   * Z-up model is horizontal, and the live loads as nodal −fy. They are turned to what they
-   * meant: dead load down along global Z, wind normal to each member on the same side, live
-   * loads down.
-   */
-  'la-bombonera': () => {
-    for (const l of [...modelStore.loads]) {
-      if (l.type === 'distributed3d') {
-        const v = l.data as { id: number; elementId: number; qYI: number; qYJ: number; qZI: number; qZJ: number; caseId?: number };
-        if (v.qYI === 0 && v.qYJ === 0) continue;
-        const wind = (v.caseId ?? 1) === firstCase('W')?.id;
-        modelStore.updateLoad(v.id, wind
-          ? { qYI: 0, qYJ: 0, qZI: -Math.abs(v.qYI), qZJ: -Math.abs(v.qYJ) }
-          : { qYI: 0, qYJ: 0, qZI: -Math.abs(v.qYI), qZJ: -Math.abs(v.qYJ), frame: 'global' });
-      } else if (l.type === 'nodal3d') {
-        const v = l.data as { id: number; fy: number; fz: number };
-        if (v.fy !== 0 && v.fz === 0) modelStore.updateLoad(v.id, { fy: 0, fz: -Math.abs(v.fy) });
-      }
     }
   },
 

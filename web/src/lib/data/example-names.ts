@@ -28,7 +28,7 @@ const CASE = first(
     'Sobrecarga de uso': 'exData.case.live', 'Live Load': 'exData.case.live',
     'Sobrecarga de cubierta': 'exData.case.roofLive', 'Roof Live Load': 'exData.case.roofLive', 'Roof live load': 'exData.case.roofLive',
     'Viento X': 'exData.case.windX', 'Viento Y': 'exData.case.windY', 'Wind': 'exData.case.wind',
-    'Wind +X': 'exData.case.windPlusX', 'Wind −X': 'exData.case.windMinusX',
+    'Wind +X': 'exData.case.windPlusX', 'Wind −X': 'exData.case.windMinusX', 'Wind +Y': 'exData.case.windPlusY',
     'Sismo X': 'exData.case.seismicX', 'Seismic +X': 'exData.case.seismicPlusX',
     'Nieve': 'exData.case.snow', 'Peso propio': 'exData.case.selfWeight', 'Crane': 'exData.case.crane',
     'Superimposed dead (screed+finish+partitions)': 'exData.case.superimposedDead',

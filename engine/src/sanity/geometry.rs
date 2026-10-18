@@ -16,6 +16,10 @@ pub enum Orientation {
 /// Within this angle of vertical or horizontal, a member counts as such (sin ≈ 0.035, 2°).
 const ALIGN_SIN: f64 = 0.035;
 
+/// A level one bay wide whose outline is at least this many times longer than it is wide is a
+/// rack, a gallery or a deck, not a floor.
+const RACK_SLENDERNESS: f64 = 3.0;
+
 #[derive(Debug, Clone)]
 pub struct MemberGeom {
     pub id: usize,
@@ -181,6 +185,15 @@ impl<'a> ModelGeometry<'a> {
                 if !across && slab.len() < 3 {
                     continue;
                 }
+                // One bay wide and long, every node on the outline: a pipe rack's level, a gallery
+                // or a bridge deck, not a floor. A floor of two bays or more has nodes inside its
+                // outline; a single square bay (a one-bay tower) still counts.
+                if slab.len() < 3 {
+                    let interior = here.iter().flat_map(|e| [e.pi, e.pj]).any(|p| deep_inside(&hull, [p[plan[0]], p[plan[1]]], margin));
+                    if !interior && slenderness(&hull) >= RACK_SLENDERNESS {
+                        continue;
+                    }
+                }
                 levels.push(Level { z, area });
             }
         }
@@ -328,6 +341,36 @@ fn ring_area(h: &[[f64; 2]]) -> f64 {
     a.abs() / 2.0
 }
 
+/// Length over width of a convex polygon: its diameter over its least width (the least, over its
+/// edges, of how far the polygon reaches from each edge's line). Infinite for a degenerate one.
+pub fn slenderness(h: &[[f64; 2]]) -> f64 {
+    if h.len() < 3 {
+        return f64::INFINITY;
+    }
+    let mut diameter: f64 = 0.0;
+    for a in h {
+        for b in h {
+            diameter = diameter.max(((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt());
+        }
+    }
+    let mut width = f64::INFINITY;
+    for k in 0..h.len() {
+        let (a, b) = (h[k], h[(k + 1) % h.len()]);
+        let (ex, ey) = (b[0] - a[0], b[1] - a[1]);
+        let l = (ex * ex + ey * ey).sqrt();
+        if l == 0.0 {
+            continue;
+        }
+        let reach = h.iter().map(|q| ((ex * (q[1] - a[1]) - ey * (q[0] - a[0])) / l).abs()).fold(0.0, f64::max);
+        width = width.min(reach);
+    }
+    if width > 0.0 {
+        diameter / width
+    } else {
+        f64::INFINITY
+    }
+}
+
 /// Area of the convex hull of plan points.
 pub fn hull_area(pts: &[[f64; 2]]) -> f64 {
     ring_area(&convex_hull(pts))
@@ -412,6 +455,12 @@ mod tests {
     #[test]
     fn colinear_points_have_no_hull_area() {
         assert_eq!(hull_area(&[[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]]), 0.0);
+    }
+
+    #[test]
+    fn slenderness_of_a_rack_and_a_square() {
+        assert!((slenderness(&convex_hull(&[[0.0, 0.0], [60.0, 0.0], [60.0, 10.0], [0.0, 10.0]])) - 60.8276253 / 10.0).abs() < 1e-6);
+        assert!(slenderness(&convex_hull(&[[0.0, 0.0], [6.0, 0.0], [6.0, 6.0], [0.0, 6.0]])) < 1.5);
     }
 
     #[test]

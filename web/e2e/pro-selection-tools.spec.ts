@@ -83,7 +83,8 @@ test('All, Invert, None and Previous reach loads and supports', async ({ pro: pa
 test('loaded in case takes the loads themselves while loads are armed', async ({ pro: page }) => {
   await openSelection(page, 'loads');
   await page.getByTestId('sel-loaded-go').click();
-  await expect.poll(async () => (await sel(page)).loads).toEqual([1, 2, 3]);
+  // The first case is Dead Load: the two beam loads. The lateral nodal load (3) is in Wind.
+  await expect.poll(async () => (await sel(page)).loads).toEqual([1, 2]);
   await page.getByTestId('select-mode-elements').click();
   await page.getByTestId('sel-loaded-go').click();
   const s = await sel(page);
@@ -184,7 +185,8 @@ test.describe('@smoke the selection panel works on the kind armed above it', () 
 
   test('loaded in case, with nodes armed, takes the loaded nodes only', async ({ pro: page }) => {
     await openSelection(page, 'nodes');
-    await page.getByTestId('sel-loaded-case').selectOption({ index: 0 });
+    // The portal's one nodal load, lateral, is in the Wind case (id 3).
+    await page.getByTestId('sel-loaded-case').selectOption('3');
     await page.getByTestId('sel-loaded-go').click();
     await expect.poll(() => sel(page)).toEqual({ nodes: [5], elements: [], supports: [], loads: [] });
   });
