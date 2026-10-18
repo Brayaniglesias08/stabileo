@@ -163,11 +163,11 @@ fn ss_plate(n: usize, t: f64, hard: bool) -> Model {
 }
 
 /// Navier centre deflection of the simply supported unit square plate under q = 1.
-/// `shear`: Mindlin (hard support) with κ = 5/6, else Kirchhoff.
-fn navier_centre(t: f64, shear: bool) -> f64 {
+/// `kappa`: Some(κ) for Mindlin (hard support) with shear correction κ, None for Kirchhoff.
+fn navier_centre(t: f64, kappa: Option<f64>) -> f64 {
     let e = E_PLATE * 1000.0;
     let d = e * t.powi(3) / (12.0 * (1.0 - NU * NU));
-    let kgt = 5.0 / 6.0 * e / (2.0 * (1.0 + NU)) * t;
+    let kgt = kappa.unwrap_or(1.0) * e / (2.0 * (1.0 + NU)) * t;
     let mut w = 0.0;
     for m in (1..600).step_by(2) {
         for n in (1..600).step_by(2) {
@@ -175,50 +175,77 @@ fn navier_centre(t: f64, shear: bool) -> f64 {
             let a2 = PI * PI * (mf * mf + nf * nf);
             let qmn = 16.0 / (PI * PI * mf * nf);
             let sign = if (m / 2 + n / 2) % 2 == 0 { 1.0 } else { -1.0 };
-            let phi = if shear { 1.0 + d * a2 / kgt } else { 1.0 };
+            let phi = if kappa.is_some() { 1.0 + d * a2 / kgt } else { 1.0 };
             w += sign * qmn / (d * a2 * a2) * phi;
         }
     }
     w
 }
 
-fn plate_ratio(n: usize, t: f64, hard: bool, shear_ref: bool) -> f64 {
+/// FE centre deflection of the n × n plate (mid-surface, mean of the faces).
+fn plate_w(n: usize, t: f64, hard: bool) -> f64 {
     let m = ss_plate(n, t, hard);
     let r = solve(&m);
-    -mid(&r, &m, n / 2, n / 2)[2] / navier_centre(t, shear_ref)
+    -mid(&r, &m, n / 2, n / 2)[2]
 }
 
 /// Issue #400 reproduction: thin simply supported plate, t/a = 0.01 and 0.001, must
-/// converge to the Kirchhoff (Navier) centre deflection, not stall at 0.80–0.82.
-/// Thin limit: Mindlin − Kirchhoff is O((t/a)²) ≈ 2e-4 at t/a = 0.01, below the tolerance.
+/// converge to the Kirchhoff (Navier) centre deflection, not stall at 0.80–0.82 (before the
+/// EAS thickness mode: 0.7996, 0.8133, 0.8166, 0.8181 at t/a = 0.01 on 4…32 meshes).
+/// Hard support: the Navier series' own boundary condition; the Mindlin − Kirchhoff
+/// difference is O((t/a)²), 5e-4 at t/a = 0.01, below the tolerances.
 #[test]
 fn thin_plate_converges_to_kirchhoff() {
-    for t in [0.01, 0.001] {
-        let ratios: Vec<f64> = [4, 8, 16, 32].iter().map(|&n| plate_ratio(n, t, false, false)).collect();
-        let errs: Vec<f64> = ratios.iter().map(|r| (r - 1.0).abs()).collect();
-        eprintln!("thin SS plate t/a = {t}: ratios {ratios:.5?}, orders {:.2?}",
-            errs.windows(2).map(|w| order(w[0], w[1])).collect::<Vec<_>>());
-        assert!(errs[3] < 0.005, "t/a = {t}, 32×32: w/w_Kirchhoff = {:.5}", ratios[3]);
-        assert!(errs[2] < 0.015, "t/a = {t}, 16×16: w/w_Kirchhoff = {:.5}", ratios[2]);
-        // Monotone, second-order convergence of the centre deflection (bilinear field).
-        for k in 1..3 {
-            assert!(errs[k + 1] < errs[k], "t/a = {t}: error does not decrease: {errs:?}");
-        }
-        assert!(order(errs[2], errs[3]) > 1.7, "t/a = {t}: observed order {:.2}", order(errs[2], errs[3]));
+    // t/a = 0.001 stops at 16×16: finer one-layer meshes that thin are ill-conditioned enough
+    // that the sparse Cholesky residual check falls back to dense LU (minutes per solve).
+    for (t, meshes) in [(0.01, &[4, 8, 16, 32][..]), (0.001, &[4, 8, 16][..])] {
+        let w_k = navier_centre(t, None);
+        // The element's own limit: Mindlin with κ = 1 (see thick_plate_converges_to_mindlin),
+        // 1 + 4e-4 of Kirchhoff at t/a = 0.01. Orders are measured against it.
+        let w_lim = navier_centre(t, Some(1.0));
+        let ws: Vec<f64> = meshes.iter().map(|&n| plate_w(n, t, true)).collect();
+        let ratios: Vec<f64> = ws.iter().map(|w| w / w_k).collect();
+        let errs: Vec<f64> = ws.iter().map(|w| (w / w_lim - 1.0).abs()).collect();
+        let orders: Vec<f64> = errs.windows(2).map(|w| order(w[0], w[1])).collect();
+        eprintln!("thin hard-SS plate t/a = {t}: w/w_Kirchhoff {ratios:.5?}, orders {orders:.2?}");
+        let last = ratios.len() - 1;
+        let tol = if meshes[last] >= 32 { 0.001 } else { 0.003 };
+        assert!((ratios[last] - 1.0).abs() < tol, "t/a = {t}, {0}×{0}: w/w_Kirchhoff = {1:.5}", meshes[last], ratios[last]);
+        // From below (no locking left to hide an overshoot), second order (bilinear field).
+        assert!(ws.iter().all(|&w| w < w_lim), "t/a = {t}: overshoot {ratios:?}");
+        assert!(orders.iter().all(|&p| p > 1.8), "t/a = {t}: observed orders {orders:?}");
     }
 }
 
-/// Thick plates (t/a = 0.1, 0.2), hard simple support, against the Mindlin Navier series
-/// (κ = 5/6). The solid shell solves 3D elasticity, which differs from Mindlin by the
-/// transverse normal strain and the shear-correction approximation: at t/a = 0.1 that
-/// model difference is ~0.5 %, at 0.2 ~1.5 % (Srinivas & Rao 1970 3D solutions).
+/// The issue's own configuration: soft simple support (w = 0 only). The 3D/Mindlin soft
+/// support has an edge boundary layer that adds an O(t/a) flexibility the Kirchhoff plate
+/// lacks, so the limit sits slightly above Navier at t/a = 0.01 and on it at 0.001.
+#[test]
+fn thin_plate_soft_support_matches_kirchhoff() {
+    for (t, n, tol) in [(0.01, 32, 0.003), (0.001, 16, 0.003)] {
+        let ratio = plate_w(n, t, false) / navier_centre(t, None);
+        eprintln!("thin soft-SS plate t/a = {t}, {n}×{n}: w/w_Kirchhoff {ratio:.5}");
+        assert!((ratio - 1.0).abs() < tol, "t/a = {t}, {n}×{n}: w/w_Kirchhoff = {ratio:.5}");
+    }
+}
+
+/// Thick plates (t/a = 0.1, 0.2), hard simple support, against the Mindlin Navier series.
+/// One solid-shell layer has a linear displacement through the thickness, so its transverse
+/// shear strain is constant across it: it is a Mindlin plate with shear correction κ = 1,
+/// and that is the limit it must converge to (to 0.3 %). Against κ = 5/6 (close to 3D
+/// elasticity) it is stiffer by the shear-energy share: 0.8 % at t/a = 0.1, 2.9 % at 0.2 —
+/// a property of one linear layer (stack layers through the thickness for thick parts),
+/// asserted here so it cannot grow unnoticed.
 #[test]
 fn thick_plate_converges_to_mindlin() {
-    for (t, tol) in [(0.1, 0.01), (0.2, 0.025)] {
-        let ratios: Vec<f64> = [8, 16, 32].iter().map(|&n| plate_ratio(n, t, true, true)).collect();
-        eprintln!("thick SS plate t/a = {t}: w/w_Mindlin {ratios:.5?}, w/w_Kirchhoff (32) {:.4}",
-            ratios[2] * navier_centre(t, true) / navier_centre(t, false));
-        assert!((ratios[2] - 1.0).abs() < tol, "t/a = {t}, 32×32: w/w_Mindlin = {:.5}", ratios[2]);
+    for (t, gap) in [(0.1, 0.01), (0.2, 0.031)] {
+        let ws: Vec<f64> = [8, 16, 32].iter().map(|&n| plate_w(n, t, true)).collect();
+        let r1: Vec<f64> = ws.iter().map(|w| w / navier_centre(t, Some(1.0))).collect();
+        let r56 = ws[2] / navier_centre(t, Some(5.0 / 6.0));
+        eprintln!("thick hard-SS plate t/a = {t}: w/w_Mindlin(κ=1) {r1:.5?}, 32×32 w/w_Mindlin(κ=5/6) {r56:.5}, w/w_Kirchhoff {:.4}",
+            ws[2] / navier_centre(t, None));
+        assert!((r1[2] - 1.0).abs() < 0.003, "t/a = {t}, 32×32: w/w_Mindlin(κ=1) = {:.5}", r1[2]);
+        assert!(r56 > 1.0 - gap && r56 < 1.0, "t/a = {t}: w/w_Mindlin(κ=5/6) = {r56:.5}");
     }
 }
 
@@ -233,22 +260,25 @@ fn pure_bending_strip_is_exact_with_poisson() {
     for t in [0.1, 0.01, 0.001] {
         for plane_strain in [true, false] {
             let map = |u: f64, v: f64| ([u * l, (v - 0.5) * b, 0.0], [0.0, 0.0, 1.0]);
-            let bc = move |i: usize, j: usize, _nx: usize, _ny: usize| -> Option<[bool; 3]> {
+            let bc = move |i: usize, _j: usize, _nx: usize, _ny: usize| -> Option<[bool; 3]> {
                 // Clamp x = 0 against x only (plus enough to stop rigid motion), so the
                 // root section is free to contract — the St Venant end condition.
-                let mut f = [i == 0, false, i == 0 && j == 0];
-                if plane_strain {
-                    f[1] = true;
-                } else if i == 0 && j == 0 {
-                    f[1] = true;
-                }
+                let f = [i == 0, plane_strain, false];
                 f.iter().any(|&x| x).then_some(f)
             };
             let mut m = solid_surface(nx, 1, t, E_PLATE, NU, &map, &bc);
-            // Root: w = 0 on the bottom face at y = ±b/2 (equal there by symmetry of the
-            // anticlastic term), so no rigid rotation about x; the top nodes stay free.
-            let root_b1 = m.grid[0][1].0;
-            m.input.supports.insert("rb".into(), support(root_b1, [true, plane_strain, true]));
+            // Root, bottom face: w = 0 at y = ±b/2 (equal there by symmetry of the anticlastic
+            // term) stops the rigid rotation about x and the translation along z; v = 0 at one
+            // of them stops the translation along y. The top nodes stay free to change the
+            // thickness and to contract laterally (v = ν·κ·y·z in the exact solution).
+            for (j, fy) in [(0, true), (1, plane_strain)] {
+                let id = m.grid[0][j].0;
+                for s in m.input.supports.values_mut() {
+                    if s.node_id == id {
+                        *s = support(id, [true, fy, true]);
+                    }
+                }
+            }
             // End couple M (per unit width 1): ±F on the tip face nodes, F·t = M·b.
             let mmt = 1e-6 * t.powi(2); // keep displacements small
             let f = mmt * b / t / 2.0;
@@ -264,8 +294,13 @@ fn pure_bending_strip_is_exact_with_poisson() {
             // M per unit width (mmt) with the bottom fibres stretched → w > 0 at the tip.
             let exact = mmt * l * l / (2.0 * ei);
             let ratio = w_tip / exact;
-            eprintln!("pure bending t/L = {t}, plane strain {plane_strain}: w/w_exact = {ratio:.6}");
-            assert!((ratio - 1.0).abs() < 1e-6, "t/L = {t}, plane strain {plane_strain}: w/w_exact = {ratio:.8}");
+            eprintln!("pure bending t/L = {t}, plane strain {plane_strain}: w/w_exact = {ratio:.9}");
+            // Exact up to round-off. The global stiffness of a one-layer solid shell has a
+            // condition number ~ h·L³/t⁴ (thickness stretch E·h²/t against bending E·t³/L²),
+            // ~1e11 at t/L = 1e-3, where the round-off reaches ~2e-4 (it was ~1.5e-5 before the
+            // EAS mode, on a locked answer of 0.816).
+            let tol = if t >= 0.01 { 1e-6 } else { 1e-3 };
+            assert!((ratio - 1.0).abs() < tol, "t/L = {t}, plane strain {plane_strain}: w/w_exact = {ratio:.8}");
         }
     }
 }
@@ -344,23 +379,31 @@ fn hemisphere(n: usize) -> f64 {
 fn scordelis_lo_roof() {
     let v: Vec<f64> = [4, 8, 16].iter().map(|&n| scordelis(n) / 0.3024).collect();
     eprintln!("Scordelis–Lo w/0.3024: {v:.4?}");
-    // ν = 0: the EAS mode is inactive on parallel faces; any change here is a regression.
-    assert!((v[2] - 1.0).abs() < 0.03, "16×16: {:.4}", v[2]);
-    assert!((v[1] - 1.0).abs() < 0.05, "8×8: {:.4}", v[1]);
+    // Before the EAS modes: 0.9433, 0.9726, 0.9886. The reference itself is uncertain by
+    // 0.3024 vs 0.3086 (2 %), so 1 % on the 16×16 mesh is what it supports.
+    assert!((v[2] - 1.0).abs() < 0.01, "16×16: {:.4}", v[2]);
+    assert!((v[1] - 1.0).abs() < 0.02, "8×8: {:.4}", v[1]);
 }
 
 #[test]
 fn pinched_cylinder_with_diaphragms() {
     let v: Vec<f64> = [8, 16, 32].iter().map(|&n| pinched_cylinder(n) / 1.8248e-5).collect();
     eprintln!("pinched cylinder w/1.8248e-5: {v:.4?}");
-    assert!((v[2] - 1.0).abs() < 0.05, "32×32: {:.4}", v[2]);
+    // Before the EAS modes: 0.6729, 0.8249, 0.8731. Converges from below (point load:
+    // the reference is the converged value of a singular field, ~1 % uncertain).
+    assert!(v[0] < v[1] && v[1] < v[2], "not monotone: {v:?}");
+    assert!(v[2] > 0.975 && v[2] < 1.01, "32×32: {:.4}", v[2]);
 }
 
 #[test]
 fn hemisphere_with_hole() {
     let v: Vec<f64> = [8, 16, 32].iter().map(|&n| hemisphere(n) / 0.094).collect();
     eprintln!("hemisphere u/0.094: {v:.4?}");
-    assert!((v[2] - 1.0).abs() < 0.05, "32×32: {:.4}", v[2]);
+    // Before the EAS modes: 0.9764, 0.9792, 0.9838. References 0.094 (MacNeal–Harder) and
+    // 0.0924 (converged) bracket the answer: 0.983–1.0 of 0.094.
+    for (k, n) in [(1, 16), (2, 32)] {
+        assert!(v[k] > 0.975 && v[k] < 1.005, "{n}×{n}: {:.4}", v[k]);
+    }
 }
 
 // ==================== MacNeal–Harder straight cantilever ====================
@@ -411,11 +454,24 @@ fn mh_cantilever(shape: &str, out_of_plane: bool) -> f64 {
     (0..2).flat_map(|j| (0..2).map(move |k| (j, k))).map(|(j, k)| disp(&r, id(n, j, k))[c]).sum::<f64>() / 4.0
 }
 
+/// Before → after the EAS modes (out-of-plane / in-plane):
+///   regular       0.878 / 0.093  →  0.979 / 0.979
+///   trapezoidal   0.864 / 0.026  →  0.960 / 0.047
+///   parallelogram 0.877 / 0.032  →  0.976 / 0.624
+/// In-plane bending of 0.2-wide elements locked through parasitic in-plane shear until the
+/// membrane EAS-4 modes. The trapezoidal in-plane case stays locked: MacNeal (1987) showed no
+/// 4-node (per layer) element that passes the patch test can be free of trapezoidal locking,
+/// and every patch-test-passing 8-node hex in the MacNeal–Harder tables reports 0.02–0.07
+/// there. It is asserted as a floor so it is visible, and solid shells for in-plane bending
+/// need near-rectangular elements (the pre-solve Jacobian-ratio gate flags strong distortion).
 #[test]
 fn macneal_harder_straight_cantilever() {
-    for shape in ["regular", "trapezoidal", "parallelogram"] {
+    // (shape, out-of-plane floor, in-plane floor)
+    for (shape, f_out, f_in) in [("regular", 0.97, 0.97), ("trapezoidal", 0.95, 0.04), ("parallelogram", 0.97, 0.6)] {
         let out = mh_cantilever(shape, true) / 0.4321;
         let inp = mh_cantilever(shape, false) / 0.1081;
         eprintln!("MH straight cantilever {shape}: out-of-plane {out:.4}, in-plane {inp:.4}");
+        assert!(out > f_out && out < 1.01, "{shape} out-of-plane: {out:.4}");
+        assert!(inp > f_in && inp < 1.01, "{shape} in-plane: {inp:.4}");
     }
 }

@@ -4,13 +4,14 @@
 /// Full 2×2×2 Gauss integration. ANS on the covariant thickness strain (E_ζζ)
 /// and transverse shears (E_ξζ, E_ηζ) to prevent curvature thickness locking
 /// and transverse shear locking; one condensed EAS mode (thickness strain linear
-/// in ζ) to prevent Poisson thickness locking; ζ (nodes 1-4 → 5-8) is the
-/// thickness direction. Three locking mechanisms, three cures:
+/// in ζ) to prevent Poisson thickness locking, four membrane EAS modes against in-plane
+/// shear locking; ζ (nodes 1-4 → 5-8) is the thickness direction. The cures:
 ///   - transverse shear locking (thin bending):   ANS 2E_ξζ, 2E_ηζ (Dvorkin–Bathe)
 ///   - curvature thickness locking (curved/       ANS E_ζζ at 4 mid-surface corners
 ///     trapezoidal sections):                     (Betsch–Stein; Bischoff–Ramm)
 ///   - Poisson thickness locking (any bending     EAS E_ζζ = ζ·α (Büchter–Ramm–Roehl;
 ///     with ν ≠ 0, ~23 % too stiff at ν = 0.3):    Simo–Rifai mapping), issue #400
+///   - in-plane shear locking (in-plane bending): EAS-4 membrane modes (Andelfinger–Ramm)
 ///
 /// Node numbering:
 ///     8---7       Top face: 5,6,7,8 (ζ = +1)
@@ -294,32 +295,37 @@ fn ans_b_matrix(coords: &[[f64; 3]; 8], xi: f64, eta: f64, zeta: f64, tying: &An
     (b, det_j)
 }
 
-// ==================== EAS Thickness Mode ====================
+// ==================== EAS (Enhanced Assumed Strain) ====================
 
-/// Enhanced assumed strain (EAS) for the thickness strain — cures Poisson thickness locking.
+/// Enhanced assumed strains (EAS): one thickness mode against Poisson thickness locking
+/// (issue #400) and four membrane modes against in-plane shear locking.
 ///
-/// Why it is needed. In bending the in-plane strains vary linearly through the thickness,
-/// ε_xx = z·κ_x. With the full 3D law and σ_zz ≈ 0 (thin shell), equilibrium through the
-/// thickness requires ε_zz = −ν/(1 − ν)·(ε_xx + ε_yy), i.e. a thickness strain that is ALSO
-/// linear in z. The trilinear field gives w linear in ζ, so ε_zz = ∂w/∂z is constant in ζ (the
-/// ANS above interpolates it from mid-surface points, still constant in ζ). The linear part of
-/// ε_zz is then forced to zero, σ_zz = λ(ε_xx + ε_yy) appears with the bending stresses, and the
-/// bending rigidity is the plane-strain-in-z modulus E(1 − ν)/((1 + ν)(1 − 2ν)) instead of the
-/// plate modulus E/(1 − ν²): too stiff by (1 − ν)²/(1 − 2ν) = 1.225 at ν = 0.3 (centre deflection
-/// 0.816 of Navier on any mesh, issue #400). Mesh refinement in-plane cannot remove it; it is a
-/// defect of the thickness interpolation, not of the mesh ("Poisson thickness locking",
-/// Büchter, Ramm & Roehl 1994; Bischoff & Ramm 1997).
+/// 1. Poisson thickness locking. In bending the in-plane strains vary linearly through the
+/// thickness, ε_xx = z·κ_x. With the full 3D law and σ_zz ≈ 0 (thin shell), equilibrium
+/// through the thickness requires ε_zz = −ν/(1 − ν)·(ε_xx + ε_yy), a thickness strain that is
+/// ALSO linear in z. The trilinear field gives w linear in ζ, so ε_zz = ∂w/∂z is constant in ζ
+/// (the ANS above interpolates it from mid-surface points, still constant in ζ). The linear
+/// part of ε_zz is forced to zero, σ_zz = λ(ε_xx + ε_yy) appears with the bending stresses, and
+/// the bending rigidity is the constrained modulus E(1 − ν)/((1 + ν)(1 − 2ν)) instead of the
+/// plate modulus E/(1 − ν²): too stiff by (1 − ν)²/(1 − 2ν) = 1.225 at ν = 0.3, a simply
+/// supported plate's centre deflection stalls at 0.816 of Navier on every mesh. In-plane mesh
+/// refinement cannot remove it: it is a defect of the thickness interpolation (Büchter, Ramm
+/// & Roehl 1994; Bischoff & Ramm 1997). Cure: the enhanced covariant thickness strain
+/// Ẽ_ζζ = ζ·α₁ — the "7th parameter" of Büchter–Ramm–Roehl, used in the solid shells of
+/// Hauptmann & Schweizerhof 1998, Klinkel, Gruttmann & Wagner 1999, Vu-Quoc & Tan 2003.
 ///
-/// The cure. Add one enhanced covariant thickness strain linear in ζ (Simo & Rifai 1990 EAS;
-/// the "7th parameter" of Büchter–Ramm–Roehl; used in the solid shells of Hauptmann &
-/// Schweizerhof 1998, Klinkel, Gruttmann & Wagner 1999, Vu-Quoc & Tan 2003):
+/// 2. In-plane shear locking. Bending of a layer in its own plane (u = x·y) produces a
+/// parasitic shear γ_xy ∝ ξ, η in the bilinear field: a 6 × 1 cantilever of 1 × 0.2 elements
+/// loaded in-plane gave 0.09 of the beam deflection. Cure: the membrane EAS-4 set
+/// (Andelfinger & Ramm 1993, the EAS form of Wilson's incompatible modes):
+/// Ẽ_ξξ = ξ·α₂, Ẽ_ηη = η·α₃, 2Ẽ_ξη = ξ·α₄ + η·α₅.
 ///
-///   Ẽ_ζζ = ζ·α  (covariant),   ε̃ = (det J₀ / det J)·T₀·[0, 0, ζ, 0, 0, 0]ᵀ·α  (Cartesian),
+/// Construction (Simo & Rifai 1990). Covariant modes M(ξ, η, ζ) are mapped with the centre
+/// transformation T₀ = covariant_to_cartesian(J₀⁻¹) and scaled by det J₀ / det J:
 ///
-/// with T₀ = covariant_to_cartesian(J₀⁻¹) and J₀ the Jacobian at the element centre (evaluating
-/// the transformation at the centre and scaling by det J₀/det J is the Simo–Rifai construction
-/// that keeps the patch test). Total strain ε = B_ANS·u + G·α. The Hu–Washizu variational
-/// principle with the stress orthogonal to the enhanced strain gives, per element,
+///   ε̃ = G·α,   G = (det J₀ / det J)·T₀·M(ξ, η, ζ),   total strain ε = B_ANS·u + G·α.
+///
+/// The Hu–Washizu principle with the stress orthogonal to the enhanced strain gives, per element,
 ///
 ///   [K_uu  K_uα] [u]   [f]        K_uu = ∫ Bᵀ C B dV,   K_uα = ∫ Bᵀ C G dV,
 ///   [K_αu  K_αα] [α] = [0],       K_αα = ∫ Gᵀ C G dV,
@@ -327,31 +333,45 @@ fn ans_b_matrix(coords: &[[f64; 3]; 8], xi: f64, eta: f64, zeta: f64, tying: &An
 /// and α is condensed statically: K = K_uu − K_uα K_αα⁻¹ K_αu, α = −K_αα⁻¹ K_αu u.
 ///
 /// Properties (each one checked by a test):
-/// - Patch test: ∫ G dV = det J₀·T₀·e₃·∫ζ dξdηdζ = 0, so a constant stress does no work on
-///   the enhanced mode and α = 0 for every constant-strain state.
+/// - Patch test: ∫ G dV = det J₀·T₀·∫ M dξdηdζ = 0 (every mode is odd in one natural
+///   coordinate), so a constant stress does no work on the enhanced modes, α = 0 for every
+///   constant-strain state, on any mesh.
 /// - Rigid-body modes: B_ANS·u = 0 for a rigid motion, so K_αu·u = 0 and α = 0.
-/// - Stability: G ≠ 0 and C is positive definite, so K_αα > 0.
+/// - Stability: the five columns of G are independent and C is positive definite: K_αα ≻ 0.
 /// - Frame invariance: G is built from covariant quantities and det J only.
-/// - With ν = 0 and parallel faces, ε̃ only enters ε_zz, which is uncoupled: no change.
+/// - Pure bending of a rectangular plate strip, any ν and t/L: exact.
 ///
-/// Alternatives considered: Abed-Meraim & Combescure's SHB8PS removes the same locking by
-/// projecting the constitutive law onto plane stress in the thickness direction. That cannot
-/// carry a real σ_zz (thick parts, contact through the thickness, transverse pressure), so the
-/// EAS route, which keeps the 3D law and is exact for pure bending, is used here.
-const N_EAS: usize = 1;
+/// Alternative not taken: Abed-Meraim & Combescure's SHB8PS removes Poisson thickness locking
+/// by projecting the constitutive law onto plane stress in the thickness direction. That
+/// cannot carry a real σ_zz (thick parts, stacked layers, through-thickness pressure); the EAS
+/// route keeps the 3D law.
+const N_EAS: usize = 5;
 
-/// The element operators: B_ANS rows, enhanced G columns and dV at each Gauss point.
+/// The element's integrated EAS blocks K_uu, K_uα, K_αα.
 struct EasOperators {
     k_uu: Vec<f64>,           // 24×24
     k_ua: [[f64; N_EAS]; 24], // 24×N_EAS
     k_aa: [[f64; N_EAS]; N_EAS],
 }
 
-/// Cartesian enhanced-strain matrix G (6×N_EAS) at (ξ, η, ζ), Simo–Rifai mapped.
-fn eas_g_matrix(t0: &[f64; 36], det0: f64, det_j: f64, zeta: f64) -> [[f64; N_EAS]; 6] {
-    let s = det0 / det_j * zeta;
-    // Covariant mode e₃·ζ (E_ζζ); its Cartesian image is column 2 of T₀.
-    std::array::from_fn(|r| [s * t0[r * 6 + 2]])
+/// Covariant enhanced modes M(ξ, η, ζ): (covariant Voigt row, natural-coordinate factor).
+/// Row order [E_ξξ, E_ηη, E_ζζ, 2E_ξη, 2E_ηζ, 2E_ξζ].
+fn eas_modes(xi: f64, eta: f64, zeta: f64) -> [(usize, f64); N_EAS] {
+    [
+        (2, zeta), // E_ζζ ∝ ζ: Poisson thickness locking
+        (0, xi),   // E_ξξ ∝ ξ  ┐
+        (1, eta),  // E_ηη ∝ η  │ membrane EAS-4 (Andelfinger & Ramm 1993):
+        (3, xi),   // 2E_ξη ∝ ξ │ in-plane bending without parasitic shear
+        (3, eta),  // 2E_ξη ∝ η ┘
+    ]
+}
+
+/// Cartesian enhanced-strain matrix G (6×N_EAS) at (ξ, η, ζ), Simo–Rifai mapped:
+/// G = (det J₀ / det J)·T₀·M(ξ, η, ζ).
+fn eas_g_matrix(t0: &[f64; 36], det0: f64, det_j: f64, xi: f64, eta: f64, zeta: f64) -> [[f64; N_EAS]; 6] {
+    let s = det0 / det_j;
+    let modes = eas_modes(xi, eta, zeta);
+    std::array::from_fn(|r| std::array::from_fn(|a| s * t0[r * 6 + modes[a].0] * modes[a].1))
 }
 
 /// C·v for a 6-vector.
@@ -377,7 +397,7 @@ fn eas_operators(coords: &[[f64; 3]; 8], c: &[f64; 36]) -> EasOperators {
     for &(xi, eta, zeta, w) in &gauss_2x2x2() {
         let (b, det_j) = ans_b_matrix(coords, xi, eta, zeta, &tying);
         let dv = det_j.abs() * w;
-        let g = eas_g_matrix(&t0, det0, det_j, zeta);
+        let g = eas_g_matrix(&t0, det0, det_j, xi, eta, zeta);
 
         // CB = C · B (6×24)
         let mut cb = [0.0; 144];
@@ -451,7 +471,7 @@ fn eas_alpha(ops: &EasOperators, u: &[f64]) -> [f64; N_EAS] {
 // ==================== Stiffness Matrix ====================
 
 /// 24×24 solid-shell stiffness matrix: ANS (covariant transverse shear and thickness
-/// strain) plus one condensed EAS thickness mode (see "EAS Thickness Mode" above).
+/// strain) plus five condensed EAS modes (see "EAS (Enhanced Assumed Strain)" above).
 /// coords: 8 nodes × [x,y,z], E in kN/m², ν dimensionless.
 /// Returns 576 entries in row-major order.
 pub fn solid_shell_stiffness(coords: &[[f64; 3]; 8], e: f64, nu: f64) -> Vec<f64> {
@@ -491,7 +511,7 @@ fn strain_with_alpha(coords: &[[f64; 3]; 8], u: &[f64], alpha: &[f64; N_EAS], xi
     let tying = compute_ans_tying(coords);
     let (t0, det0) = eas_centre(coords);
     let (b, det_j) = ans_b_matrix(coords, xi, eta, zeta, &tying);
-    let g = eas_g_matrix(&t0, det0, det_j, zeta);
+    let g = eas_g_matrix(&t0, det0, det_j, xi, eta, zeta);
     std::array::from_fn(|r| {
         (0..24).map(|j| b[r * 24 + j] * u[j]).sum::<f64>() + (0..N_EAS).map(|a| g[r][a] * alpha[a]).sum::<f64>()
     })
@@ -866,6 +886,63 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// EAS orthogonality on a distorted, tilted element (a flat, distorted quad extruded
+    /// along its normal — the geometry on which the ANS fields reproduce constant strain
+    /// exactly): every linear displacement field (constant strain, and rigid rotations)
+    /// leaves the enhanced parameters at zero, so the patch test and the rigid-body modes
+    /// are untouched by the enhancement.
+    #[test]
+    fn test_eas_inactive_for_linear_fields() {
+        // Plan quad in the plane spanned by e1, e2 (tilted), thickness 0.1 along n = e1 × e2.
+        let e1 = [2.0 / 5f64.sqrt(), -1.0 / 5f64.sqrt(), 0.0];
+        let n = [1.0 / 14f64.sqrt(), 2.0 / 14f64.sqrt(), 3.0 / 14f64.sqrt()];
+        let e2 = [n[1] * e1[2] - n[2] * e1[1], n[2] * e1[0] - n[0] * e1[2], n[0] * e1[1] - n[1] * e1[0]];
+        let plan = [[0.0, 0.0], [2.0, 0.3], [2.4, 1.5], [-0.2, 1.1]];
+        let coords: [[f64; 3]; 8] = std::array::from_fn(|i| {
+            let (p, z) = (plan[i % 4], 0.1 * (i / 4) as f64);
+            std::array::from_fn(|a| 1.0 + p[0] * e1[a] + p[1] * e2[a] + z * n[a])
+        });
+        let c = material_matrix_3d(200.0e3, 0.3);
+        let ops = eas_operators(&coords, &c);
+        for comp in 0..9 {
+            let (i, j) = (comp / 3, comp % 3);
+            let u: Vec<f64> = (0..24).map(|k| if k % 3 == i { 1e-3 * coords[k / 3][j] } else { 0.0 }).collect();
+            let alpha = eas_alpha(&ops, &u);
+            // Scale: the strain a single mode would need to matter, 1e-3.
+            for a in alpha {
+                assert!(a.abs() < 1e-14, "du{i}/dx{j}: α = {a:e}");
+            }
+        }
+    }
+
+    /// The condensed stiffness is no stiffer than the ANS-only one: K_uα K_αα⁻¹ K_αu ⪰ 0.
+    /// For a pure-bending field (u = −κxz, ν = 0.3) it is strictly softer, by the Poisson
+    /// thickness locking factor.
+    #[test]
+    fn test_eas_softens_bending() {
+        let coords = [
+            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.05], [1.0, 0.0, 0.05], [1.0, 1.0, 0.05], [0.0, 1.0, 0.05],
+        ];
+        let c = material_matrix_3d(200.0e3, 0.3);
+        let ops = eas_operators(&coords, &c);
+        let k = solid_shell_stiffness(&coords, 200.0e3, 0.3);
+        let u: Vec<f64> = (0..24).map(|k| match k % 3 {
+            0 => -(coords[k / 3][0]) * (coords[k / 3][2] - 0.025),
+            2 => 0.5 * coords[k / 3][0].powi(2),
+            _ => 0.0,
+        }).collect();
+        let quad = |m: &[f64]| -> f64 { (0..24).map(|i| u[i] * (0..24).map(|j| m[i * 24 + j] * u[j]).sum::<f64>()).sum() };
+        let (e_ans, e_eas) = (quad(&ops.k_uu), quad(&k));
+        assert!(e_eas < e_ans && e_eas > 0.0, "{e_eas} vs {e_ans}");
+        // v = 0 everywhere: cylindrical (plane-strain) bending, where the ANS-only element has
+        // the constrained modulus E(1 − ν)/((1 + ν)(1 − 2ν)) and the EAS element the plate
+        // modulus E/(1 − ν²): energy ratio (1 − 2ν)/(1 − ν)² = 0.8163 at ν = 0.3.
+        let ratio = e_eas / e_ans;
+        let expected = (1.0 - 2.0 * 0.3) / (0.7_f64 * 0.7);
+        assert!((ratio - expected).abs() < 1e-9, "energy ratio {ratio} vs {expected}");
     }
 
     #[test]
