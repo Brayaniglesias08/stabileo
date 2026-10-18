@@ -3178,3 +3178,49 @@ fn matrix_3d() -> Matrix {
     }
     m
 }
+
+// ==================== corpus export for the metamorphic harness ====================
+
+/// The feature models (`with` and, where it exists, `equiv`) are part of the
+/// metamorphic corpus (engine/tests/metamorphic_corpus/feature_matrix, read by
+/// engine/tests/metamorphic). The committed files must match the builders:
+/// regenerate with `UPDATE_METAMORPHIC_CORPUS=1 cargo test --release --test
+/// feature_matrix feature_models_exported`.
+#[test]
+fn feature_models_exported() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/metamorphic_corpus/feature_matrix");
+    let slug = |s: &str| s.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect::<String>();
+    let mut files: BTreeMap<String, String> = BTreeMap::new();
+    let mut put = |name: String, v: serde_json::Value| {
+        files.insert(format!("{name}.json"), serde_json::to_string_pretty(&v).unwrap() + "\n");
+    };
+    for c in cases_2d() {
+        let base = format!("2d-{}-{}", slug(c.feature), slug(c.variant));
+        put(format!("{base}-with"), serde_json::to_value(&c.with.s).unwrap());
+        if let Some(e) = &c.equiv {
+            put(format!("{base}-equiv"), serde_json::to_value(&e.s).unwrap());
+        }
+    }
+    for c in cases_3d() {
+        let base = format!("3d-{}-{}", slug(c.feature), slug(c.variant));
+        put(format!("{base}-with"), serde_json::to_value(&c.with.s).unwrap());
+        if let Some(e) = &c.equiv {
+            put(format!("{base}-equiv"), serde_json::to_value(&e.s).unwrap());
+        }
+    }
+    if std::env::var("UPDATE_METAMORPHIC_CORPUS").is_ok() {
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (n, t) in &files {
+            std::fs::write(dir.join(n), t).unwrap();
+        }
+    }
+    let mut stale = Vec::new();
+    for (n, t) in &files {
+        if std::fs::read_to_string(dir.join(n)).ok().as_deref() != Some(t.as_str()) {
+            stale.push(n.clone());
+        }
+    }
+    let on_disk = std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0);
+    assert!(stale.is_empty() && on_disk == files.len(), "metamorphic_corpus/feature_matrix is out of date ({} stale): rerun with UPDATE_METAMORPHIC_CORPUS=1", stale.len());
+}
