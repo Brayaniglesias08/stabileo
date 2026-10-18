@@ -9,6 +9,32 @@ It should capture what changed, not what should be built next.
 
 ## Unreleased
 
+### Fixed
+
+#### 2D: loads along inclined members reach the member; couples on members in the 3D solve (2026-10-18)
+
+**BREAKING (results): the axial force N of inclined plane members under global, angled or
+self-weight loads now varies along the member, and plane models solved in space take couples on
+members and no longer mirror nodal couples.** Rebase of #274 by @diegokingston onto the safety wave.
+
+- The part of a load that runs along an inclined member used to reach the 2D solver as nodal
+  loads at its ends. Reactions and displacements were right, but N came out constant at the mean
+  of its true end values. A 3-4-5 member under 10 kN/m vertical read N = 0 at both ends; the
+  correct values are −15 and +15. The diagram, inspector, despiece, report, Excel and design all
+  read that value. Point loads now put their axial part in `px`. Distributed loads and self-weight
+  use a new engine load, `axialDistributed` (dense, sparse, parallel, truss, corotational,
+  moving loads, combinations, plastic, diagrams).
+- In a plane model solved in space, a couple on a member was dropped: a beam loaded only by one
+  had zero reactions. Nodal couples went in about +Y, which is the mirror image of the drawn
+  load (standing in X–Z is a reflection), so the vertical reactions came out with the wrong
+  sign. Both kinds of couple now go in as −M about Y.
+- Where the safety wave met the new load: the event-to-event plastic solve cuts it at an
+  interior hinge the way it cuts a distributed load (before, part of the load was lost), the 2D
+  diagram certificate bounds N between stations under it (before, it certified a zero gap), and
+  the exact plastic certificate refuses it by name.
+- 2D models already materialized to PRO keep their old mirrored couples and lumped axial loads.
+  There is no migration.
+
 ## 0.2.0 (2026-10-18)
 
 **Results change: re-run your projects.** Release notes for users, in English, Spanish and
