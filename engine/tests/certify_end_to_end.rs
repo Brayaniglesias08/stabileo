@@ -179,7 +179,7 @@ fn model_2d(seed: u64) -> SolverInput {
 }
 
 /// One seed, printed: `E2E_SEED=99 E2E_DIM=2 cargo test --release --test
-/// end_to_end_certificates e2e_one -- --ignored --nocapture`.
+/// certify_end_to_end e2e_one -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn e2e_one() {
@@ -256,7 +256,7 @@ fn end_to_end_stable_3d() {
     assert!(t.certified >= 135, "only {} stable 3D models certified end to end", t.certified);
 }
 
-/// `E2E_SEED=161 cargo test --release --test end_to_end_certificates stable_one -- --ignored --nocapture`
+/// `E2E_SEED=161 cargo test --release --test certify_end_to_end stable_one -- --ignored --nocapture`
 #[test]
 #[ignore]
 fn stable_one() {

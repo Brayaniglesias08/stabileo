@@ -29,12 +29,13 @@ case $scope in
   solver | all)
     files+=(-f engine/src/solver/dof.rs -f engine/src/solver/assembly.rs -f engine/src/solver/linear.rs)
     tests+=(certify certify_bundle duplicate_support_reactions determinate_exact index_exhaustive
-      fuzz_regressions solver_mutation_kills)
+      fuzz_regressions solver_mutation_kills certify_end_to_end certify_end_to_end_mutations)
     ;;&
   element | all)
     files+=(-f 'engine/src/element/**')
     tests+=(element_rigid_body_modes shell_patch_tests shell_rigid_body_modes
-      local_axis_convention determinate_exact opensees_differential_regressions)
+      local_axis_convention determinate_exact opensees_differential_regressions
+      certify_end_to_end certify_end_to_end_mutations)
     ;;
   certify | solver) ;;
   *) echo "MUTANTS_SCOPE must be certify, solver, element or all" >&2; exit 64 ;;

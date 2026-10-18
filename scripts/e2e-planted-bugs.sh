@@ -29,7 +29,7 @@ BUGS=(
   "thermal: alpha 12e-6 as 1.2e-6|src/solver/assembly.rs|                        let alpha = 12e-6; // Steel default|                        let alpha = 1.2e-6;"
 )
 
-TESTS=(--test end_to_end_certificates --test end_to_end_mutations)
+TESTS=(--test certify_end_to_end --test certify_end_to_end_mutations)
 only="${1:-}"
 caught=0
 missed=()
