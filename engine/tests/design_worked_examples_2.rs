@@ -125,9 +125,9 @@ fn cfs_aisi_iii3_flexural_torsional_buckling() {
     published(r.pn, 6.88, THREE_SF, "Pn = Ae·Fn");
     published(r.pn / 0.422, 16.3, THREE_SF, "Fn (λc = 1.64 > 1.5)");
 
-    // The other modes, isolated: no coupling (xo = 0) and no torsion leaves
-    // σex; a long x-length leaves flexural buckling about y.
-    let y_only = CfsMemberData { kx_lx: Some(1e6), kt_lt: Some(1e-3), ..m.clone() };
+    // Flexural buckling about y alone: x-flexure and torsion braced (tiny
+    // lengths make σex and σt, and so the coupled mode, very large).
+    let y_only = CfsMemberData { kx_lx: Some(1e-3), kt_lt: Some(1e-3), ..m.clone() };
     published(cfs_run(y_only, -1.0, 0.0, 0.0).fe, 29.6, THREE_SF, "Fe about y (C4.1.1-1)");
 
     // Without xo the flexural-torsional mode is unknown: flagged, not passed.
@@ -672,7 +672,7 @@ const FOUR_ROOT_PSI_SI: f64 = 4.0 / 12.043_6;
 #[test]
 fn footing_structurepoint_wight_15_2() {
     let (bl, c, d) = (11.17 * FT, 18.0 * IN, 28.0 * IN);
-    let fc = 3.0 * PSI; // MPa
+    let fc = 3000.0 * PSI / 1e6; // MPa
     let rho = 8.69 / (11.17 * 12.0 * 28.0);
     let r = footing_run(footing(bl, bl, c, c, d, fc * 1e6, Some(rho)), 912.0 * KIP);
     // two-way: Vu/φVc at the printed values, φVc scaled by 0.33/(4 √psi)

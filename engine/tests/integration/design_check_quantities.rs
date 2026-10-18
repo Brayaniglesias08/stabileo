@@ -149,7 +149,8 @@ fn slender_wall(h: f64) -> MasonryMemberData {
         an: None,
         av: None,
         s_stirrup: None,
-        laterally_tied: None,
+        // Tied, so the fy·As term below counts (untied bars are neglected).
+        laterally_tied: Some(true),
         gamma_g: None,
     }
 }
