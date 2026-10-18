@@ -573,6 +573,14 @@ pub fn solve_plastic_2d(input: &PlasticInput) -> Result<PlasticResult, String> {
     // shape of answer for the wrong reason, and no way for the caller to tell
     // the two apart.
     super::linear::validate_input_2d(solver_input)?;
+    // Imposed deformations do not change a collapse load (they are released
+    // as the mechanism forms) and scaling them with λ is meaningless: with a
+    // thermal load or a settlement alone the event loop ran λ up to ~1e16.
+    super::feature_gates::refuse_2d(solver_input, "Plastic (pushover) analysis", &[
+        super::feature_gates::Feature::ThermalLoads,
+        super::feature_gates::Feature::PrescribedDisplacements,
+    ])?;
+    let m_ref = load_moment_scale_2d(solver_input);
 
     let max_hinges = input.max_hinges.unwrap_or(20);
 
@@ -828,8 +836,10 @@ pub fn solve_plastic_2d(input: &PlasticInput) -> Result<PlasticResult, String> {
             }
         }
 
-        // ---- next event: smallest increment to ±Mp at any section
-        let tol_m = unit_moment_scale(&results) * 1e-12;
+        // ---- next event: smallest increment to ±Mp at any section. A unit
+        // moment below 1e-9 of (load × model size) is round-off of a member
+        // that carries its load axially, not bending.
+        let tol_m = (unit_moment_scale(&results) * 1e-12).max(m_ref * 1e-9);
         let tol_d = 1e-10 * cumulative_factor;
         let unit_vals: Vec<[f64; 6]> = members.iter().map(|m| m.unit_vals(&by_id)).collect();
         let mut cands: Vec<(usize, f64, f64)> = Vec::new();
@@ -947,6 +957,9 @@ pub fn solve_plastic_2d(input: &PlasticInput) -> Result<PlasticResult, String> {
                 .into(),
         );
     }
+    if !exhausted && !is_mechanism {
+        return Err(no_bending_collapse(cumulative_factor));
+    }
     if exhausted && !is_mechanism {
         warnings.push(format!(
             "stopped after {max_hinges} events without forming a mechanism: the collapse factor \
@@ -978,6 +991,40 @@ pub fn solve_plastic_2d(input: &PlasticInput) -> Result<PlasticResult, String> {
         is_mechanism,
         warnings,
     })
+}
+
+/// The analysis stopped because no section can yield any more, and the
+/// structure is not a mechanism: the remaining load path carries the load
+/// without bending (a funicular arch, a triangulated truss). A bending-only
+/// analysis has no collapse factor for that; the number it reached (or the
+/// ~1e16 a round-off moment would give) is not one.
+pub(crate) fn no_bending_collapse(lambda: f64) -> String {
+    format!(
+        "Plastic (pushover) analysis: after λ = {lambda:.6} no section reaches its plastic moment under further load \
+         and the structure is not a mechanism — the loads are carried without bending (axially), so a bending-only \
+         plastic analysis has no collapse factor to report. Check axial capacity and buckling instead."
+    )
+}
+
+/// Σ|load| × model size: the moment scale the loads can produce.
+fn load_moment_scale_2d(input: &SolverInput) -> f64 {
+    let xs: Vec<(f64, f64)> = input.nodes.values().map(|n| (n.x, n.z)).collect();
+    let ext = |f: fn(&(f64, f64)) -> f64| xs.iter().map(f).fold(f64::NEG_INFINITY, f64::max) - xs.iter().map(f).fold(f64::INFINITY, f64::min);
+    let l = ext(|p| p.0).max(ext(|p| p.1)).max(f64::MIN_POSITIVE);
+    let len = |id: usize| {
+        input.elements.values().find(|e| e.id == id).and_then(|e| {
+            let a = input.nodes.values().find(|n| n.id == e.node_i)?;
+            let b = input.nodes.values().find(|n| n.id == e.node_j)?;
+            Some(((b.x - a.x).powi(2) + (b.z - a.z).powi(2)).sqrt())
+        }).unwrap_or(0.0)
+    };
+    let f: f64 = input.loads.iter().map(|ld| match ld {
+        SolverLoad::Nodal(n) => n.fx.abs() + n.fz.abs() + n.my.abs() / l,
+        SolverLoad::Distributed(d) => d.q_i.abs().max(d.q_j.abs()) * len(d.element_id),
+        SolverLoad::PointOnElement(p) => p.p.abs() + p.px.unwrap_or(0.0).abs() + p.my.unwrap_or(0.0).abs() / l,
+        SolverLoad::Thermal(_) => 0.0,
+    }).sum();
+    f * l
 }
 
 fn unit_moment_scale(r: &AnalysisResults) -> f64 {

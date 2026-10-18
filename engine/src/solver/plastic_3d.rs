@@ -718,7 +718,10 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
     // propped beam at 40% of its collapse load).
     super::super::feature_gates::refuse_3d(&input.solver, "Plastic (pushover) analysis", &[
         super::super::feature_gates::Feature::Constraints, super::super::feature_gates::Feature::Connectors, super::super::feature_gates::Feature::SupportSprings,
+        // Imposed deformations: see the 2D solver.
+        super::super::feature_gates::Feature::ThermalLoads, super::super::feature_gates::Feature::PrescribedDisplacements,
     ])?;
+    let m_ref = load_moment_scale_3d(&input.solver);
     let max_hinges = input.max_hinges.unwrap_or(30);
 
     let mut mp_map: HashMap<usize, (f64, f64)> = HashMap::new();
@@ -960,7 +963,7 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
         }
 
         // ---- next event: smallest increment to the yield surface anywhere
-        let tol_m = unit_moment_scale(&results) * 1e-12;
+        let tol_m = (unit_moment_scale(&results) * 1e-12).max(m_ref * 1e-9);
         let tol_d = 1e-10 * cumulative_factor;
         let unit_vals: Vec<[f64; 12]> = members.iter().map(|m| m.unit_vals(&by_id)).collect();
         let mut cands: Vec<(usize, f64, f64)> = Vec::new();
@@ -1131,6 +1134,9 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
                 .into(),
         );
     }
+    if !exhausted && !is_mechanism {
+        return Err(super::no_bending_collapse(cumulative_factor));
+    }
     if exhausted && !is_mechanism {
         warnings.push(format!(
             "stopped after {max_hinges} events without forming a mechanism: the collapse factor \
@@ -1299,4 +1305,31 @@ mod tests {
         // outside and moving out: never
         assert!(increment_to_yield((2.0, 0.0), (1.0, 0.0), (1.0, 1.0)).is_infinite());
     }
+}
+
+/// Σ|load| × model size (see the 2D `load_moment_scale_2d`).
+fn load_moment_scale_3d(input: &SolverInput3D) -> f64 {
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for n in input.nodes.values() {
+        for (k, v) in [n.x, n.y, n.z].into_iter().enumerate() {
+            lo[k] = lo[k].min(v);
+            hi[k] = hi[k].max(v);
+        }
+    }
+    let l = (0..3).map(|k| hi[k] - lo[k]).fold(f64::MIN_POSITIVE, f64::max);
+    let len = |id: usize| {
+        input.elements.values().find(|e| e.id == id).and_then(|e| {
+            let a = input.nodes.values().find(|n| n.id == e.node_i)?;
+            let b = input.nodes.values().find(|n| n.id == e.node_j)?;
+            Some(((b.x - a.x).powi(2) + (b.y - a.y).powi(2) + (b.z - a.z).powi(2)).sqrt())
+        }).unwrap_or(0.0)
+    };
+    let f: f64 = input.loads.iter().map(|ld| match ld {
+        SolverLoad3D::Nodal(n) => n.fx.abs() + n.fy.abs() + n.fz.abs() + (n.mx.abs() + n.my.abs() + n.mz.abs()) / l,
+        SolverLoad3D::Distributed(d) => [d.q_xi, d.q_xj, d.q_yi, d.q_yj, d.q_zi, d.q_zj].iter().fold(0.0f64, |a, b| a.max(b.abs())) * len(d.element_id),
+        SolverLoad3D::PointOnElement(p) => p.py.abs() + p.pz.abs(),
+        _ => 0.0,
+    }).sum();
+    f * l
 }

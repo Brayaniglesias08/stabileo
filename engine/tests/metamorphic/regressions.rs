@@ -40,7 +40,8 @@ fn probe_2d_moment_on_hinged_node() {
 #[ignore]
 fn probe_plastic_portal() {
     use dedaliano_engine::types::*;
-    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ex-frame-cirsoc-dl-case2-input.json")).unwrap();
+    let f = std::env::var("PFIX").unwrap_or("ex-frame-cirsoc-dl-case2-input".into());
+    let text = std::fs::read_to_string(format!("{}/tests/fixtures/{f}.json", env!("CARGO_MANIFEST_DIR"))).unwrap();
     let s: SolverInput = serde_json::from_str(&text).unwrap();
     let c = crate::case::Case2::new("p", s);
     for c in [c.clone(), c.iso(&dedaliano_engine::metamorphic::transform::Iso2::rotation(0.3)).unwrap()] {
@@ -52,6 +53,6 @@ fn probe_plastic_portal() {
         let materials = c.s.materials.values().map(|x| (x.id.to_string(), PlasticMaterialData { fy: Some(250.0) })).collect();
         let r = dedaliano_engine::solver::plastic::solve_plastic_2d(&PlasticInput { solver: c.s.clone(), sections, materials, max_hinges: None, mp_overrides: None }).unwrap();
         println!("factor {} mech {} warnings {:?}", r.collapse_factor, r.is_mechanism, r.warnings);
-        for h in &r.hinges { println!("  {:?}", h); }
+        for h in r.hinges.iter().take(6) { println!("  {:?}", h); }
     }
 }
