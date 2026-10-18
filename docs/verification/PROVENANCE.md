@@ -122,8 +122,8 @@ or an output list must iterate `crate::ordered::{values, entries, members}`.
 - Parallel assembly (`rayon`, the `parallel` feature) is not compiled into the WASM build, so the
   app has no parallel reductions; the worker and the main thread run the same single-threaded
   binary.
-- Native vs WASM: the CLI computes the same algorithm natively. Transcendental functions come
-  from the platform's math library natively and from Rust's own in WASM, so the native result hash
-  may differ in the last bit from the browser's for models whose assembly uses them (inclined or
-  rotated members). The in-app reproduce compares WASM against WASM and is bit for bit; the CLI is
-  bit for bit against itself and against the input hash.
+- Native vs WASM: on the braced 3D frame of `result-provenance.test.ts`, the native CLI reproduced
+  the browser's engine input and result hashes bit for bit. Transcendental functions come from the
+  platform's math library natively and from Rust's own in WASM, so a model whose assembly uses them
+  in a way the two libraries round differently could still differ in the last bit between the CLI
+  and the browser; the in-app reproduce compares WASM against WASM.
