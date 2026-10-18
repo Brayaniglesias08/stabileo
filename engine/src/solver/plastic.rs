@@ -115,6 +115,8 @@ fn increment_to_mp(mp: f64, m_acc: f64, m_unit: f64) -> f64 {
 const STATIONS: usize = 48;
 /// Two sections closer than this (fraction of the member length) are one.
 const SNAP: f64 = 1e-6;
+/// Relative load-factor resolution of an event (see the tie in the event loop).
+const TIE: f64 = 1e-6;
 
 /// A stretch `[t0, t1]` of an original member, carried by one solver element.
 /// A member is split into pieces where hinges form inside its span.
@@ -854,7 +856,16 @@ pub fn solve_plastic_2d(input: &PlasticInput) -> Result<PlasticResult, String> {
             ));
         }
         suppressed = f64::INFINITY;
-        let tie = 1e-10 * (cumulative_factor + min_delta);
+        // Sections reaching Mp within the event search's own resolution form
+        // together. Interior peaks are located by golden-section search to
+        // ~1e-9 in position (and snapped at SNAP = 1e-6), so a symmetric
+        // structure's twin sections differ by that much after the first
+        // interior hinge; a 1e-10 tie split them into two events, the second
+        // twin never formed, and a symmetric portal "collapsed" 15% above its
+        // mechanism load with an inadmissible moment field (found by the
+        // metamorphic rotation check: the rotated portal gave the right
+        // answer). The tie matches SNAP; the factor moves by at most that.
+        let tie = TIE * (cumulative_factor + min_delta);
         let mut chosen: Vec<(usize, f64)> = Vec::new();
         for &(mi, t, d) in &cands {
             if d - min_delta <= tie && !chosen.iter().any(|&(mj, tj)| mj == mi && (tj - t).abs() < SNAP) {

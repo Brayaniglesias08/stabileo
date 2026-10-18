@@ -4,7 +4,7 @@
 //! and hinge bookkeeping it shares), with the biaxial yield condition
 //! `(My/Mp_y)² + (Mz/Mp_z)² ≤ 1` (local axes) at every section.
 
-use super::{golden_min, span_candidates, unique_key, Piece, PlasticHinge3D, PlasticResult3D, PlasticStep3D, SNAP, STATIONS};
+use super::{golden_min, span_candidates, unique_key, Piece, PlasticHinge3D, PlasticResult3D, PlasticStep3D, SNAP, STATIONS, TIE};
 use crate::element;
 use crate::types::*;
 use std::collections::{HashMap, HashSet};
@@ -994,7 +994,16 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
             ));
         }
         suppressed = f64::INFINITY;
-        let tie = 1e-10 * (cumulative_factor + min_delta);
+        // Sections reaching Mp within the event search's own resolution form
+        // together. Interior peaks are located by golden-section search to
+        // ~1e-9 in position (and snapped at SNAP = 1e-6), so a symmetric
+        // structure's twin sections differ by that much after the first
+        // interior hinge; a 1e-10 tie split them into two events, the second
+        // twin never formed, and a symmetric portal "collapsed" 15% above its
+        // mechanism load with an inadmissible moment field (found by the
+        // metamorphic rotation check: the rotated portal gave the right
+        // answer). The tie matches SNAP; the factor moves by at most that.
+        let tie = TIE * (cumulative_factor + min_delta);
         let mut chosen: Vec<(usize, f64)> = Vec::new();
         for &(mi, t, d) in &cands {
             if d - min_delta <= tie && !chosen.iter().any(|&(mj, tj)| mj == mi && (tj - t).abs() < SNAP) {

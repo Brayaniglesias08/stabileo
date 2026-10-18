@@ -465,7 +465,7 @@ pub fn rows() -> Vec<Ana2> {
             name: "plastic collapse",
             law: Law::Inverse,
             axis_bound: false,
-            iter_tol: 0.0,
+            iter_tol: 5e-8 /* event resolution TIE = 1e-6 (solver/plastic.rs) / 20 */,
             full_static: false,
             run: |c| {
                 let sections = c
