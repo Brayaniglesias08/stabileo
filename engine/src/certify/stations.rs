@@ -358,8 +358,22 @@ pub fn diagram_gaps_2d(ef: &ElementForces) -> DiagramGaps2D {
         },
     );
 
-    // N: constant between axial point loads, which only jump it (c is constant).
-    DiagramGaps2D { axial: 0.0, shear, moment }
+    // N: constant between axial point loads (which only jump it), or N' = −q_x with kinks
+    // where an axial span load starts and ends (as the 3D gap reads `distributed_loads_x`).
+    let dx = dists_of(&ef.distributed_loads_x);
+    // Axial point loads jump it; counting them as events keeps the bound whether or not the
+    // stations straddle them.
+    let mut ev = load_end_kinks(&dx);
+    ev.extend(pls.iter().filter_map(|p| p.px.filter(|px| *px != 0.0).map(|px| Event { x: p.a, kink: 0.0, jump: px })));
+    let axial = if dx.is_empty() {
+        0.0
+    } else {
+        gap(
+            &xs(l, &diagram_positions_2d(ef, "axial")),
+            &Shape { events: ev, dists: dx, curvature: Dist::slope, lip: Box::new(|_, _| 0.0) },
+        )
+    };
+    DiagramGaps2D { axial, shear, moment }
 }
 
 /// Gaps of the computed 3D diagrams of one member over the stations
