@@ -27,7 +27,9 @@ pub struct SolverSection {
     pub a: f64,  // m²
     pub iz: f64, // m⁴
     #[serde(default)]
-    pub as_y: Option<f64>,  // m², shear area for Timoshenko beam (enables shear deformation)
+    /// m², 2D shear area for the in-plane transverse shear (local y), paired with
+    /// `iz`: φ = 12·E·Iz/(G·as_y·L²). Note the 3D `as_y` pairs with `iy` instead.
+    pub as_y: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,9 +187,12 @@ pub struct SolverSection3D {
     #[serde(default)]
     pub cw: Option<f64>,
     #[serde(default)]
-    pub as_y: Option<f64>,  // m², shear area for Y-bending (Timoshenko)
+    /// m², shear area paired with `iy` (bending about local y, so shear along
+    /// local z): φy = 12·E·Iy/(G·as_y·L²). Not the area for a force along y.
+    pub as_y: Option<f64>,
     #[serde(default)]
-    pub as_z: Option<f64>,  // m², shear area for Z-bending (Timoshenko)
+    /// m², shear area paired with `iz` (bending about local z, shear along local y).
+    pub as_z: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

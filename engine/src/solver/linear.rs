@@ -4212,6 +4212,19 @@ pub(crate) fn validate_loads_2d(input: &SolverInput, loads: &[SolverLoad]) -> Re
 }
 
 pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
+    // Left-handed member axes are refused. `compute_local_axes_3d` reverses ey,
+    // which makes the triad (ex, ey, ez) improper, but the element kernels assume
+    // the right-hand kinematics θz = v', θy = −w': the v–θz and w–θy coupling
+    // terms of Tᵀ·k·T then carry the wrong sign, so the stiffness changes with
+    // the labelling of an axis (a skew cantilever's tip twist flipped sign and
+    // its deflection moved 2%). No product path sends `leftHand: true` (the web
+    // applies a user's left-handed convention to load entry only). See
+    // docs/solver/frames.md, FR-1; test `left_handed_axes_are_refused`.
+    if input.left_hand == Some(true) {
+        return Err("leftHand: true is not supported: left-handed member axes would change the element stiffness. \
+                    Use right-handed axes (leftHand false or omitted) and flip the sign of local-y loads and results instead."
+            .to_string());
+    }
     // 0. Non-finite input rejection (NaN/Inf) — core structural fields.
     for n in input.nodes.values() {
         if !n.x.is_finite() || !n.y.is_finite() || !n.z.is_finite() {

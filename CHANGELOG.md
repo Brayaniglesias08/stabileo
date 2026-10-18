@@ -11,6 +11,19 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Element formulations documented for independent review (2026-10-18)
+
+`docs/solver/` documents each element and solver family's derivation, assumptions, conventions
+and tests (roadmap "Solver and proof depth" item 10). Findings while writing the frame family:
+
+- **3D `leftHand: true` is now refused.** It reversed local y and made the member triad
+  improper, so the element stiffness changed with the labelling of an axis (tip twist of a skew
+  cantilever changed sign). No product path sent it. Test: `derivation_frames.rs`.
+- The beam-station output's declared sign convention now matches its values (2D moments are
+  hogging-positive; 3D components are the resultant on the negative face). Values are unchanged.
+- The 2D/3D shear-area pairing (`as_y` goes with `iz` in 2D, with `iy` in 3D) is spelled out in
+  the input docs.
+
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
 **BREAKING (results): steel members bent about both axes without axial force are now checked by

@@ -140,7 +140,7 @@ fn test_full_solve_to_station_extraction_3d() {
 
     // sign_convention present
     assert_eq!(&result.sign_convention.axial, "positive = tension");
-    assert_eq!(&result.sign_convention.torsion, "positive = right-hand rule about local x");
+    assert!(result.sign_convention.torsion.contains("negative (-x) face"), "{}", result.sign_convention.torsion);
 }
 
 /// Biaxial bending: load in both Y and Z directions. Verify all 6 force components

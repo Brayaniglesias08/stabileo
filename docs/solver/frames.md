@@ -87,8 +87,9 @@ $e_x = (x_j - x_i)/L$. The reference vector for local y is chosen as follows:
    (`orthonormal_frame`).
 3. **Roll angle** β, in degrees: $e_y \leftarrow \cos\beta\,e_y + \sin\beta\,e_z$ and
    $e_z \leftarrow -\sin\beta\,e_y + \cos\beta\,e_z$, a right-hand rotation about $e_x$.
-4. **`left_hand = true`**: $e_y \leftarrow -e_y$. The local triad is then left-handed. See
-   [FR-1](#discrepancies-and-open-questions-for-review) for what this does to the stiffness.
+4. **`left_hand = true`** would set $e_y \leftarrow -e_y$, which makes the local triad
+   left-handed. Solves now refuse it, because it changed the stiffness
+   ([FR-1](#discrepancies-and-open-questions-for-review)).
 
 The transformation is $T = \operatorname{diag}(\Lambda,\Lambda,\Lambda,\Lambda)$, where the rows
 of $\Lambda$ are $e_x, e_y, e_z$ expressed in global coordinates. The warping element inserts a 1
@@ -396,7 +397,21 @@ $$
 \text{3D: } M_z(x) = M_{z,s} - V_{y,s}x - \dots,\qquad M_y(x) = M_{y,s} + V_{z,s}x + \dots
 $$
 
-What these signs mean physically is pinned down in §7.3.
+**One rule covers all of them.** Apart from $N$, which is positive in tension, every reported
+component is the component along the local axes of the resultant acting on the **negative
+($-x$) face** of a cut. On the start side that is exactly the end force the node exerts on the
+member: $V_{y,s} = f_{v_1}$, $M_{z,s} = f_{\theta_{z1}}$, and so on.
+
+This is *minus* the positive-face (outward-normal) vector convention used by many textbooks.
+Some consequences, pinned by `engine/tests/derivation_frames.rs`:
+
+| Case | Reported value |
+|---|---|
+| Simply supported span along $+X$, gravity, 2D | $M(L/2) = -qL^2/8$ (positive $M$ = hogging, tension on local $+y$) |
+| Same span in 3D, default axes, load along local $-z$ | $M_y(L/2) = +qL^2/8$ (tension on local $-z$, i.e. sagging) |
+| Same span in 3D, load along local $-y$ | $M_z(L/2) = -qL^2/8$ (tension on local $-y$, the 2D sign) |
+| Shear at node I of that span (all planes) | $+$ the support reaction |
+| Cantilever along $+X$ with tip torque $+T$ about $x$ | $M_x = -T$ along the whole member |
 
 ### 7.2 Deflected shape
 
@@ -406,18 +421,14 @@ $v' = \psi - s/(GA_s)$, with the three integration constants chosen to satisfy t
 conditions (rotation or hinge, and end displacement). So the drawn deflection includes the
 member loads and the shear flexibility, and is exact for a prismatic member.
 
-### 7.3 Moment sign (what "positive M" means)
+### 7.3 2D versus 3D moment sign
 
-Take a horizontal 2D beam along $+X$, so local $y = +Z$ (up), simply supported, with a downward
-load. Its midspan moment comes out **negative**: $M(L/2) = -|q|L^2/8$. The 2D convention is
-therefore **positive M = hogging**, tension on the local $+y$ face. `engine/tests/derivation_frames.rs`
-pins this, and §FR-2 records the doc-string mismatch it exposed.
-
-In 3D, with the default axes, a horizontal beam has local z up. Its gravity moment $M_y$ at
-midspan is **positive** (sagging, tension on the local $-z$ face), while its $M_z$ under a load
-along $-y$ has the 2D sign. The 2D $M$ and the 3D $M_y$ of the same physical beam therefore have
-opposite signs. This is consistent within each mode, but a reviewer comparing 2D and 3D output
-must flip one of them.
+The 2D $M$ is the $\theta_z$ component. So for a horizontal beam it has the sign of the 3D $M_z$,
+not of the 3D $M_y$. A horizontal gravity-loaded beam reports a negative midspan moment in 2D and
+a positive $M_y$ in 3D. Each mode is self-consistent, but anyone comparing 2D and 3D output must
+flip one of them. The downstream design checks use $|M|$ (`rc_check.rs`,
+`cirsoc201_check.rs`, `masonry_check.rs`), so this sign does not reach a capacity check. The
+declared sign convention of the beam-station output did not match the values (FR-2, fixed).
 
 ### 7.4 Thermal loads: $\alpha$ and depth are fixed in the engine
 
@@ -476,4 +487,13 @@ physical one. Shell thermal loads, by contrast, take an optional `alpha`. See
 
 ## Discrepancies and open questions for review
 
-(Filled in below.)
+| ID | Finding | Status | Test |
+|---|---|---|---|
+| FR-1 | **`leftHand: true` changed the stiffness.** `compute_local_axes_3d` reverses $e_y$, so the member triad becomes improper. The kernels assume the right-hand kinematics $\theta_z=v'$, $\theta_y=-w'$, so in $T^{\mathsf T}kT$ the $v$–$\theta_z$ and $w$–$\theta_y$ coupling terms change sign. The result depended on how an axis was labelled: on a skew two-member cantilever the tip twist changed sign and the deflection moved 2%. No product path sends `leftHand: true` (the web applies a user's left-handed convention to load entry only and sends `false`). The engine now refuses it in `validate_input_3d`. A correct left-handed mode would keep a right-handed triad for $k$ and flip only the signs of local-y input and output. | FIXED (refused) | `derivation_frames.rs::left_handed_axes_are_refused` |
+| FR-2 | **Declared sign convention contradicted the values.** The beam-station output (`postprocess/beam_stations.rs`, consumed by reports and AI) declared 2D "moment positive = sagging" and 3D "moment_z positive = sagging in x-y plane". The values are hogging-positive in 2D and tension-on-$+y$ in 3D (§7.1). The torsion string ("right-hand rule about local x") did not say which face. The strings now state the actual convention. Values are unchanged. | FIXED (metadata) | `derivation_frames.rs::beam_station_sign_convention_matches_values`, `moment_and_shear_signs_2d_and_3d`, `torsion_sign_is_negative_face_resultant` |
+| FR-3 | **Shear-area naming differs between 2D and 3D.** The 3D `as_y` goes with `iy` (shear along local z), but the 2D `as_y` goes with `iz` (shear along local y). The pairing is consistent between stiffness, loads and recovery, and the web follows it. But the old field comment ("shear area for Y-bending") invited the common reading "area for a force along y", which would swap the shear areas of an I-section, a ~2× error in shear flexibility. The field docs in `types/input.rs` now spell out the pairing. Should the JSON names change (e.g. `asForIy`)? | OPEN (naming; docs fixed) | n/a (convention; covered by `symbolic_elements.rs` φ pairing) |
+| FR-4 | **Thermal $\alpha$ and depth are constants in the engine.** Frames and trusses use $\alpha = 12\times10^{-6}$ and $h=\sqrt{12I/A}$. The web rescales the temperatures to compensate (§7.4), but a direct JSON/API user loading a concrete ($\alpha\approx10^{-5}$) or aluminium ($2.3\times10^{-5}$) member, or an I-section gradient, gets wrong thermal forces without any warning. Shells accept an optional `alpha`. Should frames take `alpha` and `depthY/Z` the same way? | OPEN | n/a (behaviour documented, §7.4) |
+| FR-5 | **Warping DOF continuity at joints.** $\theta_x'$ is one nodal DOF shared by every warping member at a node, which assumes full warping transmission. That is correct for collinear continuous members. At a column–beam joint or a change of section, the real transmission depends on the detail (stiffeners, end plates). There is no per-member warping release. | OPEN (modelling assumption) | n/a |
+| FR-6 | **The bimoment recovery was never checked.** Before this work no test compared the recovered element bimoment with a closed form. It now converges to Vlasov's $(T/k)\tanh kL$ (4 elements: 1e-3; 16 elements: 1e-5), and the support reaction balances it. | VERIFIED (gap closed) | `derivation_frames.rs::warping_bimoment_matches_vlasov` |
+| FR-7 | **2D rotation is about $-Y$.** The 2D θ and the 2D nodal `my` are right-hand about $-Y$ in the global XZ embedding, while the 3D $\theta_Y$/`my` are about $+Y$. This is consistent inside 2D. Any 2D↔3D mapping (web embedding of flat models, AI tools) must negate it: see [assembly-constraints.md](assembly-constraints.md). | DOCUMENTED-CHOICE | see assembly-constraints.md |
+| FR-8 | **Documented formulation choices** (from [SYMBOLIC.md](../verification/SYMBOLIC.md)): $K_g$ ignores shear flexibility and the torsional $P\,I_p/A$ term; released rotations in $K_g$ follow the Euler–Bernoulli map; consistent mass has no rotary inertia. Their quantitative impact is in [mass-geometric-dynamics.md](mass-geometric-dynamics.md). | DOCUMENTED-CHOICE | `symbolic_elements.rs` |
