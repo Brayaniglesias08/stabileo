@@ -16,6 +16,10 @@ name: Nightly verification
 # TypeScript mutation testing in mutation-ts.yml.
 
 on:
+  # TEMPORARY (remove before merge): workflow_dispatch only works once the
+  # file is on main, so the branch is tested through push.
+  push:
+    branches: [ci/verification-jobs]
   schedule:
     - cron: "0 5 * * *"
   workflow_dispatch:
@@ -56,9 +60,9 @@ jobs:
     steps:
       - id: plan
         env:
-          ONLY: ${{ inputs.only }}
-          SHARDS: ${{ inputs.mutants_shards }}
-          TOTAL: ${{ inputs.mutants_total }}
+          ONLY: ${{ inputs.only || (github.event_name == 'push' && 'certify-large opensees-diff codeaster-diff fuzz mutants bench') || '' }}
+          SHARDS: ${{ inputs.mutants_shards || (github.event_name == 'push' && '[0, 1]') || '' }}
+          TOTAL: ${{ inputs.mutants_total || (github.event_name == 'push' && '1024') || '' }}
           MUTANTS_TOTAL: 64
           MUTANTS_SLOTS: 8
         run: |
