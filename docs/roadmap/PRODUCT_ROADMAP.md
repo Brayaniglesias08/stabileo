@@ -124,6 +124,9 @@ What remains after the October 2026 safety wave (certified solver, differential 
 11. **More formal proofs.** [#364](https://github.com/lambdaclass/stabileo/issues/364) More kernels proved in Lean, and machine-checked correspondence between the Rust implementation and the proved algorithm for the critical kernels.
 12. **Performance and scale regression tracking.** [#365](https://github.com/lambdaclass/stabileo/issues/365) Solve time, memory, iteration counts and sparse/dense crossover tracked per release on the benchmark and acceptance models (docs/VERIFICATION.md layer 8), with a failing gate on large regressions.
 13. **Result badges use the verification maturity levels.** [#440](https://github.com/lambdaclass/stabileo/issues/440) Every result and design-check row shows its level from [MATURITY.md](../verification/MATURITY.md) (Certified > Benchmarked > Differential > Tested > Unverified), read from `docs/verification/dashboard.json` at build time so the badge cannot drift from the matrix; an open `safety` issue affecting the item is shown with it.
+14. **Variant analysis after every bug.** [#448](https://github.com/lambdaclass/stabileo/issues/448) After each confirmed bug, search the codebase for the same bug class and add a check that catches the class, not only the instance. Classes seen so far: frame / rotation / sign conventions (#435, #418, #419), unit conversions (#423), double counting, NaN or degenerate input accepted (#335, Lb = 0, zero capacity passing), silent drops (constraints on supported nodes, member couples #343, features an analysis ignored). Each fix records the class, the search, other instances found and the class-level check added (lint, property test, metamorphic invariant, feature-matrix cell, fuzz property).
+15. **Textbook example library.** [#450](https://github.com/lambdaclass/stabileo/issues/450) Hundreds of solved problems from standard texts (Hibbeler, Kassimali, McCormac, Gere and similar) as automated engine tests: printed inputs, printed answers as references at the printed precision, a citation per case. Small and many, unlike the building-scale acceptance suite (Coverage item 7); unlike `engine/tests/reference/`, they call the engine.
+16. **Every new check ships with a negative case.** [#451](https://github.com/lambdaclass/stabileo/issues/451) Every new design check, test, certificate check, CI gate or alert comes with an input or mutation that must make it fail, run in CI; the existing gates are audited once for the same.
 
 Beyond software: an independent licensed structural engineer reviews worked examples, clause readings and sample reports; real anonymised projects from engineering firms (with their SAP2000/ETABS/RFEM models and results, and the architect's IFC/DWG where available) join the acceptance suite and the BIM-import corpus; the design-code manuals with worked examples (AISC Design Examples, INTI/CIRSOC example books, AWC NDS, TMS 402, AISI Cold-Formed Steel Design Manual) are obtained so checks are tested against published numbers rather than hand-worked ones.
 
@@ -134,8 +137,11 @@ Beyond software: an independent licensed structural engineer reviews worked exam
 - Every certified shell, plate and solid result shows a discretization-error estimate (item 3).
 - Physics invariants (item 5) run on 100 % of the example and acceptance corpus with 0 violations.
 - The result badges (item 13) show the MATURITY.md level on 100 % of result views and design-check rows.
+- Variant analysis (item 14): 100 % of bugs closed after it lands have a variant-analysis note; every bug class listed has at least one class-level automated check in CI.
+- Textbook library (item 15): at least 300 solved problems, at least 20 per analysis family that textbooks cover, each citing its source, 0 failing.
+- Negative cases (item 16): 100 % of checks, tests and gates added after it lands have a negative case, and every existing gate has one after the audit.
 
-**Metrics** (all on the [dashboard](../verification/DASHBOARD.md)): differential models compared, agreeing and mismatching per harness; fuzz executions per night; share of analyses and of design checks that are Certified (MATURITY.md); open `safety` issues; `roadmap:verification` issues closed.
+**Metrics** (all on the [dashboard](../verification/DASHBOARD.md)): differential models compared, agreeing and mismatching per harness; fuzz executions per night; share of analyses and of design checks that are Certified (MATURITY.md); open `safety` issues; `roadmap:verification` issues closed; textbook problems in the library and bug classes with a class-level check ("not yet measured" until items 14–15 land).
 
 ### Engineering coverage backlog
 
@@ -202,14 +208,18 @@ Pushes to main deploy straight to users (GitHub Pages), so a merge is a release.
 4. **Dependency upgrades** [#388](https://github.com/lambdaclass/stabileo/issues/388) go through the same gates; major upgrades of numerics-related crates (e.g. exact arithmetic) must leave results bit-identical.
 5. **Steel results stay labelled experimental** [#389](https://github.com/lambdaclass/stabileo/issues/389) ("Proven bound", no pass styling) until an independent engineer has reviewed the CIRSOC 301 checks.
 6. **Safety advisories.** [#441](https://github.com/lambdaclass/stabileo/issues/441) When a released version produced a wrong or unconservative result, users are told through an advisory with the affected versions and features, how to tell if a model is affected, the fixed version and a workaround: [SAFETY_ADVISORIES.md](../SAFETY_ADVISORIES.md), drafts in [`docs/advisories/`](../advisories/), scoped in-app notices through the re-check registry (PR [#328](https://github.com/lambdaclass/stabileo/pull/328)).
+7. **Contain first, fix second.** [#447](https://github.com/lambdaclass/stabileo/issues/447) Per-feature runtime switches (warn or refuse) that the app, the engine API and the MCP server check at solve and check time, so a known dangerous result is contained within hours of confirmation, before the fix is written or released. Every `safety` issue gets a containment step (switch set, or a recorded reason none is needed) before its fix; a switch can only make results more cautious than the bundled default.
+8. **Postmortem per safety bug.** [#449](https://github.com/lambdaclass/stabileo/issues/449) Every `safety` defect that reached `main` gets a blameless postmortem in `docs/postmortems/`: timeline, root cause, why the tests, certificates, differential runs and reviews missed it, the new kind of test or check that now catches it, the variant analysis (Trust item 14), and its advisory, which is written from it.
 
 **Exit criteria (Release safety).**
 - Every release is tagged, has release notes in English, Spanish and Portuguese with a "results may change" section, and records a row on the [dashboard](../verification/DASHBOARD.md).
 - 100 % of `safety` issues fixed in a release have a published advisory (or a recorded reason none is needed) within the timelines of SAFETY_ADVISORIES.md, and the in-app notice reaches the projects that use the affected feature.
 - Releases are promoted from staging only after the full suite, the acceptance suite and a smoke check pass (item 1).
 - No open `safety` defect older than 30 days without a fix PR or an in-app warning on the affected results.
+- Containment (item 7): every `safety` defect has a containment state within 24 hours of confirmation; an e2e test flips a switch and checks that only the affected results are warned or refused.
+- Postmortems (item 8): 100 % of `safety` defects fixed after it lands have a postmortem within 10 working days of the fix, each naming a new or extended automated check.
 
-**Metrics** (on the [dashboard](../verification/DASHBOARD.md)): open `safety` issues (the label covers both defects and safety-relevant backlog items); safety advisories published (label `safety-advisory`); `roadmap:release-safety` issues closed; releases recorded in the dashboard history.
+**Metrics** (on the [dashboard](../verification/DASHBOARD.md)): open `safety` issues (the label covers both defects and safety-relevant backlog items); safety advisories published (label `safety-advisory`); `roadmap:release-safety` issues closed; releases recorded in the dashboard history; time from confirmation to containment and postmortems written ("not yet measured" until items 7–8 land).
 
 ## Daily, Weekly, Monthly Priority Lens
 
