@@ -6,7 +6,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { resolve, extname } from 'node:path';
+import { resolve, relative, isAbsolute, extname, sep } from 'node:path';
 import { FIXTURES } from './cases.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -14,18 +14,37 @@ const roots = { determinism: here, wasm: resolve(here, '../src/lib/wasm') };
 const repo = resolve(here, '../..');
 const fixturePaths = new Set(Object.values(FIXTURES));
 const types = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json' };
+
+/**
+ * The file a request path maps to, or null. Only the page, the listed fixtures and files
+ * strictly inside the two roots are served: an absolute remainder (`/wasm//etc/passwd`),
+ * a backslash or NUL, or anything that resolves outside its root is refused.
+ */
+export function fileFor(urlPath) {
+  let path;
+  try {
+    path = decodeURIComponent(urlPath);
+  } catch {
+    return null;
+  }
+  if (path.includes('\0') || path.includes('\\')) return null;
+  if (path === '/') return resolve(here, 'index.html');
+  if (path.startsWith('/repo/')) return fixturePaths.has(path.slice(6)) ? resolve(repo, path.slice(6)) : null;
+  const [, top, ...rest] = path.split('/');
+  const rel = rest.join('/');
+  if (!Object.hasOwn(roots, top) || !rel || isAbsolute(rel) || rel.startsWith('/')) return null;
+  const root = roots[top];
+  const file = resolve(root, rel);
+  const inside = relative(root, file);
+  if (!inside || inside.startsWith('..') || isAbsolute(inside) || inside.split(sep).includes('..')) return null;
+  return file;
+}
+
 const port = Number(process.argv[2] ?? 5195);
 
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 createServer(async (req, res) => {
-  const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  let file = null;
-  if (path === '/') file = resolve(here, 'index.html');
-  else if (path.startsWith('/repo/') && fixturePaths.has(path.slice(6))) file = resolve(repo, path.slice(6));
-  else {
-    const [, top, ...rest] = path.split('/');
-    const rel = rest.join('/');
-    if (roots[top] && rel && !rel.split('/').includes('..')) file = resolve(roots[top], rel);
-  }
+  const file = fileFor(new URL(req.url, 'http://x').pathname);
   try {
     if (!file) throw new Error('not found');
     const body = await readFile(file);
@@ -36,3 +55,4 @@ createServer(async (req, res) => {
     res.end('not found');
   }
 }).listen(port, '127.0.0.1', () => console.log(`determinism server on http://127.0.0.1:${port}`));
+}

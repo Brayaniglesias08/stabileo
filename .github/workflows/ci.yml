@@ -413,6 +413,10 @@ jobs:
         working-directory: web
         run: npx playwright install --with-deps chromium firefox webkit
 
+      - name: Static server serves only its roots
+        working-directory: web
+        run: node --test determinism/serve.test.mjs
+
       - name: Node digests
         working-directory: web
         run: node determinism/node-run.mjs
