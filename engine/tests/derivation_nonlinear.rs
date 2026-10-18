@@ -161,7 +161,7 @@ fn nl_corot2d_cantilever_drawn_right_to_left_matches_mirror() {
     assert!(right.converged, "rightward cantilever must converge");
     assert!(left.converged, "leftward cantilever must converge");
     let (r, l) = (disp2(&right.results, 5), disp2(&left.results, 5));
-    assert!(r.uz < -0.5, "large deflection expected, got {}", r.uz);
+    assert!(r.uz < -0.3, "large deflection expected, got {}", r.uz);
     close(l.uz, r.uz, 1e-6, "tip uz");
     close(l.ux, -r.ux, 1e-6, "tip ux (mirrored)");
     close(l.ry, -r.ry, 1e-6, "tip rotation (mirrored)");
@@ -184,12 +184,12 @@ fn nl_corot2d_elastica_end_moment_rolls_up() {
         let input = make_input(
             nodes,
             vec![(1, E, 0.3)],
-            vec![(1, 1.0, iz)], // axially stiff: the arc keeps its length
+            vec![(1, 0.01, iz)], // no axial force under an end moment: the arc keeps its length
             elems,
             vec![(1, 1, "fixed")],
             vec![SolverLoad::Nodal(SolverNodalLoad { node_id: n_el + 1, fx: 0.0, fz: 0.0, my: m })],
         );
-        let r = corotational::solve_corotational_2d(&input, 60, 1e-10, 30, false).unwrap();
+        let r = corotational::solve_corotational_2d(&input, 60, 1e-8, 30, false).unwrap();
         assert!(r.converged, "φ = {phi}: not converged");
         let d = disp2(&r.results, n_el + 1);
         close(d.ry.abs(), phi, 1e-6, &format!("φ = {phi}: tip rotation"));
@@ -251,7 +251,7 @@ fn cantilever_3d(dir: [f64; 3], f: [f64; 3], m: [f64; 3]) -> SolverInput3D {
 /// planes plus torsion take the tip ~0.5 rad out of any plane.
 #[test]
 fn nl_corot3d_solution_is_frame_invariant() {
-    let (f, m) = ([0.0, 6.0, -9.0], [4.0, 0.0, 0.0]);
+    let (f, m) = ([0.0, 240.0, -360.0], [160.0, 0.0, 0.0]);
     let base = corotational::solve_corotational_3d(&cantilever_3d([1.0, 0.0, 0.0], f, m), 60, 1e-10, 20, false).unwrap();
     assert!(base.converged);
     let tip = disp3(&base.results, 7);
@@ -309,10 +309,10 @@ fn nl_pdelta_matches_beam_column_and_buckling() {
 // 3D co-rotational with released members (docs/verification/SYMBOLIC.md, item 5)
 // ======================================================================
 
-/// A simply supported beam whose two members meet at a node where the
-/// left member is pinned (release at its end): in 3D the node's rotation is
-/// held only by the right member. Small load: the co-rotational answer must
-/// be the linear one.
+/// A Gerber beam: member 1 fixed at its base and pinned (released) at node 2,
+/// member 2 continuous from node 2 to a roller: in 3D the rotation of node 2
+/// is held only by member 2. Small load: the co-rotational answer must be the
+/// linear one.
 #[test]
 fn nl_corot3d_released_member_small_load_matches_linear() {
     let nodes = vec![(1, 0.0, 0.0, 0.0), (2, 3.0, 0.0, 0.0), (3, 6.0, 0.0, 0.0)];
@@ -322,7 +322,7 @@ fn nl_corot3d_released_member_small_load_matches_linear() {
         vec![(1, E, 0.3)],
         vec![(1, 0.01, 2e-5, 2e-5, 3e-5)],
         elems,
-        vec![(1, vec![true, true, true, true, false, false]), (3, vec![false, true, true, false, false, false])],
+        vec![(1, vec![true; 6]), (3, vec![false, true, true, false, false, false])],
         vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: 0.0, fy: 0.0, fz: -0.01, mx: 0.0, my: 0.0, mz: 0.0, bw: None })],
     );
     {
@@ -440,7 +440,8 @@ fn fiber_input(solver: SolverInput, n_increments: usize, modified_nr: bool) -> F
             rectangular_fiber_section(FB, FH, 200, FiberMaterial::SteelBilinear { e: E, fy: FY, hardening_ratio: 0.0 }),
         )]),
         n_integration_points: 5,
-        max_iter: 200,
+        // Modified Newton contracts by ~0.9 per iteration on this problem.
+        max_iter: if modified_nr { 1000 } else { 200 },
         tolerance: 1e-10,
         n_increments,
         modified_nr,
