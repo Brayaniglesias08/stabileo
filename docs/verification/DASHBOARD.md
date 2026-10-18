@@ -6,7 +6,7 @@ data is in [`dashboard.json`](dashboard.json) for the app and the docs site. CI 
 weekly and on every release tag ([workflow](../../.github/workflows/verification-dashboard.yml)).
 **"not yet measured" means exactly that**: no value is estimated or typed in.
 
-Generated 2026-10-18 16:09 UTC at commit `81cdd77760`.
+Generated 2026-10-18 16:13 UTC at commit `e63f8649dd`.
 
 These are the metrics behind the exit criteria of the backlog sections of
 [PRODUCT_ROADMAP.md](../roadmap/PRODUCT_ROADMAP.md). Per-item verification levels are in
@@ -29,7 +29,7 @@ These are the metrics behind the exit criteria of the backlog sections of
 | Mutation score, TypeScript (Stryker) | **not yet measured** | Engineering coverage | no successful nightly Stryker run on main yet |
 | Engine line coverage (llvm-cov) | **not yet measured** | Solver and proof depth | no llvm-cov run yet (artifact llvm-cov-summary) |
 | Engine branch coverage (llvm-cov) | **not yet measured** | Solver and proof depth | no llvm-cov run with branch coverage yet |
-| Differential models compared (latest run per harness) | **6317 (6216 agree, 101 mismatch)** | Trust and verification | codeaster, frame3dd, kratos, opensees, pynite; see Details |
+| Differential models compared (latest run per harness) | **6317 (6216 agree, 101 mismatch)** | Trust and verification | codeaster, frame3dd, kratos, opensees, pynite; see Details; no report on main yet: mystran, calculix |
 | Fuzz executions (latest nightly) | **not yet measured** | Trust and verification | the nightly fuzz job does not publish execution counts yet (artifact fuzz-stats-<target>) |
 | Feature-matrix cells (2D + 3D) | **R 85, ~ 20, · 267, ✓ 1012** | Engineering coverage | FEATURE_MATRIX.md |
 | Feature-matrix cells E / IGN / BAD / K | **0** | Engineering coverage | FEATURE_MATRIX.md |

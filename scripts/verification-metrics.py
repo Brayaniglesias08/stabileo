@@ -328,10 +328,13 @@ def differential(gh: GH, max_runs: int):
     out = {}
     if not gh.ok:
         return out
-    for r, name in find_artifacts(gh, "differential.yml", r"differential-.+", max_runs):
+    for r, name in find_artifacts(gh, "differential.yml", r"differential-.+", max_runs, all_matches=True):
+        prog = name.split("-", 1)[1]
+        if prog in out:
+            continue  # newest report per harness only
         d = gh.download(r["databaseId"], name)
         if d:
-            out[name.split("-", 1)[1]] = _reports(d, r)
+            out[prog] = _reports(d, r)
     for program, art in (("opensees", "opensees-report"), ("codeaster", "codeaster-report")):
         hit = find_artifacts(gh, "verify.yml", re.escape(art), max_runs)
         if hit:
@@ -1052,7 +1055,10 @@ def main():
             M["differential_compared"] = metric(
                 "Differential models compared (latest run per harness)", comp,
                 display=f"{comp} ({ok} agree, {mis} mismatch)", section=S_TRUST,
-                source=", ".join(sorted(diff)), note="see Details")
+                source=", ".join(sorted(diff)),
+                note="see Details; no report on main yet: " + (", ".join(
+                    h for h in ("frame3dd", "pynite", "mystran", "kratos", "calculix", "opensees", "codeaster")
+                    if h not in diff) or "none"))
         rm = rust_mutants(gh, a.max_runs)
         details["rust_mutants"] = rm
         if rm:

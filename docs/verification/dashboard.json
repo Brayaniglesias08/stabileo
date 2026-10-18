@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "generated": "2026-10-18 16:09 UTC",
- "commit": "81cdd77760",
+ "generated": "2026-10-18 16:13 UTC",
+ "commit": "e63f8649dd",
  "metrics": {
   "safety_open": {
    "label": "Open `safety` issues",
@@ -126,7 +126,7 @@
    "display": "6317 (6216 agree, 101 mismatch)",
    "status": "measured",
    "source": "codeaster, frame3dd, kratos, opensees, pynite",
-   "note": "see Details",
+   "note": "see Details; no report on main yet: mystran, calculix",
    "section": "Trust and verification"
   },
   "fuzz_execs": {
