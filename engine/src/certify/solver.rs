@@ -29,6 +29,7 @@ use super::forces::{force_bounds_2d, force_bounds_3d, shell_bounds_3d, ForceBoun
 use super::reactions::{reaction_bounds_2d, reaction_bounds_3d, ReactionBound2D, ReactionBound3D};
 use super::stations::{station_bounds_2d, station_bounds_3d, with_gaps_2d, with_gaps_3d, StationBound2D, StationBound3D};
 use super::interval::Interval;
+use super::reassembly::{end_to_end_2d, end_to_end_3d, EndToEnd};
 use super::linear::{
     certify_linear_system_auto_interval_rhs, certify_sigma_auto, certify_with_certified_sigma, Certificate, MAX_CERTIFY_N,
 };
@@ -54,6 +55,14 @@ pub struct CertifiedResults2D {
     /// What the views show beyond the end forces (empty when uncertified).
     #[serde(flatten)]
     pub shown: ShownBounds<StationBound2D, ReactionBound2D>,
+    /// Whether the model → K → result chain was checked by the independent
+    /// re-assembly (`certify::reassembly`), and its bound.
+    #[serde(default)]
+    pub end_to_end: EndToEnd,
+    /// "endToEnd" when `end_to_end` is certified, "assembled" when only the
+    /// solve of the assembled system is, "none" otherwise.
+    #[serde(default)]
+    pub certificate_level: CertificateLevel,
 }
 
 /// Bounds on the quantities the result views compute after the solve
@@ -127,6 +136,35 @@ pub struct CertifiedResults3D {
     pub shell_bounds: Vec<ShellBound>,
     #[serde(flatten)]
     pub shown: ShownBounds<StationBound3D, ReactionBound3D>,
+    #[serde(default)]
+    pub end_to_end: EndToEnd,
+    #[serde(default)]
+    pub certificate_level: CertificateLevel,
+}
+
+/// How much of the chain model → K → result a certified linear result covers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CertificateLevel {
+    /// Neither certificate holds.
+    #[default]
+    None,
+    /// The displacements solve the engine's assembled K and f (CERTIFY.md).
+    Assembled,
+    /// Also certified against an independent re-assembly of the model.
+    EndToEnd,
+}
+
+impl CertificateLevel {
+    pub fn of(assembled: &Certificate, e2e: &EndToEnd) -> Self {
+        if !assembled.is_certified() {
+            CertificateLevel::None
+        } else if e2e.is_certified() {
+            CertificateLevel::EndToEnd
+        } else {
+            CertificateLevel::Assembled
+        }
+    }
 }
 
 /// `certify_linear_2d` plus per-member force bounds and the bounds on what the
@@ -135,7 +173,9 @@ pub fn certify_linear_2d_full(input: &SolverInput) -> Result<CertifiedResults2D,
     let (results, certificate) = certify_linear_2d(input)?;
     let force_bounds = certificate.abs_bound().map(|b| force_bounds_2d(input, b)).unwrap_or_default();
     let shown = certificate.abs_bound().map(|b| shown_bounds_2d(input, &input.loads, &results, b)).unwrap_or_default();
-    Ok(CertifiedResults2D { results, certificate, force_bounds, shown })
+    let end_to_end = end_to_end_2d(input, &input.loads, &results);
+    let certificate_level = CertificateLevel::of(&certificate, &end_to_end);
+    Ok(CertifiedResults2D { results, certificate, force_bounds, shown, end_to_end, certificate_level })
 }
 
 /// `certify_linear_3d` plus per-member force bounds and shell resultant bounds.
@@ -147,7 +187,9 @@ pub fn certify_linear_3d_full(input: &SolverInput3D) -> Result<CertifiedResults3
         None => Default::default(),
     };
     let shown = certificate.abs_bound().map(|b| shown_bounds_3d(input, &input.loads, &results, b)).unwrap_or_default();
-    Ok(CertifiedResults3D { results, certificate, force_bounds, shell_bounds, shown })
+    let end_to_end = end_to_end_3d(input, &input.loads, &results);
+    let certificate_level = CertificateLevel::of(&certificate, &end_to_end);
+    Ok(CertifiedResults3D { results, certificate, force_bounds, shell_bounds, shown, end_to_end, certificate_level })
 }
 
 /// Solve a 2D linear static model with `solve_2d` and certify its displacements.
