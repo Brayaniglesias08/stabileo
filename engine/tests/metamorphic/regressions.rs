@@ -56,3 +56,25 @@ fn probe_plastic_portal() {
         for h in r.hinges.iter().take(6) { println!("  {:?}", h); }
     }
 }
+
+#[test]
+#[ignore]
+fn probe_corot3d() {
+    use dedaliano_engine::metamorphic::transform::Iso3;
+    let f = std::env::var("PFIX").unwrap_or("ex-3d-building-case3-input".into());
+    let text = std::fs::read_to_string(format!("{}/tests/fixtures/{f}.json", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let s: dedaliano_engine::types::SolverInput3D = serde_json::from_str(&text).unwrap();
+    let c = crate::case::Case3::new("p", s);
+    let mut rng = dedaliano_engine::metamorphic::Rng::new(7);
+    let mut isos = vec![Iso3::axis_permutation(0), Iso3::about_z(0.4), Iso3::axis_permutation(5)];
+    for _ in 0..5 { isos.push(Iso3::random(&mut rng)); }
+    for t in [10.0, 40.0, 400.0] { isos.push(Iso3::axis_permutation(0).translated([t, -t, t])); }
+    for iso in isos {
+        let tc = c.iso(&iso).unwrap();
+        let r = dedaliano_engine::solver::corotational::solve_corotational_3d(&tc.s, 100, 1e-10, 4, false);
+        match r {
+            Ok(r) => println!("conv {} iters {} lf {} maxd {}", r.converged, r.iterations, r.load_factor, r.max_displacement),
+            Err(e) => println!("err {e}"),
+        }
+    }
+}

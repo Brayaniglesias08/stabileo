@@ -537,8 +537,9 @@ fn assemble_truss_corotational(
     let u_xj = dof_num.global_dof(elem.node_j, 0).map(|d| u_full[d]).unwrap_or(0.0);
     let u_yj = dof_num.global_dof(elem.node_j, 1).map(|d| u_full[d]).unwrap_or(0.0);
 
-    let dx_n = (node_j.x + u_xj) - (node_i.x + u_xi);
-    let dy_n = (node_j.z + u_yj) - (node_i.z + u_yi);
+    // Initial chord + relative displacement (see the 3D element).
+    let dx_n = (node_j.x - node_i.x) + (u_xj - u_xi);
+    let dy_n = (node_j.z - node_i.z) + (u_yj - u_yi);
     let l_n = (dx_n * dx_n + dy_n * dy_n).sqrt();
     let elong = elongation(&[dx0, dy0], &[u_xj - u_xi, u_yj - u_yi], l0, l_n);
 
@@ -612,8 +613,9 @@ fn assemble_frame_corotational(
     let u_elem: Vec<f64> = elem_dofs.iter().map(|&d| u_full[d]).collect();
 
     // Deformed geometry
-    let dx_n = (node_j.x + u_elem[3]) - (node_i.x + u_elem[0]);
-    let dy_n = (node_j.z + u_elem[4]) - (node_i.z + u_elem[1]);
+    // Initial chord + relative displacement (see the 3D element).
+    let dx_n = (node_j.x - node_i.x) + (u_elem[3] - u_elem[0]);
+    let dy_n = (node_j.z - node_i.z) + (u_elem[4] - u_elem[1]);
     let l_n = (dx_n * dx_n + dy_n * dy_n).sqrt();
     let elong = elongation(&[dx0, dy0], &[u_elem[3] - u_elem[0], u_elem[4] - u_elem[1]], l0, l_n);
 
@@ -1062,8 +1064,9 @@ pub fn compute_corotational_forces(
             let u_xj = dof_num.global_dof(elem.node_j, 0).map(|d| u_full[d]).unwrap_or(0.0);
             let u_yj = dof_num.global_dof(elem.node_j, 1).map(|d| u_full[d]).unwrap_or(0.0);
 
-            let dx_n = (node_j.x + u_xj) - (node_i.x + u_xi);
-            let dy_n = (node_j.z + u_yj) - (node_i.z + u_yi);
+            // Initial chord + relative displacement (see the 3D element).
+            let dx_n = (node_j.x - node_i.x) + (u_xj - u_xi);
+            let dy_n = (node_j.z - node_i.z) + (u_yj - u_yi);
             let l_n = (dx_n * dx_n + dy_n * dy_n).sqrt();
             let elong = elongation(&[dx0, dy0], &[u_xj - u_xi, u_yj - u_yi], l0, l_n);
 
@@ -1094,8 +1097,9 @@ pub fn compute_corotational_forces(
             let elem_dofs = dof_num.element_dofs(elem.node_i, elem.node_j);
             let u_elem: Vec<f64> = elem_dofs.iter().map(|&d| u_full[d]).collect();
 
-            let dx_n = (node_j.x + u_elem[3]) - (node_i.x + u_elem[0]);
-            let dy_n = (node_j.z + u_elem[4]) - (node_i.z + u_elem[1]);
+            // Initial chord + relative displacement (see the 3D element).
+            let dx_n = (node_j.x - node_i.x) + (u_elem[3] - u_elem[0]);
+            let dy_n = (node_j.z - node_i.z) + (u_elem[4] - u_elem[1]);
             let l_n = (dx_n * dx_n + dy_n * dy_n).sqrt();
             let elong = elongation(&[dx0, dy0], &[u_elem[3] - u_elem[0], u_elem[4] - u_elem[1]], l0, l_n);
             let beta = chord_rotation(dx0, dy0, dx_n, dy_n);
@@ -1668,16 +1672,15 @@ fn assemble_frame_corotational_3d(
     let u_elem: Vec<f64> = elem_dofs.iter().map(|&d| u_full[d]).collect();
 
     // Deformed node positions
-    let xi_def = node_i.x + u_elem[0];
-    let yi_def = node_i.y + u_elem[1];
-    let zi_def = node_i.z + u_elem[2];
-    let xj_def = node_j.x + u_elem[6];
-    let yj_def = node_j.y + u_elem[7];
-    let zj_def = node_j.z + u_elem[8];
-
-    let dx_n = xj_def - xi_def;
-    let dy_n = yj_def - yi_def;
-    let dz_n = zj_def - zi_def;
+    // Current chord from the initial chord plus the relative displacement,
+    // never as a difference of absolute deformed positions: x + u rounds u to
+    // ulp(x), which for a model 400 m from the origin (let alone in survey
+    // coordinates) put a residual floor above the convergence tolerance and
+    // the solve never converged (found by the metamorphic rotation check:
+    // the same building translated 400 m failed).
+    let dx_n = dx0 + (u_elem[6] - u_elem[0]);
+    let dy_n = dy0 + (u_elem[7] - u_elem[1]);
+    let dz_n = dz0 + (u_elem[8] - u_elem[2]);
     let l_n = (dx_n * dx_n + dy_n * dy_n + dz_n * dz_n).sqrt();
     let elong = elongation(&[dx0, dy0, dz0], &[u_elem[6] - u_elem[0], u_elem[7] - u_elem[1], u_elem[8] - u_elem[2]], l0, l_n);
 
@@ -2199,16 +2202,15 @@ fn elastic_corotational_forces_3d(
             elem_dofs.iter().take(12).map(|&d| u_full[d]).collect()
         };
 
-        let xi_def = node_i.x + u_elem_12[0];
-        let yi_def = node_i.y + u_elem_12[1];
-        let zi_def = node_i.z + u_elem_12[2];
-        let xj_def = node_j.x + u_elem_12[6];
-        let yj_def = node_j.y + u_elem_12[7];
-        let zj_def = node_j.z + u_elem_12[8];
-
-        let dx_n = xj_def - xi_def;
-        let dy_n = yj_def - yi_def;
-        let dz_n = zj_def - zi_def;
+        // Current chord from the initial chord plus the relative displacement,
+        // never as a difference of absolute deformed positions: x + u rounds u to
+        // ulp(x), which for a model 400 m from the origin (let alone in survey
+        // coordinates) put a residual floor above the convergence tolerance and
+        // the solve never converged (found by the metamorphic rotation check:
+        // the same building translated 400 m failed).
+        let dx_n = dx0 + (u_elem_12[6] - u_elem_12[0]);
+        let dy_n = dy0 + (u_elem_12[7] - u_elem_12[1]);
+        let dz_n = dz0 + (u_elem_12[8] - u_elem_12[2]);
         let l_n = (dx_n * dx_n + dy_n * dy_n + dz_n * dz_n).sqrt();
         let elong = elongation(&[dx0, dy0, dz0], &[u_elem_12[6] - u_elem_12[0], u_elem_12[7] - u_elem_12[1], u_elem_12[8] - u_elem_12[2]], l0, l_n);
 
