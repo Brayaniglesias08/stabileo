@@ -1965,6 +1965,16 @@ pub struct CertifiedPlastic3D {
     pub certificate: PlasticCertificate3D,
 }
 
+impl super::finite::Guarded for PlasticCertificate3D {
+    fn claims(&self) -> bool {
+        self.certified || self.lambda_lower.is_some() || self.lambda_upper.is_some()
+    }
+
+    fn downgrade(&mut self, reason: String) {
+        *self = refused(reason, self.solver_collapse_factor.filter(|x| x.is_finite()));
+    }
+}
+
 fn refused(reason: String, solver: Option<f64>) -> PlasticCertificate3D {
     PlasticCertificate3D {
         certified: false,
@@ -1981,7 +1991,18 @@ fn refused(reason: String, solver: Option<f64>) -> PlasticCertificate3D {
 
 /// Certify the collapse load factor of a 3D plastic input (solver result
 /// optional, used as an extra static candidate and compared with the bounds).
+/// Withdrawn when the input, the solver result or a bound is not finite.
 pub fn certify_collapse_3d(input: &PlasticInput3D, solver: Option<&PlasticResult3D>) -> PlasticCertificate3D {
+    let sval = solver.map(|r| r.collapse_factor);
+    if let Err(e) = super::finite::check_input(input).and_then(|()| super::finite::check_results(&solver)) {
+        return refused(e, sval.filter(|x| x.is_finite()));
+    }
+    let mut c = collapse_3d(input, solver);
+    super::finite::guard(&mut c);
+    c
+}
+
+fn collapse_3d(input: &PlasticInput3D, solver: Option<&PlasticResult3D>) -> PlasticCertificate3D {
     let sval = solver.map(|r| r.collapse_factor);
     let model = match build_model_3d(input) {
         Ok(m) => m,
@@ -2029,7 +2050,9 @@ pub fn certify_collapse_3d(input: &PlasticInput3D, solver: Option<&PlasticResult
 
 /// Run the incremental 3D plastic solver and certify its collapse load factor.
 pub fn certify_plastic_3d(input: &PlasticInput3D) -> Result<CertifiedPlastic3D, String> {
+    super::finite::check_input(input)?;
     let results = solve_plastic_3d(input)?;
+    super::finite::check_results(&results)?;
     let certificate = certify_collapse_3d(input, Some(&results));
     Ok(CertifiedPlastic3D { results, certificate })
 }

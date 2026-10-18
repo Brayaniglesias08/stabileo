@@ -72,6 +72,14 @@ pub fn check_results<T: Serialize + ?Sized>(results: &T) -> Result<(), String> {
     if bad.is_empty() { Ok(()) } else { Err(describe("results", &bad)) }
 }
 
+/// `Err` if an exported certificate (a bundle) carries a non-finite number
+/// outside the documented +∞ fields.
+pub fn finite_output<T: Serialize>(r: Result<T, String>) -> Result<T, String> {
+    let v = r?;
+    check_results(&v)?;
+    Ok(v)
+}
+
 /// A certificate that can say whether it claims success and be downgraded.
 pub trait Guarded: Serialize {
     /// Whether the certificate claims anything (certified, or certified in part).
