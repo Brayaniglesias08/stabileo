@@ -164,6 +164,23 @@ pub fn certify_linear_3d(input: &SolverInput3D) -> Result<(AnalysisResults3D, Ce
     Ok((results, cert))
 }
 
+/// Whether the linear solver took its sparse path (and so which assembly of K
+/// the certificate checks). Choosing the other one would still give a sound
+/// certificate, of the other f64 assembly of the same model; see the
+/// path-selection exclusions in .cargo/mutants.toml.
+fn solver_used_sparse(nf: usize) -> bool {
+    nf >= SPARSE_THRESHOLD
+}
+
+/// The constrained solver's path: sparse when large enough and its sparse
+/// Cholesky succeeded (reported in the results), dense otherwise. Same
+/// soundness note as `solver_used_sparse`.
+fn constrained_solver_used_sparse(nf: usize, results: &AnalysisResults) -> bool {
+    solver_used_sparse(nf) && results.structured_diagnostics.iter().any(|d| d.code == DiagnosticCode::SparseCholesky)
+}
+
+/// Resource cap of the dense paths (O(n²) memory, O(n³) time). Not a
+/// soundness condition: a certificate past it would be equally sound.
 fn size_check(dof_num: &DofNumbering) -> Result<(), Certificate> {
     let nf = dof_num.n_free;
     if nf > MAX_CERTIFY_N || dof_num.n_total > 4 * MAX_CERTIFY_N {
@@ -206,7 +223,7 @@ fn certify_general_2d(input: &SolverInput, results: &AnalysisResults) -> Certifi
     if !input.constraints.is_empty() {
         return certify_constrained_2d(input, results, &dof_num, &u_glob);
     }
-    if nf >= SPARSE_THRESHOLD {
+    if solver_used_sparse(nf) {
         // The solver's sparse path: certify the triplet-assembled K it factors.
         let stiff = assemble_stiffness_sparse_2d(input, &dof_num);
         let (rots, u) = match rotated_candidate_2d(input, &dof_num, &stiff.inclined_transforms_2d, &u_glob) {
@@ -249,9 +266,7 @@ fn certify_constrained_2d(
         Ok(ct) => ConstraintMap::from_transform(&ct, nf),
         Err(e) => return Certificate::uncertified(e),
     };
-    let sparse_path = nf >= SPARSE_THRESHOLD
-        && results.structured_diagnostics.iter().any(|d| d.code == DiagnosticCode::SparseCholesky);
-    if sparse_path {
+    if constrained_solver_used_sparse(nf, results) {
         let stiff = assemble_stiffness_sparse_2d(input, dof_num);
         let (rots, u) = match rotated_candidate_2d(input, dof_num, &stiff.inclined_transforms_2d, u_glob) {
             Ok(x) => x,
@@ -339,7 +354,7 @@ pub fn certify_load_cases_2d(input: &SolverInput, cases: &[(&[SolverLoad], &Anal
             .collect();
     }
     let dof_num = DofNumbering::build_2d(input);
-    let prepared = if dof_num.n_free >= SPARSE_THRESHOLD {
+    let prepared = if solver_used_sparse(dof_num.n_free) {
         // The solver's sparse path: certify the triplet-assembled K it factors.
         let stiff = assemble_stiffness_sparse_2d(input, &dof_num);
         if !stiff.inclined_transforms_2d.is_empty() {
@@ -433,7 +448,7 @@ fn certify_general_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Cer
         let cert = certify_constrained_system(&k, nf, &sasm.f, &u, &cm);
         return rotate_back(cert, &rots, &u, &u_glob);
     }
-    if nf >= SPARSE_THRESHOLD {
+    if solver_used_sparse(nf) {
         // The solver's sparse path: certify the triplet-assembled K it factors.
         let stiff = assemble_stiffness_sparse_3d(input, &dof_num, true);
         let Some(k_full) = stiff.k_full.as_ref() else {
@@ -522,7 +537,7 @@ pub fn certify_load_cases_3d(
     }
     let input = &expand_curved_beams_3d(input);
     let dof_num = DofNumbering::build_3d(input);
-    let sparse = dof_num.n_free >= SPARSE_THRESHOLD;
+    let sparse = solver_used_sparse(dof_num.n_free);
     let prepared = if sparse {
         // The solver's sparse path: certify the triplet-assembled K it factors.
         let stiff = assemble_stiffness_sparse_3d(input, &dof_num, true);
@@ -655,18 +670,23 @@ fn reduce_rhs_sparse(
     if !u.iter().all(|x| x.is_finite()) {
         return Err(Certificate::uncertified("non-finite displacement in solver output"));
     }
+    Ok((sparse_rhs(k_full, nf, f, u), u[..nf].to_vec()))
+}
+
+/// Enclosure of f_F − K_FR u_R from the full sparse K (lower-triangle CSC,
+/// free DOFs first): the free×restrained block is the rows i ≥ nf of the
+/// columns j < nf.
+fn sparse_rhs(k_full: &CscMatrix, nf: usize, f: &[f64], u: &[f64]) -> Vec<Interval> {
     let mut f_eff: Vec<Interval> = f[..nf].iter().map(|&x| Interval::point(x)).collect();
-    for j in 0..k_full.n {
+    for (j, fj) in f_eff.iter_mut().enumerate() {
         for p in k_full.col_ptr[j]..k_full.col_ptr[j + 1] {
             let i = k_full.row_idx[p];
-            let v = k_full.values[p];
-            // Stored (i, j) with i ≥ j: the free×restrained block has i ≥ nf > j.
-            if i >= nf && j < nf && u[i] != 0.0 && v != 0.0 {
-                f_eff[j] = f_eff[j] - Interval::point(v) * Interval::point(u[i]);
+            if i >= nf {
+                *fj = sub_prod(*fj, k_full.values[p], u[i]);
             }
         }
     }
-    Ok((f_eff, u[..nf].to_vec()))
+    f_eff
 }
 
 /// Reduced system from the full dense K (n×n, free DOFs first) and full u:
@@ -676,19 +696,33 @@ fn certify_reduced(k: &[f64], n: usize, nf: usize, f: &[f64], u: &[f64]) -> Cert
         return Certificate::uncertified("non-finite displacement in solver output");
     }
     let mut k_ff = vec![0.0; nf * nf];
-    let mut f_eff = Vec::with_capacity(nf);
     for i in 0..nf {
-        let row = &k[i * n..(i + 1) * n];
-        k_ff[i * nf..(i + 1) * nf].copy_from_slice(&row[..nf]);
-        let mut acc = Interval::point(f[i]);
-        for j in nf..n {
-            if u[j] != 0.0 && row[j] != 0.0 {
-                acc = acc - Interval::point(row[j]) * Interval::point(u[j]);
-            }
-        }
-        f_eff.push(acc);
+        k_ff[i * nf..(i + 1) * nf].copy_from_slice(&k[i * n..i * n + nf]);
     }
+    let f_eff = reduce_rhs_dense(k, n, nf, f, u);
     certify_linear_system_auto_interval_rhs(&k_ff, nf, &f_eff, &u[..nf])
+}
+
+/// `acc − v·x` in interval arithmetic, skipping exact zeros: an interval
+/// product with a zero factor is widened outward to ±5e−324, which only
+/// loosens the enclosure (that skip is why `v == 0 || x == 0` is equivalent
+/// to `&&`; see .cargo/mutants.toml).
+fn sub_prod(acc: Interval, v: f64, x: f64) -> Interval {
+    if v == 0.0 || x == 0.0 {
+        acc
+    } else {
+        acc - Interval::point(v) * Interval::point(x)
+    }
+}
+
+/// Enclosure of f_F − K_FR u_R from the full dense K (n×n, free DOFs first).
+fn reduce_rhs_dense(k: &[f64], n: usize, nf: usize, f: &[f64], u: &[f64]) -> Vec<Interval> {
+    (0..nf)
+        .map(|i| {
+            let row = &k[i * n..(i + 1) * n];
+            (nf..n).fold(Interval::point(f[i]), |acc, j| sub_prod(acc, row[j], u[j]))
+        })
+        .collect()
 }
 
 /// A stiffness whose coercivity has been certified once, ready to certify any
@@ -743,17 +777,7 @@ impl PreparedK {
                 if f.len() != n || u.len() != n {
                     return Certificate::uncertified("dimension mismatch in load or displacement vector");
                 }
-                let mut f_eff = Vec::with_capacity(nf);
-                for i in 0..nf {
-                    let row = &k[i * n..(i + 1) * n];
-                    let mut acc = Interval::point(f[i]);
-                    for j in nf..n {
-                        if u[j] != 0.0 && row[j] != 0.0 {
-                            acc = acc - Interval::point(row[j]) * Interval::point(u[j]);
-                        }
-                    }
-                    f_eff.push(acc);
-                }
+                let f_eff = reduce_rhs_dense(k, n, nf, f, u);
                 certify_with_certified_sigma(k_ff, nf, &f_eff, &u[..nf], *sigma)
             }
             PreparedK::Sparse { k_ff, k_full, nf, mu } => {
@@ -761,17 +785,7 @@ impl PreparedK {
                 if f.len() < nf || u.len() < k_full.n {
                     return Certificate::uncertified("dimension mismatch in load or displacement vector");
                 }
-                let mut f_eff: Vec<Interval> = f[..nf].iter().map(|&x| Interval::point(x)).collect();
-                for j in 0..k_full.n {
-                    for p in k_full.col_ptr[j]..k_full.col_ptr[j + 1] {
-                        let i = k_full.row_idx[p];
-                        let v = k_full.values[p];
-                        // Stored (i, j) with i ≥ j: the free×restrained block has i ≥ nf > j.
-                        if i >= nf && j < nf && u[i] != 0.0 && v != 0.0 {
-                            f_eff[j] = f_eff[j] - Interval::point(v) * Interval::point(u[i]);
-                        }
-                    }
-                }
+                let f_eff = sparse_rhs(k_full, nf, f, u);
                 certify_with_certified_mu(k_ff, &f_eff, &u[..nf], *mu)
             }
         }
@@ -781,19 +795,40 @@ impl PreparedK {
 /// Reduced system from the full sparse K (lower-triangle CSC, free DOFs first):
 /// K_FF ũ_F = f_F − K_FR u_R, the right-hand side enclosed in intervals.
 fn certify_reduced_sparse(k_ff: &CscMatrix, k_full: &CscMatrix, nf: usize, f: &[f64], u: &[f64]) -> Certificate {
-    if !u.iter().all(|x| x.is_finite()) {
-        return Certificate::uncertified("non-finite displacement in solver output");
+    match reduce_rhs_sparse(k_full, nf, f, u) {
+        Ok((f_eff, u_f)) => certify_sparse_spd_system(k_ff, &f_eff, &u_f),
+        Err(c) => c,
     }
-    let mut f_eff: Vec<Interval> = f[..nf].iter().map(|&x| Interval::point(x)).collect();
-    for j in 0..k_full.n {
-        for p in k_full.col_ptr[j]..k_full.col_ptr[j + 1] {
-            let i = k_full.row_idx[p];
-            let v = k_full.values[p];
-            // Stored (i, j) with i ≥ j: the free×restrained block has i ≥ nf > j.
-            if i >= nf && j < nf && u[i] != 0.0 && v != 0.0 {
-                f_eff[j] = f_eff[j] - Interval::point(v) * Interval::point(u[i]);
-            }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// K = [[2, -1], [-1, 2]] with DOF 1 restrained: nf = 1, n = 2.
+    fn k2() -> Vec<f64> {
+        vec![2.0, -1.0, -1.0, 2.0]
+    }
+
+    /// Mismatched dimensions never reach the residual loops (they would read
+    /// out of bounds or certify another system): PreparedK refuses them.
+    /// (Mutants of these internal guards survived: no assembly produces them.)
+    #[test]
+    fn prepared_k_rejects_mismatched_dimensions() {
+        assert!(PreparedK::dense(vec![1.0; 3], 2, 1).is_err(), "K not n×n");
+        assert!(PreparedK::dense(k2(), 2, 3).is_err(), "nf > n");
+        let p = PreparedK::dense(k2(), 2, 1).unwrap();
+        assert!(p.certify(&[2.0, 0.0], &[1.0, 0.0]).is_certified());
+        for (f, u) in [(&[2.0][..], &[1.0, 0.0][..]), (&[2.0, 0.0][..], &[1.0][..]), (&[2.0, 0.0, 0.0][..], &[1.0, 0.0, 0.0][..])] {
+            assert!(!p.certify(f, u).is_certified(), "dense: f {f:?}, u {u:?}");
+        }
+        // Sparse: lower triangles of K_FF = [2] and of the full K.
+        let k_ff = CscMatrix { n: 1, col_ptr: vec![0, 1], row_idx: vec![0], values: vec![2.0] };
+        let k_full = CscMatrix { n: 2, col_ptr: vec![0, 2, 3], row_idx: vec![0, 1, 1], values: vec![2.0, -1.0, 2.0] };
+        let p = PreparedK::sparse(k_ff, k_full, 1).unwrap();
+        assert!(p.certify(&[2.0, 0.0], &[1.0, 0.0]).is_certified());
+        for (f, u) in [(&[][..], &[1.0, 0.0][..]), (&[2.0, 0.0][..], &[1.0][..])] {
+            assert!(!p.certify(f, u).is_certified(), "sparse: f {f:?}, u {u:?}");
         }
     }
-    certify_sparse_spd_system(k_ff, &f_eff, &u[..nf])
 }

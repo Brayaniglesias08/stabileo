@@ -9,6 +9,17 @@ It should capture what changed, not what should be built next.
 
 ## Unreleased
 
+## 0.2.0 (2026-10-18)
+
+**Results change: re-run your projects.** Release notes for users, in English, Spanish and
+Portuguese: [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md) ·
+[es](docs/releases/v0.2.0.es.md) · [pt](docs/releases/v0.2.0.pt.md). They list every change
+that affects results (defaults, loads and combinations, CIRSOC 201/301, ACI, EC3, AISC, AISI,
+analyses), the new refusals, the sanity review and the corrected example models. This is the
+first tagged release: everything below was already deployed to stabileo.com as it was merged.
+The app now shows its version in the status bar and, once, a notice that results may have
+changed with a link to the notes.
+
 ### Changed
 
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
@@ -26,7 +37,6 @@ unchanged: the engine agrees with the previous checker to 1e-9 on 4 000 random m
   the E.5 end condition or the E.6 connectors. Angles in flexure (F.9, F.10) are refused by name.
 - Steel results screen: every check per member, ratio, governing check, status with the reason,
   proven-bound badge, the calculation with clause references, in en/es/pt.
-||||||| 333cbc54
 #### Solid shells meshed with frames or shells; spectral analysis checked (2026-10-17)
 
 **BREAKING (results): 3D models that mix solid shells (or trusses) with frames or shells now
@@ -276,7 +286,6 @@ test there.
   modal and harmonic certificates check the expanded model.
 - **The parallel sparse 3D load vector left quad and MITC9 self-weight in local axes.** Only
   builds with the `parallel` feature were affected (the sequential and dense paths transform it).
-||||||| 46ab0e7f
 #### Tension members: end connections in the model (2026-10-17)
 
 - **CIRSOC 301 tension rupture (Ae = An·U) can now be evaluated in the app.** Each member end
@@ -775,6 +784,15 @@ each with a regression test.
   `isInclined: true` with a missing or zero normal fell back to the support's restraint
   flags. It is now rejected; the web app always sends the normal. Found while triaging
   surviving mutants of the DOF numbering. `tests/solver_mutation_kills.rs`.
+- **An unknown 2D support type restrained nothing, silently.** A type the engine did not
+  know (a typo, or `"pin"`/`"roller"`) left the node free. Every 2D analysis now rejects it,
+  naming the accepted types (`"free"` stays as an explicit no-restraint type). Five engine
+  tests had used `"pin"`/`"roller"` and so ran unsupported models; they now use
+  `"pinned"`/`"rollerX"`, except the stayed-deck cable test, which keeps the cantilevered
+  deck it always ran (`"free"`): with a real end roller the 2D cable iteration does not
+  converge (a stay alternates between slack and taut) and says so. The 2D and 3D cable
+  solvers also skipped input validation entirely; they now validate like every other
+  analysis. `tests/solver_mutation_kills.rs`.
 - **Harmonic certificates reported NaN enclosures for a zero response.** When the target DOF
   was not excited (or the reported value equalled the candidate), the outward-rounded sum of
   squares had a lower end of −5e−324 and its interval square root was NaN, so a *certified*
