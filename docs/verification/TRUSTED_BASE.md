@@ -89,8 +89,8 @@ The script fails on:
   than the code the theorems are about.
 
 Audit result (October 2026): no `sorry`, `admit`, `native_decide`, `axiom`,
-`implemented_by` or `extern` in the sources. All 884 constants of the library, 404 of
-them theorems, depend only on the standard three axioms. The scan was checked against a
+`implemented_by` or `extern` in the sources. All 956 constants of the library and
+`CertCheck`, 407 of them theorems, depend only on the standard three axioms. The scan was checked against a
 probe module holding a `native_decide` proof and an `axiom`; it rejected both. CI runs
 `scripts/test-axiom-gate.sh`. It plants an `axiom`, an `@[implemented_by]` and an
 `@[extern]` in `BundleParse.lean`, and requires both the scan alone and the full gate to
