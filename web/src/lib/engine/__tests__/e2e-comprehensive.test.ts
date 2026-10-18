@@ -1659,8 +1659,10 @@ describe('10. Material property validation', () => {
       [zeroJSection],
     );
 
-    // WASM solver throws instead of returning error string
-    expect(() => solve3D(input)).toThrow(/singular|mechanism/i);
+    // Refused by name before assembly: the solver's vanishing stiffness on
+    // rotations no element is meant to stiffen must never hold the twist of a
+    // member whose own J is missing.
+    expect(() => solve3D(input)).toThrow(/torsion constant J must be > 0/);
   });
 
   it('3D: Zero Iy → error', () => {

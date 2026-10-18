@@ -106,30 +106,41 @@ function expectEquilibrium(input: SolverInput3D) {
   return d;
 }
 
-describe('where the analysis solver refuses and the wizard does not', () => {
+describe('rotations nothing resists: the analysis solver and the wizard agree', () => {
   /*
    * A node reached only by truss bars, in a model that also has frames, has
-   * three rotations nothing resists. The analysis solver, fed these inputs
-   * raw, reports the whole structure as a mechanism; it is not one. (The app
-   * no longer feeds it raw: `buildSolverInput3D` adds the vanishing springs —
-   * see orphan-rotations-3d.test.ts.) The wizard gives those rotations
-   * the vanishing spring the analysis solver gives a fully hinged node, and
-   * the answer is checked here by equilibrium, the one referee both accept.
+   * three rotations nothing resists; so does, about the axes they release, a
+   * node where every member releases both bending moments. The structure is
+   * not a mechanism. The analysis solver used to refuse these inputs raw
+   * ("singular — mechanism") while the wizard solved them; the app never fed
+   * them raw (`buildSolverInput3D` adds vanishing springs — see
+   * orphan-rotations-3d.test.ts). Since PR #307 the analysis solver gives
+   * such a rotation the same vanishing stiffness itself (it did so for
+   * warping already; the plane solver always has), so both now solve, and the
+   * answer is checked by equilibrium, the one referee both accept, and
+   * against each other. A nodal moment about a rotation nothing resists would
+   * never reach the structure: the analysis solver refuses it, by node.
    */
   it('a pinned node reached only by truss bars', () => {
-    const input = model([...PORTAL, [6, 0, 2, 0]], [...PORTAL_EL(), el(5, 6, 2, 'truss'), el(6, 6, 4, 'truss')],
-      [sup(1, '111111'), sup(5, '111111'), sup(6, '111000')], [P(3, 5, 5, -10)]);
-    expect(() => solve3D(input)).toThrow();
+    const nodes: Array<[number, number, number, number]> = [...PORTAL, [6, 0, 2, 0]];
+    const els = () => [...PORTAL_EL(), el(5, 6, 2, 'truss'), el(6, 6, 4, 'truss')];
+    const sups = () => [sup(1, '111111'), sup(5, '111111'), sup(6, '111000')];
+    const input = model(nodes, els(), sups(), [P(3, 5, 5, -10)]);
     const d = expectEquilibrium(input);
     expect(d.nullModes).toEqual([]);
+    compare('a pinned node reached only by truss bars', input);
+    expect(() => solve3D(model(nodes, els(), sups(), [P(3, 5, 5, -10), P(6, 0, 0, 0, 1)]))).toThrow(/moment at node 6/i);
   });
 
   it('a node where every member releases both bending moments', () => {
-    const input = model(PORTAL, [el(1, 1, 2, 'frame', { releaseMyEnd: true, releaseMzEnd: true }), el(2, 2, 3, 'frame', { releaseMyStart: true, releaseMzStart: true }), el(3, 3, 4), el(4, 4, 5)],
-      [sup(1, '111111'), sup(5, '111111')], [P(2, 3, 2, -5)]);
-    expect(() => solve3D(input)).toThrow();
+    const els = () => [el(1, 1, 2, 'frame', { releaseMyEnd: true, releaseMzEnd: true }), el(2, 2, 3, 'frame', { releaseMyStart: true, releaseMzStart: true }), el(3, 3, 4), el(4, 4, 5)];
+    const sups = () => [sup(1, '111111'), sup(5, '111111')];
+    const input = model(PORTAL, els(), sups(), [P(2, 3, 2, -5)]);
     const d = expectEquilibrium(input);
     expect(d.nullModes).toEqual([]);
+    compare('a node where every member releases both bending moments', input);
+    /* Node 2: the column's torsion holds θz and the beam's θx; nothing holds θy. */
+    expect(() => solve3D(model(PORTAL, els(), sups(), [P(2, 3, 2, -5, 0, 1)]))).toThrow(/moment at node 2/i);
   });
 });
 
