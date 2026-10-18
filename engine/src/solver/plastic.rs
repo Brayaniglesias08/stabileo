@@ -340,6 +340,24 @@ fn split_member(input: &mut SolverInput, m: &mut Member, t: f64, next_node: &mut
                     loads.push(dist(eid, qs, dl.q_j, 0.0, b - s, l_new));
                 }
             }
+            // An axial span load is cut at the hinge as a transverse one is.
+            SolverLoad::AxialDistributed(al) if al.element_id == old.id => {
+                let a = al.a.unwrap_or(0.0);
+                let b = al.b.unwrap_or(l_old);
+                let q_at = |x: f64| if b - a > 0.0 { al.q_i + (al.q_j - al.q_i) * (x - a) / (b - a) } else { al.q_i };
+                let ax = |element_id: usize, q_i: f64, q_j: f64, a: f64, b: f64, len: f64| {
+                    SolverLoad::AxialDistributed(SolverAxialDistributedLoad { element_id, q_i, q_j, a: (a > tol).then_some(a), b: (b < len - tol).then_some(b) })
+                };
+                if b <= s + tol {
+                    loads.push(ax(old.id, al.q_i, al.q_j, a, b.min(s), s));
+                } else if a >= s - tol {
+                    loads.push(ax(eid, al.q_i, al.q_j, (a - s).max(0.0), b - s, l_new));
+                } else {
+                    let qs = q_at(s);
+                    loads.push(ax(old.id, al.q_i, qs, a, s, s));
+                    loads.push(ax(eid, qs, al.q_j, 0.0, b - s, l_new));
+                }
+            }
             SolverLoad::PointOnElement(pl) if pl.element_id == old.id => {
                 if pl.a < s - tol {
                     loads.push(SolverLoad::PointOnElement(pl));
