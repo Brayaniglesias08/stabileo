@@ -142,7 +142,9 @@ fn finish(
         Err(reason) if reason.starts_with("a load acts on") => return EndToEnd::Failed { reason },
         Err(reason) => return EndToEnd::Uncertified { reason: format!("no bound against the re-assembled model: {reason}") },
     };
-    if !(bound.mismatch_norm <= KINEMATIC_TOL * bound.u_norm) && bound.mismatch_norm > 1e-300 {
+    // (The absolute floor only lets an all-zero solution through: widened
+    // zero inputs leave a mismatch of order 1e-160 there.)
+    if !(bound.mismatch_norm <= KINEMATIC_TOL * bound.u_norm + 1e-150) {
         return EndToEnd::Failed {
             reason: format!(
                 "the returned displacements violate the model's supports or constraints (‖C q̃ + p − ũ‖ = {:.3e}, ‖ũ‖ = {:.3e})",

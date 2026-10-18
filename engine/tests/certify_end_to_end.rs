@@ -274,3 +274,48 @@ fn stable_one() {
         println!("{:?}\n{:?}", out.certificate, out.end_to_end);
     }
 }
+
+/// Every model file in `E2E_DIR` (e.g. dumped from the differential
+/// generators, `tools/differential`): `E2E_DIR=… cargo test --release --test
+/// certify_end_to_end e2e_dir -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn e2e_dir() {
+    let dir = std::env::var("E2E_DIR").unwrap();
+    let mut paths: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok().map(|e| e.path())).collect();
+    paths.sort();
+    let mut by_gen: std::collections::BTreeMap<String, Tally> = Default::default();
+    let mut solver_errors: std::collections::BTreeMap<String, usize> = Default::default();
+    for p in &paths {
+        let name = p.file_name().unwrap().to_str().unwrap().to_string();
+        let gen = name.rsplit_once('-').map(|x| x.0.to_string()).unwrap_or_default();
+        let json = std::fs::read_to_string(p).unwrap();
+        let t = by_gen.entry(gen.clone()).or_default();
+        if let Ok(input) = serde_json::from_str::<SolverInput>(&json) {
+            match certify_linear_2d_full(&input) {
+                Ok(out) => t.add(&name, &out.end_to_end, out.certificate.is_certified()),
+                Err(_) => *solver_errors.entry(gen).or_default() += 1,
+            }
+        } else if let Ok(input) = serde_json::from_str::<SolverInput3D>(&json) {
+            match certify_linear_3d_full(&input) {
+                Ok(out) => t.add(&name, &out.end_to_end, out.certificate.is_certified()),
+                Err(_) => *solver_errors.entry(gen).or_default() += 1,
+            }
+        } else {
+            eprintln!("{name}: not a solver input");
+        }
+    }
+    let mut failed = 0;
+    for (g, t) in &by_gen {
+        println!(
+            "{g}: certified {}, outOfScope {}, uncertified(assembled ok) {}, noSolution {}, FAILED {}, solver errors {}",
+            t.certified, t.out_of_scope, t.uncertified.len(), t.no_solution.len(), t.failed.len(),
+            solver_errors.get(g).copied().unwrap_or(0)
+        );
+        for f in t.failed.iter().chain(&t.uncertified).chain(&t.no_solution) {
+            println!("    {f}");
+        }
+        failed += t.failed.len();
+    }
+    assert_eq!(failed, 0);
+}
