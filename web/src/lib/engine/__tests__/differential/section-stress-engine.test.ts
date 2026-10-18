@@ -24,8 +24,10 @@ import type { Section } from '../../../store/model.svelte';
 import type { ElementForces3D } from '../../types-3d';
 import type { ElementForces } from '../../types';
 
+// Relative 1e-9 of the section's stress scale, and never tighter than 1 Pa: the engine zeroes a
+// torsion or shear stress of a few nPa that the oracle carries as rounding noise.
 const close = (a: number, b: number, scale: number) =>
-  expect(Math.abs(a - b), `${a} vs ${b}`).toBeLessThanOrEqual(1e-9 * Math.max(1, Math.abs(scale)));
+  expect(Math.abs(a - b), `${a} vs ${b}`).toBeLessThanOrEqual(Math.max(1e-9 * Math.max(1, Math.abs(scale)), 1e-6));
 
 /** Doubly symmetric sections, each with every dimension the resolver reads, so nothing is guessed. */
 const section = fc.oneof(
