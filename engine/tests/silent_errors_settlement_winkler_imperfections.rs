@@ -147,31 +147,43 @@ fn rotation_in_a_truss_only_model_is_refused() {
     refused(solve_2d(&input), "no rotation DOFs");
 }
 
-/// An inclined roller restrains its normal only: a settlement along the rolling direction was
-/// dropped. One along the normal is applied.
+/// An inclined roller restrains its normal only. Its settlement is the ground's movement in
+/// global axes, of which the normal part acts and the rest is the roller sliding (documented,
+/// not a drop). A rotation on it is free, and refused.
 #[test]
-fn inclined_roller_settlement_tangential_refused_normal_applied() {
+fn inclined_roller_settlement_normal_applied_rotation_refused() {
     let theta: f64 = 30f64.to_radians();
     let (s, c) = (theta.sin(), theta.cos());
     let along = |dn: f64, dt: f64| json!({"id": 2, "nodeId": 2, "type": "inclinedRoller", "angle": theta,
         // normal (sin θ, cos θ), tangent (−cos θ, sin θ)
         "dx": dn * s - dt * c, "dz": dn * c + dt * s});
-    refused(solve_2d(&cantilever_2d(along(0.0, 0.01), json!([]))), "rolling");
-    let r = solve_2d(&cantilever_2d(along(-0.004, 0.0), json!([]))).unwrap();
+    let r = solve_2d(&cantilever_2d(along(-0.004, 0.003), json!([]))).unwrap();
     let d = r.displacements.iter().find(|d| d.node_id == 2).unwrap();
-    close("normal displacement = prescribed", d.ux * s + d.uz * c, -0.004, 1e-9);
+    close("normal displacement = normal part of the settlement", d.ux * s + d.uz * c, -0.004, 1e-9);
+    refused(
+        solve_2d(&cantilever_2d(json!({"id": 2, "nodeId": 2, "type": "inclinedRoller", "angle": theta, "dry": 0.001}), json!([]))),
+        "leaves the rotation free",
+    );
 }
 
 #[test]
-fn inclined_3d_settlement_tangential_refused() {
-    let mut s = sup3(2, [false; 6]);
-    let o = s.as_object_mut().unwrap();
-    o.insert("isInclined".into(), json!(true));
-    o.insert("normalX".into(), json!(0.0));
-    o.insert("normalY".into(), json!(0.0));
-    o.insert("normalZ".into(), json!(1.0));
-    o.insert("dx".into(), json!(0.01));
-    refused(solve_3d(&cantilever_3d(s)), "inclined support does not restrain");
+fn inclined_3d_settlement_normal_applied_free_rotation_refused() {
+    let inclined = |extra: &[(&str, Value)]| {
+        let mut s = sup3(2, [false; 6]);
+        let o = s.as_object_mut().unwrap();
+        o.insert("isInclined".into(), json!(true));
+        o.insert("normalX".into(), json!(0.0));
+        o.insert("normalY".into(), json!(0.6));
+        o.insert("normalZ".into(), json!(0.8));
+        for (k, v) in extra {
+            o.insert((*k).into(), v.clone());
+        }
+        s
+    };
+    let r = solve_3d(&cantilever_3d(inclined(&[("dz", json!(-0.01)), ("dx", json!(0.002))]))).unwrap();
+    let d = r.displacements.iter().find(|d| d.node_id == 2).unwrap();
+    close("normal displacement = n·d", 0.6 * d.uy + 0.8 * d.uz, 0.8 * -0.01, 1e-9);
+    refused(solve_3d(&cantilever_3d(inclined(&[("drx", json!(0.001))]))), "rotation is not restrained");
 }
 
 /// The Winkler solves now share the linear solve's prescribed displacements: at an inclined

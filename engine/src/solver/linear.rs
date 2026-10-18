@@ -4021,8 +4021,9 @@ fn imposed(v: Option<f64>) -> Option<f64> {
 /// A settlement the solve would not impose. Only restrained DOFs carry a prescribed
 /// displacement (`u_r`); a value on a DOF the support leaves free was dropped without a
 /// message: a 2D `pinned` with `dry`, a `spring` support with any settlement, a 3D DOF
-/// that is not flagged or whose flag a spring overrides, the tangential part of a
-/// settlement at an inclined support. docs/solver/assembly-constraints.md, AC-10.
+/// that is not flagged or whose flag a spring overrides. docs/solver/assembly-constraints.md,
+/// AC-10. At an inclined support a settlement is the ground's movement in global axes and
+/// only its normal part acts, as documented; that projection is not a refusal.
 fn unimposed_settlement(what: &str, name: &str, v: f64, why: &str) -> String {
     format!(
         "{what}: the prescribed {name} = {v} would not be applied, because {why}. \
@@ -4047,17 +4048,9 @@ fn reject_unimposed_settlements_2d(input: &SolverInput) -> Result<(), String> {
             continue;
         }
         if sup.support_type == "inclinedRoller" {
-            // Restrained: the normal (sin θ, cos θ) — rollerX's uz without an angle — and no rotation.
-            let (dx, dz) = (sup.dx.unwrap_or(0.0), sup.dz.unwrap_or(0.0));
-            let (s, c) = sup.angle.map_or((0.0, 1.0), |t| (t.sin(), t.cos()));
-            let tangential = -c * dx + s * dz;
-            if tangential.abs() > 1e-12 + 1e-9 * dx.abs().max(dz.abs()) {
-                return Err(format!(
-                    "{what}: the prescribed (dx, dz) = ({dx}, {dz}) has a part {tangential} along the rolling \
-                     direction, which an inclined roller does not restrain and the solve would drop. \
-                     Prescribe only the movement normal to the rolling surface."
-                ));
-            }
+            // (dx, dz) is the ground's movement in global axes; the roller transmits its normal
+            // part only (`prescribed_displacements_2d` projects it), the rest is the roller
+            // sliding. The rotation is free.
             if let Some(v) = imposed(sup.dry) {
                 return Err(unimposed_settlement(&what, "dry", v, "an inclined roller leaves the rotation free"));
             }
@@ -4095,20 +4088,9 @@ fn reject_unimposed_settlements_3d(input: &SolverInput3D) -> Result<(), String> 
             if let (Some(nx), Some(ny), Some(nz)) = (sup.normal_x, sup.normal_y, sup.normal_z) {
                 let len = (nx * nx + ny * ny + nz * nz).sqrt();
                 if len > 1e-12 {
-                    let n = [nx / len, ny / len, nz / len];
-                    let u = [sup.dx.unwrap_or(0.0), sup.dy.unwrap_or(0.0), sup.dz.unwrap_or(0.0)];
-                    let un = u[0] * n[0] + u[1] * n[1] + u[2] * n[2];
-                    let t = [u[0] - un * n[0], u[1] - un * n[1], u[2] - un * n[2]];
-                    let t_len = (t[0] * t[0] + t[1] * t[1] + t[2] * t[2]).sqrt();
-                    let scale = u.iter().fold(0.0f64, |m, v| m.max(v.abs()));
-                    if t_len > 1e-12 + 1e-9 * scale {
-                        return Err(format!(
-                            "{what}: the prescribed (dx, dy, dz) = ({}, {}, {}) has a part of length {t_len} \
-                             along the support's plane, which an inclined support does not restrain and the solve \
-                             would drop. Prescribe only the movement along the normal, or restrain those directions.",
-                            u[0], u[1], u[2]
-                        ));
-                    }
+                    // (dx, dy, dz) is the ground's movement in global axes; the support transmits
+                    // its normal part (`prescribed_displacements_3d` projects it), the rest is the
+                    // support sliding in its plane. Rotations follow the flags.
                     for i in 3..6 {
                         let Some(v) = imposed(d[i]) else { continue };
                         if !flags[i] || i >= dpn {
