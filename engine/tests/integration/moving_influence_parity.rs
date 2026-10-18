@@ -7,7 +7,8 @@
 /// point, over load sets built with TEST-LOCAL transcriptions of the
 /// pre-refactor algorithm (the `legacy_*` functions — no production helper is
 /// shared, so a future transcription drift in production fails these tests).
-/// All f64 comparisons are exact (`==`).
+/// All f64 comparisons are exact (`==`). Elements are walked in key order, as
+/// production walks them (`dedaliano_engine::ordered`).
 
 use dedaliano_engine::postprocess::influence::*;
 use dedaliano_engine::solver::linear::{solve_2d, solve_3d};
@@ -170,7 +171,7 @@ fn legacy_build_path_2d(solver_input: &SolverInput, path_element_ids: Option<&[u
     let elem_ids: Vec<usize> = match path_element_ids {
         Some(ids) => ids.to_vec(),
         None => {
-            let mut elem_list: Vec<&SolverElement> = solver_input.elements.values().collect();
+            let mut elem_list: Vec<&SolverElement> = dedaliano_engine::ordered::values(&solver_input.elements).collect();
             elem_list.sort_by(|a, b| {
                 let na = node_by_id[&a.node_i];
                 let nb = node_by_id[&b.node_i];
@@ -262,7 +263,7 @@ fn legacy_build_path_3d(solver_input: &SolverInput3D, path_element_ids: Option<&
     let elem_ids: Vec<usize> = match path_element_ids {
         Some(ids) => ids.to_vec(),
         None => {
-            let mut elem_list: Vec<&SolverElement3D> = solver_input.elements.values().collect();
+            let mut elem_list: Vec<&SolverElement3D> = dedaliano_engine::ordered::values(&solver_input.elements).collect();
             elem_list.sort_by(|a, b| {
                 let na = node_by_id[&a.node_i];
                 let nb = node_by_id[&b.node_i];
@@ -693,7 +694,7 @@ fn parity_influence_line_2d() {
             .map(|n| (n.id, (n.x, n.z)))
             .collect();
         let mut legacy_points = Vec::new();
-        for elem in input.solver.elements.values() {
+        for elem in dedaliano_engine::ordered::values(&input.solver.elements) {
             let (nix, niy) = *node_pos.get(&elem.node_i).unwrap();
             let (njx, njy) = *node_pos.get(&elem.node_j).unwrap();
             let dx = njx - nix;
@@ -752,7 +753,7 @@ fn parity_influence_line_3d() {
             .collect();
         let gravity_dir = [0.0_f64, 0.0, -1.0];
         let mut legacy_points = Vec::new();
-        for elem in input.solver.elements.values() {
+        for elem in dedaliano_engine::ordered::values(&input.solver.elements) {
             if elem.elem_type != "frame" && elem.elem_type != "beam" { continue; }
             let (nix, niy, niz) = *node_pos.get(&elem.node_i).unwrap();
             let (njx, njy, njz) = *node_pos.get(&elem.node_j).unwrap();
