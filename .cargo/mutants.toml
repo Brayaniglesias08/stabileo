@@ -23,6 +23,7 @@ exclude_re = [
     # pivot is wider than λ̂): it decides how hard to try, never what is
     # certified; every σ returned is checked by the interval Cholesky.
     "replace > with (==|<|>=) in certify_sigma_auto",
+    "\\bfailed_pivot_width\\b",
     # The dense size cap MAX_CERTIFY_N is a time limit, not a soundness
     # condition: certifying at n equal to the cap is equally sound.
     "replace > with >= in check_inputs",

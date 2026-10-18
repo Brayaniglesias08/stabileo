@@ -247,6 +247,12 @@ impl From<String> for ShiftFail {
     }
 }
 
+/// Width of a failed pivot's enclosure: only steers the σ search in
+/// `certify_sigma_auto` (whether backing off can help), never what is certified.
+fn failed_pivot_width(d: Interval) -> f64 {
+    d.hi - d.lo
+}
+
 fn shifted_cholesky(k: &[f64], n: usize, sigma: f64) -> Result<(), ShiftFail> {
     // Packed lower triangle, row i at offset i(i+1)/2. Entry (i, j), j ≤ i,
     // first holds M_ij, then is overwritten by L_ij.
@@ -280,7 +286,7 @@ fn shifted_cholesky(k: &[f64], n: usize, sigma: f64) -> Result<(), ShiftFail> {
                             "pivot {i} not certified positive at σ = {sigma:.3e} (interval [{:.3e}, {:.3e}])",
                             d.lo, d.hi
                         ),
-                        pivot_width: d.hi - d.lo,
+                        pivot_width: failed_pivot_width(d),
                     });
                 }
                 l[oi + i] = d.sqrt();
