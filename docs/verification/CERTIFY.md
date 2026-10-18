@@ -1212,6 +1212,11 @@ The only exception is +∞ in a field that documents it (`DOCUMENTED_INFINITE`:
 valid input for each certificate kind to NaN and +∞, and random ones to NaN, ±∞, ±1e308,
 1e-300 or a subnormal, and requires an `Err` or a fully finite `Ok`.
 
+The exact plastic certificates also refuse input numbers whose magnitude is outside
+[1e-30, 1e30] (zero excepted): their rational arithmetic costs grow with the bit length
+of the data, and a value of 1e300 ran for minutes. That is a resource cap, not a
+soundness condition.
+
 ## Rounding model
 
 f64 ops round to nearest, so the exact result is within 0.5 ulp of the computed one.
