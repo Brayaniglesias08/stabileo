@@ -68,7 +68,8 @@ pub fn solve_modal_2d(
     // nodal mass may be directional (a floor's horizontal mass only).
     let [mass_x, mass_z] = total_mass_by_direction_2d(input, densities);
     let total_mass = mass_x.max(mass_z);
-    if total_mass < 1e-20 {
+    let rotary = input.masses.nodal.iter().any(|m| m.rotary_inertia > 0.0);
+    if total_mass < 1e-20 && !rotary {
         return Err("No mass assigned — set material densities or nodal masses".into());
     }
 
@@ -340,7 +341,8 @@ pub fn solve_modal_3d(
     // Mass ratios per direction: see the 2D solver.
     let [mass_x, mass_y, mass_z] = total_mass_by_direction_3d(input, densities);
     let total_mass = mass_x.max(mass_y).max(mass_z);
-    if total_mass < 1e-20 {
+    let rotary = input.masses.nodal.iter().any(|m| m.ixx > 0.0 || m.iyy > 0.0 || m.izz > 0.0);
+    if total_mass < 1e-20 && !rotary {
         return Err("No mass assigned — set material densities or nodal masses".into());
     }
 
