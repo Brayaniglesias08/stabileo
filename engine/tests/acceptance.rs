@@ -167,40 +167,58 @@ fn check(id: &str) {
     assert_eq!(failures, 0, "{id}: {failures} reference value(s) out of tolerance\n{table}");
 }
 
-/// Every model file must be wired to a test below, so a case can't be added
-/// and silently never run.
-#[test]
-fn acceptance_every_model_has_a_test() {
-    let mut on_disk: Vec<String> = std::fs::read_dir(models_dir())
+/// Case names on disk (`tests/acceptance/models/*.json`), sorted.
+fn models_on_disk() -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(models_dir())
         .unwrap()
         .filter_map(|e| {
             let p = e.unwrap().path();
             (p.extension()? == "json").then(|| p.file_stem().unwrap().to_string_lossy().into_owned())
         })
         .collect();
-    on_disk.sort();
-    let mut wired: Vec<String> = CASES.iter().map(|s| s.to_string()).collect();
-    wired.sort();
-    assert_eq!(on_disk, wired, "tests/acceptance/models/*.json and CASES must list the same cases");
+    v.sort();
+    v
 }
 
-const CASES: &[&str] = &[
-    "sac_la_3story",
-    "sac_la_9story",
-    "sac_la_20story",
-    "asce_shm_120dof_undamaged",
-    "asce_shm_120dof_damage_i",
-    "asce_shm_120dof_damage_ii",
-    "bathe_wilson_10bay_9storey",
-    "asce_shm_12dof_undamaged",
-    "asce_shm_12dof_damage_i",
-    "asce_shm_12dof_damage_ii",
-    "asce_shm_12dof_storey_stiffness_undamaged",
-    "asce_shm_12dof_storey_stiffness_damage_i",
-];
+/// The inventory mismatch between model files and wired tests: (model
+/// files with no test, tests with no model file).
+fn inventory_mismatch(on_disk: &[String], wired: &[&str]) -> (Vec<String>, Vec<String>) {
+    let unwired = on_disk.iter().filter(|m| !wired.contains(&m.as_str())).cloned().collect();
+    let orphan = wired.iter().filter(|w| !on_disk.iter().any(|m| m == *w)).map(|w| w.to_string()).collect();
+    (unwired, orphan)
+}
 
+/// Every model file must have a test, so no case can be added and then
+/// never run. `CASES` and the test functions come from the same `cases!`
+/// invocation, so a name in the inventory always has a test that solves it.
+#[test]
+fn acceptance_every_model_has_a_test() {
+    let (unwired, orphan) = inventory_mismatch(&models_on_disk(), CASES);
+    assert!(unwired.is_empty(), "model files with no test (add them to cases!): {unwired:?}");
+    assert!(orphan.is_empty(), "cases! names with no model file: {orphan:?}");
+}
+
+/// Self-check of the guard: an unwired model file and an orphan name are
+/// both reported.
+#[test]
+fn acceptance_inventory_guard_catches_unwired_model() {
+    let on_disk = vec!["a".to_string(), "b".to_string()];
+    assert_eq!(inventory_mismatch(&on_disk, &["a", "b"]), (vec![], vec![]));
+    assert_eq!(inventory_mismatch(&on_disk, &["a"]), (vec!["b".to_string()], vec![]));
+    assert_eq!(inventory_mismatch(&on_disk, &["a", "b", "c"]), (vec![], vec!["c".to_string()]));
+    // and the real inventory is exactly the macro's list, one test per name
+    let mut names: Vec<&str> = CASES.to_vec();
+    names.sort();
+    names.dedup();
+    assert_eq!(names.len(), CASES.len(), "duplicate case name in cases!");
+}
+
+/// One list generates both the inventory `CASES` and one `#[test]` per case.
 macro_rules! cases {
-    ($($name:ident),* $(,)?) => { $( #[test] fn $name() { check(stringify!($name)); } )* };
+    ($($name:ident),* $(,)?) => {
+        const CASES: &[&str] = &[$(stringify!($name)),*];
+        $( #[test] fn $name() { check(stringify!($name)); } )*
+    };
 }
 
 cases!(

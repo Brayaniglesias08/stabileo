@@ -19,7 +19,7 @@ Table 2's "120DOF lumped mass" columns: they are NOT computed here.
     python3 asce_shm_phase1.py            # (re)write ../models/asce_shm_*.json
     python3 asce_shm_phase1.py --replay   # replay cal_model.m with numpy
 
-Mass emulation (stabileo has no lumped nodal-mass input; masses come from
+Mass emulation (stabileo has no lumped nodal-mass input yet, issue #341; masses come from
 element density only):
   * member masses: cal_model lumps mbar*L/2 on each end node in the three
     translations; these go on mass-only truss stubs (1 m, A = 1 m^2,

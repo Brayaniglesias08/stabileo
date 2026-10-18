@@ -30,8 +30,10 @@ and compared against those results. Every release must pass it.
    stabileo bug (fix the engine and add a regression test) or a modelling
    difference. A modelling difference must be justified from the source and
    recorded in the case's `modelling` notes and below.
-4. Every model file must be listed in `CASES` in `acceptance.rs`. A test
-   enforces this, so no case can be added and then never run.
+4. Every model file must be listed in the `cases!` invocation in
+   `acceptance.rs`. That one list generates both the inventory and one test
+   per case. A guard test fails on any model file missing from it, and a
+   self-check proves the guard catches an unwired model.
 
 ## Cases
 
@@ -79,10 +81,10 @@ masses on **mass-only stubs**:
   about 1e-9 of J.
 
 The emulation is exact, as the 1e-5 agreement with the replays shows. But it
-is a workaround that real users cannot reasonably be asked to use. **A
-first-class nodal mass / rotary inertia input for modal, spectral, time-history
-and harmonic analysis is recommended**, and the stubs should be replaced once
-it exists.
+is a workaround that real users cannot reasonably be asked to use. A
+first-class nodal mass / rotary inertia input is tracked in
+[issue #341](https://github.com/lambdaclass/stabileo/issues/341). Once it
+lands, the stubs should be replaced by it.
 
 ### SAC benchmark (Ohtori et al. 2004)
 
@@ -129,7 +131,8 @@ it exists.
 - No disagreement between stabileo and a published reference so far: the
   three SAC frames and the three SHM configurations all agree to the
   precision printed in the sources.
-- **Engine gap:** no lumped nodal mass or rotary inertia input (see above).
+- **Engine gap:** no lumped nodal mass or rotary inertia input (see above;
+  [issue #341](https://github.com/lambdaclass/stabileo/issues/341)).
 - **Semantic difference:** the 3D rigid diaphragm leaves slave rz free, while
   CSI and OpenSees constrain it. It is harmless for the SHM frame. In models
   where beams frame between diaphragm nodes it changes in-plane beam bending

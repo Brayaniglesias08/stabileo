@@ -20,8 +20,8 @@ Bld_NLBM.m. The reference frequencies are the ones printed in the paper
     python3 sac_ohtori.py --replay   # also replay Bld_NLBM.m's eigen-analysis
                                      # with numpy (needs numpy) and print it
 
-stabileo has no lumped nodal-mass input (masses come from element density
-only), so each nodal mass is carried by a mass-only truss stub: a 1 m truss
+stabileo has no lumped nodal-mass input yet (issue #341; masses come from
+element density only), so each nodal mass is carried by a mass-only truss stub: a 1 m truss
 of area 1 m^2 from the node to a fixed auxiliary node, density 3*m kg/m^3.
 Its consistent truss mass puts exactly 2/6*rho*A*L = m on the free node in
 both translations (the fixed end's share is restrained), and its axial
