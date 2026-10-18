@@ -26,7 +26,7 @@ export interface ElementErrorIndicator {
 export interface DiscretizationEstimate {
   certified: false;
   method: string;
-  relativeError: number | null;
+  relativeError?: number | null;
   errorNorm: number;
   solutionNorm: number;
   threshold: number;
@@ -41,9 +41,10 @@ export interface QuantityConvergence {
   nodeId?: number;
   values: number[];
   relativeChange: number;
-  observedOrder: number | null;
-  extrapolated: number | null;
-  estimatedError: number | null;
+  /** Absent (undefined over the WASM boundary) when there is none. */
+  observedOrder?: number | null;
+  extrapolated?: number | null;
+  estimatedError?: number | null;
   status: 'converging' | 'converged' | 'assumedOrder' | 'irregularOrder' | 'oscillating' | 'notConverging' | 'zero';
 }
 
@@ -52,7 +53,7 @@ export interface ConvergenceStudy {
   geometry: 'smooth' | 'faceted';
   levels: Array<{ nodes: number; shellElements: number; energyEstimate: number | null }>;
   quantities: QuantityConvergence[];
-  maxEstimatedError: number | null;
+  maxEstimatedError?: number | null;
   threshold: number;
   exceedsThreshold: boolean;
   caveats: string[];
@@ -88,6 +89,12 @@ function createDiscretizationStore() {
   /** Paint shells by their element error indicator. */
   let showMap = $state(false);
   let input: CertifiableInput | null = null;
+  /**
+   * The results object the estimate belongs to, as published (after normalisation). Any other
+   * result on screen — a load case, a combination, a P-Δ or spectral result that replaced the
+   * base solve — is not what was estimated.
+   */
+  let estimated = $state.raw<object | null>(null);
   let generation = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -113,6 +120,10 @@ function createDiscretizationStore() {
       if (timer !== null) { clearTimeout(timer); timer = null; }
       study = { status: 'idle' };
       input = null;
+      estimated = null;
+      const pub = generation;
+      // `setResults3D` publishes the normalised results right after this hook returns.
+      queueMicrotask(() => { if (pub === generation) estimated = resultsStore.results3D; });
       if (dim !== SPACE) { estimate = { status: 'idle' }; return; }
       const found = results ? certifiableInputOf(results) : null;
       if (!found || found.dim !== SPACE || !hasCertify(ESTIMATE_EXPORT)) { estimate = { status: 'idle' }; showMap = false; return; }
@@ -126,17 +137,18 @@ function createDiscretizationStore() {
 
     /** Whether the estimate applies to what is on screen (the base solve, not a case or combination). */
     applies(): boolean {
-      return resultsStore.results3D !== null && resultsStore.activeView !== 'envelope'
+      const shown = resultsStore.results3D;
+      return shown !== null && shown === estimated && resultsStore.activeView !== 'envelope'
         && resultsStore.activeView !== 'combo' && resultsStore.activeCaseId === null;
     },
 
     canRunStudy(): boolean {
-      return input !== null && hasCertify(STUDY_EXPORT) && study.status !== 'running';
+      return input !== null && this.applies() && hasCertify(STUDY_EXPORT) && study.status !== 'running';
     },
 
     /** Run the convergence check on the base solve (re-solves on refined meshes). */
     async runStudy(geometry: 'smooth' | 'faceted' = 'smooth'): Promise<void> {
-      if (!input) return;
+      if (!input || !this.applies()) return;
       const gen = generation;
       study = { status: 'running' };
       let next: Study;

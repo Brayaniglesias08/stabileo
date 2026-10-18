@@ -66,7 +66,7 @@
         <span>{t('discretization.pending')}</span>
       {:else if est.status === 'failed'}
         <span>{t('discretization.failed').replace('{reason}', est.reason)}</span>
-      {:else if discretization && discretization.relativeError !== null}
+      {:else if discretization && discretization.relativeError != null}
         <span data-testid="discretization-estimate">{t('discretization.estimated').replace('{pct}', pct(discretization.relativeError))}</span>
       {/if}
     </div>
@@ -120,9 +120,9 @@
                 <td>{quantityLabel(q)}</td>
                 {#each q.values as v}<td>{num(v)}</td>{/each}
                 <td>{num(q.extrapolated)}</td>
-                <td>{q.observedOrder === null ? '—' : q.observedOrder.toFixed(2)}</td>
+                <td>{q.observedOrder == null ? '—' : q.observedOrder.toFixed(2)}</td>
                 <td title={t(`discretization.status.${q.status}`)}>
-                  {q.estimatedError !== null ? `~${pct(q.estimatedError)} %` : t(`discretization.status.${q.status}`)}
+                  {q.estimatedError != null ? `~${pct(q.estimatedError)} %` : t(`discretization.status.${q.status}`)}
                 </td>
               </tr>
             {/each}

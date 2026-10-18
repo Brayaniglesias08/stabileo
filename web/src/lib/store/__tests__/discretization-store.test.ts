@@ -21,6 +21,7 @@ vi.mock('../../engine/certify-jobs', () => ({ runCertify: (...a: unknown[]) => r
 vi.mock('../../engine/solver-service', () => ({ certifiableInputOf: () => ({ dim: '3d', wire: () => wire }) }));
 
 const { discretizationStore } = await import('../discretization.svelte');
+const { resultsStore } = await import('../results.svelte');
 
 async function settle() {
   await vi.advanceTimersByTimeAsync(1000);
@@ -51,5 +52,19 @@ describe('discretization store', () => {
     await settle();
     expect(discretizationStore.estimate.status).toBe('idle');
     expect(runCertify).not.toHaveBeenCalled();
+  });
+
+  it('applies only while the estimated base result is the one on screen', async () => {
+    wire = { quads: { 3: {} } };
+    const base = { displacements: [], reactions: [], elementForces: [] } as never;
+    discretizationStore.track(base, '3d');
+    resultsStore.setResults3D(base);
+    await settle();
+    expect(discretizationStore.applies()).toBe(true);
+    expect(discretizationStore.canRunStudy()).toBe(true);
+    // A P-Δ result replaces the results on screen: the linear estimate no longer describes them.
+    resultsStore.setPDeltaResult3D({ results: { displacements: [], reactions: [], elementForces: [] }, iterations: 1, converged: true } as never);
+    expect(discretizationStore.applies()).toBe(false);
+    expect(discretizationStore.canRunStudy()).toBe(false);
   });
 });
