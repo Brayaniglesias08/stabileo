@@ -271,7 +271,7 @@ the corotational solver ignores them (`shell_nonlinear_regressions.rs`).
 | Element | Thin limit | Thick limit | Distortion / geometry | Notes |
 |---|---|---|---|---|
 | DKT+CST | exact Kirchhoff, no locking | no shear deformation | flat only; CST membrane very stiff in in-plane bending | no $Q$ |
-| MITC4 | no shear locking (ANS) | Mindlin, $\kappa_s=5/6$ | warp corrected by rigid links (keep warping < 0.1, gated) | EAS membrane |
+| MITC4 | no shear locking (ANS) | Mindlin, $\kappa_s=5/6$ | warp corrected by rigid links (warping > 0.01 and > 0.1 diagnosed in assembly) | EAS membrane |
 | MITC9 | no shear locking | Mindlin | planar geometry only (SH-7) | no assumed membrane strain |
 | Curved shell | no shear locking | Mindlin | true 3D geometry; no EAS → membrane locking on coarse curved meshes | moments not recovered (SH-6) |
 | Solid shell | no shear/curvature-thickness locking | 3D | Poisson thickness locking for $\nu>0$ (SH-9) | translations only |
