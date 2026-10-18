@@ -106,6 +106,34 @@ What remains after the October 2026 safety wave (certified solver, differential 
 
 Beyond software: an independent licensed structural engineer reviews worked examples, clause readings and sample reports; real anonymised projects from engineering firms join the acceptance suite.
 
+### Engineering coverage backlog
+
+Places where Stabileo still computes something unverified, refuses something engineers need, or has two implementations of the same rule.
+
+1. **One proven implementation: TypeScript calls the engine.** Every engineering result comes from the Rust engine (certified where possible); TypeScript only formats, searches and draws, and keeps its old duplicates only as test oracles (`docs/verification/TS_ENGINE_LOGIC.md`). Remaining areas:
+   - concrete: every CIRSOC 201 section shape (flanged, circular, capacity, interaction diagrams, `cirsoc-flex`), slabs (`losas.ts`), bar layouts and the legacy designer, which should size against the engine;
+   - steel inputs still computed in TypeScript and fed to the Rust checker: Cb (`moment-gradient.ts`), J/Cw/Z (`section-constants.ts`), unbraced lengths, torsional and flange buckling, material family, the effective net area from end connections;
+   - analysis duplicates: diagrams, station forces and design forces, combinations, spectral combination, moving loads, plastic collapse, direct analysis, prestress, rigid diaphragms, kinematic checks, shell load integration and stresses, torsion flow, warping, mass sources;
+   - footings (eccentricity, service vs factored loads, flexure) and load generation (wind, snow, seismic, combinations) in Rust;
+   - no silent fallbacks: when the engine is unavailable the app says so instead of computing in TypeScript;
+   - the teaching solvers (`steps/*`, `solver-detailed*`) are checked against the engine on every model they support.
+2. **Missing design checks:** RC biaxial bending, torsion and slenderness magnification (today not re-checked, and each result says so); CIRSOC 301 F.7–F.11 (boxes, tubes, tees, angles in flexure — refused today); angles in flexure; EC3 Class 1/2 plastic interaction (6.2.9.1); cantilever load-height Cb; beam flexure with axial force.
+3. **Certificates still missing:** large-displacement (co-rotational) and material-nonlinear results; masonry, connections, foundations and serviceability checks.
+4. **Published worked examples** for masonry, foundations, serviceability, timber and cold-formed steel, and published (not only hand-worked) examples for CIRSOC 301, AISC E7 and EC3 Class 4.
+5. **Mechanism detection everywhere:** the exact free-motion check in 2D and with constraints, connectors and inclined supports, and for local mechanisms, with zero false positives on the model corpus.
+6. **Known solver gaps:** material-nonlinear continues after an unconverged increment instead of returning the last converged state; co-rotational refuses prescribed displacements and thermal loads; 3D truss-only nodes inside frames are refused; harmonic refuses a response point on a constrained DOF; spectral analysis reports no shell stresses.
+7. **A public-benchmark acceptance suite** (CSI and Dlubal verification examples using their independent references, the SAC buildings, FEMA P-695 archetypes) as a release gate.
+
+### Release safety
+
+Pushes to main deploy straight to users (GitHub Pages), so a merge is a release.
+
+1. **Staging before production:** deploy main to a staging URL first; promote to production on a tagged release after the full suite, the acceptance suite and a smoke check pass.
+2. **Versioned releases with notes:** every release has a version, release notes in English and Spanish, and a prominent "results may change" section listing result-affecting changes and who is affected.
+3. **Users of saved projects are told what changed for their model** (see the re-check prompt above), and stale results are marked until re-run.
+4. **Dependency upgrades** go through the same gates; major upgrades of numerics-related crates (e.g. exact arithmetic) must leave results bit-identical.
+5. **Steel results stay labelled experimental** ("Proven bound", no pass styling) until an independent engineer has reviewed the CIRSOC 301 checks.
+
 ## Daily, Weekly, Monthly Priority Lens
 
 This is the clearest way to prioritize the product roadmap:
