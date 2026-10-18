@@ -387,7 +387,7 @@ export function checkOneWayShear(f: FootingInput, qFactored: number): OneWayShea
 
 // ─── Punching ─────────────────────────────────────────────────
 
-function punchingFrom(f: FootingInput, p: EnginePunching, position: ColumnPosition): PunchingCheck {
+function punchingFrom(p: EnginePunching, position: ColumnPosition): PunchingCheck {
   const notes: string[] = [];
   if (position === 'edge') notes.push('Columna de borde: el perímetro crítico se trunca en el borde libre (tres lados).');
   if (position === 'corner') notes.push('Columna de esquina: el perímetro crítico se trunca en dos bordes libres (dos lados).');
@@ -526,7 +526,7 @@ export function checkFooting(f: FootingInput): FootingCheck {
 
   const position = f.position ?? 'interior';
   const uCol = e.factoredB.columnOffset, vCol = e.factoredL.columnOffset;
-  const punching = e.punching ? punchingFrom(f, e.punching, position) : null;
+  const punching = e.punching ? punchingFrom(e.punching, position) : null;
   if (punching && e.punching) {
     memo.push(...punching.memo);
     const ub = e.punching.unbalancedB, ul = e.punching.unbalancedL;

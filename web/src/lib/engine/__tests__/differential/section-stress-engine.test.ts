@@ -70,7 +70,7 @@ function ef3D(f: number[], L: number): ElementForces3D {
     hingeStart: false, hingeEnd: false,
     qYI: qy!, qYJ: qy!, distributedLoadsY: [{ qI: qy!, qJ: qy!, a: 0, b: L }], pointLoadsY: [],
     qZI: qz!, qZJ: qz!, distributedLoadsZ: [{ qI: qz!, qJ: qz!, a: 0, b: L }], pointLoadsZ: [],
-  } as ElementForces3D;
+  } as unknown as ElementForces3D;
 }
 
 describe('section stresses: engine against the TypeScript oracle', () => {

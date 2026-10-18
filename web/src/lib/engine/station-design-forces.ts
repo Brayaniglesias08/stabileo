@@ -19,7 +19,6 @@ import { evaluateBeamSection } from './codes/argentina/cirsoc201-beam-kernel';
  */
 
 import { seatedLongitudinalHalfExtents } from '../codes/cirsoc201/transverse-cage';
-import type { AnalysisResults3D } from './types-3d';
 import type { ProvidedReinforcement, RebarGroup, RebarLayer, StirrupDef, BeamRegions, BeamContinuity, LongBarGroup, ColumnReinforcement } from '../store/model.svelte';
 import type { Node, Element, Section, Support } from '../store/model.svelte';
 import {

@@ -59,7 +59,7 @@ describe('INPRES-CIRSOC 103: engine against the verified oracle', () => {
 
   it('the seismic weight, period, coefficient, distribution and applicability on random inputs', () => {
     fc.assert(fc.property(
-      fc.constantFrom(1, 2, 3, 4), fc.constantFrom(...SITES.slice(0, 5)), fc.constantFrom(...GROUPS), fc.constantFrom(...SYSTEMS),
+      fc.constantFrom<1 | 2 | 3 | 4>(1, 2, 3, 4), fc.constantFrom(...SITES.slice(0, 5)), fc.constantFrom(...GROUPS), fc.constantFrom(...SYSTEMS),
       fc.double({ min: 0, max: 120, noNaN: true }), fc.option(fc.double({ min: 0, max: 6, noNaN: true }), { nil: undefined }),
       fc.double({ min: 1, max: 8, noNaN: true }),
       fc.array(fc.record({ h: fc.double({ min: -1, max: 90, noNaN: true }), w: fc.double({ min: -10, max: 5000, noNaN: true }) }), { maxLength: 12 }),

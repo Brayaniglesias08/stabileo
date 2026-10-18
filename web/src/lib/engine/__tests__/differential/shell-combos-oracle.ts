@@ -48,8 +48,6 @@ function combineMembrane(
 const toMembraneMap = (list: Array<{ elementId: number } & Membrane> | undefined): Map<number, Membrane> =>
   new Map((list ?? []).map(s => [s.elementId, { sigmaXx: s.sigmaXx, sigmaYy: s.sigmaYy, tauXy: s.tauXy, mx: s.mx, my: s.my, mxy: s.mxy, qx: s.qx, qy: s.qy }]));
 
-/** The plates' thicknesses, which their face stresses need. */
-export type PlateThickness = ReadonlyMap<number, { thickness: number }>;
 
 /** Recombine plate + quad stresses for one combo from per-case results. */
 export function combineShellStressesOracle(
