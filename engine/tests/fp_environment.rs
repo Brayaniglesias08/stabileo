@@ -121,7 +121,10 @@ fn round_to_nearest_error_is_within_the_one_ulp_widening() {
         s ^= s << 17;
         (s >> 11) as f64 / (1u64 << 53) as f64
     };
-    let scale_up = |v: f64| v * 2f64.powi(1000) * 2f64.powi(80); // exact: × 2^1080
+    // Powers of two built from their bits (`powi` with a large negative exponent is not
+    // exact: 2^-1040 computed as 1/2^1040 overflows to 0).
+    let pow2 = |k: i32| f64::from_bits(((k + 1023) as u64) << 52); // normal range only
+    let scale_up = |v: f64| v * pow2(1000) * pow2(80); // exact: × 2^1080
     let mut subnormal_cases = 0;
     for _ in 0..50_000 {
         let a = black_box(1.0 + next() * 1e6);
@@ -129,8 +132,9 @@ fn round_to_nearest_error_is_within_the_one_ulp_widening() {
         let p = a * b;
         let e = a.mul_add(b, -p);
         assert!(p.next_down() - p <= e && e <= p.next_up() - p, "{a} * {b}");
-        // (a·2^-1040)(b·2^-40) = a·b·2^-1080 < 2^-1022: rounded in the subnormal range.
-        let q = black_box(a * 2f64.powi(-1040)) * black_box(b * 2f64.powi(-40));
+        // (a·2^-1000)(b·2^-80) = a·b·2^-1080 < 2^-1022: rounded in the subnormal range.
+        // Both scaled operands are normal, so exact.
+        let q = black_box(a * pow2(-1000)) * black_box(b * pow2(-80));
         assert!(q < f64::MIN_POSITIVE);
         if p >= 1024.0 {
             let (lo, hi) = (scale_up(q.next_down()), scale_up(q.next_up()));
