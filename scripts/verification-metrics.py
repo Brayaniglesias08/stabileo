@@ -788,7 +788,8 @@ def write_maturity(rows, generated, commit):
         "[#375](https://github.com/lambdaclass/stabileo/issues/375)); a benchmark covers the cases it",
         "covers. The **Open issues** column lists open issues known to affect the item (bold: labelled",
         "`safety`); an item with an open safety issue should not be presented as verified for the",
-        "affected cases. The Benchmarked column for analyses and elements reads the self-assessed",
+        "affected cases. The element derivations of #330 (`docs/solver/`) become evidence here when",
+        "that PR merges. The Benchmarked column for analyses and elements reads the self-assessed",
         "ratings of the BENCHMARKS.md capability matrix; the acceptance suite (#337), whose every",
         "reference value cites its published source, is meant to replace it as the evidence.",
         "",
@@ -1104,6 +1105,9 @@ def main():
                                                                               note=why, section=sec)
 
     if a.offline:
+        for k, v in prev.get("metrics", {}).items():
+            if k not in M:
+                M[k] = keep_prev(k, v["label"], v.get("section", ""), "offline run")
         for k in ("differential", "rust_mutants", "ts_mutants"):
             if details.get(k) is None and prev.get("details", {}).get(k) is not None:
                 details[k] = prev["details"][k]

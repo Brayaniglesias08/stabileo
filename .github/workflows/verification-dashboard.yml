@@ -83,6 +83,9 @@ jobs:
         with:
           name: llvm-cov-summary
           path: cov
+      - name: Fetch the release tag (to record its commit)
+        if: github.ref_type == 'tag'
+        run: git fetch --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
       - name: Compute metrics
         run: |
           args=()
