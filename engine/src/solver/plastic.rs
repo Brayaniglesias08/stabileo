@@ -219,6 +219,8 @@ impl Member {
             q_j,
             point_loads: pls,
             distributed_loads: dls,
+            distributed_loads_x: self.template.as_ref().map(|t| t.distributed_loads_x.iter()
+                .map(|d| DistributedLoadInfo { q_i: d.q_i * scale, q_j: d.q_j * scale, a: d.a, b: d.b }).collect()).unwrap_or_default(),
             hinge_start: first.hinge_start,
             hinge_end: last.hinge_end,
         }

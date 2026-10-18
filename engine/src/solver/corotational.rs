@@ -348,6 +348,7 @@ fn scaled_loads_2d(input: &SolverInput, factor: f64) -> SolverInput {
         match l {
             SolverLoad::Nodal(n) => { n.fx *= factor; n.fz *= factor; n.my *= factor; }
             SolverLoad::Distributed(d) => { d.q_i *= factor; d.q_j *= factor; }
+            SolverLoad::AxialDistributed(d) => { d.q_i *= factor; d.q_j *= factor; }
             SolverLoad::PointOnElement(p) => {
                 p.p *= factor;
                 p.px = p.px.map(|v| v * factor);

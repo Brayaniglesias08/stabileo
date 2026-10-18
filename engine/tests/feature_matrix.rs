@@ -290,7 +290,7 @@ impl M2 {
                     nl.fx = r[0];
                     nl.fz = r[1];
                 }
-                SolverLoad::Distributed(_) | SolverLoad::PointOnElement(_) | SolverLoad::Thermal(_) => {}
+                SolverLoad::Distributed(_) | SolverLoad::AxialDistributed(_) | SolverLoad::PointOnElement(_) | SolverLoad::Thermal(_) => {}
             }
         }
         m
@@ -1387,6 +1387,7 @@ fn load_scale_2d(m: &M2) -> f64 {
             SolverLoad::Distributed(d) => s2 += (d.q_i.abs().max(d.q_j.abs()) * elem_len_2d(m, d.element_id)).powi(2),
             SolverLoad::PointOnElement(p) => s2 += p.p * p.p + p.px.unwrap_or(0.0).powi(2),
             SolverLoad::Thermal(_) => s2 += 1.0,
+            SolverLoad::AxialDistributed(d) => s2 += (d.q_i.abs().max(d.q_j.abs()) * elem_len_2d(m, d.element_id)).powi(2),
         }
     }
     s2.sqrt().max(1.0)
