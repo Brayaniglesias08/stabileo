@@ -5,7 +5,8 @@ Exhaustive axiom audit of the `Certify` library, run by `scripts/check-axioms.sh
 For every constant declared in a `Certify.*` module (theorems, lemmas and the executable
 check functions alike) it collects the axioms the constant depends on and fails on any axiom
 outside Lean's standard three (`propext`, `Classical.choice`, `Quot.sound`). This catches
-`sorry` (`sorryAx`), `native_decide` (`Lean.ofReduceBool`, `Lean.trustCompiler`) and any
+`sorry` (`sorryAx`), `native_decide` (in Lean 4.34 an auxiliary `axiom …native_decide.ax_*`; earlier
+`Lean.ofReduceBool`) and any
 `axiom` declaration, whether or not the dependent theorem is in the script's named list.
 
 It also fails on any `axiom` declared in `Certify`, and on `@[implemented_by]` / `@[extern]`

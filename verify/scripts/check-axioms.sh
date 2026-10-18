@@ -5,7 +5,7 @@
 #   lakefile's Mathlib `rev` must be a tag or commit and match lake-manifest.json, and
 #   Mathlib's own toolchain must equal ours);
 # * `sorry`, `admit` or `native_decide` anywhere in the sources (native_decide trusts the
-#   compiler: it adds the axiom `Lean.ofReduceBool`, and there is no justified use here);
+#   compiler: it adds an axiom per use, and there is no justified use here);
 # * an axiom beyond Lean's standard three (propext, Classical.choice, Quot.sound) behind
 #   any top-level soundness theorem (`#print axioms`, printed for review), and behind any
 #   constant of the Certify library at all (scripts/AxiomScan.lean, which also rejects
