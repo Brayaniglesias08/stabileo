@@ -17,7 +17,8 @@ Usage (from anywhere in the repo; Python 3.9+, standard library only):
     scripts/verification-metrics.py                  # repo + GitHub + CI artifacts
     scripts/verification-metrics.py --offline        # repo only (GitHub values kept
                                                      # from the previous dashboard.json)
-    scripts/verification-metrics.py --record v0.3.0  # also add/replace a history row
+    scripts/verification-metrics.py --record v0.3.0  # from a checkout of the tag: write the
+                                                     # release snapshot releases/v0.3.0.json
     scripts/verification-metrics.py --max-runs 20    # how far back to look for CI runs
 
 CI: .github/workflows/verification-dashboard.yml (weekly, on release tags, on demand).
@@ -53,6 +54,7 @@ VDIR = os.path.join(ROOT, "docs", "verification")
 OUT_JSON = os.path.join(VDIR, "dashboard.json")
 OUT_MD = os.path.join(VDIR, "DASHBOARD.md")
 OUT_MATURITY = os.path.join(VDIR, "MATURITY.md")
+RELEASES_DIR = os.path.join(VDIR, "releases")  # one snapshot per release: <tag>.json
 NOT_MEASURED = "not yet measured"
 
 
@@ -153,10 +155,12 @@ class GH:
                 warn(f"issue #{n}: {ex}")
         return out
 
-    def runs(self, workflow: str, max_runs: int):
-        return self.json(["run", "list", "-R", REPO, "--workflow", workflow, "--branch", "main",
-                          "--limit", str(max_runs), "--json",
-                          "databaseId,conclusion,status,event,createdAt,headSha,url"])
+    def runs(self, workflow: str, max_runs: int, branch: str | None = "main"):
+        args = ["run", "list", "-R", REPO, "--workflow", workflow]
+        if branch:
+            args += ["--branch", branch]
+        return self.json(args + ["--limit", str(max_runs), "--json",
+                                 "databaseId,conclusion,status,event,createdAt,headSha,headBranch,url"])
 
     def artifacts(self, run_id: int):
         return self.json(["api", f"repos/{REPO}/actions/runs/{run_id}/artifacts", "--paginate",
@@ -178,17 +182,25 @@ class GH:
             return None
 
 
-def find_artifacts(gh: GH, workflow: str, pattern: str, max_runs: int, all_matches=False):
-    """Latest main runs of `workflow` carrying artifacts whose name matches `pattern`.
-    Returns [(run, artifact_name)], newest first; with all_matches, every match in every run."""
+def is_main_or_tag_run(run) -> bool:
+    """A run of main, or one triggered by pushing a release tag (`v*`)."""
+    return run.get("headBranch") == "main" or (run.get("event") == "push"
+                                                and re.fullmatch(r"v\d.*", run.get("headBranch") or "") is not None)
+
+
+def find_artifacts(gh: GH, workflow: str, pattern: str, max_runs: int, all_matches=False,
+                   run_filter=None, branch: str | None = "main"):
+    """Latest runs of `workflow` (on `branch`; None = any) that pass `run_filter` and carry
+    artifacts whose name matches `pattern`. Returns [(run, artifact_name)], newest first: the
+    matches of the newest such run, or with all_matches every match in every run."""
     found = []
     try:
-        runs = gh.runs(workflow, max_runs)
+        runs = gh.runs(workflow, max_runs, branch)
     except Exception as ex:
         warn(f"runs of {workflow}: {ex}")
         return found
     for r in runs:
-        if r.get("status") != "completed":
+        if r.get("status") != "completed" or (run_filter and not run_filter(r)):
             continue
         try:
             arts = gh.artifacts(r["databaseId"])
@@ -410,9 +422,8 @@ def rust_mutants(gh: GH, max_runs: int):
 def ts_mutants(gh: GH, max_runs: int):
     if not gh.ok:
         return None
-    for r, name in find_artifacts(gh, "mutation-ts.yml", r"stryker-report", max_runs):
-        if r.get("conclusion") != "success":
-            continue
+    for r, name in find_artifacts(gh, "mutation-ts.yml", r"stryker-report", max_runs, all_matches=True,
+                                  run_filter=lambda r: r.get("conclusion") == "success"):
         d = gh.download(r["databaseId"], name)
         p = d and next(iter(glob.glob(os.path.join(d, "**", "mutation.json"), recursive=True)), None)
         if not p:
@@ -452,7 +463,9 @@ def coverage(gh: GH, max_runs: int, local: str | None):
             data = json.load(f)
         src = local
     elif gh.ok:
-        hit = find_artifacts(gh, "verification-dashboard.yml", r"llvm-cov-summary", max_runs)
+        # Coverage is measured by release-tag runs (and manual runs on main), so tag runs count.
+        hit = find_artifacts(gh, "verification-dashboard.yml", r"llvm-cov-summary", max_runs, branch=None,
+                             run_filter=is_main_or_tag_run)
         if hit:
             d = gh.download(hit[0][0]["databaseId"], hit[0][1])
             p = d and next(iter(glob.glob(os.path.join(d, "**", "*.json"), recursive=True)), None)
@@ -845,7 +858,8 @@ def write_dashboard(doc):
         note = "; ".join(x for x in (v["source"], v["note"]) if x)
         lines.append(f"| {v['label']} | **{v['display']}** | {v['section']} | {note} |")
     lines += ["", "## History", "",
-              "One row per release (`--record <tag>`; CI records each release tag).", ""]
+              "One row per release, from the snapshots in [`releases/`](releases/): each is measured on the "
+              "tagged revision (`--record <tag>` from a checkout of the tag; CI does it on every release tag).", ""]
     hist = doc.get("history", [])
     if hist:
         hdr = ["Release", "Measured", "Commit"] + [m[k]["label"] for k in HISTORY_KEYS if k in m]
@@ -917,10 +931,39 @@ def write_dashboard(doc):
 # --------------------------------------------------------------------------- main
 
 
+def write_release(directory: str, row: dict) -> str:
+    """Write one release snapshot. Snapshots are one file per release, so a run that starts from a
+    main without some pending snapshot never deletes it (the workflow also carries over the
+    snapshots of the pending automation PR)."""
+    os.makedirs(directory, exist_ok=True)
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", row["release"]):
+        raise ValueError(f"bad release name {row['release']!r}")
+    path = os.path.join(directory, f"{row['release']}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(row, f, indent=1, ensure_ascii=False)
+        f.write("\n")
+    return path
+
+
+def _version_key(name: str):
+    return [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", name)]
+
+
+def load_history(directory: str) -> list[dict]:
+    rows = []
+    for p in glob.glob(os.path.join(directory, "*.json")):
+        with open(p, encoding="utf-8") as f:
+            rows.append(json.load(f))
+    return sorted(rows, key=lambda r: _version_key(r["release"]))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--offline", action="store_true", help="repository only; keep GitHub values from dashboard.json")
-    ap.add_argument("--record", metavar="RELEASE", help="add or replace a history row for this release")
+    ap.add_argument("--record", metavar="RELEASE",
+                    help="write docs/verification/releases/RELEASE.json; HEAD must be the tag's commit")
+    ap.add_argument("--allow-untagged-record", dest="allow_untagged", action="store_true",
+                    help="allow --record when HEAD is not the tag's commit (the row records HEAD)")
     ap.add_argument("--max-runs", type=int, default=15, help="CI runs to look back per workflow")
     ap.add_argument("--coverage-json", help="local `cargo llvm-cov --json --summary-only` output")
     a = ap.parse_args()
@@ -1119,13 +1162,17 @@ def main():
     order += [k for k in M if k not in order]
     metrics = {k: M[k] for k in order if k in M}
 
-    history = prev.get("history", [])
     if a.record:
-        history = [h for h in history if h["release"] != a.record]
+        # A release snapshot describes the revision that was measured: run this from a checkout of
+        # the tag (the workflow does). Refuse to label main's numbers with another commit.
         tag = subprocess.run(["git", "rev-parse", "--short=10", f"{a.record}^{{commit}}"], cwd=ROOT,
                              capture_output=True, text=True).stdout.strip()
-        history.append({"release": a.record, "date": now[:10], "commit": tag or commit,
-                        "values": {k: metrics[k]["display"] for k in HISTORY_KEYS if k in metrics}})
+        if tag and tag != commit and not a.allow_untagged:
+            sys.exit(f"--record {a.record}: HEAD is {commit}, the tag is {tag}; check out the tag "
+                     "(or pass --allow-untagged-record)")
+        write_release(RELEASES_DIR, {"release": a.record, "date": now[:10], "commit": commit,
+                                     "values": {k: metrics[k]["display"] for k in HISTORY_KEYS if k in metrics}})
+    history = load_history(RELEASES_DIR)
 
     doc = {"schema": 1, "generated": now, "commit": commit, "metrics": metrics,
            "maturity": rows, "maturity_levels": lv, "history": history, "issue_state": issue_state,
@@ -1149,4 +1196,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

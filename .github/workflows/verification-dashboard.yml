@@ -10,6 +10,11 @@ on:
     - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC, after the nightly jobs
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - scripts/verification-metrics.py
+      - scripts/tests/**
+      - .github/workflows/verification-dashboard.yml
   workflow_dispatch:
     inputs:
       coverage:
@@ -32,6 +37,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  script-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Unit tests of the metrics script (fake gh, no network)
+        run: python3 -m unittest discover -s scripts/tests -v
+
   coverage:
     if: startsWith(github.ref, 'refs/tags/') || inputs.coverage
     runs-on: ubuntu-latest
@@ -41,7 +57,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          components: llvm-tools-preview
+          # engine/.cargo/config.toml enables build-std, which needs the std sources.
+          components: llvm-tools-preview, rust-src
       # engine/.cargo/config.toml links with clang + mold.
       - name: Install mold linker
         run: |
@@ -64,16 +81,22 @@ jobs:
           if-no-files-found: error
 
   dashboard:
-    needs: coverage
-    if: always()
+    needs: [script-tests, coverage]
+    if: always() && github.event_name != 'pull_request' && needs.script-tests.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The release to snapshot: the pushed tag, or the manual `record` input.
+      RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || inputs.record }}
+      # Only runs of main and of release tags publish; a manual run on another branch
+      # uploads its output as an artifact instead (to test the workflow).
+      PUBLISH: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
     steps:
+      # The current dashboard describes main (or, for a test run, the dispatched branch).
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.ref_type == 'tag' && 'main' || github.ref }}
           fetch-depth: 1
       - uses: actions/setup-python@v6
         with:
@@ -83,26 +106,58 @@ jobs:
         with:
           name: llvm-cov-summary
           path: cov
-      - name: Fetch the release tag (to record its commit)
-        if: github.ref_type == 'tag'
-        run: git fetch --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
-      - name: Compute metrics
+      - name: Carry over release snapshots of the pending automation PR
+        run: |
+          if git fetch --depth=1 origin automation/verification-dashboard 2>/dev/null; then
+            git checkout FETCH_HEAD -- docs/verification/releases/ 2>/dev/null || true
+          fi
+      # A release snapshot is measured on the tagged revision, with this checkout's script.
+      - uses: actions/checkout@v7
+        if: env.RELEASE != ''
+        with:
+          ref: refs/tags/${{ env.RELEASE }}
+          path: tagtree
+          fetch-depth: 1
+      - name: Release snapshot (measured on the tag)
+        if: env.RELEASE != ''
+        run: |
+          cp scripts/verification-metrics.py tagtree/scripts/verification-metrics.py
+          args=()
+          # Coverage from this run was measured on the tag only when the run was triggered by it.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ -f cov/llvm-cov-summary.json ]; then
+            args+=(--coverage-json "$PWD/cov/llvm-cov-summary.json")
+          fi
+          python3 -I tagtree/scripts/verification-metrics.py --max-runs 20 --record "$RELEASE" "${args[@]}"
+          mkdir -p docs/verification/releases
+          cp "tagtree/docs/verification/releases/${RELEASE}.json" docs/verification/releases/
+          rm -rf tagtree
+      - name: Current dashboard
         run: |
           args=()
-          if [ -f cov/llvm-cov-summary.json ]; then args+=(--coverage-json cov/llvm-cov-summary.json); fi
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then args+=(--record "${GITHUB_REF_NAME}"); fi
-          if [ -n "${{ inputs.record }}" ]; then args+=(--record "${{ inputs.record }}"); fi
+          if [ "${GITHUB_REF_TYPE}" != "tag" ] && [ -f cov/llvm-cov-summary.json ]; then
+            args+=(--coverage-json cov/llvm-cov-summary.json)
+          fi
           python3 -I scripts/verification-metrics.py --max-runs 20 "${args[@]}"
+      - name: Upload the generated files (test runs)
+        if: env.PUBLISH != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: verification-dashboard
+          path: docs/verification/
       - name: Open or update the pull request
+        if: env.PUBLISH == 'true'
         run: |
+          git add -N docs/verification/releases 2>/dev/null || true
           if git diff --quiet -- docs/verification; then echo "no change"; exit 0; fi
           branch=automation/verification-dashboard
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
-          git add docs/verification/DASHBOARD.md docs/verification/dashboard.json docs/verification/MATURITY.md
+          git add docs/verification/DASHBOARD.md docs/verification/dashboard.json docs/verification/MATURITY.md \
+            docs/verification/releases
           git commit -m "docs(verification): regenerate dashboard and maturity matrix (${GITHUB_REF_NAME})"
-          # The automation branch is owned by this workflow; it is rewritten on every run.
+          # The automation branch is owned by this workflow and rebuilt from main on every run;
+          # release snapshots of the previous pending PR were carried over above.
           git push --force origin "$branch"
           if ! gh pr view "$branch" --json number >/dev/null 2>&1; then
             gh pr create --base main --head "$branch" \

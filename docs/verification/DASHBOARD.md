@@ -6,7 +6,7 @@ data is in [`dashboard.json`](dashboard.json) for the app and the docs site. CI 
 weekly and on every release tag ([workflow](../../.github/workflows/verification-dashboard.yml)).
 **"not yet measured" means exactly that**: no value is estimated or typed in.
 
-Generated 2026-10-18 16:13 UTC at commit `e63f8649dd`.
+Generated 2026-10-18 16:50 UTC at commit `5edde3a40e`.
 
 These are the metrics behind the exit criteria of the backlog sections of
 [PRODUCT_ROADMAP.md](../roadmap/PRODUCT_ROADMAP.md). Per-item verification levels are in
@@ -16,8 +16,8 @@ These are the metrics behind the exit criteria of the backlog sections of
 
 | Metric | Value | Roadmap section | Source / note |
 |---|---|---|---|
-| Open `safety` issues | **50** | Release safety | GitHub label `safety`; 0 closed |
-| Safety advisories published (GitHub) | **0** | Release safety | GitHub label `safety-advisory` |
+| Open `safety` issues | **50** | Release safety | GitHub label `safety`; 0 closed (kept from 2026-10-18 16:50 UTC; GitHub not reachable) |
+| Safety advisories published (GitHub) | **0** | Release safety | GitHub label `safety-advisory`; (kept from 2026-10-18 16:50 UTC; offline run) |
 | Engineering logic in Rust (share of lines) | **64.6 %** | Engineering coverage | engine/src vs TS_ENGINE_LOGIC.md classes (b)+(c); TypeScript (b)+(c): 58924 lines in 161 modules; 13 TS modules not yet classified |
 | TypeScript (b)+(c) modules rated high safety | **88 modules, 35935 lines** | Engineering coverage | TS_ENGINE_LOGIC.md inventory (Safety column) |
 | TypeScript engineering arithmetic, classes (b)+(c) (lines) | **58924** | Engineering coverage | TS_ENGINE_LOGIC.md inventory, recounted |
@@ -25,30 +25,30 @@ These are the metrics behind the exit criteria of the backlog sections of
 | Design checks certified | **8 of 16 (50.0 %)** | Trust and verification | MATURITY.md (CERTIFY.md) |
 | Acceptance-suite cases | **not yet measured** | Engineering coverage | suite not on main yet (PR #337) |
 | Acceptance-suite reference values | **not yet measured** | Engineering coverage | suite not on main yet (PR #337) |
-| Mutation score, Rust (cargo-mutants) | **59.9 % (partial: 1251 of 23264 mutants tested)** | Solver and proof depth | verify.yml [2026-10-18](https://github.com/lambdaclass/stabileo/actions/runs/39099586668); caught/(caught+missed); 8 shards; jobs: cancelled |
+| Mutation score, Rust (cargo-mutants) | **59.9 % (partial: 1251 of 23264 mutants tested)** | Solver and proof depth | verify.yml [2026-10-18](https://github.com/lambdaclass/stabileo/actions/runs/39099586668); caught/(caught+missed); 8 shards; jobs: cancelled (kept from 2026-10-18 16:50 UTC; no mutants report found on main) |
 | Mutation score, TypeScript (Stryker) | **not yet measured** | Engineering coverage | no successful nightly Stryker run on main yet |
 | Engine line coverage (llvm-cov) | **not yet measured** | Solver and proof depth | no llvm-cov run yet (artifact llvm-cov-summary) |
 | Engine branch coverage (llvm-cov) | **not yet measured** | Solver and proof depth | no llvm-cov run with branch coverage yet |
-| Differential models compared (latest run per harness) | **6317 (6216 agree, 101 mismatch)** | Trust and verification | codeaster, frame3dd, kratos, opensees, pynite; see Details; no report on main yet: mystran, calculix |
+| Differential models compared (latest run per harness) | **6317 (6216 agree, 101 mismatch)** | Trust and verification | codeaster, frame3dd, kratos, opensees, pynite; see Details; no report on main yet: mystran, calculix (kept from 2026-10-18 16:50 UTC; no differential report found on main) |
 | Fuzz executions (latest nightly) | **not yet measured** | Trust and verification | the nightly fuzz job does not publish execution counts yet (artifact fuzz-stats-<target>) |
 | Feature-matrix cells (2D + 3D) | **R 85, ~ 20, · 267, ✓ 1012** | Engineering coverage | FEATURE_MATRIX.md |
 | Feature-matrix cells E / IGN / BAD / K | **0** | Engineering coverage | FEATURE_MATRIX.md |
 | Engine `#[test]` functions | **7899** | Solver and proof depth | git grep engine |
 | Kani harnesses | **54** | Solver and proof depth | git grep `kani::proof` |
 | Lean theorems and lemmas | **177** | Solver and proof depth | verify/*.lean |
-| Backlog issues closed (`roadmap:multiplier`) | **0 of 10** | Multipliers | GitHub label `roadmap:multiplier` |
-| Backlog issues closed (`roadmap:verification`) | **0 of 13** | Trust and verification | GitHub label `roadmap:verification` |
-| Backlog issues closed (`roadmap:coverage`) | **0 of 15** | Engineering coverage | GitHub label `roadmap:coverage` |
-| Backlog issues closed (`roadmap:solver-proofs`) | **0 of 10** | Solver and proof depth | GitHub label `roadmap:solver-proofs` |
-| Backlog issues closed (`roadmap:release-safety`) | **0 of 6** | Release safety | GitHub label `roadmap:release-safety` |
+| Backlog issues closed (`roadmap:multiplier`) | **0 of 10** | Multipliers | GitHub label `roadmap:multiplier`; (kept from 2026-10-18 16:50 UTC; offline run) |
+| Backlog issues closed (`roadmap:verification`) | **0 of 13** | Trust and verification | GitHub label `roadmap:verification`; (kept from 2026-10-18 16:50 UTC; offline run) |
+| Backlog issues closed (`roadmap:coverage`) | **0 of 15** | Engineering coverage | GitHub label `roadmap:coverage`; (kept from 2026-10-18 16:50 UTC; offline run) |
+| Backlog issues closed (`roadmap:solver-proofs`) | **0 of 10** | Solver and proof depth | GitHub label `roadmap:solver-proofs`; (kept from 2026-10-18 16:50 UTC; offline run) |
+| Backlog issues closed (`roadmap:release-safety`) | **0 of 6** | Release safety | GitHub label `roadmap:release-safety`; (kept from 2026-10-18 16:50 UTC; offline run) |
 
 ## History
 
-One row per release (`--record <tag>`; CI records each release tag).
+One row per release, from the snapshots in [`releases/`](releases/): each is measured on the tagged revision (`--record <tag>` from a checkout of the tag; CI does it on every release tag).
 
 | Release | Measured | Commit | Open `safety` issues | Engineering logic in Rust (share of lines) | TypeScript (b)+(c) modules rated high safety | Analyses certified | Design checks certified | Acceptance-suite reference values | Mutation score, Rust (cargo-mutants) | Mutation score, TypeScript (Stryker) | Engine line coverage (llvm-cov) | Differential models compared (latest run per harness) | Fuzz executions (latest nightly) | Feature-matrix cells E / IGN / BAD / K |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| v0.2.0 | 2026-10-18 | `5b1482c78c` | 50 | 64.6 % | 88 modules, 35935 lines | 11 of 27 (40.7 %) | 8 of 16 (50.0 %) | not yet measured | 59.9 % (partial: 1251 of 23264 mutants tested) | not yet measured | not yet measured | 6317 (6216 agree, 101 mismatch) | not yet measured | 0 |
+| v0.2.0 | 2026-10-18 | `5b1482c78c` | 51 | 64.6 % | 88 modules, 35935 lines | 11 of 27 (40.7 %) | 8 of 16 (50.0 %) | not yet measured | 59.9 % (partial: 1251 of 23264 mutants tested) | not yet measured | not yet measured | 6317 (6216 agree, 101 mismatch) | not yet measured | 0 |
 
 ## Details
 
