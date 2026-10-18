@@ -65,6 +65,11 @@ describe('discretization error', () => {
     const disp = s.quantities.find((q: { quantity: string }) => q.quantity === 'maxDisplacement');
     expect(disp.values).toHaveLength(3);
     expect(disp.extrapolated).toBeGreaterThan(disp.values[0]);
+    // A quantity that converged exactly has no observed order: absent, not null, over the WASM
+    // boundary (the panel must treat both as missing).
+    const reaction = s.quantities.find((q: { quantity: string }) => q.quantity === 'reaction');
+    expect(reaction.status).toBe('converged');
+    expect(reaction.observedOrder == null).toBe(true);
   });
 
   it('a model with constraints is refused, not refined wrongly', () => {
