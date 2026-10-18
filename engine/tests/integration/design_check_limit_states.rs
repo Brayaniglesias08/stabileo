@@ -163,6 +163,8 @@ fn masonry_shear_capacity_is_capped() {
             an: None,
             av: Some(2.0e-4),
             s_stirrup: Some(0.05),
+            laterally_tied: None,
+            gamma_g: None,
         }],
         forces: vec![MasonryDesignForces {
             element_id: 1,
@@ -199,6 +201,8 @@ fn masonry_shear_below_the_cap_is_unchanged() {
             an: None,
             av: None,
             s_stirrup: None,
+            laterally_tied: None,
+            gamma_g: None,
         }],
         forces: vec![MasonryDesignForces {
             element_id: 1,
@@ -319,7 +323,7 @@ fn foundation_one_way_shear_checks_both_directions() {
             col_width: 0.40,
             d: None,
             mu_sliding: None,
-            rho_w: None,
+            rho_w: None, neglect_size_effect: None,
         }],
         forces: vec![SpreadFootingForces {
             footing_id: 1, p: 1_000_000.0, mx: None, my: None, h: None,
