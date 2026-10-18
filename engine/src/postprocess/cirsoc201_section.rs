@@ -319,7 +319,7 @@ impl Section {
         let a = (b1 * c).min(depth).max(zero);
         // A block deeper than the section compresses all of it: no cut (and no vertex to decide).
         let whole = depth.le(b1 * c) == Tri::True;
-        let level = if whole { T::exact(f64::NEG_INFINITY) } else { max - a };
+        let level = if whole { T::exact(min_f - 1.0 - (max_f - min_f)) } else { max - a };
         let k = T::lit(0.85) * T::exact(code.fc);
         let nan = T::exact(f64::NAN);
         let bad = SectionStateR { pn: nan, mnx: nan, mny: nan, eps_t: nan, phi: nan, phi_pn: nan, phi_mnx: nan, phi_mny: nan };

@@ -1554,6 +1554,20 @@ pub fn cirsoc201_basis(input: &[f64]) -> Result<Vec<f64>, JsValue> {
     ])
 }
 
+/// Least flexural reinforcement the CIRSOC 201 beam check passes; layout in
+/// `postprocess::cirsoc201_design::design_batch`.
+#[wasm_bindgen]
+pub fn cirsoc201_design_beam(data: &[f64]) -> Result<Vec<f64>, JsValue> {
+    postprocess::cirsoc201_design::design_batch(data).map_err(JsValue::from_str)
+}
+
+/// Slab minimum steel and maximum spacings; layout in
+/// `postprocess::cirsoc201_design::slab_provisions`.
+#[wasm_bindgen]
+pub fn cirsoc201_slab_provisions(data: &[f64]) -> Result<Vec<f64>, JsValue> {
+    postprocess::cirsoc201_design::slab_provisions(data).map_err(JsValue::from_str)
+}
+
 /// φ (Tabla 21.2.2) for each net tensile strain in `strains`.
 #[wasm_bindgen]
 pub fn cirsoc201_phi(edition: f64, confinement: f64, fy: f64, es: f64, strains: &[f64]) -> Result<Vec<f64>, JsValue> {

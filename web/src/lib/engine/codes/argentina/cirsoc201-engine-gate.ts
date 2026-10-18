@@ -14,14 +14,17 @@
  * says so and the engine's numbers. An engine that is not loaded means the member was not
  * verified: also a failure, never the TypeScript verdict by default.
  *
- * Biaxial bending (Bresler), torsion and the slenderness magnifier are not re-checked here: the
- * engine has no checker for them yet. `engineRecheck.notRechecked` names them on each result.
+ *   - biaxial bending with axial force: the engine's load contour (`computeBiaxialCapacity`,
+ *     `Section::biaxial`) on the same layout, under every axial force the member sees.
+ *
+ * Torsion and the slenderness magnifier are not re-checked here: the engine has no checker for
+ * them yet. `engineRecheck.notRechecked` names them on each result.
  */
 import type { RegulationEdition } from '../../../codes/regulation';
 import type { SolverDiagnostic } from '../../types';
 import { REBAR_DB, type ElementVerification, type VerifStatus } from './cirsoc201';
 import { evaluateBeamSection } from './cirsoc201-beam-kernel';
-import { computeColumnCapacity, computeColumnLayout } from '../../station-design-forces';
+import { computeColumnCapacity, computeColumnLayout, computeBiaxialCapacity } from '../../station-design-forces';
 import { getColumnCapacityKernel } from '../../column-capacity-kernel';
 
 export interface EngineRecheck {
@@ -31,6 +34,7 @@ export interface EngineRecheck {
   ductilityRatio?: number;
   shearRatio?: number;
   columnRatio?: number;
+  biaxialRatio?: number;
   /** Checks whose TypeScript pass the engine contradicted. */
   disagreements: string[];
   /** True when the engine could not be asked; the member is then not verified. */
@@ -49,14 +53,14 @@ const fail = (s: VerifStatus): boolean => s === 'fail';
  */
 export function engineRecheckElement(
   v: ElementVerification,
-  opts: { edition?: RegulationEdition; stirrupDia: number; NuShear?: number },
+  opts: { edition?: RegulationEdition; stirrupDia: number; NuShear?: number; axialLoads?: number[] },
 ): ElementVerification & { engineRecheck: EngineRecheck } {
   const edition = opts.edition ?? '2025';
   const rc: EngineRecheck = { edition, disagreements: [], unavailable: false, notRechecked: [] };
-  if (v.biaxial) rc.notRechecked.push('biaxial');
   if (v.torsion && !v.torsion.neglect) rc.notRechecked.push('torsion');
   if (v.slender?.isSlender) rc.notRechecked.push('slenderness');
-  const out = { ...v, flexure: { ...v.flexure }, shear: { ...v.shear }, column: v.column && { ...v.column }, engineRecheck: rc };
+  const out = { ...v, flexure: { ...v.flexure }, shear: { ...v.shear }, column: v.column && { ...v.column },
+    biaxial: v.biaxial && { ...v.biaxial }, engineRecheck: rc };
   const stirrupM = opts.stirrupDia / 1000;
 
   // ── Beam flexure and ductility, with the bars actually chosen ──
@@ -100,12 +104,12 @@ export function engineRecheckElement(
       rc.unavailable = true;
     } else {
       const layout = computeColumnLayout(c.barCount, c.barDia, v.b, v.h, v.cover, opts.stirrupDia);
-      const loads = [c.Nu];
+      const loads = [...new Set([c.Nu, ...(opts.axialLoads ?? [])])];
       if ((opts.NuShear ?? 0) < 0) loads.push(opts.NuShear!); // tension the member also sees
       let worst = 0;
       for (const Nu of loads) {
         const cap = computeColumnCapacity(layout.totalArea, v.b, v.h, v.fc, v.fy, v.cover, opts.stirrupDia,
-          Nu, c.Mu, layout.bars, 'z');
+          Nu, c.Mu, layout.bars, 'z', edition);
         // computeColumnCapacity reports capacity/demand (≥ 1 passes); turn it around.
         const u = cap.strainCompatible && cap.ratio > 0 ? 1 / cap.ratio : Infinity;
         worst = Math.max(worst, cap.rhoOk ? u : Infinity);
@@ -115,12 +119,26 @@ export function engineRecheckElement(
         rc.disagreements.push('column');
         out.column.status = 'fail';
       }
+      // ── Biaxial bending: the engine's load contour, on the same layout ──
+      if (v.biaxial && out.biaxial) {
+        let bworst = 0;
+        for (const Nu of loads) {
+          const cap = computeBiaxialCapacity(layout.totalArea, v.b, v.h, v.fc, v.fy, v.cover, opts.stirrupDia,
+            Nu, v.biaxial.Muy, v.biaxial.Muz, layout.bars, edition);
+          bworst = Math.max(bworst, cap.rhoOk && cap.ratio > 0 ? 1 / cap.ratio : Infinity);
+        }
+        rc.biaxialRatio = bworst;
+        if (!fail(v.biaxial.status) && !(bworst <= 1)) {
+          rc.disagreements.push('biaxial');
+          out.biaxial.status = 'fail';
+        }
+      }
     }
   }
 
   const diags: SolverDiagnostic[] = [...(v.diagnostics ?? [])];
   if (rc.unavailable) {
-    for (const k of ['flexure', 'shear', 'column'] as const) {
+    for (const k of ['flexure', 'shear', 'column', 'biaxial'] as const) {
       const r = out[k];
       if (r && !fail(r.status)) r.status = 'fail';
     }
@@ -139,6 +157,7 @@ export function engineRecheckElement(
         ...(rc.ductilityRatio !== undefined ? { ductilityRatio: rc.ductilityRatio } : {}),
         ...(rc.shearRatio !== undefined ? { shearRatio: rc.shearRatio } : {}),
         ...(rc.columnRatio !== undefined ? { columnRatio: rc.columnRatio } : {}),
+        ...(rc.biaxialRatio !== undefined ? { biaxialRatio: rc.biaxialRatio } : {}),
       },
     });
   }

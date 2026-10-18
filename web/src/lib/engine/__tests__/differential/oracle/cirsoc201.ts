@@ -202,9 +202,9 @@ export interface ElementVerification {
   /** RC detailing rules per CIRSOC 201 Ch. 12 */
   detailing?: DetailingResult;
   /** The engine's re-check of this verification (cirsoc201-engine-gate.ts). */
-  engineRecheck?: import('./cirsoc201-engine-gate').EngineRecheck;
+  engineRecheck?: import('../../../codes/argentina/cirsoc201-engine-gate').EngineRecheck;
   /** Station-based design demands (when available from station-design-forces.ts) */
-  stationDemands?: import('../../station-design-forces').ElementDesignDemands;
+  stationDemands?: import('../../../station-design-forces').ElementDesignDemands;
 }
 
 export interface DetailingResult {

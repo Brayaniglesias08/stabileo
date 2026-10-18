@@ -34,7 +34,7 @@ export interface Cirsoc201Engine {
   basis(input: Float64Array): Float64Array;
   phi(edition: number, confinement: number, fy: number, es: number, strains: Float64Array): Float64Array;
   designBeam(input: Float64Array): Float64Array;
-  designSlab(input: Float64Array): Float64Array;
+  slabProvisions(input: Float64Array): Float64Array;
 }
 
 let engine: Partial<Cirsoc201Engine> | null = null;
@@ -45,15 +45,23 @@ export function cirsoc201EngineAvailable(): boolean {
   return !!(engine?.Section && engine.basis && engine.phi);
 }
 
+/**
+ * Thrown when a concrete result is asked of an engine that is not loaded. Its `code` is the one
+ * the app's engine-unavailable handling recognises (`ENGINE_UNAVAILABLE`), so the screen says
+ * "engine not available" instead of showing a number.
+ */
+export class Cirsoc201EngineUnavailable extends Error {
+  readonly code = 'ENGINE_UNAVAILABLE' as const;
+  constructor(what: string) {
+    super(`The engine is not available, so the CIRSOC 201 ${what} was not computed.`);
+    this.name = 'EngineUnavailableError';
+  }
+}
+
 /** The engine, or an error that says it is not loaded. Never a stand-in. */
 export function cirsoc201Engine<K extends keyof Cirsoc201Engine>(key: K): Cirsoc201Engine[K] {
   const f = engine?.[key];
-  if (!f) {
-    throw new Error(
-      `CIRSOC 201: el motor de cálculo no está cargado (${String(key)}). ` +
-      'No se muestra un resultado que el motor no calculó.',
-    );
-  }
+  if (!f) throw new Cirsoc201EngineUnavailable(String(key));
   return f as Cirsoc201Engine[K];
 }
 

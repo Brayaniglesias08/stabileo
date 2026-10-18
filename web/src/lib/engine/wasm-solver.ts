@@ -213,7 +213,7 @@ export async function initSolver(): Promise<void> {
     registerCollisionKernel(wasm.CollisionGeometry ?? null);
     registerCirsoc201Engine({
       Section: wasm.Cirsoc201SectionKernel, basis: wasm.cirsoc201_basis, phi: wasm.cirsoc201_phi,
-      designBeam: wasm.cirsoc201_design_beam, designSlab: wasm.cirsoc201_design_slab,
+      designBeam: wasm.cirsoc201_design_beam, slabProvisions: wasm.cirsoc201_slab_provisions,
     });
     registerColumnCapacityKernel(wasm.solve_column_capacity_batch ?? null);
     registerCirsoc201BeamKernel(wasm.cirsoc201_beam_batch ?? null);

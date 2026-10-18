@@ -1,98 +1,62 @@
-//! Batched rectangular-column strain compatibility for station verification.
-//! Matches the existing TS arithmetic, axial sign, phi law and stopping rule.
-//! Code coefficients/section data arrive from the caller; decimal presentation
-//! rounding stays in TS so JS `toFixed` semantics remain unchanged.
+//! Batched rectangular-column capacity for station verification: the design moment at the
+//! design axial force, through the CIRSOC 201 section engine (`postprocess::cirsoc201_section`),
+//! so the station verifier, the legacy designer's gate and the calculator read one
+//! implementation. Decimal presentation rounding stays in TS.
 use wasm_bindgen::prelude::*;
 
+use crate::postprocess::cirsoc201_check::Cirsoc201Edition;
+use crate::postprocess::cirsoc201_section::{Confinement, Section, SectionCode};
+
 fn solve_batch(constants: &[f64], bars: &[f64], loads: &[f64]) -> Result<Vec<f64>, &'static str> {
-    if constants.len() != 8
+    if !(constants.len() == 8 || constants.len() == 9)
         || bars.len() % 2 != 0
-        || constants
-            .iter()
-            .chain(bars)
-            .chain(loads)
-            .any(|v| !v.is_finite())
+        || constants.iter().chain(bars).chain(loads).any(|v| !v.is_finite())
     {
         return Err("Invalid column capacity buffers");
     }
-    let [depth, width, fc, fy_kpa, fy, beta, axial_cap, alpha]: [f64; 8] =
-        constants.try_into().unwrap();
-    if depth <= 0.
-        || width <= 0.
-        || fc <= 0.
-        || fy_kpa <= 0.
-        || fy <= 0.
-        || beta <= 0.
-        || alpha <= 0.
+    let (depth, width, fc_kpa, fy_kpa, fy, beta, axial_cap, alpha) =
+        (constants[0], constants[1], constants[2], constants[3], constants[4], constants[5], constants[6], constants[7]);
+    if depth <= 0. || width <= 0. || fc_kpa <= 0. || fy_kpa <= 0. || fy <= 0. || beta <= 0. || alpha <= 0.
         || bars.chunks_exact(2).any(|b| b[1] < 0.)
     {
         return Err("Invalid column capacity section");
     }
-    let eps_y = fy / 200000.;
-    let eps_tc = eps_y + 0.003;
-    let phi = |eps: f64| {
-        if eps >= eps_tc {
-            0.9
-        } else if eps >= eps_y {
-            0.65 + 0.25 * (eps - eps_y) / (eps_tc - eps_y)
-        } else {
-            0.65
-        }
+    // The ninth constant names the edition (2005 | 2025); absent, 2025.
+    let edition = match constants.get(8) {
+        None => Cirsoc201Edition::E2025,
+        Some(&e) => crate::rc_section_kernel::edition_of(e)?,
     };
-    let section_forces = |c: f64| {
-        let a = (beta * c).min(depth);
-        let cc = alpha * fc * a * width;
-        let (mut ns, mut ms, mut eps_min) = (0., 0., 0.0_f64);
-        for bar in bars.chunks_exact(2) {
-            let eps = if c > 0.001 {
-                0.003 * (c - bar[0]) / c
-            } else {
-                0.
-            };
-            let sign = if eps > 0. {
-                1.
-            } else if eps < 0. {
-                -1.
-            } else {
-                eps
-            };
-            let fs = sign * (200000000. * eps.abs()).min(fy_kpa);
-            let fs_net = if bar[0] <= a { fs - alpha * fc } else { fs };
-            let force = bar[1] * fs_net;
-            ns += force;
-            ms += force * (depth / 2. - bar[0]);
-            if eps < eps_min {
-                eps_min = eps;
-            }
-        }
-        let mc = cc * (depth / 2. - a / 2.);
-        (cc + ns, mc + ms, eps_min.abs())
+    // One implementation: the CIRSOC 201 section engine, on the rectangle with the bars at their
+    // depths from the compressed face (x is irrelevant to bending about this axis).
+    let (hx, hy) = (width / 2.0, depth / 2.0);
+    let rings = vec![vec![[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]]];
+    let section_bars = bars.chunks_exact(2).map(|b| [0.0, hy - b[0], b[1]]).collect();
+    let code = SectionCode {
+        fc: fc_kpa * 1e3,
+        fy: fy_kpa * 1e3,
+        es: 200e9,
+        edition,
+        confinement: Confinement::Ties,
+        deduct_displaced_concrete: true,
     };
+    let section = Section::new(rings, section_bars, code)?;
+    // The caller's cap (kN) is the engine's own for ties; the smaller one binds.
+    let cap = (axial_cap * 1e3).min(section.axial_cap());
+    // φ·Pnt,max = 0,90·fy·Ast (22.4.3.1), kN.
     let tension_cap = -0.9 * fy_kpa * bars.chunks_exact(2).map(|b| b[1]).sum::<f64>();
     let mut out = Vec::with_capacity(loads.len() * 3);
     for &load in loads {
-        let (mut lo, mut hi) = (0.001, depth * 5.);
-        let target = load.min(axial_cap);
-        for _ in 0..60 {
-            let mid = (lo + hi) / 2.;
-            let (n, _, eps) = section_forces(mid);
-            if phi(eps) * n < target {
-                lo = mid;
-            } else {
-                hi = mid;
-            }
-            if (hi - lo).abs() < 1e-5 {
-                break;
-            }
+        // At or above the cap the plateau's widest point, where φ·Pn first reaches it.
+        let target = (load * 1e3).min(cap * (1.0 - 1e-12));
+        match section.at_axial(0.0, 1.0, target) {
+            Some(p) => out.extend_from_slice(&[p.s.phi_mnx.abs() / 1e3, tension_cap, p.c]),
+            None => out.extend_from_slice(&[0.0, tension_cap, f64::NAN]),
         }
-        let c = (lo + hi) / 2.;
-        let (_, m, eps) = section_forces(c);
-        out.extend_from_slice(&[phi(eps) * m.abs(), tension_cap, c]);
     }
     Ok(out)
 }
 
-/// constants: [depth, width, fc_kPa, fy_kPa, fy_MPa, beta1, phiPn, alpha1].
+/// constants: [depth, width, fc_kPa, fy_kPa, fy_MPa, beta1, phiPn, alpha1, (edition)].
 /// bars: [depth_from_compression_face, area_m2] per bar; loads: signed kN,
 /// compression positive. Returns [phiMn, phiPtMax, unrounded_c] per load.
 #[wasm_bindgen]
