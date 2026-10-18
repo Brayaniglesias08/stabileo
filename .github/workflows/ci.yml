@@ -137,6 +137,18 @@ jobs:
         working-directory: engine
         run: cargo nextest run --profile ci --test kfull_overbuild_gates
 
+      # Real-model acceptance suite (docs/verification/ACCEPTANCE.md): public
+      # benchmark buildings against their published reference results. A
+      # release gate; it runs in well under a minute, so on every PR.
+      - name: Acceptance models match their generators
+        run: |
+          for g in engine/tests/acceptance/generators/*.py; do python3 -I "$g"; done
+          git diff --exit-code -- engine/tests/acceptance/models
+
+      - name: Acceptance suite gate
+        working-directory: engine
+        run: cargo nextest run --profile ci --test acceptance
+
       # Result certificates (docs/verification/CERTIFY.md): honesty against a
       # double-double reference, buckling/modal enclosures, fuzz oracle.
       - name: Certificate gate
@@ -182,7 +194,7 @@ jobs:
 
       - name: Run test suite (shard ${{ matrix.shard }}/2)
         working-directory: engine
-        run: cargo nextest run --profile ci -E 'all() - test(harmonic_phase_breakdown) - test(harmonic_modal_vs_direct_timing) - binary(perf_regression_advanced) - binary(perf_regression_gates) - (test(/benchmark_shell/) + test(/benchmark_beam_shell/) + test(/benchmark_plate/) + test(/benchmark_navier/) + test(/benchmark_scordelis/) + test(/benchmark_cantilever/) + test(/benchmark_pinched/) + test(/test_quad_thin_plate/)) - (test(/acceptance_.*shell/) + test(/acceptance_.*diaphragm/)) - test(/benchmark_.*constraint/) - binary(sparse_shell_gates) - binary(solver_invariants) - binary(solver_ci_coverage) - binary(conditioning_adversarial) - binary(kfull_overbuild_gates) - binary(certify) - binary(properties_2d) - binary(properties_3d)' --partition count:${{ matrix.shard }}/2
+        run: cargo nextest run --profile ci -E 'all() - test(harmonic_phase_breakdown) - test(harmonic_modal_vs_direct_timing) - binary(perf_regression_advanced) - binary(perf_regression_gates) - (test(/benchmark_shell/) + test(/benchmark_beam_shell/) + test(/benchmark_plate/) + test(/benchmark_navier/) + test(/benchmark_scordelis/) + test(/benchmark_cantilever/) + test(/benchmark_pinched/) + test(/test_quad_thin_plate/)) - (test(/acceptance_.*shell/) + test(/acceptance_.*diaphragm/)) - test(/benchmark_.*constraint/) - binary(sparse_shell_gates) - binary(solver_invariants) - binary(solver_ci_coverage) - binary(conditioning_adversarial) - binary(kfull_overbuild_gates) - binary(certify) - binary(properties_2d) - binary(properties_3d) - binary(acceptance)' --partition count:${{ matrix.shard }}/2
         timeout-minutes: 20
 
   # Criterion reports are informational (continue-on-error): they must not gate
