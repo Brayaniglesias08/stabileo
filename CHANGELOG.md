@@ -41,8 +41,9 @@ are unchanged and documented in `types/input.rs`.
 **New refusals instead of silently ignored input:**
 - **Settlements on a DOF the support leaves free** (AC-10): a 2D `pinned` with `dry`, any
   settlement on a `spring` support, a roller's off-axis component, a rotation in a truss-only
-  model, a 3D unflagged DOF or one a spring frees, the tangential part at an inclined support.
-  The message names the support, the value and why.
+  model, a 3D unflagged DOF or one a spring frees, a free rotation at an inclined support.
+  The message names the support, the value and why. (At an inclined support the documented
+  projection of a global settlement on the normal stays.)
 - **Imperfections** (NL-9, NL-10, NL-11): 3D notional loads looked for gravity along Y by default
   (Z is up) and found none; member loads were not counted as gravity. The gravity axis now
   defaults to the model's vertical, and member loads on frames are lumped into it. Residual
