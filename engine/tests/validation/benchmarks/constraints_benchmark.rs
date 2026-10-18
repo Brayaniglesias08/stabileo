@@ -821,11 +821,17 @@ fn benchmark_constraint_force_parity_across_solvers() {
         mp_overrides: None,
     };
     let plastic_result = plastic::solve_plastic_2d(&plastic_input).expect("Plastic solve failed");
-    let plastic_cf = if !plastic_result.steps.is_empty() {
-        plastic_result.steps.last().unwrap().results.constraint_forces.clone()
-    } else {
-        vec![]
-    };
+    // Each step's results are its increment (`PlasticStep::results`): the
+    // constraint forces at the last load factor are their sum over the steps.
+    let mut plastic_cf: Vec<ConstraintForce> = Vec::new();
+    for step in &plastic_result.steps {
+        for cf in &step.results.constraint_forces {
+            match plastic_cf.iter_mut().find(|c| c.node_id == cf.node_id && c.dof == cf.dof) {
+                Some(c) => c.force += cf.force,
+                None => plastic_cf.push(cf.clone()),
+            }
+        }
+    }
 
     // 4. Fiber nonlinear (elastic fibers → matches linear)
     let fiber_section = FiberSectionDef {
