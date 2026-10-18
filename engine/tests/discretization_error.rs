@@ -306,6 +306,51 @@ fn extrapolate(v: &[f64]) -> (f64, Option<f64>) {
     (ext.unwrap_or(*v.last().unwrap()), p)
 }
 
+/// Kirchhoff moments of the simply supported unit square plate under unit load (Navier series),
+/// as a global tensor (Mxx, Myy, Mxy), sagging-positive.
+fn navier_moments(x: f64, y: f64, nu: f64) -> [f64; 3] {
+    let mut m = [0.0; 3];
+    for i in (1..120).step_by(2) {
+        for j in (1..120).step_by(2) {
+            let (a, b) = (i as f64, j as f64);
+            // w = Σ A sin(aπx) sin(bπy), A·D = 16/(π⁶ a b (a² + b²)²)
+            let ad = 16.0 / (PI.powi(6) * a * b * (a * a + b * b).powi(2));
+            let (sx, sy) = ((a * PI * x).sin(), (b * PI * y).sin());
+            let (cx, cy) = ((a * PI * x).cos(), (b * PI * y).cos());
+            m[0] += ad * PI * PI * (a * a + nu * b * b) * sx * sy;
+            m[1] += ad * PI * PI * (b * b + nu * a * a) * sx * sy;
+            m[2] -= ad * PI * PI * (1.0 - nu) * a * b * cx * cy;
+        }
+    }
+    m
+}
+
+/// True bending-energy error ‖σ − σ_h‖ of a Navier plate solution, against the exact Kirchhoff
+/// moments, over the same integration points and components the estimator uses. The load
+/// direction and the twisting-moment sign convention are fixed by taking the sign choice that
+/// fits the computed field best.
+fn navier_true_error(m: &SolverInput3D, r: &AnalysisResults3D, t: f64, nu: f64) -> f64 {
+    use dedaliano_engine::postprocess::discretization::samples::{energy_density, sample_elements, to_local};
+    let elems = sample_elements(m, r).unwrap();
+    let mut best = f64::INFINITY;
+    for (s_m, s_t) in [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
+        let mut err = 0.0;
+        for e in &elems {
+            for smp in &e.samples {
+                let mm = navier_moments(smp.pos[0], smp.pos[1], nu);
+                // σ(z) = −12 M z / t³ (sagging-positive moments: tension at the bottom).
+                let k = -12.0 * smp.pos[2] / t.powi(3);
+                let g = [s_m * k * mm[0], s_m * k * mm[1], 0.0, s_m * s_t * k * mm[2], 0.0, 0.0];
+                let ex = to_local(&smp.frame, &g);
+                let d = [ex[0] - smp.sigma[0], ex[1] - smp.sigma[1], ex[2] - smp.sigma[2]];
+                err += energy_density(&d, e.e, e.nu) * smp.weight;
+            }
+        }
+        best = best.min(err);
+    }
+    best.sqrt()
+}
+
 #[test]
 fn zz_effectivity_navier_plate() {
     let d = plate_rigidity();
@@ -315,9 +360,8 @@ fn zz_effectivity_navier_plate() {
         for n in [4, 8, 16] {
             let m = square_plate(fam, n, false);
             let r = solve(&m.input);
-            let w_h = energy_norm_sq(&m.input, &r);
             let est = estimate(&m.input, &r);
-            let true_err = (w_exact - w_h).max(0.0).sqrt();
+            let true_err = navier_true_error(&m.input, &r, 0.01, 0.3);
             let wc = mid_disp(&r, m.grid[n / 2][n / 2])[2].abs();
             println!(
                 "{fam:?} n={n:2}: w_c/ref={:.4} ‖e‖/‖u‖={:.4} η/‖u‖={:.4} θ={:.3}",
@@ -496,28 +540,11 @@ fn convergence_classic_benchmarks() {
 
 #[test]
 fn explore() {
-    // DKT: direct vs refined
-    for n in [8, 16] {
-        let m = square_plate(Fam::Dkt, n, false);
-        let r = solve(&m.input);
-        let wref = 0.00406 / plate_rigidity();
-        println!("DKT direct n={n}: {:.4}", mid_disp(&r, m.grid[n/2][n/2])[2].abs() / wref);
-    }
     let m = square_plate(Fam::Dkt, 8, false);
     let rf = refine_uniform(&m.input, GeometryMode::Faceted).unwrap().input;
     let r = solve(&rf);
     println!("DKT refined 8->16: {:.4}", disp(&r, m.grid[4][4].0)[2].abs() / (0.00406 / plate_rigidity()));
-    // MITC4 Scordelis direct
-    for n in [8, 16, 32] {
-        let m = scordelis(Fam::Mitc4, n);
-        let r = solve(&m.input);
-        println!("MITC4 Scordelis direct n={n}: {:.5}", disp(&r, m.grid[0][n].0)[2].abs());
-    }
-    // shear energy fraction
-    for fam in [Fam::Mitc4, Fam::Dkt] {
-        let m = square_plate(fam, 8, true);
-        let r = solve(&m.input);
-        let e = estimate(&m.input, &r);
-        println!("{fam:?} sampled energy / uKu = {:.4}", e.solution_norm.powi(2) / energy_norm_sq(&m.input, &r));
-    }
+    let m = scordelis(Fam::Mitc4, 4);
+    let seq = sequence(&m.input, 3);
+    println!("MITC4 Scordelis refined: {:?}", seq.iter().map(|(_, r)| disp(r, m.grid[0][4].0)[2].abs()).collect::<Vec<_>>());
 }

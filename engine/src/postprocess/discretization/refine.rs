@@ -8,18 +8,19 @@
 //!   their direction.
 //! * Geometry (`GeometryMode`). `Faceted` keeps the model exactly as drawn: new nodes on the
 //!   straight edges and bilinear faces of the parents. `Smooth` treats the mesh as a sampling of
-//!   a smooth surface: a new edge node sits on the cubic Hermite curve through the edge ends
-//!   with tangents in the planes normal to the nodal normals (averaged over the elements meeting
-//!   there within the crease angle, or the curved shells' own directors), so a coarse faceted
-//!   roof converges to the curved roof rather than to the polyhedron. Edges on a fold (normals
+//!   a smooth surface: a new edge node sits on a quadratic surface fitted to the nodes around the
+//!   edge ends (see `surface_point`), so a coarse faceted roof converges to the curved roof rather than to the polyhedron. Edges on a fold (normals
 //!   more than `CREASE_ANGLE_DEG` apart), edges shared by three or more elements and edges that
 //!   carry a frame member stay straight in both modes. MITC9 elements always use their own
 //!   quadratic geometry.
 //! * Frame members along a split edge are split at the same node (exact: a member split in two
 //!   has the same stiffness and, with its loads split, the same fixed-end forces). Releases stay
 //!   at the outer ends.
-//! * Supports: a new node between supported nodes gets the restraints they share, and prescribed
-//!   displacements interpolated; springs are not copied (a caveat says so).
+//! * Supports: a new node on an edge between supported nodes gets the restraints they share,
+//!   and prescribed displacements interpolated, unless the edge is a chord across a fully
+//!   supported element that no supported line runs along (the diagonal of a corner triangle
+//!   whose three nodes sit on two different supported edges is not a line support); a centre
+//!   node only when its element's four edges qualify. Springs are not copied (caveat).
 //! * Loads: element pressures, temperatures and self-weight go to every child; edge loads to the
 //!   children on that edge; nodal loads stay on their nodes.
 //!
@@ -175,22 +176,66 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// Normal of facet `fi` at its node `n`, averaged over the facets there within the crease
-    /// angle (oriented like `fi`).
-    fn smooth_normal(&self, fi: usize, n: usize) -> [f64; 3] {
-        let (nodes, normals) = &self.facets[fi];
-        let own = normals[nodes.iter().position(|&m| m == n).unwrap()];
+    /// The point of the smooth surface over the middle of edge a–b: a quadratic
+    /// z(x, y) = c0 + c1 x + c2 y + c3 x² + c4 xy + c5 y² fitted by least squares to the nodes of
+    /// the facets around a and b, in a frame whose z is the edge's mean facet normal, evaluated
+    /// at the chord midpoint. Only facets within the crease angle of the edge's facets take
+    /// part. None (straight edge) on a fold, at a junction of three or more facets, or when the
+    /// nodes cannot support the fit. A quadratic is fitted rather than a curve built from nodal
+    /// normals because averaged normals are biased at free edges (they only see one side), and a
+    /// one-sided quadratic is not.
+    fn surface_point(&self, a: usize, b: usize) -> Option<[f64; 3]> {
+        let fs = self.edge_facets.get(&key(a, b))?;
         let cos_c = CREASE_ANGLE_DEG.to_radians().cos();
-        let mut acc = [0.0; 3];
-        for &g in &self.node_facets[&n] {
-            let (gn, gnormals) = &self.facets[g];
-            let v = gnormals[gn.iter().position(|&m| m == n).unwrap()];
-            let d = dot(&own, &v);
-            if d.abs() >= cos_c {
-                acc = add(&acc, &scale(&v, d.signum()));
+        let nref = match fs.as_slice() {
+            [f] => self.facet_normal(*f),
+            [f, g] => {
+                let (nf, ng) = (self.facet_normal(*f), self.facet_normal(*g));
+                let d = dot(&nf, &ng);
+                if d.abs() < cos_c { return None; }
+                unit(add(&nf, &scale(&ng, d.signum())))
+            }
+            _ => return None,
+        };
+        let mut pts: Vec<[f64; 3]> = Vec::new();
+        for &n in &[a, b] {
+            for &g in &self.node_facets[&n] {
+                if dot(&self.facet_normal(g), &nref).abs() < cos_c { continue; }
+                for &m in &self.facets[g].0 {
+                    let p = self.c(m);
+                    if !pts.contains(&p) { pts.push(p); }
+                }
             }
         }
-        unit(acc)
+        let (pa, pb) = (self.c(a), self.c(b));
+        let mid = scale(&add(&pa, &pb), 0.5);
+        // x along the edge (projected on the tangent plane), y across it.
+        let e = sub(&pb, &pa);
+        let t1 = unit(sub(&e, &scale(&nref, dot(&e, &nref))));
+        let t2 = cross3(&nref, &t1);
+        let h = norm3(&e).max(1e-300);
+        let loc = |p: &[f64; 3]| { let d = sub(p, &mid); (dot(&d, &t1) / h, dot(&d, &t2) / h, dot(&d, &nref) / h) };
+        // Full quadratic when the nodes support it, else curvature along the edge only.
+        let fit = |terms: usize| -> Option<[f64; 6]> {
+            if pts.len() < terms { return None; }
+            let mut ata = [[0.0; 6]; 6];
+            let mut atb = [0.0; 6];
+            for (i, row) in ata.iter_mut().enumerate().skip(terms) { row[i] = 1.0; }
+            for p in &pts {
+                let (x, y, z) = loc(p);
+                let full = [1.0, x, y, x * x, x * y, y * y];
+                for i in 0..terms {
+                    for j in 0..terms { ata[i][j] += full[i] * full[j]; }
+                    atb[i] += full[i] * z;
+                }
+            }
+            solve6(ata, atb)
+        };
+        let c = fit(6).or_else(|| fit(4))?;
+        // z at the midpoint (x = y = 0) is c0; reject a fit that bends the edge implausibly.
+        let dz = c[0];
+        if !(dz.abs() < 0.25) { return None; }
+        Some(add(&mid, &scale(&nref, dz * h)))
     }
 
     fn new_node(&mut self, pos: [f64; 3], parents: Vec<usize>) -> usize {
@@ -212,30 +257,7 @@ impl<'a> Builder<'a> {
         let pos = if self.mode == GeometryMode::Faceted || self.frame_edges.contains(&key(a, b)) {
             lin
         } else {
-            let fs = self.edge_facets.get(&key(a, b)).cloned().unwrap_or_default();
-            let cos_c = CREASE_ANGLE_DEG.to_radians().cos();
-            let normals = |s: &Self, n: usize| -> Option<[f64; 3]> {
-                match fs.as_slice() {
-                    [f] => Some(s.smooth_normal(*f, n)),
-                    [f, g] => {
-                        let (nf, ng) = (s.facet_normal(*f), s.facet_normal(*g));
-                        let d = dot(&nf, &ng);
-                        if d.abs() < cos_c { return None; }
-                        let (vf, vg) = (s.smooth_normal(*f, n), s.smooth_normal(*g, n));
-                        Some(unit(add(&vf, &scale(&vg, d.signum()))))
-                    }
-                    _ => None,
-                }
-            };
-            match (normals(self, a), normals(self, b)) {
-                (Some(na), Some(nb)) => {
-                    let d = sub(&pb, &pa);
-                    let ta = sub(&d, &scale(&na, dot(&d, &na)));
-                    let tb = sub(&d, &scale(&nb, dot(&d, &nb)));
-                    add(&lin, &scale(&sub(&ta, &tb), 0.125))
-                }
-                _ => lin,
-            }
+            self.surface_point(a, b).unwrap_or(lin)
         };
         let m = self.new_node(pos, vec![a, b]);
         self.mids.insert(key(a, b), m);
@@ -548,9 +570,38 @@ pub fn refine_uniform(input: &SolverInput3D, mode: GeometryMode) -> Result<Refin
     let mut caveats = Vec::new();
     let sup_by_node: HashMap<usize, &SolverSupport3D> = input.supports.values().map(|s| (s.node_id, s)).collect();
     let mut next_sup = input.supports.keys().filter_map(|k| k.parse::<usize>().ok()).max().unwrap_or(0) + 1;
+    let mut nbrs: HashMap<usize, Vec<usize>> = HashMap::new();
+    for &(p, q) in b.edge_facets.keys() {
+        nbrs.entry(p).or_default().push(q);
+        nbrs.entry(q).or_default().push(p);
+    }
+    let supported = |n: usize| sup_by_node.contains_key(&n);
+    // Whether the edge p–q (both ends supported) carries a line support.
+    let line_edge = |p: usize, q: usize| -> bool {
+        let Some(fs) = b.edge_facets.get(&key(p, q)) else { return true };
+        if fs.iter().any(|&f| b.facets[f].0.iter().any(|&n| !supported(n))) {
+            return true;
+        }
+        // Every element on it is fully supported: only a continuation of a supported line counts.
+        let cos10 = 10.0_f64.to_radians().cos();
+        let along = |from: usize, to: usize| {
+            let d = unit(sub(&b.c(to), &b.c(from)));
+            nbrs.get(&from).is_some_and(|ns| ns.iter().any(|&x| {
+                x != to && supported(x) && dot(&d, &unit(sub(&b.c(from), &b.c(x)))) > cos10
+            }))
+        };
+        along(p, q) || along(q, p)
+    };
     for (nid, ps) in &b.parents {
         let sups: Vec<&SolverSupport3D> = ps.iter().filter_map(|p| sup_by_node.get(p).copied()).collect();
         if sups.len() != ps.len() {
+            continue;
+        }
+        let qualifies = match ps.as_slice() {
+            [p, q] => line_edge(*p, *q),
+            ring => (0..ring.len()).all(|k| line_edge(ring[k], ring[(k + 1) % ring.len()])),
+        };
+        if !qualifies {
             continue;
         }
         if sups.iter().any(|s| [s.kx, s.ky, s.kz, s.krx, s.kry, s.krz].iter().any(|k| k.is_some_and(|v| v != 0.0))) {
@@ -592,6 +643,29 @@ pub fn refine_uniform(input: &SolverInput3D, mode: GeometryMode) -> Result<Refin
         out.nodes.insert(n.id.to_string(), n);
     }
     Ok(Refined { input: out, caveats })
+}
+
+/// Small dense solve with partial pivoting; None when (nearly) singular.
+fn solve6(mut a: [[f64; 6]; 6], mut b: [f64; 6]) -> Option<[f64; 6]> {
+    let scale = (0..6).map(|i| a[i][i].abs()).fold(0.0, f64::max);
+    for col in 0..6 {
+        let piv = (col..6).max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))?;
+        if !(a[piv][col].abs() > 1e-10 * scale) { return None; }
+        a.swap(col, piv);
+        b.swap(col, piv);
+        for r in col + 1..6 {
+            let f = a[r][col] / a[col][col];
+            for k in col..6 { a[r][k] -= f * a[col][k]; }
+            b[r] -= f * b[col];
+        }
+    }
+    let mut x = [0.0; 6];
+    for r in (0..6).rev() {
+        let mut v = b[r];
+        for k in r + 1..6 { v -= a[r][k] * x[k]; }
+        x[r] = v / a[r][r];
+    }
+    x.iter().all(|v| v.is_finite()).then_some(x)
 }
 
 fn push_once(v: &mut Vec<String>, s: &str) {
