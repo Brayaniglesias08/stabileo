@@ -24,10 +24,10 @@ export function digestOf(results) {
   return sha256(results.map((r) => `${r.name} ${sha256(r.text)}`).join('\n'));
 }
 
-export async function runInNode() {
+export async function runInNode({ values = false } = {}) {
   const wasm = await import(resolve(wasmDir, 'dedaliano_engine.js'));
   wasm.initSync({ module: readFileSync(resolve(wasmDir, 'dedaliano_engine_bg.wasm')) });
-  return runCases(wasm, loadFixtures());
+  return runCases(wasm, loadFixtures(), { values });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -54,6 +54,15 @@ export function canonical(v) {
   return `{${Object.keys(v).map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
 }
 
+/** The output as plain JSON data (Maps to objects), for the requirement checks in checks.mjs. */
+export function plain(v) {
+  if (typeof v === 'string') return JSON.parse(v);
+  if (v instanceof Map) return Object.fromEntries([...v].map(([k, x]) => [String(k), plain(x)]));
+  if (Array.isArray(v) || ArrayBuffer.isView(v)) return Array.from(v, plain);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)]));
+  return v;
+}
+
 /** String outputs are serde_json text: shortest round-trip decimals, a bijection with the bits. */
 function textOf(out) {
   return typeof out === 'string' ? out : canonical(out);
@@ -100,12 +109,20 @@ function multiCaseOf(model) {
   };
 }
 
-/** A rolled-steel member for every element (W-shape-like properties, SI units). */
+/**
+ * A W310×52-like rolled member for every element (kN, m): with its plate elements in
+ * compression (AISC E7), so the compression check is evaluated, not refused.
+ */
 function steelMembers(model) {
+  const bf = 0.167, tf = 0.0132, d = 0.317, tw = 0.0076;
   return Object.values(model.elements).map((e) => ({
-    elementId: e.id, fy: 250e3, fu: 400e3, ag: 6.65e-3, aw: 2.4e-3, lby: 4, lbz: 4,
+    elementId: e.id, fy: 250e3, fu: 400e3, ag: 6.65e-3, aw: d * tw, lby: 4, lbz: 4,
     iy: 1.19e-4, iz: 1.03e-5, ry: 0.134, rz: 0.0394, zy: 8.4e-4, zz: 1.58e-4, sy: 7.5e-4, sz: 1.03e-4,
-    j: 3.1e-7, cw: 2.3e-7, lb: 4, e: 200e6, d: 0.317,
+    j: 3.1e-7, cw: 2.3e-7, lb: 4, e: 200e6, depth: d, flangeSlenderness: bf / (2 * tf),
+    compressionElements: [
+      { kind: 'rolledFlange', b: bf / 2, t: tf, count: 4 },
+      { kind: 'web', b: d - 2 * tf, t: tw },
+    ],
   }));
 }
 
@@ -184,19 +201,22 @@ function caseList(w, fx) {
 
 /**
  * Run every case. An entry point that rejects its input is recorded as `ERR: message`
- * (still compared across runtimes); `errors` lists them so the spec can require the
- * certified cases to succeed.
+ * (still compared across runtimes). With `values`, each result also carries the output as
+ * plain data (`plain`), which checks.mjs reads to require that the certificates certify.
  */
-export function runCases(wasm, fixtures) {
+export function runCases(wasm, fixtures, { values = false } = {}) {
   const results = [];
   for (const [name, f] of caseList(wasm, fixtures)) {
     let text;
+    let value;
     try {
-      text = textOf(f());
+      const out = f();
+      text = textOf(out);
+      if (values) value = plain(out);
     } catch (e) {
       text = `ERR: ${typeof e === 'string' ? e : e?.message ?? String(e)}`;
     }
-    results.push({ name, text });
+    results.push(values ? { name, text, value } : { name, text });
   }
   return results;
 }
