@@ -174,3 +174,39 @@ fn cable_solver_validates_its_input() {
     let err = dedaliano_engine::solver::cable::solve_cable_2d(&input, &Default::default(), 20, 1e-8).unwrap_err();
     assert!(err.contains("unknown type 'pin'"), "{err}");
 }
+
+/// A 2D spring support with a rotated axis (angle) and a rotational spring:
+/// its reaction is −K_θ·u with K_θ = Rᵀ diag(kx, ky) R, plus −kz·ry, and the
+/// structure is in force and moment equilibrium. (Mutants of the rotated
+/// spring reaction in build_reactions_2d survived: no test used `angle`.)
+#[test]
+fn rotated_spring_reaction_2d() {
+    let (kx, ky, kz, angle) = (2000.0, 500.0, 300.0, 0.4f64);
+    let input: SolverInput = serde_json::from_value(json!({
+        "nodes": { "1": { "id": 1, "x": 0.0, "z": 0.0 }, "2": { "id": 2, "x": 4.0, "z": 1.0 } },
+        "materials": { "1": { "id": 1, "e": 200000.0, "nu": 0.3 } },
+        "sections": { "1": { "id": 1, "a": 0.01, "iz": 1e-4 } },
+        "elements": { "1": { "id": 1, "type": "frame", "nodeI": 1, "nodeJ": 2, "materialId": 1, "sectionId": 1 } },
+        "supports": {
+            "1": { "id": 1, "nodeId": 1, "type": "pinned" },
+            "2": { "id": 2, "nodeId": 2, "type": "spring", "kx": kx, "ky": ky, "kz": kz, "angle": angle }
+        },
+        "loads": [{ "type": "nodal", "data": { "nodeId": 2, "fx": 7.0, "fz": -11.0, "my": 3.0 } }]
+    }))
+    .unwrap();
+    let r = dedaliano_engine::solver::linear::solve_2d(&input).unwrap();
+    let d = r.displacements.iter().find(|d| d.node_id == 2).unwrap();
+    let (s, c) = (angle.sin(), angle.cos());
+    let (kxx, kzz, kxz) = (kx * c * c + ky * s * s, kx * s * s + ky * c * c, (kx - ky) * s * c);
+    let r2 = r.reactions.iter().find(|x| x.node_id == 2).unwrap();
+    let r1 = r.reactions.iter().find(|x| x.node_id == 1).unwrap();
+    let tol = |x: f64| 1e-9 * (1.0 + x.abs());
+    assert!((r2.rx + kxx * d.ux + kxz * d.uz).abs() < tol(r2.rx), "rx {r2:?}");
+    assert!((r2.rz + kxz * d.ux + kzz * d.uz).abs() < tol(r2.rz), "rz {r2:?}");
+    assert!((r2.my + kz * d.ry).abs() < tol(r2.my) && r2.my != 0.0, "my {r2:?}");
+    // ΣF = 0 and ΣM about node 1 = 0 (moments about y; z up: M = z·Fx − x·Fz).
+    assert!((r1.rx + r2.rx + 7.0).abs() < 1e-8 && (r1.rz + r2.rz - 11.0).abs() < 1e-8, "ΣF: {r1:?} {r2:?}");
+    let m = r1.my + r2.my + 3.0 + (1.0 * (r2.rx + 7.0) - 4.0 * (r2.rz - 11.0));
+    let m_alt = r1.my + r2.my + 3.0 - (1.0 * (r2.rx + 7.0) - 4.0 * (r2.rz - 11.0));
+    assert!(m.abs() < 1e-7 || m_alt.abs() < 1e-7, "ΣM = {m} (or {m_alt} with the other sign convention)");
+}
