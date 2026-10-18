@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Engine determinism</title></head>
+<body>
+<p id="status">running</p>
+<script type="module">
+  // Served by serve.mjs: /wasm/* is web/src/lib/wasm, /repo/* is the repository root.
+  import init, * as wasm from '/wasm/dedaliano_engine.js';
+  import { FIXTURES, runCases } from '/determinism/cases.mjs';
+  try {
+    await init({ module_or_path: '/wasm/dedaliano_engine_bg.wasm' });
+    const fixtures = Object.fromEntries(await Promise.all(Object.entries(FIXTURES).map(async ([k, p]) => [k, await (await fetch(`/repo/${p}`)).json()])));
+    window.__determinism = { ok: true, results: runCases(wasm, fixtures) };
+  } catch (e) {
+    window.__determinism = { ok: false, error: String(e?.stack ?? e) };
+  }
+  document.getElementById('status').textContent = 'done';
+</script>
+</body>
+</html>

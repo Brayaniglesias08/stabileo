@@ -359,6 +359,74 @@ jobs:
         working-directory: web
         run: npm run check:gate
 
+  # The WASM engine must give bit-identical results in every runtime it ships to
+  # (docs/verification/TRUSTED_BASE.md, "Determinism across runtimes"): 184 solves and
+  # certificates on fixed models (web/determinism/cases.mjs) in Chromium, Firefox and
+  # WebKit, each compared float-by-bit-pattern with the same run in Node. A static page,
+  # no app build.
+  determinism:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      # Pinned release, checksum-verified by install-action (no curl | sh).
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: wasm-pack@0.13.1
+        timeout-minutes: 5
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: engine
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The same build as the shipped app (deploy-gh-pages.yml).
+      - name: Build WASM engine
+        working-directory: engine
+        run: wasm-pack build --target web --out-dir ../web/src/lib/wasm --no-opt
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-all-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+
+      - name: Install Chromium, Firefox and WebKit
+        working-directory: web
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      # The gate's own negative tests: the static server serves only its roots, and each
+      # requirement and the run comparison fail when what they guard breaks.
+      - name: Gate self-tests
+        working-directory: web
+        run: node --test determinism/serve.test.mjs determinism/checks.test.mjs
+
+      - name: Node digests
+        working-directory: web
+        run: node determinism/node-run.mjs
+
+      - name: Bit-identical in every browser
+        working-directory: web
+        run: npx playwright test -c determinism/playwright.config.ts
+
   # Five shards, each running whole spec files chosen by measured duration
   # (web/scripts/e2e-shard.mjs). One runner took 40 min for the smoke suite:
   # 569 tests of ~3 s each, serially — `workers: 1` stays, for the WebGL
