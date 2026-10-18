@@ -155,10 +155,11 @@ pub fn governing(input: &SolverInput3D, r: &AnalysisResults3D, original_max_node
             }
         }
     }
-    if mmax > 0.0 {
+    // Every shell family carries bending, so both are governing whenever shells exist: zero on a
+    // coarse mesh is a value (a one-element plate whose load goes straight into its supports),
+    // and dropping it would drop the quantity from the whole study.
+    if shell_count(input) > 0 {
         q.insert(("maxMoment".to_string(), 0), mmax);
-    }
-    if smax > 0.0 {
         q.insert(("maxStress".to_string(), 0), smax);
     }
 

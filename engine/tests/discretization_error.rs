@@ -746,3 +746,108 @@ fn governing_bending_of_curved_and_solid_shells() {
         assert!(s > 0.6 * s4 && s < 1.6 * s4, "{name}: max surface stress {s:.4e} vs MITC4 {s4:.4e}");
     }
 }
+
+// ==================== Degenerate cases: never "no error" ====================
+
+/// One simply supported MITC4 element under pressure: the load goes straight into the corner
+/// supports, the element carries no strain, and the estimate is 0/0. It must say it cannot
+/// estimate (and warn), never 0 %.
+#[test]
+fn loaded_mesh_without_strain_energy_is_unestimable() {
+    let m = square_plate(Fam::Mitc4, 1, false);
+    let r = solve(&m.input);
+    let e = estimate(&m.input, &r);
+    assert_eq!(e.relative_error, None, "a 0/0 must not be reported as an error of {:?}", e.relative_error);
+    assert_eq!(e.unestimable_reason.as_deref(), Some("noStrainEnergy"));
+    assert!(e.exceeds_threshold, "a mesh too coarse to estimate is flagged");
+
+    // The same mesh with no load at all has nothing to estimate, and no warning.
+    let mut unloaded = m.input.clone();
+    unloaded.loads.clear();
+    let r = solve(&unloaded);
+    let e = estimate(&unloaded, &r);
+    assert_eq!(e.relative_error, None);
+    assert_eq!(e.unestimable_reason.as_deref(), Some("unloaded"));
+    assert!(!e.exceeds_threshold);
+}
+
+/// The convergence study of that one-element plate keeps the shell moment and stress although
+/// they are zero on the model as drawn, and flags them.
+#[test]
+fn convergence_keeps_zero_coarse_shell_quantities() {
+    let m = square_plate(Fam::Mitc4, 1, false);
+    let s = convergence_study_3d(&m.input, &ConvergenceOptions::default()).unwrap();
+    for name in ["maxMoment", "maxStress"] {
+        let q = s.quantities.iter().find(|q| q.quantity == name).unwrap_or_else(|| panic!("{name} dropped from the study"));
+        assert_eq!(q.values[0], 0.0);
+        assert!(q.values[2] > 0.0, "{name}: {:?}", q.values);
+    }
+    assert!(s.exceeds_threshold);
+}
+
+fn cantilever_with_section(cw: Option<f64>) -> SolverInput3D {
+    let mut input = empty_input();
+    input.materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
+    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-5, iz: 1e-5, j: 2e-7, cw, as_y: None, as_z: None });
+    input.nodes.insert("1".into(), SolverNode3D { id: 1, x: 0.0, y: 0.0, z: 0.0 });
+    input.nodes.insert("2".into(), SolverNode3D { id: 2, x: 4.0, y: 0.0, z: 0.0 });
+    input.elements.insert("1".into(), SolverElement3D {
+        id: 1, elem_type: "frame".into(), node_i: 1, node_j: 2, material_id: 1, section_id: 1,
+        release_my_start: false, release_my_end: false, release_mz_start: false, release_mz_end: false,
+        release_t_start: false, release_t_end: false, local_yx: None, local_yy: None, local_yz: None, roll_angle: None,
+    });
+    let mut s = support(1, [true; 6]);
+    s.rw = Some(true);
+    input.supports.insert("1".into(), s);
+    input.loads.push(SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: 0.0, fy: 0.0, fz: 0.0, mx: 1.0, my: 0.0, mz: 0.0, bw: None }));
+    input
+}
+
+/// A member with warping torsion uses a cubic Hermite warping field, not an exact stiffness:
+/// the estimate must not call it exact. Its tip twist does change when the member is split.
+#[test]
+fn warping_members_are_not_claimed_exact() {
+    let plain = cantilever_with_section(None);
+    let e = estimate(&plain, &solve(&plain));
+    assert!(e.notes.contains(&"framesExact".to_string()));
+    assert!(e.inexact_members.is_empty());
+
+    let warping = cantilever_with_section(Some(1e-6));
+    let r = solve(&warping);
+    let e = estimate(&warping, &r);
+    assert!(!e.notes.contains(&"framesExact".to_string()), "notes {:?}", e.notes);
+    assert!(e.notes.contains(&"warpingMembersNotEstimated".to_string()));
+    assert_eq!(e.inexact_members, vec![1]);
+
+    // The reason: the same member in two pieces twists differently.
+    let mut split = warping.clone();
+    split.nodes.insert("3".into(), SolverNode3D { id: 3, x: 2.0, y: 0.0, z: 0.0 });
+    let mut a = split.elements["1"].clone();
+    a.node_j = 3;
+    let mut b = split.elements["1"].clone();
+    b.id = 2;
+    b.node_i = 3;
+    split.elements.insert("1".into(), a);
+    split.elements.insert("2".into(), b);
+    let (t1, t2) = (
+        r.displacements.iter().find(|d| d.node_id == 2).unwrap().rx,
+        solve(&split).displacements.iter().find(|d| d.node_id == 2).unwrap().rx,
+    );
+    println!("warping cantilever tip twist: 1 member {t1:.6e}, 2 members {t2:.6e}");
+    assert!((t1 - t2).abs() > 1e-6 * t2.abs(), "warping members are mesh dependent");
+}
+
+/// Curved beams are solved as straight segments: no exact claim either.
+#[test]
+fn curved_beams_are_not_claimed_exact() {
+    let mut input = cantilever_with_section(None);
+    input.nodes.insert("3".into(), SolverNode3D { id: 3, x: 6.0, y: 2.0, z: 0.0 });
+    input.nodes.insert("4".into(), SolverNode3D { id: 4, x: 8.0, y: 0.0, z: 0.0 });
+    input.curved_beams.push(CurvedBeamInput {
+        node_start: 2, node_mid: 3, node_end: 4, material_id: 1, section_id: 1, num_segments: 8,
+        hinge_start: false, hinge_end: false,
+    });
+    let e = estimate(&input, &solve(&input));
+    assert!(!e.notes.contains(&"framesExact".to_string()), "notes {:?}", e.notes);
+    assert!(e.notes.contains(&"curvedBeamsSegmented".to_string()));
+}
