@@ -280,7 +280,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [json_static, json_dynamics, json_plastic, model_certify]
+        target: [json_static, json_dynamics, json_plastic, model_certify, metamorphic]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
