@@ -1,0 +1,370 @@
+name: Nightly verification
+
+# The verification that is too slow for a pull request: large certificates,
+# differential tests against OpenSees and Code_Aster, fuzzing, mutation
+# testing of the safety-critical Rust and the criterion benchmarks. Nightly
+# on main and on demand (Actions tab, or `gh workflow run nightly.yml`, with
+# `only` to pick jobs). A failed scheduled run opens or updates a
+# `verification-failure` issue (verification-alert.yml).
+#
+# Runtime budget (GitHub-hosted 4-vCPU runners, free for this public repo;
+# docs/verification/NIGHTLY.md): ~40 runner-hours a night, mostly mutants;
+# wall clock ~5.5 h.
+#
+# The proofs (Lean, Kani, symbolic) run in verify.yml, the other differential
+# programs (Frame3DD, PyNite, Mystran, Kratos, CalculiX) in differential.yml,
+# TypeScript mutation testing in mutation-ts.yml.
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Jobs to run, space separated (default all): certify-large opensees-diff codeaster-diff fuzz mutants bench"
+        required: false
+        default: ""
+      mutants_shards:
+        description: "Mutants: JSON list of shard indices to run instead of tonight's rotation, e.g. [5] or [0,1]"
+        required: false
+        default: ""
+      mutants_total:
+        description: "Mutants: total number of shards (default 64)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Which jobs run, and which mutants shards tonight. The mutants scope
+  # (scripts/mutants.sh: certificate code, linear solver core, element
+  # kernels) has ~23,000 mutants at ~1 min each: one pass is far more than a
+  # night of runners, so it is split into MUTANTS_TOTAL shards and
+  # MUTANTS_SLOTS of them run each night, rotating with the day number. Every
+  # mutant is tested once every MUTANTS_TOTAL / MUTANTS_SLOTS nights.
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      jobs: ${{ steps.plan.outputs.jobs }}
+      mutants_shards: ${{ steps.plan.outputs.mutants_shards }}
+      mutants_total: ${{ steps.plan.outputs.mutants_total }}
+    steps:
+      - id: plan
+        env:
+          ONLY: ${{ inputs.only }}
+          SHARDS: ${{ inputs.mutants_shards }}
+          TOTAL: ${{ inputs.mutants_total }}
+          MUTANTS_TOTAL: 64
+          MUTANTS_SLOTS: 8
+        run: |
+          all="certify-large opensees-diff codeaster-diff fuzz mutants bench"
+          only="${ONLY:-$all}"
+          for j in $only; do
+            case " $all " in *" $j "*) ;; *) echo "::error::unknown job '$j' (known: $all)"; exit 1 ;; esac
+          done
+          total="${TOTAL:-$MUTANTS_TOTAL}"
+          if [ -n "$SHARDS" ]; then
+            shards="$SHARDS"
+          else
+            day=$(( $(date -u +%s) / 86400 ))
+            shards=$(python3 -c "import json,sys; t,s,d=map(int,sys.argv[1:]); print(json.dumps([(d*s+i)%t for i in range(s)]))" \
+              "$total" "$MUTANTS_SLOTS" "$day")
+          fi
+          echo "jobs: $only"
+          echo "mutants shards (of $total): $shards"
+          {
+            echo "jobs= $only "
+            echo "mutants_shards=$shards"
+            echo "mutants_total=$total"
+          } >> "$GITHUB_OUTPUT"
+
+  # Large-model certificate runs (release, #[ignore]d in the normal suite):
+  # certifies the 3D fixtures above 400 DOFs and grid frames up to 15k DOFs,
+  # and runs the large sweep of the cross-path assembly oracle
+  # (docs/verification/ASSEMBLY.md).
+  certify-large:
+    needs: plan
+    if: contains(needs.plan.outputs.jobs, ' certify-large ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly
+          components: rust-src
+      # engine/.cargo/config.toml links with clang + mold.
+      - name: Install mold linker
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y mold
+        timeout-minutes: 5
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Large certificate tests
+        working-directory: engine
+        # The assembly oracle's other ignored tests are minimal reproductions
+        # of open bugs, so only its sweep runs here.
+        run: |
+          cargo test --release --test certify --test certify_plastic_3d -- --ignored --nocapture
+          cargo test --release --test assembly_paths assembly_paths_agree_large -- --ignored --nocapture
+
+  # Differential test against OpenSees (an independent FE code): catches
+  # element-matrix, fixed-end-force, axis-convention and reaction bugs that the
+  # certificates cannot (they certify the assembled system, right or wrong).
+  # Linear static, buckling, modal, P-Delta, time history, plates and shells
+  # (~10 min on 4 cores; tools/opensees/README.md).
+  # Fixed fixture set plus random models from a seed that moves daily; the
+  # seed is printed so a failure reproduces with tools/opensees/run.sh.
+  opensees-diff:
+    needs: plan
+    if: contains(needs.plan.outputs.jobs, ' opensees-diff ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install OpenSees
+        run: pip install openseespy numpy
+      - name: Build solver CLI
+        run: cargo build --release --example solve_json
+      - name: Compare with OpenSees
+        run: |
+          seed=$(( $(date -u +%s) / 86400 % 1000 * 1000 ))
+          echo "seed-start $seed"
+          python tools/opensees/compare.py --fixtures \
+            --random2d 300 --random3d 300 --rich2d 500 --rich3d 500 \
+            --buckling2d 300 --buckling3d 300 --modal2d 300 --modal3d 300 \
+            --pdelta2d 300 --pdelta3d 300 --th2d 200 --th3d 200 \
+            --plates 300 --shells 60 \
+            --seed-start "$seed" -j 4 --report opensees-report.json \
+            --dump-dir opensees-mismatches
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: opensees-report
+          path: |
+            opensees-report.json
+            opensees-mismatches/
+          if-no-files-found: ignore
+
+  # Differential test against Code_Aster 18.1 (EDF's FE code): the 3D linear
+  # solver including releases, connectors, constraints, thermal loads and
+  # inclined supports, which the OpenSees job does not translate. conda-forge
+  # code-aster, native on Linux. See tools/differential/codeaster/README.md;
+  # the seed is printed so a failure reproduces locally.
+  codeaster-diff:
+    needs: plan
+    if: contains(needs.plan.outputs.jobs, ' codeaster-diff ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Install Code_Aster (pins as in tools/differential/codeaster/setup.sh)
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-name: aster
+          create-args: -c conda-forge code-aster=18.1.10 python=3.12
+          cache-environment: true
+          init-shell: bash
+      - name: Build solver CLI
+        run: cargo build --release --example solve_json
+      - name: Compare with Code_Aster
+        working-directory: tools/differential/codeaster
+        run: |
+          seed=$(( $(date -u +%s) / 86400 % 1000 * 1000 ))
+          echo "seed-start $seed"
+          ASTER_PYTHON="$(which python)" python run.py --fixtures \
+            --random3d 100 --rich3d 400 --aster3d 400 \
+            --seed-start "$seed" -j 4 --report codeaster-report.json \
+            --dump-dir codeaster-mismatches
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: codeaster-report
+          path: |
+            tools/differential/codeaster/codeaster-report.json
+            tools/differential/codeaster/codeaster-mismatches/
+          if-no-files-found: ignore
+
+  # Coverage-guided fuzzing of the JSON entry points the WASM layer exposes
+  # (engine/fuzz, docs/verification/FUZZ_MUTANTS.md): no panic, no runaway
+  # work, finite results, consistent certificates. One target per runner,
+  # seeded from the template fixtures; crashing inputs are uploaded.
+  fuzz:
+    needs: plan
+    if: contains(needs.plan.outputs.jobs, ' fuzz ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [json_static, json_dynamics, json_plastic, model_certify]
+    env:
+      # cargo-fuzz defaults to the triple it was itself built for, and the
+      # prebuilt cargo-fuzz is a musl binary: the sanitizer build then fails
+      # ("sanitizer is incompatible with statically linked libc").
+      FUZZ_TARGET_TRIPLE: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly
+          components: rust-src
+      # engine/.cargo/config.toml links with clang + mold.
+      - name: Install mold linker
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y mold
+        timeout-minutes: 5
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            . -> target
+            engine/fuzz -> target
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-fuzz
+      - name: Seed corpus
+        working-directory: engine
+        run: cargo run --release --example fuzz_seeds
+      - name: Build target
+        working-directory: engine
+        run: cargo fuzz build --target "$FUZZ_TARGET_TRIPLE" ${{ matrix.target }}
+      - name: Fuzz (30 min)
+        working-directory: engine
+        run: |
+          mkdir -p fuzz/corpus/${{ matrix.target }}
+          cargo fuzz run --target "$FUZZ_TARGET_TRIPLE" ${{ matrix.target }} -- \
+            -max_total_time=1800 -rss_limit_mb=2048 -timeout=60 \
+            -print_final_stats=1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: fuzz-crashes-${{ matrix.target }}
+          path: engine/fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore
+
+  # Mutation testing (cargo-mutants, config .cargo/mutants.toml): every mutant
+  # of the certificate code, the linear solver core and the element kernels
+  # must be caught by the tests, or excluded in the config as equivalent with a
+  # justification. Tonight's shards come from the plan job's rotation. Each
+  # shard fails on a missed mutant, and fails loudly (with how far it got) if
+  # it does not finish within its time budget; the report is uploaded either way.
+  mutants:
+    needs: plan
+    if: contains(needs.plan.outputs.jobs, ' mutants ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.mutants_shards) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly
+          components: rust-src
+      - name: Install mold linker
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y mold
+        timeout-minutes: 5
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-mutants
+      - name: Mutants (shard ${{ matrix.shard }}/${{ needs.plan.outputs.mutants_total }})
+        env:
+          SHARD: ${{ matrix.shard }}/${{ needs.plan.outputs.mutants_total }}
+          # Leaves time to upload the report before the job timeout.
+          BUDGET_MIN: 320
+        run: |
+          # Each mutant is a rebuild of the engine and its test binaries: keep
+          # it incremental (rust-cache turns incremental off), without debug
+          # info, and linked by mold. cargo-mutants builds from the workspace
+          # root, where engine/.cargo/config.toml does not apply.
+          export CARGO_INCREMENTAL=1 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
+          status=0
+          timeout --signal=INT --kill-after=5m "${BUDGET_MIN}m" \
+            ./scripts/mutants.sh --shard "$SHARD" --jobs 2 || status=$?
+          python3 scripts/mutants-summary.py mutants.out "$SHARD" || true
+          if [ "$status" -eq 124 ]; then
+            echo "::error::mutants shard $SHARD did not finish within ${BUDGET_MIN} min (see the summary above for how far it got); raise MUTANTS_TOTAL in nightly.yml"
+            exit 1
+          fi
+          exit "$status"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutants-report-${{ matrix.shard }}
+          path: mutants.out/
+          if-no-files-found: ignore
+
+  # Criterion reports, informational: benchmark wall time on shared runners is
+  # too noisy to gate on (the perf regression gates in ci.yml run
+  # single-threaded for that reason). The reports are uploaded for comparison.
+  bench:
+    needs: plan
+    if: contains(needs.plan.outputs.jobs, ' bench ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly
+          components: rust-src
+      - name: Install mold linker
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y mold
+        timeout-minutes: 5
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Benchmarks compile
+        working-directory: engine
+        run: cargo bench --no-run
+      - name: Run criterion benchmarks (quick)
+        working-directory: engine
+        run: cargo bench --bench solver_bench --bench assembly_bench --bench workflow_bench -- --sample-size 10 --warm-up-time 1 --measurement-time 3
+        timeout-minutes: 20
+      - name: Upload criterion reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: criterion-reports
+          path: target/criterion
+          retention-days: 30
+          if-no-files-found: warn
