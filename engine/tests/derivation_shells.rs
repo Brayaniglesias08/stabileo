@@ -629,3 +629,22 @@ fn sh_thin_cantilever_strip_does_not_shear_lock() {
         assert!(ratio > 0.95 && ratio < 1.02, "{kind}: tip / PL³/3EI = {ratio}");
     }
 }
+
+// ───────────────────── SH-12: curved-shell self-weight units ─────────────────────
+
+/// SH-12 (FIXED). `SolverQuadSelfWeightLoad.density` is in kg/m³ and g in m/s²; the quad and
+/// MITC9 divide ρ·g by 1000 to get kN. The curved shell did not, so its self-weight was
+/// 1000 times too large. Total vertical load must be ρ·g·t·A/1000 for every shell family.
+#[test]
+fn sh12_self_weight_is_rho_g_t_area_in_kn_for_every_shell() {
+    use dedaliano_engine::element::curved_shell::curved_shell_self_weight_load;
+    use dedaliano_engine::element::quad::quad_self_weight_load;
+    let (rho, t, g) = (2500.0, 0.2, -9.81);
+    let expect = rho * g * t * 1.0 / 1000.0; // unit square
+    let fq = quad_self_weight_load(&FLAT_SQUARE, rho, t, 0.0, 0.0, g);
+    let fc = curved_shell_self_weight_load(&FLAT_SQUARE, &EZ_DIRS, rho, t, 0.0, 0.0, g);
+    let sq: f64 = (0..4).map(|i| fq[i * 6 + 2]).sum();
+    let sc: f64 = (0..4).map(|i| fc[i * 6 + 2]).sum();
+    assert!((sq / expect - 1.0).abs() < 1e-12, "quad {sq} vs {expect}");
+    assert!((sc / expect - 1.0).abs() < 1e-12, "curved shell {sc} vs {expect}");
+}

@@ -478,7 +478,8 @@ fn th_input(alpha: Option<f64>, method: &str) -> TimeHistoryInput {
 #[test]
 fn hht_and_newmark_parameters() {
     let (_, t) = time_integration::solve_time_history_2d_traced(&th_input(Some(-0.1), "hht")).unwrap();
-    assert_eq!(t.alpha, Some(-0.1));
+    // α is stored after a round trip through the scheme's parameters, so compare to round-off.
+    assert!((t.alpha.unwrap() + 0.1).abs() < 1e-15, "{:?}", t.alpha);
     assert!((t.gamma - 0.6).abs() < 1e-15);
     assert!((t.beta - 1.1f64 * 1.1 / 4.0).abs() < 1e-15);
     let (_, t) = time_integration::solve_time_history_2d_traced(&th_input(None, "newmark")).unwrap();
