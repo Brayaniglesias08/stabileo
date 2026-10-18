@@ -1,0 +1,118 @@
+# Discretization error: estimated, not certified
+
+The certificates (`CERTIFY.md`) bound the **algebraic error**: how far the computed
+displacements `ũ` are from the exact real solution `u*` of the assembled finite-element system
+`K u = f`. That bound is rigorous, proved in Lean, and says nothing about the **discretization
+error**: how far `u*` is from the solution of the structure the mesh stands for. A coarse shell
+mesh can be certified to twelve digits and still be wrong by tens of percent.
+
+The engine estimates the discretization error (`engine/src/postprocess/discretization/`). The
+estimates are not bounds and are never presented as certified: every payload carries
+`certified: false`, and the UI says "estimated … (not certified)" next to the certified algebraic
+bound:
+
+    Algebraic error: certified ≤ 3.1e-12 · discretization error: estimated ~4.2% (energy norm, not certified)
+
+| | Algebraic error | Discretization error |
+|---|---|---|
+| What | `‖u* − ũ‖₂` for the assembled `K u = f` | `‖u − u*‖` against the continuum model |
+| How | interval arithmetic, Gram/Gershgorin, Lean | stress recovery (ZZ/SPR), Richardson extrapolation |
+| Status | certified bound | estimate: can be wrong in either direction |
+| Depends on the mesh | no (it is about the mesh's system) | yes, that is the point |
+
+## Frames: no discretization error
+
+Frame members use the exact stiffness of the Euler–Bernoulli or Timoshenko beam (the
+Timoshenko "interdependent interpolation", `element/fef.rs`) and member loads enter through exact
+fixed-end forces, with diagrams integrated exactly between the ends. For linear static analysis
+the nodal displacements and member forces of a frame model are therefore exact for beam theory
+however few members are used, and the estimate says so (`framesExact`) instead of reporting a
+number. Exceptions, which the estimate also names or does not cover:
+
+* curved beams, which the engine replaces by straight segments (`curvedBeamsSegmented`);
+* nonlinear analyses (P-Δ, buckling, corotational), whose geometric stiffness is approximate per
+  member, so the number of members matters there;
+* beams modeled on discrete springs standing for a continuous foundation.
+
+## 1. A posteriori estimate: Zienkiewicz–Zhu with superconvergent patch recovery
+
+`estimate_3d(input, results)` (WASM `estimate_discretization_3d`), for DKT triangles, MITC4
+quads, MITC9 quads, curved shells and SHB8 solid-shells.
+
+1. **Sampling** (`samples.rs`). Each element's own stress field is read at its integration
+   points as plane stress (σ11, σ22, σ12) in the local frame there: membrane stress and
+   moments become stresses at ζ = ±1/√3 through the thickness, σ(ζ) = σm − 6Mζ/t², which
+   integrates the membrane-plus-bending energy exactly with two points. DKT: CST membrane plus the
+   linear DKT moments; MITC4/MITC9: the Gauss values; curved shells and solid-shells: their own
+   2×2×2 points. Thermal strains are subtracted as in each element's stress recovery.
+2. **Recovery** (`recovery.rs`, Zienkiewicz & Zhu 1992). At every node the surrounding elements
+   are grouped into patches that may share a smooth field: same family, material and thickness,
+   normals within 30° (a fold, a wall–slab junction or a change of section is a real
+   discontinuity and is never smoothed). Over a patch a polynomial — linear in the tangent-plane
+   coordinates (quadratic for MITC9), times (1, ζ) for shells, linear in 3D for solid-shells — is
+   fitted by least squares to every component of the *global* stress tensor, so elements with
+   different local axes are compared in one frame. Its value at the node is the recovered
+   nodal stress; σ* inside an element is the shape-function interpolation of those values.
+   Patches too small for the degree fall back to a lower one, ultimately the patch average.
+3. **Estimate.** Element indicator `η_e² = ∫ (σ* − σh)ᵀ C⁻¹ (σ* − σh) dV` (plane-stress
+   compliance), global `η² = Σ η_e²`, relative error `η / √(‖uh‖² + η²)` with
+   `‖uh‖² = ∫ σhᵀ C⁻¹ σh dV` over the same components. The element map shows
+   `η_e / √((‖uh‖² + η²)/N)` in percent: uniformly spread error gives every element the global
+   percentage, so an element above the threshold is where refinement pays.
+
+**Not covered.** Transverse shear energy is not included (`transverseShearExcluded`): the
+MITC/ANS shear fields are not recoverable point by point and their energy is a small part of a
+thin shell's. For solid-shells only the in-plane stresses in the mid-surface frame are used (the
+thickness strain and transverse shears are ANS fields). Point loads and re-entrant corners have
+singular stresses: the estimate concentrates there and stays large under refinement, which is
+the honest answer.
+
+A result whose estimated relative error exceeds 5 % is flagged (`exceedsThreshold`) and the UI
+shows a warning.
+
+## 2. Convergence check: uniform refinement and Richardson extrapolation
+
+`convergence_study_3d(input, options)` (WASM `convergence_study_3d`, run on demand).
+
+* **Refinement** (`refine.rs`). Every shell-type element is split in four (DKT into four
+  triangles; MITC4 and curved shells into four quads; MITC9 into four MITC9 on the parent's
+  quadratic geometry; solid-shells into four in the plane, one element through the thickness),
+  twice by default: h → h/2 → h/4. Geometry mode `smooth` (default) places new edge nodes on the
+  cubic Hermite curve through the edge ends with tangents normal to the nodal normals (averaged
+  over elements within 30°, or the curved shells' directors), so a coarse faceted roof converges
+  to the curved roof; `faceted` keeps the model exactly as drawn. Folds, edges shared by three or
+  more elements and edges carrying a frame member stay straight. Frame members along split
+  edges are split at the same node (exact), with releases kept at the outer ends and member loads
+  split. New nodes between supported nodes get the restraints both share, and interpolated
+  prescribed displacements; springs are not copied (caveat `springsNotDistributed`). Pressures,
+  temperatures and self-weight go to every child, edge loads to the children on that edge, nodal
+  loads stay on their node. Models with constraints, connectors or curved beams are refused.
+  No p-refinement is offered (MITC4 → MITC9 would be one; not implemented).
+* **Governing quantities**: the largest nodal translation; the largest principal shell moment
+  and shell surface von Mises stress at element centres; the resultant reaction of each group of
+  connected supported nodes (nodal reactions along a line support depend on the mesh, their sum
+  does not); the largest member end moment.
+* **Richardson.** For q0 (model), q1, q2: observed order `p = log₂((q1 − q0)/(q2 − q1))`,
+  `q∞ = q2 + (q2 − q1)/(2ᵖ − 1)`, estimated error of the model `|q0 − q∞|/|q∞|`. Status
+  `oscillating` (non-monotone, no extrapolation), `notConverging` (differences growing: a
+  singularity, the value depends on the mesh), `irregularOrder` (p outside [0.5, 6]); with a
+  single refinement (size limit, 250 000 DOFs by default) the order is assumed to be 1.
+
+## Validation
+
+`engine/tests/discretization_error.rs`. Effectivity index θ = η / ‖u − uh‖E, with the true error
+from the energy identity ‖u − uh‖²E = ‖u‖²E − ‖uh‖²E (‖uh‖²E = Σ uₑᵀKₑuₑ with each family's own
+stiffness) and ‖u‖²E from the Navier series or the Richardson limit of the refinement sequence.
+
+RESULTS_TABLE
+
+## References
+
+* O. C. Zienkiewicz, J. Z. Zhu, "The superconvergent patch recovery and a posteriori error
+  estimates", Int. J. Numer. Meth. Eng. 33 (1992) 1331–1382.
+* M. Ainsworth, J. T. Oden, *A Posteriori Error Estimation in Finite Element Analysis*, Wiley
+  2000.
+* R. H. MacNeal, R. L. Harder, "A proposed standard set of problems to test finite element
+  accuracy", Finite Elem. Anal. Des. 1 (1985) 3–20.
+* L. S. D. Morley, *Skew Plates and Structures*, Pergamon 1963.
+* S. Timoshenko, S. Woinowsky-Krieger, *Theory of Plates and Shells*, McGraw-Hill 1959.

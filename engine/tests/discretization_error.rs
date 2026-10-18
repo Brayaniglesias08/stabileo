@@ -382,3 +382,113 @@ fn smoke_convergence_study() {
     assert!(!s.certified);
     let _ = nodal;
 }
+
+/// Refine `m` `levels` times (smooth geometry) and solve each; returns the inputs and results.
+fn sequence(m: &SolverInput3D, levels: usize) -> Vec<(SolverInput3D, AnalysisResults3D)> {
+    let mut inputs = vec![m.clone()];
+    for _ in 0..levels {
+        inputs.push(refine_uniform(inputs.last().unwrap(), GeometryMode::Smooth).unwrap().input);
+    }
+    inputs.into_iter().map(|i| { let r = solve(&i); (i, r) }).collect()
+}
+
+/// Pinched cylinder with rigid diaphragms (MacNeal–Harder), one eighth: R = 300, L = 600, t = 3,
+/// E = 3e6, ν = 0.3, P = 1. Reference radial displacement under the load 1.8248e-5.
+fn pinched_cylinder(fam: Fam, n: usize) -> Model {
+    let (r, half_l) = (300.0, 300.0);
+    let map = move |u: f64, v: f64| {
+        let th = v * PI / 2.0;
+        ([u * half_l, r * th.cos(), r * th.sin()], [0.0, th.cos(), th.sin()])
+    };
+    let bc = |i: usize, j: usize, mx: usize, my: usize| -> Option<[bool; 6]> {
+        let mut f = [false; 6];
+        if i == 0 { f[0] = true; f[4] = true; f[5] = true; }
+        if i == mx { f[1] = true; f[2] = true; }
+        if j == 0 { f[2] = true; f[3] = true; f[4] = true; }
+        if j == my { f[1] = true; f[3] = true; f[5] = true; }
+        f.iter().any(|&b| b).then_some(f)
+    };
+    let mut m = surface(fam, n, n, 3.0, 3000.0, 0.3, &map, &bc, Load::None);
+    let (a, b) = m.grid[0][0];
+    for id in if a == b { vec![a] } else { vec![a, b] } {
+        m.input.loads.push(nodal(id, [0.0, -0.25 / if a == b { 1.0 } else { 2.0 }, 0.0]));
+    }
+    m
+}
+
+/// Hemispherical shell with an 18° hole (MacNeal–Harder), one quarter: R = 10, t = 0.04,
+/// E = 6.825e7, ν = 0.3, ±2 radial point loads at the equator. Reference 0.093 (0.094 in
+/// MacNeal–Harder; 0.0924 from converged shell analyses).
+fn hemisphere(fam: Fam, n: usize) -> Model {
+    let r = 10.0;
+    let map = move |u: f64, v: f64| {
+        let (phi, th) = (u * 72.0_f64.to_radians(), v * PI / 2.0);
+        let nrm = [phi.cos() * th.cos(), phi.cos() * th.sin(), phi.sin()];
+        ([r * nrm[0], r * nrm[1], r * nrm[2]], nrm)
+    };
+    let bc = |i: usize, j: usize, mx: usize, my: usize| -> Option<[bool; 6]> {
+        let mut f = [false; 6];
+        if j == 0 { f[1] = true; f[3] = true; f[5] = true; }
+        if j == my { f[0] = true; f[4] = true; f[5] = true; }
+        if i == mx && j == 0 { f[2] = true; }
+        f.iter().any(|&b| b).then_some(f)
+    };
+    let mut m = surface(fam, n, n, 0.04, 68250.0, 0.3, &map, &bc, Load::None);
+    m.input.loads.push(nodal(m.grid[0][0].0, [2.0, 0.0, 0.0]));
+    m.input.loads.push(nodal(m.grid[0][n].0, [0.0, -2.0, 0.0]));
+    m
+}
+
+/// Morley's 30° skew plate, simply supported (w = 0), uniform load. Kirchhoff reference centre
+/// deflection w_c = 4.08e-4 q L⁴ / D (Morley 1963).
+fn morley(fam: Fam, n: usize) -> (Model, f64) {
+    let (l, t, e_mpa, nu) = (100.0, 0.1, 200_000.0, 0.3);
+    let (c, s) = (30.0_f64.to_radians().cos(), 30.0_f64.to_radians().sin());
+    let map = move |u: f64, v: f64| ([u * l + v * l * c, v * l * s, 0.0], [0.0, 0.0, 1.0]);
+    let bc = |i: usize, j: usize, mx: usize, my: usize| -> Option<[bool; 6]> {
+        let edge = i == 0 || j == 0 || i == mx || j == my;
+        edge.then(|| {
+            let pin = (i == 0 && j == 0, i == mx && j == 0);
+            [pin.0, pin.0 || pin.1, true, false, false, false]
+        })
+    };
+    let d = e_mpa * 1000.0 * t * t * t / (12.0 * (1.0 - nu * nu));
+    let m = surface(fam, n, n, t, e_mpa, nu, &map, &bc, Load::Pressure(-1.0));
+    (m, 4.08e-4 * l.powi(4) / d)
+}
+
+#[test]
+fn convergence_classic_benchmarks() {
+    for fam in [Fam::Mitc4, Fam::Curved] {
+        let m = pinched_cylinder(fam, 4);
+        let id = m.grid[0][0].0;
+        let seq = sequence(&m.input, 3);
+        let v: Vec<f64> = seq.iter().map(|(_, r)| disp(r, id)[1].abs()).collect();
+        let (ext, p) = extrapolate(&v[1..]);
+        println!("{fam:?} pinched cylinder: {v:?} → {ext:.5e} (p={p:?}) ref 1.8248e-5");
+
+        let m = hemisphere(fam, 4);
+        let id = m.grid[0][0].0;
+        let seq = sequence(&m.input, 3);
+        let v: Vec<f64> = seq.iter().map(|(_, r)| disp(r, id)[0].abs()).collect();
+        let (ext, p) = extrapolate(&v[1..]);
+        println!("{fam:?} hemisphere: {v:?} → {ext:.5} (p={p:?}) ref 0.093");
+    }
+    for fam in [Fam::Mitc4, Fam::Dkt, Fam::Mitc9] {
+        let (m, wref) = morley(fam, 4);
+        let id = m.grid[2][2].0;
+        let seq = sequence(&m.input, 3);
+        let v: Vec<f64> = seq.iter().map(|(_, r)| disp(r, id)[2].abs()).collect();
+        let (ext, p) = extrapolate(&v[1..]);
+        println!("{fam:?} Morley: {:?} → {:.4} (p={p:?}) ref 1", v.iter().map(|x| x / wref).collect::<Vec<_>>(), ext / wref);
+        for clamped in [false, true] {
+            let m = square_plate(fam, 4, clamped);
+            let id = m.grid[2][2].0;
+            let seq = sequence(&m.input, 3);
+            let wref = if clamped { 0.00126 } else { 0.00406 } / plate_rigidity();
+            let v: Vec<f64> = seq.iter().map(|(_, r)| disp(r, id)[2].abs() / wref).collect();
+            let (ext, p) = extrapolate(&v[1..]);
+            println!("{fam:?} square plate clamped={clamped}: {v:?} → {ext:.4} (p={p:?})");
+        }
+    }
+}
