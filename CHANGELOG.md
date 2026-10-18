@@ -32,6 +32,15 @@ members and no longer mirror nodal couples.** Rebase of #274 by @diegokingston o
   interior hinge the way it cuts a distributed load (before, part of the load was lost), the 2D
   diagram certificate bounds N between stations under it (before, it certified a zero gap), and
   the exact plastic certificate refuses it by name.
+- Plastic collapse reads |N| where it can peak inside a member (a sign-changing axial load
+  peaks between the ends), and when a member yields axially its axial point loads, and on a
+  truss its transverse loads too, stay on the structure at its ends. Before, part of the
+  load was lost, and a frame member with only an axial point load counted as crushed.
+- 2D buckling decides that a member is compressed from its mean axial force, the force its
+  geometric stiffness is built from. A member whose end forces are both 0 but which is
+  compressed along its span is no longer refused as "No compressed elements".
+- The 2D diagram certificate bounds N' by q_x on each interval, so an axial point load's jump
+  beside an axial span load is no longer dropped.
 - 2D models already materialized to PRO keep their old mirrored couples and lumped axial loads.
   There is no migration.
 
