@@ -405,6 +405,16 @@ def translate(d):
             if fx[3 + k] or springs.get(nid, [0.0] * 6)[3 + k] > 0:
                 rot_dirs[nid].append(E3[k])
     mpcs = _constraint_rows(d, pts)
+    # A support on a DOF that a constraint makes dependent (the first term of
+    # each row): the engine keeps the constraint and reports the support as
+    # redundant (over_constrained_dof); Code_Aster enforces both with Lagrange
+    # multipliers, and the duplicate relations make its matrix singular
+    # (FACTOR_42, aster3d-744151). Not comparable.
+    for row in mpcs:
+        if row:
+            nid, k, _ = row[0]
+            if (fixed.get(nid) or [False] * 6)[k] or (nid in inclined and k < 3):
+                raise Unsupported("support on a constraint's dependent DOF")
     for row in mpcs:
         for nid, k, _ in row:
             if k >= 3:
