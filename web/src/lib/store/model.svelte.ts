@@ -2681,9 +2681,14 @@ function createModelStore() {
       if ([...model.footings.values()].some((f) => to.has(f.nodeId))) {
         model.footings = new Map([...model.footings].map(([id, f]) => [id, to.has(f.nodeId) ? { ...f, nodeId: r(f.nodeId), revision: f.revision + 1 } : f]));
       }
+      // A point mass follows its node; two merged onto one node both stay (their masses add).
+      const points = model.massSource?.points;
+      if (points?.some((p) => to.has(p.nodeId))) {
+        model.massSource = { ...model.massSource!, points: points.map((p) => (to.has(p.nodeId) ? { ...p, nodeId: r(p.nodeId) } : p)) };
+      }
     },
 
-    /** Node ids named by constraints, connectors and footings. */
+    /** Node ids named by constraints, connectors, footings and point masses. */
     referencedNodeIds(): Set<number> {
       const out = new Set<number>();
       for (const c of model.constraints) {
@@ -2692,6 +2697,7 @@ function createModelStore() {
       }
       for (const c of model.connectors.values()) { out.add(c.nodeI); out.add(c.nodeJ); }
       for (const f of model.footings.values()) out.add(f.nodeId);
+      for (const p of model.massSource?.points ?? []) out.add(p.nodeId);
       return out;
     },
 
@@ -2957,6 +2963,10 @@ function createModelStore() {
         footingsChanged = true;
       }
       if (footingsChanged) model.footings = new Map(model.footings);
+      // A point mass goes with its node, as a nodal load does: left, it named a number the next
+      // node drawn would take.
+      const pts = model.massSource?.points;
+      if (pts?.some((p) => p.nodeId === id)) model.massSource = { ...model.massSource!, points: pts.filter((p) => p.nodeId !== id) };
       const pruneConstraints = (arr: Constraint3D[]) => arr
         .map((c): Constraint3D | null => {
           if (c.type === 'diaphragm') {
