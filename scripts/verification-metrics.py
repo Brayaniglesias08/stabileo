@@ -230,6 +230,7 @@ def ts_engine_logic():
     inv = section(text, "Inventory")
     base = os.path.join(ROOT, "web", "src", "lib", "engine")
     by_class = {c: {"modules": 0, "lines": 0} for c in "abcd"}
+    high = {"modules": 0, "lines": 0}
     listed, missing = set(), []
     for row in table_rows(inv):
         m = re.fullmatch(r"`([^`]+\.ts)`", row[0])
@@ -244,6 +245,9 @@ def ts_engine_logic():
             n = sum(1 for _ in f)
         by_class[row[2]]["modules"] += 1
         by_class[row[2]]["lines"] += n
+        if row[2] in "bc" and len(row) > 4 and row[4] == "high":
+            high["modules"] += 1
+            high["lines"] += n
     unclassified = {"modules": 0, "lines": 0, "files": []}
     for p in glob.glob(os.path.join(base, "**", "*.ts"), recursive=True):
         if "__tests__" in p or p.endswith((".test.ts", ".d.ts", ".spec.ts")):
@@ -259,7 +263,7 @@ def ts_engine_logic():
     for p in glob.glob(os.path.join(ROOT, "engine", "src", "**", "*.rs"), recursive=True):
         with open(p, encoding="utf-8") as f:
             rust += sum(1 for _ in f)
-    return {"by_class": by_class, "unclassified": unclassified, "missing": missing, "rust_lines": rust}
+    return {"by_class": by_class, "high_bc": high, "unclassified": unclassified, "missing": missing, "rust_lines": rust}
 
 
 def certified_design_checks():
@@ -807,7 +811,7 @@ def bold_safety(text, safety):
                   lambda m: f"**[#{m.group(1)}]({m.group(2)})**" if int(m.group(1)) in safety else m.group(0), text)
 
 
-HISTORY_KEYS = ["safety_open", "rust_share", "certified_analyses", "certified_design", "acceptance_refs",
+HISTORY_KEYS = ["safety_open", "rust_share", "ts_high_safety", "certified_analyses", "certified_design", "acceptance_refs",
                 "mutation_rust", "mutation_ts", "coverage_lines", "differential_compared", "fuzz_execs", "fm_bad"]
 
 
@@ -978,6 +982,9 @@ def main():
                              note=f"TypeScript (b)+(c): {ts_eng} lines in "
                                   f"{ts['by_class']['b']['modules'] + ts['by_class']['c']['modules']} modules; "
                                   f"{ts['unclassified']['modules']} TS modules not yet classified")
+    M["ts_high_safety"] = metric("TypeScript (b)+(c) modules rated high safety", ts["high_bc"]["modules"],
+                                 display=f"{ts['high_bc']['modules']} modules, {ts['high_bc']['lines']} lines",
+                                 section=S_COV, source="TS_ENGINE_LOGIC.md inventory (Safety column)")
     M["ts_engineering_lines"] = metric("TypeScript engineering arithmetic, classes (b)+(c) (lines)", ts_eng,
                                        section=S_COV, source="TS_ENGINE_LOGIC.md inventory, recounted")
 
@@ -1095,7 +1102,7 @@ def main():
             if details.get(k) is None and prev.get("details", {}).get(k) is not None:
                 details[k] = prev["details"][k]
 
-    order = ["safety_open", "advisories", "rust_share", "ts_engineering_lines", "certified_analyses",
+    order = ["safety_open", "advisories", "rust_share", "ts_high_safety", "ts_engineering_lines", "certified_analyses",
              "certified_design", "acceptance_cases", "acceptance_refs", "mutation_rust", "mutation_ts",
              "coverage_lines", "coverage_branches", "differential_compared", "fuzz_execs", "fm_cells", "fm_bad",
              "engine_tests", "kani_harnesses", "lean_theorems"]

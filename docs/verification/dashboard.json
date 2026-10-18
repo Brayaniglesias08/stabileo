@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "generated": "2026-10-18 16:02 UTC",
- "commit": "5896debae9",
+ "generated": "2026-10-18 16:04 UTC",
+ "commit": "1ed435986a",
  "metrics": {
   "safety_open": {
    "label": "Open `safety` issues",
@@ -9,16 +9,7 @@
    "display": "45",
    "status": "measured",
    "source": "GitHub label `safety`",
-   "note": "0 closed",
-   "section": "Release safety"
-  },
-  "advisories": {
-   "label": "Safety advisories published (GitHub)",
-   "value": 0,
-   "display": "0",
-   "status": "measured",
-   "source": "GitHub label `safety-advisory`",
-   "note": "",
+   "note": "0 closed (kept from 2026-10-18 16:02 UTC; GitHub not reachable)",
    "section": "Release safety"
   },
   "rust_share": {
@@ -28,6 +19,15 @@
    "status": "measured",
    "source": "engine/src vs TS_ENGINE_LOGIC.md classes (b)+(c)",
    "note": "TypeScript (b)+(c): 58924 lines in 161 modules; 13 TS modules not yet classified",
+   "section": "Engineering coverage"
+  },
+  "ts_high_safety": {
+   "label": "TypeScript (b)+(c) modules rated high safety",
+   "value": 88,
+   "display": "88 modules, 35935 lines",
+   "status": "measured",
+   "source": "TS_ENGINE_LOGIC.md inventory (Safety column)",
+   "note": "",
    "section": "Engineering coverage"
   },
   "ts_engineering_lines": {
@@ -81,7 +81,7 @@
    "display": "59.9 % (partial: 1251 of 23264 mutants tested)",
    "status": "partial",
    "source": "verify.yml [2026-10-18](https://github.com/lambdaclass/stabileo/actions/runs/39099586668)",
-   "note": "caught/(caught+missed); 8 shards; jobs: cancelled",
+   "note": "caught/(caught+missed); 8 shards; jobs: cancelled (kept from 2026-10-18 16:02 UTC; no mutants report found on main)",
    "section": "Solver and proof depth"
   },
   "mutation_ts": {
@@ -117,7 +117,7 @@
    "display": "6317 (6216 agree, 101 mismatch)",
    "status": "measured",
    "source": "codeaster, frame3dd, kratos, opensees, pynite",
-   "note": "see Details",
+   "note": "see Details (kept from 2026-10-18 16:02 UTC; no differential report found on main)",
    "section": "Trust and verification"
   },
   "fuzz_execs": {
@@ -173,51 +173,6 @@
    "source": "verify/*.lean",
    "note": "",
    "section": "Solver and proof depth"
-  },
-  "issues_multiplier": {
-   "label": "Backlog issues closed (`roadmap:multiplier`)",
-   "value": 0,
-   "display": "0 of 10",
-   "status": "measured",
-   "source": "GitHub label `roadmap:multiplier`",
-   "note": "",
-   "section": "Multipliers"
-  },
-  "issues_verification": {
-   "label": "Backlog issues closed (`roadmap:verification`)",
-   "value": 0,
-   "display": "0 of 13",
-   "status": "measured",
-   "source": "GitHub label `roadmap:verification`",
-   "note": "",
-   "section": "Trust and verification"
-  },
-  "issues_coverage": {
-   "label": "Backlog issues closed (`roadmap:coverage`)",
-   "value": 0,
-   "display": "0 of 15",
-   "status": "measured",
-   "source": "GitHub label `roadmap:coverage`",
-   "note": "",
-   "section": "Engineering coverage"
-  },
-  "issues_solver-proofs": {
-   "label": "Backlog issues closed (`roadmap:solver-proofs`)",
-   "value": 0,
-   "display": "0 of 10",
-   "status": "measured",
-   "source": "GitHub label `roadmap:solver-proofs`",
-   "note": "",
-   "section": "Solver and proof depth"
-  },
-  "issues_release-safety": {
-   "label": "Backlog issues closed (`roadmap:release-safety`)",
-   "value": 0,
-   "display": "0 of 5",
-   "status": "measured",
-   "source": "GitHub label `roadmap:release-safety`",
-   "note": "",
-   "section": "Release safety"
   }
  },
  "maturity": {
@@ -1341,6 +1296,10 @@
      "lines": 41919
     }
    },
+   "high_bc": {
+    "modules": 88,
+    "lines": 35935
+   },
    "unclassified": {
     "modules": 13,
     "lines": 1740,
@@ -1582,7 +1541,6 @@
    },
    "run": "https://github.com/lambdaclass/stabileo/actions/runs/39099586668",
    "date": "2026-10-18"
-  },
-  "ts_mutants": null
+  }
  }
 }
