@@ -55,6 +55,21 @@ Assembly, supports and constraints (`docs/solver/assembly-constraints.md`, tests
 - API RP 2A sand p-y: the C1, C2, C3 coefficients now follow the Reese–Cox–Koop formulas. Ultimate
   resistance was 5× too low near the surface and 16× too low at depth.
 
+Fiber beams and cables (`docs/solver/special-elements.md`, tests in
+`derivation_special_elements.rs`). **BREAKING (results)** for fiber analyses:
+
+- Fiber beam, 2D and 3D: the sign of the bending curvature mirrored the strain field. Results
+  change for any section not symmetric about its bending axis (asymmetric reinforcement,
+  T-sections, eccentric fibers).
+- Fiber member forces are now the fiber section resultants. They were elastic-stiffness forces,
+  off by orders of magnitude after yield.
+- Fiber material history is committed only at convergence, so results no longer depend on the
+  load stepping.
+- Steel `hardening_ratio` is now the true post-yield slope over E (it gave αE/(1+α)).
+- 6 and 7 integration points really use 6 and 7 points. Counts outside 3–7 are refused (2 gave a
+  wrong elastic stiffness).
+- `irvine_parameter`: removed a spurious factor L (unused by the solvers).
+
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
 **BREAKING (results): steel members bent about both axes without axial force are now checked by
