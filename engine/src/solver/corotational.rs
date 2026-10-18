@@ -40,6 +40,17 @@ fn corot_local_y_ref(
     (Some(ey[0]), Some(ey[1]), Some(ey[2]))
 }
 
+/// Rigid rotation of a member chord from its initial direction (dx0, dz0) to
+/// its current one (dxn, dzn), in (−π, π]. Taken as atan2(d0 × dn, d0 · dn),
+/// not as the difference of the two absolute angles: for a member drawn along
+/// −X the absolute angle sits on atan2's ±π cut, and the smallest deflection
+/// made the difference jump by 2π — the member then reported a 2π end
+/// rotation and the solve failed or returned a wrong state (found by the
+/// metamorphic member-reversal check).
+pub(crate) fn chord_rotation(dx0: f64, dz0: f64, dxn: f64, dzn: f64) -> f64 {
+    (dx0 * dzn - dz0 * dxn).atan2(dx0 * dxn + dz0 * dzn)
+}
+
 /// Solve a 2D frame using co-rotational large displacement analysis.
 ///
 /// This wraps the existing linear element formulations, rebuilding
@@ -596,7 +607,6 @@ fn assemble_frame_corotational(
     let dx0 = node_j.x - node_i.x;
     let dy0 = node_j.z - node_i.z;
     let l0 = (dx0 * dx0 + dy0 * dy0).sqrt();
-    let alpha_0 = dy0.atan2(dx0);
 
     let elem_dofs = dof_num.element_dofs(elem.node_i, elem.node_j);
     let u_elem: Vec<f64> = elem_dofs.iter().map(|&d| u_full[d]).collect();
@@ -611,11 +621,10 @@ fn assemble_frame_corotational(
         return;
     }
 
-    let alpha_n = dy_n.atan2(dx_n);
     let c = dx_n / l_n;
     let s = dy_n / l_n;
 
-    let beta = alpha_n - alpha_0;
+    let beta = chord_rotation(dx0, dy0, dx_n, dy_n);
 
     // Natural deformations
     let d_axial = elong;
@@ -1081,7 +1090,6 @@ pub fn compute_corotational_forces(
             let dx0 = node_j.x - node_i.x;
             let dy0 = node_j.z - node_i.z;
             let l0 = (dx0 * dx0 + dy0 * dy0).sqrt();
-            let alpha_0 = dy0.atan2(dx0);
 
             let elem_dofs = dof_num.element_dofs(elem.node_i, elem.node_j);
             let u_elem: Vec<f64> = elem_dofs.iter().map(|&d| u_full[d]).collect();
@@ -1090,9 +1098,7 @@ pub fn compute_corotational_forces(
             let dy_n = (node_j.z + u_elem[4]) - (node_i.z + u_elem[1]);
             let l_n = (dx_n * dx_n + dy_n * dy_n).sqrt();
             let elong = elongation(&[dx0, dy0], &[u_elem[3] - u_elem[0], u_elem[4] - u_elem[1]], l0, l_n);
-            let alpha_n = dy_n.atan2(dx_n);
-
-            let beta = alpha_n - alpha_0;
+            let beta = chord_rotation(dx0, dy0, dx_n, dy_n);
             let d_axial = elong;
             let theta_i_local = u_elem[2] - beta;
             let theta_j_local = u_elem[5] - beta;

@@ -187,6 +187,19 @@ impl Resp {
                 continue;
             }
             let v = it.v.clone();
+            if let Kind::Pair(..) = it.kind {
+                // Envelopes of end values (max, min over both ends): a
+                // quantity that changes sign between ends under reversal
+                // swaps and negates the pair, the others are unchanged.
+                let odd = matches!((it.tag.as_str(), three_d), ("M", false) | ("My", true) | ("Vy", true));
+                if odd {
+                    it.v = vec![-v[1], -v[0]];
+                }
+                continue;
+            }
+            if !matches!(it.kind, Kind::Local(..)) {
+                return Err(format!("no reversal map for {}", it.tag));
+            }
             it.v = match (it.tag.as_str(), three_d, v.len()) {
                 ("N", _, 2) => vec![v[1], v[0]],
                 ("V", false, 2) => vec![v[1], v[0]],
