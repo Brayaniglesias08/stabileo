@@ -97,16 +97,28 @@ buckling and P-Delta: each JSON parsed six times and solved, results compared as
 `web/src/lib/store/__tests__/result-provenance.test.ts` (two solves in the app, engine hashes),
 `web/e2e/recheck-provenance.spec.ts` (worker vs main thread, reproduce dialog).
 
-Findings:
+Findings (all fixed on this branch; before the fix two solves of the same model in one app session
+could differ):
 
-- **Fixed: the equilibrium summary differed in the last bit between two solves.** Solver inputs
-  keep their entities in `HashMap`s, and every `HashMap` has its own random hash keys, so the same
-  JSON parsed twice iterates in different orders. Assembly already sorts elements by id, so
-  displacements and forces were identical, but `compute_equilibrium_summary_2d/3d` summed applied
-  forces and reactions by iterating `DofNumbering::map` (a `HashMap`), and those sums
-  (`equilibrium.appliedForceSum`, `reactionForceSum`) changed in the last bit from solve to solve.
-  They now iterate `DofNumbering::entries_by_dof()`, in increasing DOF index. Any new loop that
-  accumulates floats over a `HashMap` must do the same.
+- **Solver inputs iterated in random order.** Inputs keep nodes, elements, supports, plates, …
+  in `HashMap<String, _>`, and every `HashMap` gets its own random hash keys, so the same JSON
+  parsed twice iterates in two orders. The 3D dense/sparse assemblers already sorted elements by id,
+  but the 2D assemblers, the load and support loops and most other analyses did not: 2D
+  displacements differed in the last bits from one solve to the next, and 3D plate stresses came
+  out in a different order. Every loop over an input map now goes through
+  `crate::ordered::values` (key order), 587 sites engine-wide.
+- **Equilibrium sums** (`equilibrium.appliedForceSum`, `reactionForceSum`) iterated
+  `DofNumbering::map`, a `HashMap`; they now use `DofNumbering::entries_by_dof()`.
+- **Inclined-support triplets** were emitted from `HashMap`s of cross terms; the sparse CSC
+  conversion sums duplicate triplets in emission order, so models with inclined supports solved
+  differently in the last bits. Now emitted in key order (`crate::ordered::entries`).
+- **Diagnostic order**: truss-only node warnings, conflicting-constraint warnings and the
+  rigid-body-mode warnings came out in hash order; now in id order.
+
+Rule: a loop over a `HashMap`/`HashSet` whose order reaches a floating-point sum, a triplet list
+or an output list must iterate `crate::ordered::{values, entries, members}`.
+`tests/determinism.rs` catches a regression on random models.
+
 - Parallel assembly (`rayon`, the `parallel` feature) is not compiled into the WASM build, so the
   app has no parallel reductions; the worker and the main thread run the same single-threaded
   binary.
