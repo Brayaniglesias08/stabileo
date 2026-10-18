@@ -477,7 +477,7 @@ pub fn assemble_stiffness_2d(input: &SolverInput, dof_num: &DofNumbering) -> Sti
             }
         }
 
-        for (&node_id, &hinges) in &node_hinge_count {
+        for (&node_id, &hinges) in crate::ordered::entries(&node_hinge_count) {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {
                 if let Some(&idx) = dof_num.map.get(&(node_id, 2)) {
@@ -2202,7 +2202,7 @@ pub(crate) fn apply_inclined_transform_triplets_2d(
         }
     }
     // Cross-row: K'[i, dofs[a]] = sum_b K[i, dofs[b]] * R[a][b]
-    for (&i, v2) in &cross_row {
+    for (&i, v2) in crate::ordered::entries(&cross_row) {
         for a in 0..2 {
             let s: f64 = (0..2).map(|b| v2[b] * r[a][b]).sum();
             if s.abs() > 1e-30 {
@@ -2211,7 +2211,7 @@ pub(crate) fn apply_inclined_transform_triplets_2d(
         }
     }
     // Cross-col: K'[dofs[a], j] = sum_b R[a][b] * K[dofs[b], j]
-    for (&j, v2) in &cross_col {
+    for (&j, v2) in crate::ordered::entries(&cross_col) {
         for a in 0..2 {
             let s: f64 = (0..2).map(|b| r[a][b] * v2[b]).sum();
             if s.abs() > 1e-30 {
@@ -2265,7 +2265,7 @@ pub(crate) fn apply_inclined_transform_triplets_k(
         }
     }
     // Cross-row: K'[i, dofs[a]] = sum_b K[i, dofs[b]] * R[a][b]
-    for (&i, v3) in &cross_row {
+    for (&i, v3) in crate::ordered::entries(&cross_row) {
         for a in 0..3 {
             let s: f64 = (0..3).map(|b| v3[b] * r[a][b]).sum();
             if s.abs() > 1e-30 {
@@ -2274,7 +2274,7 @@ pub(crate) fn apply_inclined_transform_triplets_k(
         }
     }
     // Cross-col: K'[dofs[a], j] = sum_b R[a][b] * K[dofs[b], j]
-    for (&j, v3) in &cross_col {
+    for (&j, v3) in crate::ordered::entries(&cross_col) {
         for a in 0..3 {
             let s: f64 = (0..3).map(|b| r[a][b] * v3[b]).sum();
             if s.abs() > 1e-30 {

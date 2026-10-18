@@ -377,7 +377,7 @@ fn expected_zero_rotations_2d(
     }
 
     // All-hinged frame nodes
-    for (&node_id, &hinges) in &node_hinge_count {
+    for (&node_id, &hinges) in crate::ordered::entries(&node_hinge_count) {
         let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
         if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {
             if let Some(&idx) = dof_num.map.get(&(node_id, 2)) {
@@ -744,7 +744,7 @@ pub fn analyze_kinematics_3d(input: &SolverInput3D) -> KinematicResult {
         }
 
         // All-hinged frame nodes
-        for (&node_id, &hinges) in &node_hinge_count {
+        for (&node_id, &hinges) in crate::ordered::entries(&node_hinge_count) {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {
                 for rd in 3..=5 {

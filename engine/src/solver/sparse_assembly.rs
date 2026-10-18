@@ -266,7 +266,7 @@ pub fn assemble_2d_sparse(input: &SolverInput, dof_num: &DofNumbering) -> Triple
             if sup.support_type == "fixed" || sup.support_type == "guidedX" || sup.support_type == "guidedY" { rot_restrained.insert(sup.node_id); }
             if sup.support_type == "spring" && sup.kz.unwrap_or(0.0) > 0.0 { rot_restrained.insert(sup.node_id); }
         }
-        for (&node_id, &hinges) in &node_hinge_count {
+        for (&node_id, &hinges) in crate::ordered::entries(&node_hinge_count) {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {
                 if let Some(&idx) = dof_num.map.get(&(node_id, 2)) {
@@ -512,7 +512,7 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
             }
         }
 
-        for (&node_id, &hinges) in &node_hinge_count {
+        for (&node_id, &hinges) in crate::ordered::entries(&node_hinge_count) {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {
                 if let Some(&idx) = dof_num.map.get(&(node_id, 2)) {
@@ -868,7 +868,7 @@ pub fn assemble_elements_parallel_2d(input: &SolverInput, dof_num: &DofNumbering
             if sup.support_type == "fixed" || sup.support_type == "guidedX" || sup.support_type == "guidedY" { rot_restrained.insert(sup.node_id); }
             if sup.support_type == "spring" && sup.kz.unwrap_or(0.0) > 0.0 { rot_restrained.insert(sup.node_id); }
         }
-        for (&node_id, &hinges) in &node_hinge_count {
+        for (&node_id, &hinges) in crate::ordered::entries(&node_hinge_count) {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {
                 if let Some(&idx) = dof_num.map.get(&(node_id, 2)) {

@@ -276,7 +276,7 @@ pub fn check_instability_risk_2d(input: &SolverInput) -> Vec<StructuredDiagnosti
     }
 
     let mut diags = Vec::new();
-    for &nid in &connected_nodes {
+    for &nid in crate::ordered::members(&connected_nodes) {
         if !has_non_truss.contains(&nid) && !rot_restrained.contains(&nid) {
             diags.push(
                 StructuredDiagnostic::global(

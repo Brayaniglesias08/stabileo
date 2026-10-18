@@ -503,7 +503,7 @@ pub fn validate_constraints(
     }
 
     // 1. Conflicting constraints: same DOF constrained by multiple constraints
-    for (&dof, indices) in &dep_count {
+    for (&dof, indices) in crate::ordered::entries(&dep_count) {
         if indices.len() > 1 {
             let node_id = reverse_map.get(&dof).map(|&(n, _)| n).unwrap_or(0);
             diags.push(StructuredDiagnostic::global(
