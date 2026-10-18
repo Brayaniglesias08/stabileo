@@ -127,6 +127,7 @@ Places where Stabileo still computes something unverified, refuses something eng
 8. **Example models that are still not realistic:** the token live load in `la-bombonera`, cable-stayed bridge stays without pretension (large dead-load deflection), the offshore deck sag under the flare. Examples teach users; each should model what it claims to.
 9. **Reports built from the design results:** the PRO report's slab-steel section was removed because it invented its load, span and f'c; rebuild it from the slab design's own results.
 10. **Hardening what stays in TypeScript** (search, detailing, drawing): property tests for detailing invariants (As provided ≥ As required, spacing and cover, no bar collisions, development lengths) and nightly Stryker mutation testing with surviving mutants triaged.
+11. ~~**Rigid diaphragm rotates as one body:** each slave node's in-plane rotation equals the master's, as SAP2000/ETABS and OpenSees `rigidDiaphragm` (it was left free).~~ Done (#342).
 
 ### Solver and proof depth
 

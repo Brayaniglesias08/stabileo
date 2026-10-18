@@ -11,6 +11,23 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Rigid diaphragm rotates as one body (2026-10-18)
+
+**BREAKING (results): every node of a rigid diaphragm now rotates in plane with its master**
+(θz for an XY diaphragm, θ in 2D). The slave nodes' own in-plane rotation was left free, so the
+columns under a rigid floor twisted against nothing at their tops: storeys were too soft in
+torsion and the column end torques came out zero. SAP2000/ETABS diaphragms and OpenSees
+`rigidDiaphragm` tie it. Models with a diaphragm get new results (torsional periods, column
+torques and moments, drifts); models without one are unchanged. (#342)
+
+- `engine/src/solver/constraints.rs`: both the dependent-DOF list used by validation and the
+  constraint equations tie the slave's in-plane rotation; inclined-support frames go through the
+  same equations.
+- `engine/tests/diaphragm_rotation.rs`: a storey with a diaphragm matches the same storey with a
+  floor of in-plane-rigid beams (displacements, column end forces, periods to 1e-4); slave θz =
+  master θz in static, modal, 2D and inclined-support cases. On the old code the torsional period
+  of that storey came out 6.9 % long and the column torques were zero.
+
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
 **BREAKING (results): steel members bent about both axes without axial force are now checked by

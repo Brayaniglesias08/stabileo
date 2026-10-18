@@ -685,6 +685,14 @@ fn collect_dependent_dofs(
                         result.push((s, masters));
                     }
                 }
+                // The slave's in-plane rotation is the master's: a rigid
+                // diaphragm rotates as one body (see `build_constraint_transform`).
+                if let (Some(&s), Some(&m)) = (
+                    dof_num.map.get(&(slave_id, dr)),
+                    dof_num.map.get(&(dia.master_node, dr)),
+                ) {
+                    result.push((s, vec![m]));
+                }
             }
         }
         Constraint::EqualDOF(eq) => {
@@ -859,8 +867,14 @@ pub fn build_constraint_transform(
             }
 
             Constraint::Diaphragm(dia) => {
-                // Diaphragm: in-plane rigid body motion
-                // All slave nodes share master's in-plane translation + rotation
+                // Diaphragm: in-plane rigid body motion. Every slave node
+                // moves with the master's in-plane translation and rotation,
+                // and its own in-plane rotation equals the master's: a rigid
+                // diaphragm rotates as one body. SAP2000/ETABS diaphragms and
+                // OpenSees `rigidDiaphragm` tie it; leaving it free let each
+                // slave joint rotate in plane on its own, so a column under a
+                // rigid floor was restrained against twist by its own
+                // stiffness only (too soft in torsion, wrong end moments).
                 let is_3d = dof_num.dofs_per_node > 3;
                 let (d0, d1, dr) = match dia.plane.as_str() {
                     "XZ" => (0usize, 2usize, 4usize), // ux, uz, ry
@@ -911,6 +925,14 @@ pub fn build_constraint_transform(
                         if !terms.is_empty() {
                             eqs.push((s_dof, terms));
                         }
+                    }
+
+                    // θ_slave = θ_master (in-plane rotation)
+                    if let (Some(&s_r), Some(&m_r)) = (
+                        dof_num.map.get(&(slave_id, dr)),
+                        dof_num.map.get(&(dia.master_node, dr)),
+                    ) {
+                        eqs.push((s_r, vec![(m_r, 1.0)]));
                     }
                 }
             }
@@ -2856,7 +2878,7 @@ mod tests {
         });
 
         SolverInput {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials, sections, elements, supports,
             loads: vec![SolverLoad::Nodal(SolverNodalLoad {
                 node_id: 2, fx: 0.0, fz: -10.0, my: 0.0,
@@ -3000,7 +3022,7 @@ mod tests {
         });
 
         let solver = SolverInput {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials, sections, elements, supports,
             loads: vec![SolverLoad::Nodal(SolverNodalLoad {
                 node_id: 1, fx: 10.0, fz: 0.0, my: 0.0,
@@ -3116,7 +3138,7 @@ mod tests {
         })];
 
         let solver = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials, sections, elements, supports, loads,
             constraints: vec![], left_hand: None,
             plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(),
