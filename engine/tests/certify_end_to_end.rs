@@ -104,7 +104,12 @@ fn end_to_end_3d_fixtures() {
     for p in &paths {
         let name = p.file_name().unwrap().to_str().unwrap();
         let Ok(input) = serde_json::from_str::<SolverInput3D>(&std::fs::read_to_string(p).unwrap()) else { continue };
+        let t0 = std::time::Instant::now();
         let Ok(out) = certify_linear_3d_full(&input) else { continue };
+        let full = t0.elapsed();
+        let t1 = std::time::Instant::now();
+        let _ = dedaliano_engine::certify::reassembly::end_to_end_3d(&input, &input.loads, &out.results);
+        eprintln!("{name}: certify_linear_3d_full {:.1} ms, of which end to end {:.1} ms", full.as_secs_f64() * 1e3, t1.elapsed().as_secs_f64() * 1e3);
         t.add(name, &out.end_to_end, out.certificate.is_certified());
     }
     eprintln!("3D fixtures: {t:?}");

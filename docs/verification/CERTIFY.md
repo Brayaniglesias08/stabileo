@@ -128,6 +128,7 @@ assumed), `‖R‖₂² = λ_max(RᵀR) ≤ 1 + ‖RᵀR − I‖_F` with `RᵀR
 rotations. With inclined supports `abs_bound` is on the error over all DOFs in global
 axes (and `rel_bound` relative to `‖ũ_glob‖₂` over all DOFs). A node carrying several
 supports one of which is inclined is refused (`Uncertified`). Not yet formalized in Lean.
+
 ## End-to-end certificates
 
 Everything above certifies the solution of the f64 `K` and `f` **the engine assembled**. An

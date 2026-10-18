@@ -272,7 +272,7 @@ pub fn engine_assemblies_2d(input: &SolverInput, loads: &[SolverLoad]) -> Vec<En
 }
 
 /// Largest model whose dense engine assembly the agreement check also reads.
-const DENSE_AGREEMENT_MAX: usize = 3000;
+const DENSE_AGREEMENT_MAX: usize = 600;
 
 fn dense_to_map(k: &[f64], n: usize) -> std::collections::HashMap<(usize, usize), f64> {
     let mut m = std::collections::HashMap::new();
