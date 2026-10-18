@@ -26,6 +26,13 @@ export interface SolverSection3D {
   asY?: number;
   /** m² — shear area paired with iz. */
   asZ?: number;
+  /**
+   * m — shear-centre coordinates from the centroid, local y and z. Read only by the
+   * geometric stiffness (flexural-torsional buckling of channels, tees, angles).
+   * Absent: 0 (doubly or point symmetric).
+   */
+  shearCenterY?: number;
+  shearCenterZ?: number;
 }
 
 // ─── Elements ────────────────────────────────────────────────────
