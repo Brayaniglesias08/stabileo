@@ -60,7 +60,7 @@ PY
       echo "#$n $name: does not compile"
       missed+=("#$n $name (compile error)")
     else
-      fails=$(grep -E "^test .* FAILED$" /tmp/e2e-planted-$n.log | sed 's/^test //; s/ \.\.\. FAILED//' | tr '\n' ' ')
+      fails=$(awk '/^failures:$/{f=1;next} f&&/^    [a-z_0-9]+$/{print $1} /^test result/{f=0}' /tmp/e2e-planted-$n.log | sort -u | tr '\n' ' ')
       echo "#$n $name: caught by $fails"
       caught=$((caught + 1))
     fi
