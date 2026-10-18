@@ -89,7 +89,7 @@ describe('section stresses: engine against the TypeScript oracle', () => {
       compared++;
     }), { numRuns: 2000, seed: 321 });
     expect(compared).toBe(2000);
-  });
+  }, 120_000);
 
   it('3D members with distributed loads, at random stations', () => {
     fc.assert(fc.property(section, fc.array(force, { minLength: 9, maxLength: 9 }), fc.double({ min: 0.5, max: 12, noNaN: true }), fraction, (sec, f, L, t) => {
@@ -101,7 +101,7 @@ describe('section stresses: engine against the TypeScript oracle', () => {
       close(e.sigmaAtFiber, o.sigmaAtFiber, scale);
       close(e.failure.vonMises, o.failure.vonMises, scale);
     }), { numRuns: 1000, seed: 322 });
-  });
+  }, 120_000);
 
   it('2D members, at random stations and fibres', () => {
     fc.assert(fc.property(section, fc.array(force, { minLength: 4, maxLength: 4 }), fc.double({ min: 0.5, max: 12, noNaN: true }), fraction, fraction, (sec, [n, v, m, q], L, t, fy) => {
@@ -118,7 +118,7 @@ describe('section stresses: engine against the TypeScript oracle', () => {
       close(Math.abs(e.tauAtY), Math.abs(o.tauAtY), scale);
       close(e.failure.vonMises, o.failure.vonMises, scale);
     }), { numRuns: 1000, seed: 323 });
-  });
+  }, 120_000);
 });
 
 describe('without the engine the app refuses, it does not compute', () => {

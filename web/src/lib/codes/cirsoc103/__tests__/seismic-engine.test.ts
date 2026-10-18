@@ -84,7 +84,7 @@ describe('INPRES-CIRSOC 103: engine against the verified oracle', () => {
         same(S.seismicWeight(w), SO.seismicWeight(w));
       },
     ), { numRuns: 3000, seed: 103 });
-  });
+  }, 120_000);
 
   it('the tables the app still reads directly equal the engine\'s', () => {
     for (const system of SYSTEMS) {

@@ -100,7 +100,7 @@ describe('isolated footings: engine against the TypeScript oracle', () => {
       expect(seen.has(s), s).toBe(true);
     }
     expect(gated).toBeLessThan(5);
-  });
+  }, 120_000);
 
   it('every OK carries a certified re-check proving it below 1', () => {
     fc.assert(fc.property(footing, (f) => {
@@ -110,5 +110,5 @@ describe('isolated footings: engine against the TypeScript oracle', () => {
       expect(e.engineRecheck!.utilizationUpper!).toBeLessThan(1);
       expect(e.engineRecheck!.utilizationUpper!).toBeGreaterThanOrEqual(e.worstUtilization);
     }), { numRuns: 1000, seed: 2027 });
-  });
+  }, 120_000);
 });

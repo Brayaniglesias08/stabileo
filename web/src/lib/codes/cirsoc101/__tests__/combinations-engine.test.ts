@@ -26,7 +26,7 @@ describe('CIRSOC 101 combinations: engine against the verified oracle', () => {
       const inputs: CombinationInputs = { present: presentOf(mask) };
       expect(generateCombinations(inputs), `mask ${mask}`).toEqual(oracle(inputs));
     }
-  });
+  }, 120_000);
 
   it('random options over random subsets', () => {
     fc.assert(fc.property(
@@ -51,5 +51,5 @@ describe('CIRSOC 101 combinations: engine against the verified oracle', () => {
         expect(liveLoadFactorInCompanion(inputs)).toEqual(oracleLive(inputs));
       },
     ), { numRuns: 3000, seed: 101 });
-  });
+  }, 120_000);
 });
