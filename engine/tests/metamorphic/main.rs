@@ -85,10 +85,10 @@ fn run_2d(name: &str, cases: Vec<case::Case2>, only: Option<&str>) {
             }
         }
     }
+    finish(name, &t);
     if name == "pr_2d" && only.is_none() {
         check_doc(name, &render(&t, &anas.iter().map(|a| a.name).collect::<Vec<_>>(), INV_2D));
     }
-    finish(name, &t);
 }
 
 fn run_3d(name: &str, cases: Vec<case::Case3>, only: Option<&str>) {
@@ -105,10 +105,10 @@ fn run_3d(name: &str, cases: Vec<case::Case3>, only: Option<&str>) {
             }
         }
     }
+    finish(name, &t);
     if name == "pr_3d" && only.is_none() {
         check_doc(name, &render(&t, &anas.iter().map(|a| a.name).collect::<Vec<_>>(), INV_3D));
     }
-    finish(name, &t);
 }
 
 fn only() -> Option<String> {

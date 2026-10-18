@@ -15,6 +15,20 @@ use dedaliano_engine::metamorphic::units::Units;
 use dedaliano_engine::metamorphic::Rng;
 use dedaliano_engine::types::*;
 
+/// Whether an invariant applies to an analysis at all (cells that do not
+/// show as "·" in the matrix rather than as refusals).
+pub fn applicable(a: &Ana3, inv: &str) -> bool {
+    match inv {
+        "rotation" => !false,
+        "superposition" => matches!(a.law, Law::Linear | Law::Inverse),
+        "reciprocity" => a.law == Law::Linear,
+        "energy" => a.law == Law::Linear && a.full_static,
+        "linear agreement" => REDUCES_TO_LINEAR.contains(&a.name),
+        "modal orthogonality" => a.name == "modal",
+        _ => true,
+    }
+}
+
 pub struct Ctx<'a> {
     pub tally: &'a Tally,
     pub rng_seed: u64,
@@ -115,7 +129,7 @@ pub fn check_case(ctx: &Ctx, c: &Case3, anas: &[Ana3], invariants: &[&str]) {
         Ok(k) => k,
         Err(e) => {
             for a in anas {
-                for inv in invariants {
+                for inv in invariants.iter().filter(|i| applicable(a, i)) {
                     ctx.tally.record(a.name, inv, &c.name, Verdict::Refused(format!("no conditioning estimate: {e}")));
                 }
             }
@@ -126,7 +140,7 @@ pub fn check_case(ctx: &Ctx, c: &Case3, anas: &[Ana3], invariants: &[&str]) {
         let base = match run(a, c) {
             Ok(b) => b,
             Err(e) => {
-                for inv in invariants {
+                for inv in invariants.iter().filter(|i| applicable(a, i)) {
                     ctx.tally.record(a.name, inv, &c.name, Verdict::Refused(e.clone()));
                 }
                 continue;
