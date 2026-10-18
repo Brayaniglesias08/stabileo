@@ -94,7 +94,11 @@ pub fn compute_influence_line(input: &InfluenceLineInput) -> Result<InfluenceLin
         materials: input.solver.materials.clone(),
         sections: input.solver.sections.clone(),
         elements: input.solver.elements.clone(),
-        supports: input.solver.supports.clone(),
+        // An influence ordinate is the response to the unit load alone.
+        // Prescribed support displacements are actions, not structure: kept,
+        // every ordinate carried the settlement's own (load-independent)
+        // effect — found by the metamorphic unit-scaling check.
+        supports: input.solver.supports.iter().map(|(k, s)| (k.clone(), SolverSupport { dx: None, dz: None, dry: None, ..s.clone() })).collect(),
         loads: Vec::new(),
         // Constraints and connectors are part of the structure. They were
         // left out, so an influence line was drawn for a different structure:
@@ -348,7 +352,13 @@ pub fn compute_influence_line_3d(input: &InfluenceLineInput3D) -> Result<Influen
         materials: input.solver.materials.clone(),
         sections: input.solver.sections.clone(),
         elements: input.solver.elements.clone(),
-        supports: input.solver.supports.clone(),
+        // Settlements stripped, as in 2D: ordinates are unit-load responses.
+        supports: input
+            .solver
+            .supports
+            .iter()
+            .map(|(k, s)| (k.clone(), SolverSupport3D { dx: None, dy: None, dz: None, drx: None, dry: None, drz: None, ..s.clone() }))
+            .collect(),
         loads: Vec::new(),
         constraints: input.solver.constraints.clone(),
         left_hand: input.solver.left_hand,
