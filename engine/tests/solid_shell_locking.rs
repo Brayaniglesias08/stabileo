@@ -503,11 +503,18 @@ fn modal_thin_plate_with_poisson() {
 /// t/a = 0.01, ν = 0.3: N_cr = 4π²D/a² (Timoshenko & Gere §9.2).
 #[test]
 fn buckling_thin_plate_with_poisson() {
-    for hard in [false, true] {
-    let r: Vec<f64> = [8, 16, 32].iter().map(|&n| buckle(n, hard)).collect();
-    eprintln!("hard {hard} {r:?}");
-    }
+    let r: Vec<f64> = [8, 16, 32].iter().map(|&n| buckle(n, false)).collect();
+    eprintln!("SS plate buckling λ/N_cr, 8/16/32: {r:.4?}");
+    // Before the EAS mode: 1.139 / 1.172 / 1.194 (unconservative). Now 0.939 / 0.961 / 0.977:
+    // the ratio to the old values is 1/1.225 throughout, so the slow (≈ first-order),
+    // from-below convergence is the geometric-stiffness/prestress path's, not the EAS's — the
+    // same with hard supports (EqualDOF top = bottom tangential): 0.940 / 0.963 / 0.979.
+    // From below is the conservative side for a buckling load; asserted so it cannot drift.
+    assert!(r[0] < r[1] && r[1] < r[2], "not monotone: {r:?}");
+    assert!(r[2] > 0.97 && r[2] < 1.0, "32×32: λ/N_cr = {:.4}", r[2]);
 }
+/// λ/N_cr on an n × n mesh; `hard` ties the edge-tangential displacement of the two faces
+/// (hard support) instead of leaving it free (soft).
 fn buckle(n: usize, hard: bool) -> f64 {
     let t = 0.01;
     let map = |u: f64, v: f64| ([u, v, 0.0], [0.0, 0.0, 1.0]);
@@ -547,6 +554,5 @@ fn buckle(n: usize, hard: bool) -> f64 {
     let d = E_PLATE * 1000.0 * t.powi(3) / (12.0 * (1.0 - NU * NU));
     let ncr = 4.0 * PI * PI * d;
     let ratio = res.modes[0].load_factor / ncr;
-    eprintln!("SS plate buckling n={n} λ / N_cr = {ratio:.5}");
     ratio
 }
