@@ -128,6 +128,21 @@ Places where Stabileo still computes something unverified, refuses something eng
 9. **Reports built from the design results:** the PRO report's slab-steel section was removed because it invented its load, span and f'c; rebuild it from the slab design's own results.
 10. **Hardening what stays in TypeScript** (search, detailing, drawing): property tests for detailing invariants (As provided ≥ As required, spacing and cover, no bar collisions, development lengths) and nightly Stryker mutation testing with surviving mutants triaged.
 
+### Solver and proof depth
+
+Closing the gap between "proven" and "right".
+
+1. **End-to-end certificates.** Today a certificate proves the solution of the f64 `K` and `f` as assembled, not that they represent the model. An independent checker re-assembles `K` and `f` from the model JSON in interval arithmetic from closed-form element formulas (frames first, then shells), so a certificate covers model → K → result.
+2. **Trusted computing base, audited and enforced.** No `sorry` and no extra axioms in Lean (`#print axioms` in CI), pinned Lean/mathlib; a document listing everything a certificate assumes; the IEEE rounding the proofs model checked where the code runs (no fast-math or unexpected FMA, identical WASM results across Chrome, Firefox and Safari).
+3. **A second, independent certificate checker** (e.g. MPFR or exact rationals) beside the Lean one; agreement of two independently written checkers.
+4. **Properties of the design checks,** proved or exhaustively tested: more reinforcement or a larger section never lowers capacity, a larger load never lowers the utilization ratio, φ within its code limits.
+5. **Validation against physical experiments,** not only verification: published laboratory tests (RC beams and columns, shake-table frames, Vecchio–Collins panels, connection tests) for the nonlinear material models (concrete, fiber sections, plastic hinges, contact), following ASME V&V 10 / NAFEMS practice.
+6. **Convergence-order tests (method of manufactured solutions)** for every shell, plate and solid element: the observed rate matches the theory.
+7. **Nonlinear and dynamic robustness:** convergence criteria audited (force, displacement, energy norms), load-step and time-step sensitivity tests, energy-drift monitoring in time history, path following past limit points.
+8. **Numerical stress tests:** extreme stiffness ratios, ~10⁶-DOF models, near-singular and unit-extreme models; measure where accuracy degrades and refuse beyond it.
+9. **Engine code hygiene:** line and branch coverage per module (llvm-cov), Miri for any `unsafe`, strict clippy, overflow checks on index arithmetic, `cargo audit` in CI.
+10. **Documented, peer-reviewed element derivations** in `docs/SOLVER_REFERENCE.md`: each formulation's derivation and assumptions, reviewable by an independent engineer.
+
 ### Release safety
 
 Pushes to main deploy straight to users (GitHub Pages), so a merge is a release.
