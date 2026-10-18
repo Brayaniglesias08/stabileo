@@ -387,26 +387,66 @@ fn fiber_state_is_committed_only_at_convergence() {
     assert!(rel(one, many) < 1e-6, "1 increment uz = {one}, 50 increments uz = {many}");
 }
 
-/// SP-7 (OPEN). The fiber solvers report `element_forces` from the ELASTIC
+/// SP-7 (FIXED). The fiber solvers reported `element_forces` from the ELASTIC
 /// frame stiffness (compute_internal_forces_2d/3d: K_elastic·u with the
 /// SolverSection's A and Iz), not from the fiber section resultants. Once the
-/// section yields, the reported moments violate statics. Cantilever: the
-/// support moment is P·L whatever the material does. The `reactions` list is
-/// also returned empty.
+/// section yields, the reported moments violated statics (here 145 361 kN·m
+/// for a support moment of 5 400). Cantilever: the support moment is P·L and
+/// the shear P whatever the material does.
 #[test]
-#[ignore = "open question SP-7: fiber solvers report elastic K·u element forces, not fiber resultants"]
 fn fiber_solver_element_forces_satisfy_statics_after_yield() {
     let (l, p) = (3.0, -1800.0);
     let sec = rectangular_fiber_section(0.2, 0.4, 40,
         FiberMaterial::SteelBilinear { e: 200_000.0, fy: 250.0, hardening_ratio: 0.02 });
     let mut input = fiber_cantilever_2d(l, sec, 0.0, p, 5, 20, 1e-10);
-    // Elastic section properties equal to the fiber section's.
     input.solver.sections.get_mut("1").unwrap().a = 0.08;
     input.solver.sections.get_mut("1").unwrap().iz = 0.2 * 0.4f64.powi(3) / 12.0;
     let r = solve_fiber_nonlinear_2d(&input).unwrap();
     assert!(r.converged);
+    assert!(r.fiber_status.iter().any(|s| s.yielded));
     let ef = &r.results.element_forces[0];
-    assert!(rel(ef.m_start.abs(), p.abs() * l) < 1e-3, "support moment {} vs statics P·L = {}", ef.m_start, p.abs() * l);
+    assert!(rel(ef.m_start.abs(), p.abs() * l) < 1e-6, "support moment {} vs statics P·L = {}", ef.m_start, p.abs() * l);
+    assert!(ef.m_end.abs() < 1e-6 * p.abs() * l, "tip moment {}", ef.m_end);
+    assert!(rel(ef.v_start.abs(), p.abs()) < 1e-6 && rel(ef.v_end.abs(), p.abs()) < 1e-6, "shear {} {}", ef.v_start, ef.v_end);
+    assert!(ef.n_start.abs() < 1e-6 * p.abs(), "axial {}", ef.n_start);
+}
+
+/// SP-7 (FIXED), 3D: a yielded fiber cantilever along X under a tip load in
+/// −Z reports |My(0)| = P·L, |Vz| = P.
+#[test]
+fn fiber_solver_3d_element_forces_satisfy_statics_after_yield() {
+    let (l, p) = (3.0, 600.0);
+    let (b, h, n) = (0.2, 0.4, 20);
+    let mut fibers = Vec::new();
+    for iy in 0..4 {
+        for iz in 0..n {
+            let y = -b / 2.0 + b / 4.0 * (iy as f64 + 0.5);
+            let z = -h / 2.0 + h / n as f64 * (iz as f64 + 0.5);
+            fibers.push(Fiber { y, z, area: b * h / (4 * n) as f64, material_idx: 0 });
+        }
+    }
+    let sec = FiberSectionDef { fibers, materials: vec![FiberMaterial::SteelBilinear { e: 200_000.0, fy: 250.0, hardening_ratio: 0.02 }] };
+    let mut input = fiber_cantilever_3d(l, sec,
+        SolverNodalLoad3D { node_id: 2, fx: 0.0, fy: 0.0, fz: -p, mx: 0.0, my: 0.0, mz: 0.0, bw: None });
+    input.n_increments = 20;
+    input.tolerance = 1e-10;
+    input.max_iter = 100;
+    let r = solve_fiber_nonlinear_3d(&input).unwrap();
+    assert!(r.converged);
+    assert!(r.fiber_status.iter().any(|s| s.yielded), "the load must yield the section");
+    let ef = &r.results.element_forces[0];
+    assert!(rel(ef.my_start.abs(), p * l) < 1e-6, "support My {} vs P·L = {}", ef.my_start, p * l);
+    assert!(ef.my_end.abs() < 1e-6 * p * l, "tip My {}", ef.my_end);
+    assert!(rel(ef.vz_start.abs(), p) < 1e-6, "Vz {}", ef.vz_start);
+    assert!(ef.mz_start.abs() < 1e-6 * p * l && ef.n_start.abs() < 1e-6 * p, "Mz {} N {}", ef.mz_start, ef.n_start);
+}
+
+/// SP-18 (OPEN). The fiber solvers return an empty `reactions` list.
+#[test]
+#[ignore = "open question SP-18: fiber solvers return no reactions"]
+fn fiber_solver_reports_reactions() {
+    let sec = rectangular_fiber_section(0.2, 0.4, 10, FiberMaterial::Elastic { e: 200_000.0 });
+    let r = solve_fiber_nonlinear_2d(&fiber_cantilever_2d(3.0, sec, 0.0, -10.0, 5, 1, 1e-10)).unwrap();
     assert!(!r.results.reactions.is_empty(), "no reactions reported");
 }
 
