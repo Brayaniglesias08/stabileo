@@ -9,6 +9,17 @@ It should capture what changed, not what should be built next.
 
 ## Unreleased
 
+## 0.2.0 (2026-10-18)
+
+**Results change: re-run your projects.** Release notes for users, in English, Spanish and
+Portuguese: [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md) ·
+[es](docs/releases/v0.2.0.es.md) · [pt](docs/releases/v0.2.0.pt.md). They list every change
+that affects results (defaults, loads and combinations, CIRSOC 201/301, ACI, EC3, AISC, AISI,
+analyses), the new refusals, the sanity review and the corrected example models. This is the
+first tagged release: everything below was already deployed to stabileo.com as it was merged.
+The app now shows its version in the status bar and, once, a notice that results may have
+changed with a link to the notes.
+
 ### Changed
 
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
@@ -26,7 +37,6 @@ unchanged: the engine agrees with the previous checker to 1e-9 on 4 000 random m
   the E.5 end condition or the E.6 connectors. Angles in flexure (F.9, F.10) are refused by name.
 - Steel results screen: every check per member, ratio, governing check, status with the reason,
   proven-bound badge, the calculation with clause references, in en/es/pt.
-||||||| 333cbc54
 #### Solid shells meshed with frames or shells; spectral analysis checked (2026-10-17)
 
 **BREAKING (results): 3D models that mix solid shells (or trusses) with frames or shells now
@@ -276,7 +286,6 @@ test there.
   modal and harmonic certificates check the expanded model.
 - **The parallel sparse 3D load vector left quad and MITC9 self-weight in local axes.** Only
   builds with the `parallel` feature were affected (the sequential and dense paths transform it).
-||||||| 46ab0e7f
 #### Tension members: end connections in the model (2026-10-17)
 
 - **CIRSOC 301 tension rupture (Ae = An·U) can now be evaluated in the app.** Each member end
