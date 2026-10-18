@@ -169,7 +169,7 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
         for _iter in 0..input.max_iter {
             total_iters += 1;
             for (id, es) in elem_states.iter_mut() {
-                let _ = (&es, &committed[id]); // TMPEXP
+                es.section_states.clone_from(&committed[id]);
             }
 
             // Assemble tangent stiffness and internal forces from fiber elements.
@@ -877,7 +877,7 @@ pub fn solve_fiber_nonlinear_3d(input: &FiberNonlinearInput3D) -> Result<FiberNo
         for _iter in 0..input.max_iter {
             total_iters += 1;
             for (id, es) in elem_states.iter_mut() {
-                let _ = (&es, &committed[id]); // TMPEXP
+                es.section_states.clone_from(&committed[id]);
             }
 
             // Assemble tangent stiffness and internal forces from fiber elements.
