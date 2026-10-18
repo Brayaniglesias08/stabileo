@@ -1,9 +1,16 @@
-/// SHB8-ANS: 8-node solid-shell element with ANS anti-locking.
+/// SHB8-ANS-EAS: 8-node solid-shell element with ANS + EAS anti-locking.
 ///
 /// 8-node trilinear hex, 3 DOFs/node (translations only), 24 total DOFs.
 /// Full 2×2×2 Gauss integration. ANS on the covariant thickness strain (E_ζζ)
 /// and transverse shears (E_ξζ, E_ηζ) to prevent curvature thickness locking
-/// and transverse shear locking; ζ (nodes 1-4 → 5-8) is the thickness direction.
+/// and transverse shear locking; one condensed EAS mode (thickness strain linear
+/// in ζ) to prevent Poisson thickness locking; ζ (nodes 1-4 → 5-8) is the
+/// thickness direction. Three locking mechanisms, three cures:
+///   - transverse shear locking (thin bending):   ANS 2E_ξζ, 2E_ηζ (Dvorkin–Bathe)
+///   - curvature thickness locking (curved/       ANS E_ζζ at 4 mid-surface corners
+///     trapezoidal sections):                     (Betsch–Stein; Bischoff–Ramm)
+///   - Poisson thickness locking (any bending     EAS E_ζζ = ζ·α (Büchter–Ramm–Roehl;
+///     with ν ≠ 0, ~23 % too stiff at ν = 0.3):    Simo–Rifai mapping), issue #400
 ///
 /// Node numbering:
 ///     8---7       Top face: 5,6,7,8 (ζ = +1)
@@ -135,7 +142,9 @@ fn material_matrix_3d(e: f64, nu: f64) -> [f64; 36] {
 
 // ==================== B-Matrix ====================
 
-/// Build standard 6×24 strain-displacement matrix at a point.
+/// Build standard 6×24 strain-displacement matrix at a point (test reference for the
+/// covariant route).
+#[cfg(test)]
 /// dn_dx[a][i] = ∂N_i/∂x_a (physical derivatives, a=0,1,2 for x,y,z).
 fn build_b_matrix(dn_dx: &[[f64; 8]; 3]) -> [f64; 144] {
     let mut b = [0.0; 144]; // 6 × 24
@@ -285,24 +294,92 @@ fn ans_b_matrix(coords: &[[f64; 3]; 8], xi: f64, eta: f64, zeta: f64, tying: &An
     (b, det_j)
 }
 
-// ==================== Stiffness Matrix ====================
+// ==================== EAS Thickness Mode ====================
 
-/// 24×24 solid-shell stiffness matrix with ANS.
-/// coords: 8 nodes × [x,y,z], E in kN/m², ν dimensionless.
-/// Returns 576 entries in row-major order.
-pub fn solid_shell_stiffness(coords: &[[f64; 3]; 8], e: f64, nu: f64) -> Vec<f64> {
+/// Enhanced assumed strain (EAS) for the thickness strain — cures Poisson thickness locking.
+///
+/// Why it is needed. In bending the in-plane strains vary linearly through the thickness,
+/// ε_xx = z·κ_x. With the full 3D law and σ_zz ≈ 0 (thin shell), equilibrium through the
+/// thickness requires ε_zz = −ν/(1 − ν)·(ε_xx + ε_yy), i.e. a thickness strain that is ALSO
+/// linear in z. The trilinear field gives w linear in ζ, so ε_zz = ∂w/∂z is constant in ζ (the
+/// ANS above interpolates it from mid-surface points, still constant in ζ). The linear part of
+/// ε_zz is then forced to zero, σ_zz = λ(ε_xx + ε_yy) appears with the bending stresses, and the
+/// bending rigidity is the plane-strain-in-z modulus E(1 − ν)/((1 + ν)(1 − 2ν)) instead of the
+/// plate modulus E/(1 − ν²): too stiff by (1 − ν)²/(1 − 2ν) = 1.225 at ν = 0.3 (centre deflection
+/// 0.816 of Navier on any mesh, issue #400). Mesh refinement in-plane cannot remove it; it is a
+/// defect of the thickness interpolation, not of the mesh ("Poisson thickness locking",
+/// Büchter, Ramm & Roehl 1994; Bischoff & Ramm 1997).
+///
+/// The cure. Add one enhanced covariant thickness strain linear in ζ (Simo & Rifai 1990 EAS;
+/// the "7th parameter" of Büchter–Ramm–Roehl; used in the solid shells of Hauptmann &
+/// Schweizerhof 1998, Klinkel, Gruttmann & Wagner 1999, Vu-Quoc & Tan 2003):
+///
+///   Ẽ_ζζ = ζ·α  (covariant),   ε̃ = (det J₀ / det J)·T₀·[0, 0, ζ, 0, 0, 0]ᵀ·α  (Cartesian),
+///
+/// with T₀ = covariant_to_cartesian(J₀⁻¹) and J₀ the Jacobian at the element centre (evaluating
+/// the transformation at the centre and scaling by det J₀/det J is the Simo–Rifai construction
+/// that keeps the patch test). Total strain ε = B_ANS·u + G·α. The Hu–Washizu variational
+/// principle with the stress orthogonal to the enhanced strain gives, per element,
+///
+///   [K_uu  K_uα] [u]   [f]        K_uu = ∫ Bᵀ C B dV,   K_uα = ∫ Bᵀ C G dV,
+///   [K_αu  K_αα] [α] = [0],       K_αα = ∫ Gᵀ C G dV,
+///
+/// and α is condensed statically: K = K_uu − K_uα K_αα⁻¹ K_αu, α = −K_αα⁻¹ K_αu u.
+///
+/// Properties (each one checked by a test):
+/// - Patch test: ∫ G dV = det J₀·T₀·e₃·∫ζ dξdηdζ = 0, so a constant stress does no work on
+///   the enhanced mode and α = 0 for every constant-strain state.
+/// - Rigid-body modes: B_ANS·u = 0 for a rigid motion, so K_αu·u = 0 and α = 0.
+/// - Stability: G ≠ 0 and C is positive definite, so K_αα > 0.
+/// - Frame invariance: G is built from covariant quantities and det J only.
+/// - With ν = 0 and parallel faces, ε̃ only enters ε_zz, which is uncoupled: no change.
+///
+/// Alternatives considered: Abed-Meraim & Combescure's SHB8PS removes the same locking by
+/// projecting the constitutive law onto plane stress in the thickness direction. That cannot
+/// carry a real σ_zz (thick parts, contact through the thickness, transverse pressure), so the
+/// EAS route, which keeps the 3D law and is exact for pure bending, is used here.
+const N_EAS: usize = 1;
+
+/// The element operators: B_ANS rows, enhanced G columns and dV at each Gauss point.
+struct EasOperators {
+    k_uu: Vec<f64>,           // 24×24
+    k_ua: [[f64; N_EAS]; 24], // 24×N_EAS
+    k_aa: [[f64; N_EAS]; N_EAS],
+}
+
+/// Cartesian enhanced-strain matrix G (6×N_EAS) at (ξ, η, ζ), Simo–Rifai mapped.
+fn eas_g_matrix(t0: &[f64; 36], det0: f64, det_j: f64, zeta: f64) -> [[f64; N_EAS]; 6] {
+    let s = det0 / det_j * zeta;
+    // Covariant mode e₃·ζ (E_ζζ); its Cartesian image is column 2 of T₀.
+    std::array::from_fn(|r| [s * t0[r * 6 + 2]])
+}
+
+/// C·v for a 6-vector.
+fn c_times(c: &[f64; 36], v: &[f64; 6]) -> [f64; 6] {
+    std::array::from_fn(|i| (0..6).map(|p| c[i * 6 + p] * v[p]).sum())
+}
+
+/// Centre transformation data (T₀, det J₀) for the EAS mapping.
+fn eas_centre(coords: &[[f64; 3]; 8]) -> ([f64; 36], f64) {
+    let dn0 = shape_derivatives_hex8(0.0, 0.0, 0.0);
+    let (_, ji0, det0) = jacobian_3d(coords, &dn0);
+    (covariant_to_cartesian(&ji0), det0)
+}
+
+fn eas_operators(coords: &[[f64; 3]; 8], c: &[f64; 36]) -> EasOperators {
     let ndof = 24;
-    let mut k = vec![0.0; ndof * ndof];
-    let c = material_matrix_3d(e, nu);
+    let mut k_uu = vec![0.0; ndof * ndof];
+    let mut k_ua = [[0.0; N_EAS]; 24];
+    let mut k_aa = [[0.0; N_EAS]; N_EAS];
     let tying = compute_ans_tying(coords);
-    let gauss = gauss_2x2x2();
+    let (t0, det0) = eas_centre(coords);
 
-    for &(xi, eta, zeta, w) in &gauss {
+    for &(xi, eta, zeta, w) in &gauss_2x2x2() {
         let (b, det_j) = ans_b_matrix(coords, xi, eta, zeta, &tying);
         let dv = det_j.abs() * w;
+        let g = eas_g_matrix(&t0, det0, det_j, zeta);
 
-        // K += B^T · C · B · dV
-        // Compute CB = C · B (6×24)
+        // CB = C · B (6×24)
         let mut cb = [0.0; 144];
         for i in 0..6 {
             for j in 0..24 {
@@ -314,7 +391,7 @@ pub fn solid_shell_stiffness(coords: &[[f64; 3]; 8], e: f64, nu: f64) -> Vec<f64
             }
         }
 
-        // K += B^T · CB · dV
+        // K_uu += Bᵀ · CB · dV
         for i in 0..24 {
             for j in i..24 {
                 let mut s = 0.0;
@@ -322,15 +399,102 @@ pub fn solid_shell_stiffness(coords: &[[f64; 3]; 8], e: f64, nu: f64) -> Vec<f64
                     s += b[p * 24 + i] * cb[p * 24 + j];
                 }
                 let val = s * dv;
-                k[i * ndof + j] += val;
+                k_uu[i * ndof + j] += val;
                 if i != j {
-                    k[j * ndof + i] += val;
+                    k_uu[j * ndof + i] += val;
                 }
             }
         }
-    }
 
+        for a in 0..N_EAS {
+            let ga: [f64; 6] = std::array::from_fn(|r| g[r][a]);
+            let cg = c_times(c, &ga);
+            // K_uα += Bᵀ C G dV  (= (CB)ᵀ G, C symmetric)
+            for i in 0..24 {
+                k_ua[i][a] += (0..6).map(|p| cb[p * 24 + i] * ga[p]).sum::<f64>() * dv;
+            }
+            // K_αα += Gᵀ C G dV
+            for bb in 0..N_EAS {
+                k_aa[bb][a] += (0..6).map(|p| g[p][bb] * cg[p]).sum::<f64>() * dv;
+            }
+        }
+    }
+    EasOperators { k_uu, k_ua, k_aa }
+}
+
+/// Solve K_αα·x = r for the (small, SPD) EAS block by Gaussian elimination.
+fn solve_eas(k_aa: &[[f64; N_EAS]; N_EAS], r: &[f64; N_EAS]) -> [f64; N_EAS] {
+    let mut a = *k_aa;
+    let mut x = *r;
+    for p in 0..N_EAS {
+        for q in (p + 1)..N_EAS {
+            let f = a[q][p] / a[p][p];
+            for cc in p..N_EAS {
+                a[q][cc] -= f * a[p][cc];
+            }
+            x[q] -= f * x[p];
+        }
+    }
+    for p in (0..N_EAS).rev() {
+        let s: f64 = ((p + 1)..N_EAS).map(|cc| a[p][cc] * x[cc]).sum();
+        x[p] = (x[p] - s) / a[p][p];
+    }
+    x
+}
+
+/// Condensed enhanced parameters α = −K_αα⁻¹ K_αu u for an element displacement u.
+fn eas_alpha(ops: &EasOperators, u: &[f64]) -> [f64; N_EAS] {
+    let r: [f64; N_EAS] = std::array::from_fn(|a| -(0..24).map(|i| ops.k_ua[i][a] * u[i]).sum::<f64>());
+    solve_eas(&ops.k_aa, &r)
+}
+
+// ==================== Stiffness Matrix ====================
+
+/// 24×24 solid-shell stiffness matrix: ANS (covariant transverse shear and thickness
+/// strain) plus one condensed EAS thickness mode (see "EAS Thickness Mode" above).
+/// coords: 8 nodes × [x,y,z], E in kN/m², ν dimensionless.
+/// Returns 576 entries in row-major order.
+pub fn solid_shell_stiffness(coords: &[[f64; 3]; 8], e: f64, nu: f64) -> Vec<f64> {
+    let c = material_matrix_3d(e, nu);
+    let ops = eas_operators(coords, &c);
+    let mut k = ops.k_uu.clone();
+    // K = K_uu − K_uα K_αα⁻¹ K_αu
+    let inv_cols: [[f64; N_EAS]; 24] = std::array::from_fn(|i| solve_eas(&ops.k_aa, &ops.k_ua[i]));
+    for i in 0..24 {
+        for j in 0..24 {
+            let s: f64 = (0..N_EAS).map(|a| ops.k_ua[i][a] * inv_cols[j][a]).sum();
+            k[i * 24 + j] -= s;
+        }
+    }
+    // Symmetrize the round-off of the condensation.
+    for i in 0..24 {
+        for j in (i + 1)..24 {
+            let m = 0.5 * (k[i * 24 + j] + k[j * 24 + i]);
+            k[i * 24 + j] = m;
+            k[j * 24 + i] = m;
+        }
+    }
     k
+}
+
+/// Cartesian strain [εxx, εyy, εzz, γxy, γyz, γxz] at (ξ, η, ζ) consistent with the
+/// stiffness: ε = B_ANS·u + G·α, α condensed from u. Used by every stress recovery so
+/// the reported stresses are those the element's energy is built from.
+pub fn solid_shell_strain(coords: &[[f64; 3]; 8], u: &[f64], e: f64, nu: f64, xi: f64, eta: f64, zeta: f64) -> [f64; 6] {
+    let c = material_matrix_3d(e, nu);
+    let ops = eas_operators(coords, &c);
+    let alpha = eas_alpha(&ops, u);
+    strain_with_alpha(coords, u, &alpha, xi, eta, zeta)
+}
+
+fn strain_with_alpha(coords: &[[f64; 3]; 8], u: &[f64], alpha: &[f64; N_EAS], xi: f64, eta: f64, zeta: f64) -> [f64; 6] {
+    let tying = compute_ans_tying(coords);
+    let (t0, det0) = eas_centre(coords);
+    let (b, det_j) = ans_b_matrix(coords, xi, eta, zeta, &tying);
+    let g = eas_g_matrix(&t0, det0, det_j, zeta);
+    std::array::from_fn(|r| {
+        (0..24).map(|j| b[r * 24 + j] * u[j]).sum::<f64>() + (0..N_EAS).map(|a| g[r][a] * alpha[a]).sum::<f64>()
+    })
 }
 
 // ==================== Consistent Mass ====================
@@ -418,29 +582,8 @@ pub fn solid_shell_stresses(
     e: f64,
     nu: f64,
 ) -> QuadStressResult {
-    let c = material_matrix_3d(e, nu);
-
-    // Evaluate at centroid (0, 0, 0)
-    let dn = shape_derivatives_hex8(0.0, 0.0, 0.0);
-    let (_, ji, _) = jacobian_3d(coords, &dn);
-    let dn_dx = physical_derivatives(&ji, &dn);
-    let b = build_b_matrix(&dn_dx);
-
-    // ε = B · u
-    let mut strain = [0.0; 6];
-    for i in 0..6 {
-        for j in 0..24 {
-            strain[i] += b[i * 24 + j] * u[j];
-        }
-    }
-
-    // σ = C · ε
-    let mut stress = [0.0; 6];
-    for i in 0..6 {
-        for j in 0..6 {
-            stress[i] += c[i * 6 + j] * strain[j];
-        }
-    }
+    // Evaluate at the centroid (0, 0, 0), with the element's own (ANS + EAS) strain.
+    let stress = solid_shell_avg_stress(coords, u, e, nu);
 
     let sigma_xx = stress[0];
     let sigma_yy = stress[1];
@@ -468,25 +611,8 @@ pub fn solid_shell_avg_stress(
     nu: f64,
 ) -> [f64; 6] {
     let c = material_matrix_3d(e, nu);
-    let dn = shape_derivatives_hex8(0.0, 0.0, 0.0);
-    let (_, ji, _) = jacobian_3d(coords, &dn);
-    let dn_dx = physical_derivatives(&ji, &dn);
-    let b = build_b_matrix(&dn_dx);
-
-    let mut strain = [0.0; 6];
-    for i in 0..6 {
-        for j in 0..24 {
-            strain[i] += b[i * 24 + j] * u[j];
-        }
-    }
-
-    let mut stress = [0.0; 6];
-    for i in 0..6 {
-        for j in 0..6 {
-            stress[i] += c[i * 6 + j] * strain[j];
-        }
-    }
-    stress
+    let strain = solid_shell_strain(coords, u, e, nu, 0.0, 0.0, 0.0);
+    c_times(&c, &strain)
 }
 
 /// Nodal von Mises stresses (evaluate at each of the 8 Gauss points,
@@ -498,28 +624,12 @@ pub fn solid_shell_nodal_von_mises(
     nu: f64,
 ) -> Vec<f64> {
     let c = material_matrix_3d(e, nu);
-    let gauss = gauss_2x2x2();
+    let alpha = eas_alpha(&eas_operators(coords, &c), u);
     let mut vm = Vec::with_capacity(8);
 
-    for &(xi, eta, zeta, _) in &gauss {
-        let dn = shape_derivatives_hex8(xi, eta, zeta);
-        let (_, ji, _) = jacobian_3d(coords, &dn);
-        let dn_dx = physical_derivatives(&ji, &dn);
-        let b = build_b_matrix(&dn_dx);
-
-        let mut strain = [0.0; 6];
-        for i in 0..6 {
-            for j in 0..24 {
-                strain[i] += b[i * 24 + j] * u[j];
-            }
-        }
-
-        let mut stress = [0.0; 6];
-        for i in 0..6 {
-            for j in 0..6 {
-                stress[i] += c[i * 6 + j] * strain[j];
-            }
-        }
+    for &(xi, eta, zeta, _) in &gauss_2x2x2() {
+        let strain = strain_with_alpha(coords, u, &alpha, xi, eta, zeta);
+        let stress = c_times(&c, &strain);
 
         let sx = stress[0];
         let sy = stress[1];
