@@ -1633,21 +1633,10 @@ pub fn solve_with_imperfections_2d(json: &str) -> Result<String, JsValue> {
         solver: types::SolverInput,
         imperfections: types::ImperfectionInput,
     }
-    let mut input: Input = serde_json::from_str(json)
+    let input: Input = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
-
-    // Apply geometric imperfections
-    solver::imperfections::apply_geometric_imperfections_2d(
-        &mut input.solver, &input.imperfections.node_imperfections,
-    );
-
-    // Add notional loads
-    for notional in &input.imperfections.notional_loads {
-        let loads = solver::imperfections::notional_loads_2d(&input.solver, notional);
-        input.solver.loads.extend(loads);
-    }
-
-    let results = solver::linear::solve_2d(&input.solver)
+    // Node offsets, notional loads, a linear solve; refuses what it would not apply.
+    let results = solver::imperfections::solve_with_imperfections_2d(input.solver, &input.imperfections)
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&results)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
@@ -1662,19 +1651,9 @@ pub fn solve_with_imperfections_3d(json: &str) -> Result<String, JsValue> {
         solver: types::SolverInput3D,
         imperfections: types::ImperfectionInput,
     }
-    let mut input: Input = serde_json::from_str(json)
+    let input: Input = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
-
-    solver::imperfections::apply_geometric_imperfections_3d(
-        &mut input.solver, &input.imperfections.node_imperfections,
-    );
-
-    for notional in &input.imperfections.notional_loads {
-        let loads = solver::imperfections::notional_loads_3d(&input.solver, notional);
-        input.solver.loads.extend(loads);
-    }
-
-    let results = solver::linear::solve_3d(&input.solver)
+    let results = solver::imperfections::solve_with_imperfections_3d(input.solver, &input.imperfections)
         .map_err(|e| JsValue::from_str(&e))?;
     serde_json::to_string(&results)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))

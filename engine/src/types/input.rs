@@ -871,12 +871,12 @@ pub struct NotionalLoadDef {
     /// Direction: 0=X, 1=Y, 2=Z
     #[serde(default)]
     pub direction: usize,
-    /// Gravity axis: 0=X, 1=Z (2D), 0=X, 1=Y, 2=Z (3D). Default 1 = vertical in 2D (Z).
-    #[serde(default = "default_gravity_axis")]
-    pub gravity_axis: usize,
+    /// Gravity axis: 0=X, 1=Z (2D), 0=X, 1=Y, 2=Z (3D). Absent: the vertical axis of the
+    /// model, Z (1 in 2D, 2 in 3D). It defaulted to 1 for both, which is Y in a Z-up 3D
+    /// model: a default 3D definition found no gravity and added nothing (NL-9).
+    #[serde(default)]
+    pub gravity_axis: Option<usize>,
 }
-
-fn default_gravity_axis() -> usize { 1 }
 
 /// Residual stress pattern for fiber sections.
 #[derive(Debug, Clone, Serialize, Deserialize)]
