@@ -140,6 +140,11 @@ jobs:
       # Real-model acceptance suite (docs/verification/ACCEPTANCE.md): public
       # benchmark buildings against their published reference results. A
       # release gate; it runs in well under a minute, so on every PR.
+      - name: Acceptance models match their generators
+        run: |
+          for g in engine/tests/acceptance/generators/*.py; do python3 -I "$g"; done
+          git diff --exit-code -- engine/tests/acceptance/models
+
       - name: Acceptance suite gate
         working-directory: engine
         run: cargo nextest run --profile ci --test acceptance

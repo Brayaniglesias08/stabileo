@@ -12,8 +12,10 @@ and compared against those results. Every release must pass it.
 - Generators: `engine/tests/acceptance/generators/*.py` rebuild each case from
   the data transcribed out of the source (stdlib only). `--replay` reruns the
   source's own published model code with numpy, to show where each digit comes from.
-- CI: the `Acceptance suite gate` step of the `test` job in
-  `.github/workflows/ci.yml` runs on every PR (it takes well under a second).
+- CI: in the `test` job of `.github/workflows/ci.yml`, on every PR. One step
+  regenerates every case and fails if a model file differs from its
+  generator's output. The `Acceptance suite gate` step then runs the suite,
+  which takes well under a second.
 
 ## Rules
 
