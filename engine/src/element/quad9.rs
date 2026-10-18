@@ -547,7 +547,7 @@ pub fn quad9_consistent_mass(
     rho: f64,
     t: f64,
 ) -> Vec<f64> {
-    let (ex, ey, _) = quad9_local_axes(coords);
+    let (ex, ey, ez) = quad9_local_axes(coords);
     let pts = project_to_2d_9(coords, &ex, &ey);
     let ndof = 54;
     let mut m = vec![0.0; ndof * ndof];
@@ -570,10 +570,9 @@ pub fn quad9_consistent_mass(
                     m[(di + d) * ndof + (dj + d)] += m_val;
                 }
 
-                // Rotary inertia (rx, ry)
+                // Rotary inertia about the in-plane axes (see quad.rs)
                 let m_rot = rho * t * t * t / 12.0 * dv * n[i] * n[j];
-                m[(di + 3) * ndof + (dj + 3)] += m_rot;
-                m[(di + 4) * ndof + (dj + 4)] += m_rot;
+                super::quad::add_shell_rotary_inertia(&mut m, ndof, di, dj, m_rot, &ez);
             }
         }
     }
@@ -590,7 +589,7 @@ pub fn quad9_geometric_stiffness(
     nyy: f64,
     nxy: f64,
 ) -> Vec<f64> {
-    let (ex, ey, _) = quad9_local_axes(coords);
+    let (ex, ey, ez) = quad9_local_axes(coords);
     let pts = project_to_2d_9(coords, &ex, &ey);
     let ndof = 54;
     let mut kg = vec![0.0; ndof * ndof];

@@ -699,12 +699,27 @@ pub fn quad_transform_3d(coords: &[[f64; 3]; 4]) -> Vec<f64> {
 /// Compute quad element consistent mass matrix (24×24).
 ///
 /// Lumped mass approximation with rotary inertia.
+/// Add a shell's rotary inertia `m_rot` between nodes (di, dj) on the global
+/// rotation DOFs: inertia about the two in-plane axes, i.e. m_rot·(I − n·nᵀ)
+/// with n the shell normal. It used to be put on global rx and ry whatever
+/// the shell's orientation — right only for a shell in the XY plane, so a
+/// wall's frequencies changed when the model was rotated (found by the
+/// metamorphic rotation check on modal analysis).
+pub(crate) fn add_shell_rotary_inertia(m: &mut [f64], ndof: usize, di: usize, dj: usize, m_rot: f64, n: &[f64; 3]) {
+    for a in 0..3 {
+        for b in 0..3 {
+            let p = if a == b { 1.0 } else { 0.0 } - n[a] * n[b];
+            m[(di + 3 + a) * ndof + (dj + 3 + b)] += m_rot * p;
+        }
+    }
+}
+
 pub fn quad_consistent_mass(
     coords: &[[f64; 3]; 4],
     rho: f64,
     t: f64,
 ) -> Vec<f64> {
-    let (ex, ey, _) = quad_local_axes(coords);
+    let (ex, ey, ez) = quad_local_axes(coords);
     let pts = project_to_2d(coords, &ex, &ey);
     let ndof = 24;
     let mut m = vec![0.0; ndof * ndof];
@@ -727,10 +742,9 @@ pub fn quad_consistent_mass(
                     m[(di + d) * ndof + (dj + d)] += m_val;
                 }
 
-                // Rotary inertia (rx, ry) ~ ρ*t³/12 * N_i * N_j
+                // Rotary inertia about the in-plane axes ~ ρ*t³/12 * N_i * N_j
                 let m_rot = rho * t * t * t / 12.0 * dv * n[i] * n[j];
-                m[(di + 3) * ndof + (dj + 3)] += m_rot;
-                m[(di + 4) * ndof + (dj + 4)] += m_rot;
+                add_shell_rotary_inertia(&mut m, ndof, di, dj, m_rot, &ez);
             }
         }
     }

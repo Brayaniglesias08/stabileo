@@ -154,6 +154,10 @@ pub fn check_2d(tally: &Tally, sym: &Sym2, anti: bool, anas: &[Ana2]) {
         if anti && a.law != Law::Linear {
             continue;
         }
+        // A deck path runs one way: its load is not symmetric.
+        if a.name == "moving loads" || a.name == "influence line" {
+            continue;
+        }
         let v = match guarded(|| (a.run)(c)) {
             Err(e) => Verdict::Refused(e),
             Ok(r) => match r.iso2(&sym.iso) {
@@ -330,6 +334,10 @@ pub fn check_3d(tally: &Tally, sym: &Sym3, anti: bool, anas: &[Ana3]) {
     };
     for a in anas {
         if anti && a.law != Law::Linear {
+            continue;
+        }
+        // A deck path runs one way: its load is not symmetric.
+        if a.name == "moving loads" || a.name == "influence line" {
             continue;
         }
         let v = match guarded(|| (a.run)(c)) {

@@ -1067,19 +1067,23 @@ pub fn curved_shell_consistent_mass(
             }
         }
 
-        // Rotational inertia: m_rot = ρ·h³/12·∫ N_i·N_j dA for rx, ry
+        // Rotational inertia m_rot = ρ·h³/12·∫ N_i·N_j dA about the two axes
+        // tangent to the shell (the mean director is the normal), on the
+        // global rotation DOFs — not on global rx, ry whatever the shell's
+        // orientation (see quad::add_shell_rotary_inertia).
         let rot_factor = rho * h * h / 12.0;
+        let mut nrm = [0.0; 3];
+        for d in dirs {
+            for a in 0..3 {
+                nrm[a] += d[a];
+            }
+        }
+        let len = (nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]).sqrt().max(f64::MIN_POSITIVE);
+        let nrm = [nrm[0] / len, nrm[1] / len, nrm[2] / len];
         for i in 0..4 {
-            for j in i..4 {
+            for j in 0..4 {
                 let mass_val = rot_factor * dv * n_shape[i] * n_shape[j];
-                for d in 3..5 { // rx, ry only
-                    let r = i * 6 + d;
-                    let c = j * 6 + d;
-                    m[r * ndof + c] += mass_val;
-                    if i != j {
-                        m[c * ndof + r] += mass_val;
-                    }
-                }
+                super::quad::add_shell_rotary_inertia(&mut m, ndof, i * 6, j * 6, mass_val, &nrm);
             }
         }
     }

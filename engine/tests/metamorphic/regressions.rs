@@ -419,3 +419,22 @@ fn probe_krx() {
         println!("k={k} flags {:?} springs {:?} -> {:?}", (sup.rrx, sup.rry, sup.rrz), (sup.krx, sup.kry, sup.krz), linear::solve_3d(&t).map(|r| r.displacements.len()).map_err(|e| e.chars().take(80).collect::<String>()));
     }
 }
+
+/// Shell rotary inertia acts about the shell's in-plane axes: a cantilever
+/// strip of MITC4 shells has the same frequencies lying flat and standing as
+/// a wall (it was put on global rx, ry whatever the orientation).
+#[test]
+fn shell_rotary_inertia_follows_the_shell() {
+    let f = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/metamorphic_corpus/feature_matrix/3d-quad-shell--mitc4--strip-cantilever------0-with.json");
+    let s: SolverInput3D = serde_json::from_str(&std::fs::read_to_string(f).unwrap()).unwrap();
+    let c = crate::case::Case3::new("strip", s);
+    for k in [3, 7, 13] {
+        let iso = Iso3::axis_permutation(k);
+        let t = c.iso(&iso).unwrap();
+        let a = dedaliano_engine::solver::modal::solve_modal_3d(&c.s, &c.dens, 6).unwrap();
+        let b = dedaliano_engine::solver::modal::solve_modal_3d(&t.s, &t.dens, 6).unwrap();
+        for (x, y) in a.modes.iter().zip(&b.modes) {
+            close(y.frequency, x.frequency, 1e-7, "frequency");
+        }
+    }
+}
