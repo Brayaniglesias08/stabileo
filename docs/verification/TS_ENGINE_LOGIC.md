@@ -114,7 +114,11 @@ under "What is left".
     treats `null` as "not verified".
 - Fixed on feat/cirsoc301-rust: 1 (CIRSOC 301 in the engine, the TypeScript an adapter, every
   steel pass gated on the certified engine check; see "CIRSOC 301" below).
-- Open: 4, 10, 11, 14 and 17. See "What is left".
+- Fixed on fix/ts-silent-fallbacks (#321): 3 (the wrappers throw), 4, 11 and 14 (see "Silent
+  fallbacks" below). 14 had already been fixed in #283: the engine reports (K + Kg)·u − FEF and
+  `pdelta-forces.ts` is gone; `pdelta-amplification.ts` only reads B2 from the two sets of
+  displacements and patches no force.
+- Open: 10 and 17. See "What is left".
 
 ## Plan and status
 
@@ -234,6 +238,13 @@ Mu = 330 kN·m with 4 Ø32 + 2 Ø20 and passes it (warn). With the bars it chose
 designer anchored at 4 ‰ for the required steel and never looked at the provided steel. Tests:
 `__tests__/cirsoc201-engine-gate.test.ts`.
 
+- **Isolated footings** (`detailing/foundation-check.ts`). Every OK footing is handed to
+  `certify_isolated_footings` (the same generic formulas in outward-rounded interval arithmetic).
+  It stays OK only if the certified utilization of bearing, one-way shear and punching is
+  provably below 1, and if full contact and an insignificant unbalanced moment are decided on
+  the box. Otherwise it becomes FAIL with `engineRecheck` and a memo line. Tests:
+  `__tests__/differential/footing-engine.test.ts`.
+
 ### 4. Migration of the duplicates into Rust
 
 | Module | Status |
@@ -243,8 +254,10 @@ designer anchored at 4 ‰ for the required steel and never looked at the provid
 | CIRSOC 201 other sections (`cirsoc201-capacity.ts`, `-flanged.ts`, `-circular.ts`, `interaction-diagram.ts`, `cirsoc-flex.ts`) | Not migrated. |
 | CIRSOC 301 (`cirsoc301.ts`) | **Migrated.** A thin adapter over `check_cirsoc301_members` (`cirsoc301-kernel.ts`, JSON boundary): it maps `SteelDesignParams` in and the results out and renders the engine's messages as the Spanish `steps`. No engine = every check fails. Every pass is re-checked by `cirsoc301-engine-gate.ts` (step 3). Single and double angles are new (E.5, E.6). Still TypeScript (class c, inputs to the engine): `steel/tension-connection.ts` (Ae from the model's end connections), `steel/moment-gradient.ts` (Cb), `steel/section-constants.ts` (J, Cw, Z). |
 | Serviceability (`checkDeflection`) | **Migrated.** The verdict (allowable deflection, ratio, pass) comes from `check_serviceability`. Only the long-term multiplier stays in TypeScript. If the engine is not loaded, the check fails. `checkCrackWidth` has no engine counterpart; it was fixed but stays in TypeScript. |
-| Footings (`foundation-check.ts`, `punching-shear.ts`) | Not migrated. The Rust checker was corrected and is proven equal on shear for centred footings, but it does not model eccentricity, separate service and factored loads, or flexure, so it cannot replace the TypeScript yet. |
-| Station design forces | Production already uses the engine buffer. The TypeScript is the fallback when WASM is not ready (finding 4), and it is proven equal on the QA-8 frame. |
+| Footings (`foundation-check.ts`) | **Migrated.** A thin adapter over `check_isolated_footings` (`engine/src/postprocess/isolated_footing.rs`): service bearing with biaxial eccentricity and the column's plan offset, factored one-way shear in both directions and from both faces, punching with the soil inside the perimeter deducted and the unbalanced moment formed by equilibrium (refused when significant or not formable), column-face flexure along both axes. The formulas are generic over `Real`; `certify_isolated_footings` evaluates them in interval arithmetic and gates every OK (step 3). The old TypeScript is `__tests__/differential/foundation-check-oracle.ts`. `punching-shear.ts` stays for slab-column punching (`slab-punching.ts`), which the engine does not cover. |
+| Station design forces | **Engine only.** `computeStationDemands` throws `EngineUnavailableError` without the engine or the model; the TypeScript extraction is `__tests__/differential/station-oracle.ts`. |
+| CIRSOC 101 combinations (`codes/cirsoc101/combinations.ts`) | **Migrated.** Adapter over `engine/src/loads/cirsoc101_combinations.rs` (`loads_request`, op `cirsoc101Combinations`). The #292-verified TypeScript is `__tests__/combinations-oracle.ts`; `combinations-engine.test.ts` compares all 1 024 subsets of the ten loads and 3 000 random option sets, id for id, term for term, reference for reference. |
+| INPRES-CIRSOC 103 spectrum and static method (`codes/cirsoc103/spectrum.ts`, `static-method.ts`) | **Migrated.** Adapters over `engine/src/loads/cirsoc103_seismic.rs`: Tabla 3.1, [3.1]–[3.4], [3.13]/[3.14], [3.15], Tablas 6.1/6.2, [6.3]–[6.7], [6.11]–[6.13], Tabla 2.5. The adapters write the messages and references. `seismic-engine.test.ts` compares every zone × site × fault factor and 3 000 random period/coefficient/distribution/applicability cases with the verified oracles, and pins the constant tables the app still reads directly (`RISK_FACTOR`, `SIMULTANEITY_F1/F2`, `ZONE_AS`, `ZONE_T3`, `PERIOD_COEFFICIENTS`) to the engine's. LOADS.md's tests (`verification-*.test.ts`) now run against the engine. |
 
 ### 5. Hardening what stays in TypeScript
 
@@ -282,6 +295,27 @@ The full critical set in `stryker.config.json` (CIRSOC 301, serviceability, foot
 auto-verify, the candidate search, CIRSOC 201 anchorage and spacing) has not been run here. The
 machine was shared by eight agents. The nightly job runs it.
 
+### 6. Silent fallbacks removed (#321)
+
+The engine is the only source of engineering results. When it is not loaded the app says
+"engine not available" (`engine.unavailable`), and when it fails it shows the engine's message;
+it never computes the number with a TypeScript duplicate. `engine-unavailable.ts` holds the two
+errors (`EngineUnavailableError`, `EngineCheckError`), `store/engine-status.svelte.ts` the
+reactive readiness that screens computing before the engine arrives recompute on.
+
+| Path | Before | Now |
+|---|---|---|
+| `section-stress.ts` `analyzeSectionStress`, `section-stress-3d.ts` `analyzeSectionStress3D` / `FromForces` | Full TypeScript Navier/Jourawski/torsion/Mohr when `!isWasmReady()` | Engine only; the stress panel shows "engine not available" or the engine's error (`stress-engine-failure`). Oracle: `differential/section-stress-oracle.ts`; `section-stress-engine.test.ts` compares 4 000 random members/sections/fibres. |
+| `shell-combos.ts` `enrichComboShellStresses`, `combineShellStresses` (also used by `superposed` and the all-loads baseline) | TypeScript recombination when the kernel was not registered | Kernel only (a frame without shells needs none). Oracle: `differential/shell-combos-oracle.ts`, compared on 500 random batches. |
+| `verification-service.ts` `computeStationDemands` | JS `extractElementStations` without the engine or model | Throws; design-run reports `engine.unavailable`. Oracle: `differential/station-oracle.ts`. |
+| `wasm-solver.ts` design-check wrappers (13) | `catch { return null }`, losing the engine's reason | Throw `EngineUnavailableError` / `EngineCheckError`. `other-codes/run.ts` withdraws every row of the run and shows the message; `ProOtherCodesPanel` and `serviceability.ts` show it too. |
+| `codes/argentina/cirsoc201-section.ts` `prepareSection` (flexure calculator, P–M) | TypeScript `sectionPoint` integration when the RC kernel was missing | Throws; `sectionPoint` is reachable only through `useTypeScriptReferenceForTests`. |
+| `member-stresses.ts` | Bounding rectangle when the engine failed on a geometry-backed section (not a bound for angles/channels) | The section is not read and the table counts it as unread. |
+| `wasm-solver.ts` header, `App.svelte` | "falls back to JS solver" | Corrected; a failed engine load is a toast and `engineStatus.error`. |
+
+`__tests__/no-silent-fallback.test.ts` fails if app code imports an oracle or switches the RC
+section to its TypeScript reference, or if a design-check wrapper returns `null` again.
+
 ## What is left
 
 In rough order of safety value:
@@ -302,19 +336,31 @@ In rough order of safety value:
 5. **Column checks under tension in the legacy path.** `verifyElement` takes a magnitude as
    compression. The gate re-checks tension through the Rust kernel, but the TypeScript
    verdict is still computed on compression.
-6. **Footings.** The Rust checker uses one axial force for both service bearing and factored
-   shear. It also has no eccentricity, flexure or position (edge or corner). It needs those
-   before `foundation-check.ts` can become an adapter.
-7. **Silent fallbacks.** `section-stress*.ts`, `shell-combos.ts` and
-   `verification-service.ts` (station extraction) quietly compute in TypeScript when WASM is
-   not ready (findings 4 and 11). (`plastic-collapse.ts`, finding 12, is fixed: an engine
-   exception after the kinematic check says "solvable" is now an error, unless the engine's
-   message names a mechanism, singularity or instability.)
-8. **`pdelta-forces.ts`** patches the engine's P-Delta member forces with Kg·u (finding 14).
-   The fix belongs in Rust.
+6. **Footings, what the engine does not do.** Combined/strip footings, mats, pile caps, the
+   reduced effective area past the kern (refused), moment transfer by eccentric shear (8.4.4.2,
+   refused), edge and corner moment formation (refused). Footing mat design
+   (`footing-flexure.ts`, `footing-mat-anchorage.ts`) and `footing-actions.ts` (used by the
+   flexure design) are still TypeScript.
+7. **Remaining TypeScript computations on engine results.** `diagrams.ts` deformed shape
+   still has a TypeScript Hermite fallback (display only); `diagrams*.ts` evaluate M/V/N in
+   TypeScript for display and for the rotated-2D stress panel's forces; `stress-heatmap.ts`
+   colours members by a TypeScript bound; `detailing/collision.ts` has a TypeScript
+   broad/narrow phase when its kernel is missing; `combination-methods.ts` combines shells by
+   SRSS/ABS in TypeScript.
+8. **P-Delta.** No TypeScript correction of member forces remains (#283). B2 and the
+   stability verdict are read in TypeScript from the engine's two sets of displacements
+   (`pdelta-amplification.ts`), and `direct-analysis.ts` uses B2 > 1,7 to decide C2.2b's
+   notional loads; a reversed or vanishing displacement is read as unstable, never as stable.
 9. **PRO report slab steel** (finding 13) is no longer printed. The section invented its load, span and f'c, and now says that slab steel is designed in the slab design. A report section built from the slab design's own results would be the real fix.
-10. **`loads/*`.** Wind, snow, seismic and combination coefficients are TypeScript only. That
-    is the next migration candidate after #292 lands.
+10. **Load generation still in TypeScript.** Moved: CIRSOC 101 combinations and the
+    INPRES-CIRSOC 103 spectrum and static method. Not yet: CIRSOC 102 wind (`codes/cirsoc102/*`,
+    `loads/load-plan-wind.ts`, `wind-cases.ts`, `wind-other.ts`), CIRSOC 104 snow
+    (`codes/cirsoc104/*`, `loads/snow-*.ts`), CIRSOC 101 dead/live/roof-live tables and
+    reduction (`dead-loads.ts`, `live-loads.ts`, `roof-live.ts`, `loads/case-reduction.ts`),
+    service combinations (`service-combinations.ts`), the expansion of symbols onto cases
+    (`loads/combination-cases.ts`), accidental torsion (`loads/seismic-cases.ts`) and the modal
+    story forces with their own CQC (`loads/seismic-modal.ts`, finding 10). Each has its
+    clause-by-clause tests from #292 to serve as the oracle when it moves.
 11. **Other CIRSOC 201 section shapes** (`cirsoc201-flanged.ts`, `-circular.ts`,
     `-capacity.ts`, `interaction-diagram.ts`, `cirsoc-flex.ts`) still compute in TypeScript.
 
