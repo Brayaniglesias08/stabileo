@@ -1,15 +1,15 @@
 {
  "schema": 1,
- "generated": "2026-10-18 16:50 UTC",
- "commit": "5edde3a40e",
+ "generated": "2026-10-18 16:54 UTC",
+ "commit": "e6f8497499",
  "metrics": {
   "safety_open": {
    "label": "Open `safety` issues",
-   "value": 50,
-   "display": "50",
+   "value": 51,
+   "display": "51",
    "status": "measured",
    "source": "GitHub label `safety`",
-   "note": "0 closed (kept from 2026-10-18 16:50 UTC; GitHub not reachable)",
+   "note": "0 closed",
    "section": "Release safety"
   },
   "advisories": {
@@ -18,7 +18,7 @@
    "display": "0",
    "status": "measured",
    "source": "GitHub label `safety-advisory`",
-   "note": "(kept from 2026-10-18 16:50 UTC; offline run)",
+   "note": "",
    "section": "Release safety"
   },
   "rust_share": {
@@ -90,7 +90,7 @@
    "display": "59.9 % (partial: 1251 of 23264 mutants tested)",
    "status": "partial",
    "source": "verify.yml [2026-10-18](https://github.com/lambdaclass/stabileo/actions/runs/39099586668)",
-   "note": "caught/(caught+missed); 8 shards; jobs: cancelled (kept from 2026-10-18 16:50 UTC; no mutants report found on main)",
+   "note": "caught/(caught+missed); 8 shards; jobs: cancelled",
    "section": "Solver and proof depth"
   },
   "mutation_ts": {
@@ -126,7 +126,7 @@
    "display": "6317 (6216 agree, 101 mismatch)",
    "status": "measured",
    "source": "codeaster, frame3dd, kratos, opensees, pynite",
-   "note": "see Details; no report on main yet: mystran, calculix (kept from 2026-10-18 16:50 UTC; no differential report found on main)",
+   "note": "see Details; no report on main yet: mystran, calculix",
    "section": "Trust and verification"
   },
   "fuzz_execs": {
@@ -189,16 +189,16 @@
    "display": "0 of 10",
    "status": "measured",
    "source": "GitHub label `roadmap:multiplier`",
-   "note": "(kept from 2026-10-18 16:50 UTC; offline run)",
+   "note": "",
    "section": "Multipliers"
   },
   "issues_verification": {
    "label": "Backlog issues closed (`roadmap:verification`)",
    "value": 0,
-   "display": "0 of 13",
+   "display": "0 of 16",
    "status": "measured",
    "source": "GitHub label `roadmap:verification`",
-   "note": "(kept from 2026-10-18 16:50 UTC; offline run)",
+   "note": "",
    "section": "Trust and verification"
   },
   "issues_coverage": {
@@ -207,7 +207,7 @@
    "display": "0 of 15",
    "status": "measured",
    "source": "GitHub label `roadmap:coverage`",
-   "note": "(kept from 2026-10-18 16:50 UTC; offline run)",
+   "note": "",
    "section": "Engineering coverage"
   },
   "issues_solver-proofs": {
@@ -216,16 +216,16 @@
    "display": "0 of 10",
    "status": "measured",
    "source": "GitHub label `roadmap:solver-proofs`",
-   "note": "(kept from 2026-10-18 16:50 UTC; offline run)",
+   "note": "",
    "section": "Solver and proof depth"
   },
   "issues_release-safety": {
    "label": "Backlog issues closed (`roadmap:release-safety`)",
    "value": 0,
-   "display": "0 of 6",
+   "display": "0 of 8",
    "status": "measured",
    "source": "GitHub label `roadmap:release-safety`",
-   "note": "(kept from 2026-10-18 16:50 UTC; offline run)",
+   "note": "",
    "section": "Release safety"
   }
  },
@@ -1350,6 +1350,10 @@
    {
     "number": 445,
     "title": "Rigid link and diaphragm mean different things in the 2D and the 3D solve of one model"
+   },
+   {
+    "number": 447,
+    "title": "Contain first, fix second: per-feature runtime switches (warn/refuse) for known dangerous results"
    }
   ],
   "ts": {
@@ -1379,19 +1383,19 @@
     "modules": 13,
     "lines": 1740,
     "files": [
-     "pdelta-amplification.ts",
      "certificate-types.ts",
-     "incremental-outcome.ts",
-     "certify-jobs.ts",
      "certificate-read.ts",
-     "model-sanity.ts",
+     "pdelta-amplification.ts",
+     "certify-jobs.ts",
      "certify-tags.ts",
-     "steel/tension-connection.ts",
+     "incremental-outcome.ts",
+     "model-sanity.ts",
      "steel/angle-section.ts",
-     "codes/argentina/cirsoc301-engine-gate.ts",
-     "codes/argentina/cirsoc301-kernel.ts",
+     "steel/tension-connection.ts",
      "codes/argentina/cirsoc201-engine-gate.ts",
-     "codes/argentina/cirsoc201-beam-kernel.ts"
+     "codes/argentina/cirsoc201-beam-kernel.ts",
+     "codes/argentina/cirsoc301-engine-gate.ts",
+     "codes/argentina/cirsoc301-kernel.ts"
     ]
    },
    "missing": [
@@ -1449,16 +1453,16 @@
     "run": "https://github.com/lambdaclass/stabileo/actions/runs/39097987226",
     "date": "2026-10-18",
     "statuses": {
-     "ill_conditioned": 222,
      "ok": 760,
      "unsupported": 121,
+     "ill_conditioned": 222,
      "stabileo_failed": 11
     },
     "analyses": {
      "static": {
-      "ill_conditioned": 222,
       "ok": 760,
       "unsupported": 121,
+      "ill_conditioned": 222,
       "stabileo_failed": 11
      }
     },
@@ -1616,6 +1620,7 @@
    },
    "run": "https://github.com/lambdaclass/stabileo/actions/runs/39099586668",
    "date": "2026-10-18"
-  }
+  },
+  "ts_mutants": null
  }
 }
