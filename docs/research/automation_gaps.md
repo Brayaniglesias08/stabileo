@@ -1,8 +1,8 @@
 # Automation Gap Analysis — From Analysis Tool to Design Platform
 
 Read next:
-- product roadmap: [PRODUCT_ROADMAP.md](/Users/unbalancedparen/projects/dedaliano/docs/roadmap/PRODUCT_ROADMAP.md)
-- solver roadmap: [SOLVER_ROADMAP.md](/Users/unbalancedparen/projects/dedaliano/docs/roadmap/SOLVER_ROADMAP.md)
+- product roadmap: [PRODUCT_ROADMAP.md](../roadmap/PRODUCT_ROADMAP.md)
+- solver roadmap: [SOLVER_ROADMAP.md](../roadmap/SOLVER_ROADMAP.md)
 - competitor context: [competitive_displacement_by_step.md](competitive_displacement_by_step.md)
 - post-roadmap stack: [post_roadmap_software_stack.md](post_roadmap_software_stack.md)
 
