@@ -5343,6 +5343,8 @@ const es: Record<string, string> = {
   'pro.responseNode': "Nodo de respuesta",
   'pro.autoTopNode': "Auto (superior)",
   'pro.imperfRatio': "Desplome (relación)",
+  'adv.imperfNoGravity': 'Imperfecciones: ningún nodo lleva carga hacia abajo, así que las cargas ficticias son nulas y no cambiarían nada.',
+  'adv.imperfRestrained': 'Imperfecciones: todos los nodos donde actúan las cargas ficticias están fijos en {dir} (un modelo plano está en X–Z y fijo fuera de su plano), así que no moverían nada. Elegí la otra dirección.',
   'pro.numCBModes': 'Modos CB',
   'pro.reductionHint': 'Ingresá índices de GDL globales a retener (ej: GDL laterales de cada piso).',
   'pro.reduce': 'Reducir',
