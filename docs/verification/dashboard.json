@@ -1,15 +1,24 @@
 {
  "schema": 1,
- "generated": "2026-10-18 16:04 UTC",
- "commit": "1ed435986a",
+ "generated": "2026-10-18 16:09 UTC",
+ "commit": "81cdd77760",
  "metrics": {
   "safety_open": {
    "label": "Open `safety` issues",
-   "value": 45,
-   "display": "45",
+   "value": 50,
+   "display": "50",
    "status": "measured",
    "source": "GitHub label `safety`",
-   "note": "0 closed (kept from 2026-10-18 16:02 UTC; GitHub not reachable)",
+   "note": "0 closed",
+   "section": "Release safety"
+  },
+  "advisories": {
+   "label": "Safety advisories published (GitHub)",
+   "value": 0,
+   "display": "0",
+   "status": "measured",
+   "source": "GitHub label `safety-advisory`",
+   "note": "",
    "section": "Release safety"
   },
   "rust_share": {
@@ -81,7 +90,7 @@
    "display": "59.9 % (partial: 1251 of 23264 mutants tested)",
    "status": "partial",
    "source": "verify.yml [2026-10-18](https://github.com/lambdaclass/stabileo/actions/runs/39099586668)",
-   "note": "caught/(caught+missed); 8 shards; jobs: cancelled (kept from 2026-10-18 16:02 UTC; no mutants report found on main)",
+   "note": "caught/(caught+missed); 8 shards; jobs: cancelled",
    "section": "Solver and proof depth"
   },
   "mutation_ts": {
@@ -117,7 +126,7 @@
    "display": "6317 (6216 agree, 101 mismatch)",
    "status": "measured",
    "source": "codeaster, frame3dd, kratos, opensees, pynite",
-   "note": "see Details (kept from 2026-10-18 16:02 UTC; no differential report found on main)",
+   "note": "see Details",
    "section": "Trust and verification"
   },
   "fuzz_execs": {
@@ -173,6 +182,51 @@
    "source": "verify/*.lean",
    "note": "",
    "section": "Solver and proof depth"
+  },
+  "issues_multiplier": {
+   "label": "Backlog issues closed (`roadmap:multiplier`)",
+   "value": 0,
+   "display": "0 of 10",
+   "status": "measured",
+   "source": "GitHub label `roadmap:multiplier`",
+   "note": "",
+   "section": "Multipliers"
+  },
+  "issues_verification": {
+   "label": "Backlog issues closed (`roadmap:verification`)",
+   "value": 0,
+   "display": "0 of 13",
+   "status": "measured",
+   "source": "GitHub label `roadmap:verification`",
+   "note": "",
+   "section": "Trust and verification"
+  },
+  "issues_coverage": {
+   "label": "Backlog issues closed (`roadmap:coverage`)",
+   "value": 0,
+   "display": "0 of 15",
+   "status": "measured",
+   "source": "GitHub label `roadmap:coverage`",
+   "note": "",
+   "section": "Engineering coverage"
+  },
+  "issues_solver-proofs": {
+   "label": "Backlog issues closed (`roadmap:solver-proofs`)",
+   "value": 0,
+   "display": "0 of 10",
+   "status": "measured",
+   "source": "GitHub label `roadmap:solver-proofs`",
+   "note": "",
+   "section": "Solver and proof depth"
+  },
+  "issues_release-safety": {
+   "label": "Backlog issues closed (`roadmap:release-safety`)",
+   "value": 0,
+   "display": "0 of 6",
+   "status": "measured",
+   "source": "GitHub label `roadmap:release-safety`",
+   "note": "",
+   "section": "Release safety"
   }
  },
  "maturity": {
@@ -853,8 +907,9 @@
    "date": "2026-10-18",
    "commit": "5b1482c78c",
    "values": {
-    "safety_open": "45",
+    "safety_open": "50",
     "rust_share": "64.6 %",
+    "ts_high_safety": "88 modules, 35935 lines",
     "certified_analyses": "11 of 27 (40.7 %)",
     "certified_design": "8 of 16 (50.0 %)",
     "acceptance_refs": "not yet measured",
@@ -1275,6 +1330,26 @@
    {
     "number": 439,
     "title": "Web: 3D sections send no Cw and fall back to J = 0.001·Iy; with torsional buckling in Kg these now drive 3D buckling/P-Delta"
+   },
+   {
+    "number": 441,
+    "title": "Safety advisories: notify users when a released version produced a wrong or unconservative result"
+   },
+   {
+    "number": 442,
+    "title": "Imperfection analysis can silently do nothing (3D gravity axis, member loads, residual stresses, plane model along Y)"
+   },
+   {
+    "number": 443,
+    "title": "Settlements on a DOF the support leaves free are dropped without a message"
+   },
+   {
+    "number": 444,
+    "title": "Winkler member forces leave out the foundation reaction"
+   },
+   {
+    "number": 445,
+    "title": "Rigid link and diaphragm mean different things in the 2D and the 3D solve of one model"
    }
   ],
   "ts": {
@@ -1541,6 +1616,7 @@
    },
    "run": "https://github.com/lambdaclass/stabileo/actions/runs/39099586668",
    "date": "2026-10-18"
-  }
+  },
+  "ts_mutants": null
  }
 }
