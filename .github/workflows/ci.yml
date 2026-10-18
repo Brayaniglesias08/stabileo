@@ -413,9 +413,11 @@ jobs:
         working-directory: web
         run: npx playwright install --with-deps chromium firefox webkit
 
-      - name: Static server serves only its roots
+      # The gate's own negative tests: the static server serves only its roots, and each
+      # requirement and the run comparison fail when what they guard breaks.
+      - name: Gate self-tests
         working-directory: web
-        run: node --test determinism/serve.test.mjs
+        run: node --test determinism/serve.test.mjs determinism/checks.test.mjs
 
       - name: Node digests
         working-directory: web

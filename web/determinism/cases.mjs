@@ -54,13 +54,15 @@ export function canonical(v) {
   return `{${Object.keys(v).map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
 }
 
-/** The output as plain JSON data (Maps to objects), for the requirement checks in checks.mjs. */
-export function plain(v) {
-  if (typeof v === 'string') return JSON.parse(v);
-  if (v instanceof Map) return Object.fromEntries([...v].map(([k, x]) => [String(k), plain(x)]));
-  if (Array.isArray(v) || ArrayBuffer.isView(v)) return Array.from(v, plain);
-  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)]));
-  return v;
+/** The output as plain data (Maps to objects; a string output is serde_json text), for checks.mjs. */
+export function plain(out) {
+  const walk = (v) => {
+    if (v instanceof Map) return Object.fromEntries([...v].map(([k, x]) => [String(k), walk(x)]));
+    if (Array.isArray(v) || ArrayBuffer.isView(v)) return Array.from(v, walk);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    return v;
+  };
+  return typeof out === 'string' ? JSON.parse(out) : walk(out);
 }
 
 /** String outputs are serde_json text: shortest round-trip decimals, a bijection with the bits. */
@@ -209,13 +211,15 @@ export function runCases(wasm, fixtures, { values = false } = {}) {
   for (const [name, f] of caseList(wasm, fixtures)) {
     let text;
     let value;
+    let out;
     try {
-      const out = f();
+      out = f();
       text = textOf(out);
-      if (values) value = plain(out);
     } catch (e) {
       text = `ERR: ${typeof e === 'string' ? e : e?.message ?? String(e)}`;
     }
+    // Outside the try: a value that cannot be read must fail the checks, not change the text.
+    if (values && !text.startsWith('ERR')) value = plain(out);
     results.push(values ? { name, text, value } : { name, text });
   }
   return results;
