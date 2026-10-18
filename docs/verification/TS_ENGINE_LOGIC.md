@@ -103,6 +103,17 @@ under "What is left".
 17. **The beam flexure check ignores axial force** (`verifyProvidedReinforcement`, beam
     regions). A beam in tension (a tie, a rafter) is checked as if pure flexure.
 
+18. **The 3D engine halved a tube's shear stress.** `section_stress_3d.rs` paired the one-sided
+    `Q = t·(R² − y²)` with the two-sided width 2t, so a CHS peaked at V/A instead of 2V/A, for
+    Vz and Vy. The 2D engine had been fixed for exactly this, the 3D one not. Found by the
+    engine/oracle differential test once the TypeScript fallback became an oracle (#321).
+19. **The 3D engine reported no torsional shear for a rectangle.** It took the Saint-Venant
+    thickness as max(tw, tf, t), which is 0 for a solid rectangle resolved by the app. Now
+    min(b, h), the conservative statement the TypeScript used. Found the same way (#321).
+20. **Numbers crossed the JSON boundary off by an ulp.** `serde_json` without `float_roundtrip`
+    parses some decimals one ulp away and subnormals as 0. Every JSON entry point of the engine
+    was affected. The feature is now on (#321).
+
 **Status.**
 
 - Fixed on this branch: 5, 6, 7, 8, 9, 12, 13, 15 and 16.
@@ -114,7 +125,7 @@ under "What is left".
     treats `null` as "not verified".
 - Fixed on feat/cirsoc301-rust: 1 (CIRSOC 301 in the engine, the TypeScript an adapter, every
   steel pass gated on the certified engine check; see "CIRSOC 301" below).
-- Fixed on fix/ts-silent-fallbacks (#321): 3 (the wrappers throw), 4, 11 and 14 (see "Silent
+- Fixed on fix/ts-silent-fallbacks (#321): 3 (the wrappers throw), 4, 11, 14, 18, 19 and 20 (see "Silent
   fallbacks" below). 14 had already been fixed in #283: the engine reports (K + Kg)·u − FEF and
   `pdelta-forces.ts` is gone; `pdelta-amplification.ts` only reads B2 from the two sets of
   displacements and patches no force.
