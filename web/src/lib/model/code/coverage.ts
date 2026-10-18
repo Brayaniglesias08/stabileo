@@ -31,6 +31,7 @@ export const DERIVED_FIELDS: Readonly<Record<string, string>> = Object.freeze({
   exports: 'Records of files the application exported.',
   manualEdits: 'Edits to produced reinforcement, meaningful only against the design they edit.',
   jointDesigns: 'Connection designs produced for the current node numbering.',
+  solvedWith: 'Which build last solved the project (provenance/solve-stamp.ts); written by a solve.',
 });
 
 /**

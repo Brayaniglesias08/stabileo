@@ -678,8 +678,12 @@ describe('fixture-to-manifest reconciliation', () => {
     // 22 − ρ·A = 17.875 kN/m with self-weight stated as a case load, which is the 22 kN/m
     // the frame was designed around now that the weight bends the beam. The V2 golden
     // reproduced its bytes unchanged across that edit.
+    //
+    // Changed again on purpose (was 1637ce2d…): the project now records the build that solved it
+    // (`snapshot.solvedWith`, provenance/solve-stamp.ts), so opening it does not raise the
+    // re-check notice. The model is unchanged.
     expect(sha256(fixtureText()))
-      .toBe('1637ce2d05455de74bd5d4c6f7afe0248165d82bbcbe500397ed54850c076061');
+      .toBe('884c994133b64e659eb00864565c405df39cd7b0bbaa844a2e9e54a41d2b48cd');
   });
 
   it('every geometric input traces back to a value in the restored project', () => {

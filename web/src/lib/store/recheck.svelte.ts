@@ -76,6 +76,14 @@ function createRecheckStore() {
       stamp = stampSolve(kind, stamp);
     },
 
+    /**
+     * Put back a stamp taken earlier (Explore's baseline): the solves of a what-if model are not
+     * solves of the project, and must not end its stale state or change what it records.
+     */
+    restoreStamp(s: SolveStamp | undefined): void {
+      stamp = s ? { ...s, analyses: [...s.analyses] } : null;
+    },
+
     /** The engineer read the notice. Results stay marked stale until re-run. */
     acknowledge(): void {
       if (assessedStampId) acknowledged = new Set([...acknowledged, assessedStampId]);

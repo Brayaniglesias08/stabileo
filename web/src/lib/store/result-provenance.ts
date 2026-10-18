@@ -39,11 +39,14 @@ export function baseSolverInputJson(): { dim: '2d' | '3d'; json: string } | null
   return baseInput ? { dim: baseInput.dim, json: JSON.stringify(baseInput.wire()) } : null;
 }
 
+/** Which engine input a wire is (the engine's `is_3d`): not a workspace check. */
+const SPACE_INPUT = { '2d': false, '3d': true } as const;
+
 /** The engine's own hashes of the base solve (re-solved once in WASM); null when unavailable. */
 function engineHashes(): { input: string; results: string } | null {
   const b = baseSolverInputJson();
   if (!b) return null;
-  const h = engineReproduceHashes(b.json, b.dim === '3d');
+  const h = engineReproduceHashes(b.json, SPACE_INPUT[b.dim]);
   return h ? { input: h.inputSha256, results: h.resultsSha256 } : null;
 }
 

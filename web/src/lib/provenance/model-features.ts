@@ -16,6 +16,7 @@
  */
 import { materialFamilyOf } from '../engine/steel/material-family';
 import { catalogueGradeFamily } from '../engine/steel/grade-family';
+import { is3DWorkspace } from '../utils/workspace';
 
 export const ANALYSIS_KINDS = [
   'linear', 'pdelta', 'modal', 'buckling', 'spectral', 'timeHistory', 'plastic', 'nonlinear', 'harmonic',
@@ -118,7 +119,7 @@ function slaveNodes(c: Record<string, unknown>): number[] {
 export function modelFeatures(s: FeatureSnapshot, ctx: FeatureContext = {}): Set<FeatureId> {
   const f = new Set<FeatureId>();
   const mode = ctx.analysisMode ?? s.analysisMode ?? '2d';
-  if (mode === '2d' || mode === 'edu') f.add('plane2D');
+  if (!is3DWorkspace(mode)) f.add('plane2D');
 
   const materials = new Map(values(s.materials).map((m) => [m.id, m]));
   const elements = values(s.elements);
