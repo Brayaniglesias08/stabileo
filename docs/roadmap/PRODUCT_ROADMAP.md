@@ -103,8 +103,9 @@ What remains after the October 2026 safety wave (certified solver, differential 
 9. **Reproducibility and provenance.** Every report records the version, commit and certificate hashes, so anyone can reproduce it bit for bit.
 10. **Opt-in field telemetry.** Solver refusals, diagnostics and crashes from real use (opt-in, no model content without consent), to learn how real models fail.
 11. **More formal proofs.** More kernels proved in Lean, and machine-checked correspondence between the Rust implementation and the proved algorithm for the critical kernels.
+12. **Performance and scale regression tracking.** Solve time, memory, iteration counts and sparse/dense crossover tracked per release on the benchmark and acceptance models (docs/VERIFICATION.md layer 8), with a failing gate on large regressions.
 
-Beyond software: an independent licensed structural engineer reviews worked examples, clause readings and sample reports; real anonymised projects from engineering firms join the acceptance suite.
+Beyond software: an independent licensed structural engineer reviews worked examples, clause readings and sample reports; real anonymised projects from engineering firms (with their SAP2000/ETABS/RFEM models and results, and the architect's IFC/DWG where available) join the acceptance suite and the BIM-import corpus; the design-code manuals with worked examples (AISC Design Examples, INTI/CIRSOC example books, AWC NDS, TMS 402, AISI Cold-Formed Steel Design Manual) are obtained so checks are tested against published numbers rather than hand-worked ones.
 
 ### Engineering coverage backlog
 
@@ -117,12 +118,15 @@ Places where Stabileo still computes something unverified, refuses something eng
    - footings (eccentricity, service vs factored loads, flexure) and load generation (wind, snow, seismic, combinations) in Rust;
    - no silent fallbacks: when the engine is unavailable the app says so instead of computing in TypeScript;
    - the teaching solvers (`steps/*`, `solver-detailed*`) are checked against the engine on every model they support.
-2. **Missing design checks:** RC biaxial bending, torsion and slenderness magnification (today not re-checked, and each result says so); CIRSOC 301 F.7–F.11 (boxes, tubes, tees, angles in flexure — refused today); angles in flexure; EC3 Class 1/2 plastic interaction (6.2.9.1); cantilever load-height Cb; beam flexure with axial force.
+2. **Missing design checks:** RC biaxial bending, torsion and slenderness magnification (today not re-checked, and each result says so); CIRSOC 301 F.7–F.11 (boxes, tubes, tees, angles in flexure — refused today); angles in flexure; EC3 Class 1/2 plastic interaction (6.2.9.1); cantilever load-height Cb; beam flexure with axial force; the legacy CIRSOC 201 column verdict computed as compression when the member is in tension; CIRSOC 301 angle arrangements other than back to back (star, starred, single angles in other configurations).
 3. **Certificates still missing:** large-displacement (co-rotational) and material-nonlinear results; masonry, connections, foundations and serviceability checks.
 4. **Published worked examples** for masonry, foundations, serviceability, timber and cold-formed steel, and published (not only hand-worked) examples for CIRSOC 301, AISC E7 and EC3 Class 4.
 5. **Mechanism detection everywhere:** the exact free-motion check in 2D and with constraints, connectors and inclined supports, and for local mechanisms, with zero false positives on the model corpus.
-6. **Known solver gaps:** material-nonlinear continues after an unconverged increment instead of returning the last converged state; co-rotational refuses prescribed displacements and thermal loads; 3D truss-only nodes inside frames are refused; harmonic refuses a response point on a constrained DOF; spectral analysis reports no shell stresses.
+6. **Known solver gaps:** material-nonlinear continues after an unconverged increment instead of returning the last converged state; co-rotational refuses prescribed displacements and thermal loads; 3D truss-only nodes inside frames are refused; harmonic refuses a response point on a constrained DOF; spectral analysis reports no shell stresses; beam lumped/consistent mass has no rotary inertia (an option for it, as Kratos and other codes include, matters for modal results of deep members).
 7. **A public-benchmark acceptance suite** (CSI and Dlubal verification examples using their independent references, the SAC buildings, FEMA P-695 archetypes) as a release gate.
+8. **Example models that are still not realistic:** the token live load in `la-bombonera`, cable-stayed bridge stays without pretension (large dead-load deflection), the offshore deck sag under the flare. Examples teach users; each should model what it claims to.
+9. **Reports built from the design results:** the PRO report's slab-steel section was removed because it invented its load, span and f'c; rebuild it from the slab design's own results.
+10. **Hardening what stays in TypeScript** (search, detailing, drawing): property tests for detailing invariants (As provided ≥ As required, spacing and cover, no bar collisions, development lengths) and nightly Stryker mutation testing with surviving mutants triaged.
 
 ### Release safety
 
