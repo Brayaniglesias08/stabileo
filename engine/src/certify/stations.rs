@@ -365,13 +365,19 @@ pub fn diagram_gaps_2d(ef: &ElementForces) -> DiagramGaps2D {
     // stations straddle them.
     let mut ev = load_end_kinks(&dx);
     ev.extend(pls.iter().filter_map(|p| p.px.filter(|px| *px != 0.0).map(|px| Event { x: p.a, kink: 0.0, jump: px })));
+    // |N'| = |q_x|: bounded per interval by the axial span loads acting on it. A zero bound
+    // here would make `gap` drop the point-load jumps (it takes min(Σ|J|, D·h)).
     let axial = if dx.is_empty() {
         0.0
     } else {
-        gap(
-            &xs(l, &diagram_positions_2d(ef, "axial")),
-            &Shape { events: ev, dists: dx, curvature: Dist::slope, lip: Box::new(|_, _| 0.0) },
-        )
+        let ax = xs(l, &diagram_positions_2d(ef, "axial"));
+        let (lx, ld) = (ax.clone(), dx.clone());
+        let lip_ax = move |k: usize, _h: f64| -> f64 {
+            let tol = 1e-9 * (1.0 + lx[k + 1].abs());
+            let (x0, x1) = (lx[k] - tol, lx[k + 1] + tol);
+            ld.iter().filter(|d| d.a <= x1 && d.b >= x0).map(Dist::qmax).sum()
+        };
+        gap(&ax, &Shape { events: ev, dists: dx, curvature: Dist::slope, lip: Box::new(lip_ax) })
     };
     DiagramGaps2D { axial, shear, moment }
 }

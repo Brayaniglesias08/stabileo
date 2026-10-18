@@ -80,6 +80,45 @@ fn bar_with_partial_trapezoid() -> SolverInput {
     )
 }
 
+/// The largest excursion of N outside the envelope of the values at consecutive stations.
+fn worst_excursion(ef: &ElementForces) -> f64 {
+    let ts = diagram_positions_2d(ef, "axial");
+    let mut worst: f64 = 0.0;
+    for w in ts.windows(2) {
+        let (n0, n1) = (compute_diagram_value_at("axial", w[0], ef), compute_diagram_value_at("axial", w[1], ef));
+        let (lo, hi) = (n0.min(n1), n0.max(n1));
+        for i in 1..400 {
+            let t = w[0] + (w[1] - w[0]) * i as f64 / 400.0;
+            let n = compute_diagram_value_at("axial", t, ef);
+            worst = worst.max(n - hi).max(lo - n);
+        }
+    }
+    worst
+}
+
+/// Codex review of #437: with an axial span load and an axial point load together, a zero
+/// slope bound made `gap` drop the jump, certifying ~5e-8 where N leaves the envelope by ~4e-5.
+#[test]
+fn diagram_certificate_keeps_axial_point_load_jumps_beside_a_span_load() {
+    let input = make_input(
+        vec![(1, 0.0, 0.0), (2, 4.0, 0.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, 0.01, 1e-4)],
+        vec![(1, "frame", 1, 2, 1, 1, false, false)],
+        vec![(1, 1, "fixed"), (2, 2, "fixed")],
+        vec![
+            axial(1, 10.0, 10.0, None, None),
+            SolverLoad::PointOnElement(SolverPointLoadOnElement { element_id: 1, a: 2.0, p: 0.0, px: Some(-30.0), my: None }),
+        ],
+    );
+    let r = solve_2d(&input).unwrap();
+    let ef = &r.element_forces[0];
+    let gap = diagram_gaps_2d(ef).axial;
+    let worst = worst_excursion(ef);
+    assert!(worst > 1e-9, "the case must exercise the gap (worst excursion {worst})");
+    assert!(worst <= gap + 1e-9, "N leaves the station envelope by {worst} > certified gap {gap}");
+}
+
 #[test]
 fn diagram_certificate_bounds_n_between_stations_under_an_axial_span_load() {
     let r = solve_2d(&bar_with_partial_trapezoid()).unwrap();
