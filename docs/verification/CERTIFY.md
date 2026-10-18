@@ -644,8 +644,17 @@ inconclusive at this precision.
   diagram strengths (the f64 check switches at exactly `Nu = 0`). A T-beam with a
   possibly non-zero `Nu` is refused (the f64 check flags it incomplete).
 
+* **CIRSOC 301** (`postprocess/cirsoc301_check.rs`): D.2, E (E.3, E.4, E.5, E.6, E.7), F.2–F.6,
+  G.2/G.4 and H.1, the capacities generic over `Real`. A check refused under load refuses the box.
+  A check that runs only for some demands (tension or compression, weak-axis flexure above
+  1e-6 kN·m, interaction) counts toward the upper bound wherever it may run and toward the lower
+  bound only where it certainly runs. The least root of the asymmetric-section cubic E.4.6 (unequal
+  angles) is certified by `increasing_root` on (0, min(Fex, Fey, Fez)): Courant–Fischer on the
+  definite pencil puts exactly one root there. Classification thresholds of Tabla B.4.1 are
+  decided on the f64 data, as in the AISC check.
+
 Wasm: `certify_steel_members`, `certify_ec3_members`, `certify_ec2_members`,
-`certify_cirsoc201_members`, `certify_rc_members`, `certify_timber_members`,
+`certify_cirsoc201_members`, `certify_cirsoc301_members`, `certify_rc_members`, `certify_timber_members`,
 `certify_cfs_members` (bounded demands in; `ec3_demands` / `ec2_demands` /
 `cirsoc201_demands` / `rc_demands` / `timber_demands` / `cfs_demands` convert the station demand sets and
 `scale_demands` changes units, e.g. kN → N for EC2's Pa-based formulas, widening each
