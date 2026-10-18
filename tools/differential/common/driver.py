@@ -67,10 +67,14 @@ def run_case(adapter, model, analysis, tol, n_modes=6, mode_tol=None):
     try:
         if analysis == "modal":
             # Mechanisms (rigid-body modes) have no well-defined mode order:
-            # require a nonsingular stiffness, checked with a unit load.
+            # require a nonsingular stiffness, checked with a load on every
+            # node (a load on one node misses a mechanism elsewhere: a member
+            # hinged at one end with a free tip, modal3d_lumped-744196).
+            # Unequal components, so that no mechanism is orthogonal to it.
             probe = dict(clean, loads=[{"type": "nodal", "data": {
-                "nodeId": min(n["id"] for n in clean["nodes"].values()),
-                "fx": 1.0, "fy": 1.0, "fz": 1.0, "mx": 0.0, "my": 0.0, "mz": 0.0}}])
+                "nodeId": n["id"], "fx": 1.0 + 0.37 * i, "fy": 1.0 - 0.23 * i, "fz": 0.5 + 0.11 * i,
+                "mx": 0.0, "my": 0.0, "mz": 0.0}}
+                for i, n in enumerate(sorted(clean["nodes"].values(), key=lambda n: n["id"]))])
             pres = M.normalize_static(M.stabileo(probe, "static"), dim)
             ill = sorted(set(pres["diags"]) & M.ILL_CONDITIONED)
             if ill:

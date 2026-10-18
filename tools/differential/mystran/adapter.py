@@ -274,8 +274,14 @@ def write_bdf(model, analysis="static", densities=None, n_modes=6):
         if not nodal:
             raise Unsupported("unloaded model")
     else:
-        # EIGRL: SID V1 V2 ND (Lanczos); mass-normalized vectors.
-        out.append(card("EIGRL", [1, "", "", int(n_modes), "", "", "", "MASS"]))
+        # EIGR METHOD=MGIV (dense modified Givens; M may be singular, as a
+        # lumped mass with massless rotations is): SID METHOD F1 F2 N1 N2,
+        # mass-normalized vectors on the continuation. Not EIGRL: MYSTRAN's
+        # ARPACK Lanczos returned one copy of a double eigenvalue on
+        # symmetric frames (modal3d_lumped-744145/-744159/-744272), a
+        # spurious vector for another (-744255), and refuses models with only
+        # a few free DOFs (error 9776). The differential models are small.
+        out.append(card("EIGR", [1, "MGIV", "", "", int(n_modes), int(n_modes), "", "", "MASS"]))
     out.append("ENDDATA")
     return "\n".join(out) + "\n", dict(info=info, art_rot=art_rot, native=native, nspc=nspc)
 
