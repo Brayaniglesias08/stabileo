@@ -192,6 +192,8 @@ jobs:
           init-shell: bash
       - name: Build solver CLI
         run: cargo build --release --example solve_json
+      - name: Translator unit tests
+        run: python tools/differential/codeaster/test_to_aster.py
       - name: Compare with Code_Aster
         working-directory: tools/differential/codeaster
         run: |

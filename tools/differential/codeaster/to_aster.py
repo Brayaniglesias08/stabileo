@@ -154,6 +154,50 @@ def connector_matrix(kv, ex, ey, ez, length):
     return k
 
 
+def _rank(rows, tol=1e-10):
+    """Rank of a list of sparse rows {column: coefficient} (Gaussian
+    elimination with partial pivoting, tolerance relative to each row)."""
+    rows = [dict(r) for r in rows if r]
+    rank = 0
+    while rows:
+        r = rows.pop()
+        scale = max((abs(v) for v in r.values()), default=0.0)
+        if scale == 0.0:
+            continue
+        col, piv = max(r.items(), key=lambda kv: abs(kv[1]))
+        if abs(piv) <= tol * scale:
+            continue
+        rank += 1
+        nxt = []
+        for o in rows:
+            f = o.get(col, 0.0) / piv
+            if f:
+                o = {c: o.get(c, 0.0) - f * r.get(c, 0.0) for c in set(o) | set(r)}
+                big = max((abs(v) for v in o.values()), default=0.0)
+                o = {c: v for c, v in o.items() if abs(v) > tol * max(big, scale)}
+            nxt.append(o)
+        rows = nxt
+    return rank
+
+
+def constraints_redundant(mpcs, fixed, inclined):
+    """True when the constraint rows together with the support rows on the
+    DOFs they touch are linearly dependent (some equation is implied by the
+    others, so a multiplier is not determined)."""
+    eqs = [{(n, k): c for n, k, c in row} for row in mpcs if row]
+    if not eqs:
+        return False
+    cols = {key for e in eqs for key in e}
+    sup = []
+    for n, k in sorted(cols):
+        if (fixed.get(n) or [False] * 6)[k]:
+            sup.append({(n, k): 1.0})
+    for n in sorted({n for n, k in cols if k < 3 and n in inclined}):
+        sup.append({(n, k): inclined[n][k] for k in range(3) if abs(inclined[n][k]) > 0.0})
+    rows = sup + eqs
+    return _rank(rows) < len(rows)
+
+
 def rank3(vs, tol=1e-9):
     basis = []
     for v in vs:
@@ -405,16 +449,15 @@ def translate(d):
             if fx[3 + k] or springs.get(nid, [0.0] * 6)[3 + k] > 0:
                 rot_dirs[nid].append(E3[k])
     mpcs = _constraint_rows(d, pts)
-    # A support on a DOF that a constraint makes dependent (the first term of
-    # each row): the engine keeps the constraint and reports the support as
-    # redundant (over_constrained_dof); Code_Aster enforces both with Lagrange
-    # multipliers, and the duplicate relations make its matrix singular
-    # (FACTOR_42, aster3d-744151). Not comparable.
-    for row in mpcs:
-        if row:
-            nid, k, _ = row[0]
-            if (fixed.get(nid) or [False] * 6)[k] or (nid in inclined and k < 3):
-                raise Unsupported("support on a constraint's dependent DOF")
+    # Constraint equations that are linearly dependent on the supports (or on
+    # each other): Code_Aster enforces every one with a Lagrange multiplier,
+    # and dependent rows make its matrix singular (FACTOR_42, aster3d-744151:
+    # a rigid link whose dependent node also has a support). The engine keeps
+    # such a model solvable and reports over_constrained_dof. Not comparable,
+    # so unsupported; independent rows, whatever the term order (-2*rx_1 +
+    # uy_2 = 0 with node 1 fixed), are translated as before.
+    if constraints_redundant(mpcs, fixed, inclined):
+        raise Unsupported("constraint equations dependent on the supports")
     for row in mpcs:
         for nid, k, _ in row:
             if k >= 3:
