@@ -20,7 +20,7 @@ on:
   # file is on main, so the branch is tested through push.
   push:
     branches: [ci/verification-jobs]
-    paths: [.github/workflows/nightly.yml, scripts/mutants*]
+    paths: [.github/workflows/nightly.yml, scripts/mutants*, tools/opensees/**]
   schedule:
     - cron: "0 5 * * *"
   workflow_dispatch:
@@ -61,7 +61,7 @@ jobs:
     steps:
       - id: plan
         env:
-          ONLY: ${{ inputs.only || (github.event_name == 'push' && 'certify-large opensees-diff codeaster-diff fuzz mutants bench') || '' }}
+          ONLY: ${{ inputs.only || (github.event_name == 'push' && 'opensees-diff') || '' }}
           SHARDS: ${{ inputs.mutants_shards || (github.event_name == 'push' && '[0, 1]') || '' }}
           TOTAL: ${{ inputs.mutants_total || (github.event_name == 'push' && '1024') || '' }}
           MUTANTS_TOTAL: 64

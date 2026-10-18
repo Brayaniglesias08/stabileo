@@ -94,7 +94,7 @@ JSON), find the root cause, fix it, and keep the test. A timeout is a finding to
 the engine does unbounded work on that input (a bug), or the input is legitimately large,
 in which case record it under *Slow but correct* above and tighten the harness caps.
 
-CI (`.github/workflows/verify.yml`, job `fuzz`) runs each target for 30 minutes nightly
+CI (`.github/workflows/nightly.yml`, job `fuzz`) runs each target for 30 minutes nightly
 and on manual dispatch, seeded from the templates, and uploads failing inputs as an
 artifact.
 
@@ -116,8 +116,12 @@ would put a wrong number in front of an engineer:
 
 Each scope runs the library unit tests plus the integration tests that target it (listed
 in the script). Results land in `mutants.out/`: `caught.txt`, `missed.txt`,
-`timeout.txt`, `unviable.txt`. CI (job `mutants`, sharded 8 ways) runs nightly and fails
-on any missed mutant.
+`timeout.txt`, `unviable.txt`. CI (`.github/workflows/nightly.yml`, job `mutants`) splits
+the ~23,000 mutants into 64 shards and runs 8 of them each night, rotating with the day, so
+every mutant is tested every 8 nights (docs/verification/NIGHTLY.md). A shard fails on any
+missed mutant, and fails loudly if it does not finish within its time budget;
+`scripts/mutants-summary.py` prints how far it got and the time per mutant. One shard by
+hand: `gh workflow run nightly.yml -f only=mutants -f mutants_shards='[5]'`.
 
 ### Triaging a surviving mutant
 
