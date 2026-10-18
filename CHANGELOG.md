@@ -24,6 +24,21 @@ and tests (roadmap "Solver and proof depth" item 10). Findings while writing the
 - The 2D/3D shear-area pairing (`as_y` goes with `iz` in 2D, with `iy` in 3D) is spelled out in
   the input docs.
 
+Shells (`docs/solver/shells.md`, tests in `derivation_shells.rs`). **BREAKING (results)** for
+curved shells, walls in dynamics and heated shells:
+
+- Curved shell: transverse-shear ANS transform corrected on non-rectangular elements (it was up
+  to 1.75× too stiff in shear on a 60° parallelogram). Drilling penalty is now an area integral
+  as in MITC4 (it was h × that and unit-dependent). Self-weight was 1000× too large (kg/m³ not
+  converted to kN).
+- Shell rotary inertia is now about the element's in-plane axes. A vertical wall used to get
+  inertia about its normal (drilling) and none about one in-plane axis. Horizontal elements are
+  unchanged.
+- Geometric stiffness of DKT, MITC9 and curved shells uses the mechanical strain, so free thermal
+  expansion no longer creates membrane force (or a spurious buckling load).
+- DKT nodal stresses subtract the thermal strain, and several thermal loads on one shell are
+  summed in stress recovery (only the last was used).
+
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
 **BREAKING (results): steel members bent about both axes without axial force are now checked by
