@@ -726,3 +726,35 @@ fn certify_reduced_sparse(k_ff: &CscMatrix, k_full: &CscMatrix, nf: usize, f: &[
         Err(c) => c,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// K = [[2, -1], [-1, 2]] with DOF 1 restrained: nf = 1, n = 2.
+    fn k2() -> Vec<f64> {
+        vec![2.0, -1.0, -1.0, 2.0]
+    }
+
+    /// Mismatched dimensions never reach the residual loops (they would read
+    /// out of bounds or certify another system): PreparedK refuses them.
+    /// (Mutants of these internal guards survived: no assembly produces them.)
+    #[test]
+    fn prepared_k_rejects_mismatched_dimensions() {
+        assert!(PreparedK::dense(vec![1.0; 3], 2, 1).is_err(), "K not n×n");
+        assert!(PreparedK::dense(k2(), 2, 3).is_err(), "nf > n");
+        let p = PreparedK::dense(k2(), 2, 1).unwrap();
+        assert!(p.certify(&[2.0, 0.0], &[1.0, 0.0]).is_certified());
+        for (f, u) in [(&[2.0][..], &[1.0, 0.0][..]), (&[2.0, 0.0][..], &[1.0][..]), (&[2.0, 0.0, 0.0][..], &[1.0, 0.0, 0.0][..])] {
+            assert!(!p.certify(f, u).is_certified(), "dense: f {f:?}, u {u:?}");
+        }
+        // Sparse: lower triangles of K_FF = [2] and of the full K.
+        let k_ff = CscMatrix { n: 1, col_ptr: vec![0, 1], row_idx: vec![0], values: vec![2.0] };
+        let k_full = CscMatrix { n: 2, col_ptr: vec![0, 2, 3], row_idx: vec![0, 1, 1], values: vec![2.0, -1.0, 2.0] };
+        let p = PreparedK::sparse(k_ff, k_full, 1).unwrap();
+        assert!(p.certify(&[2.0, 0.0], &[1.0, 0.0]).is_certified());
+        for (f, u) in [(&[][..], &[1.0, 0.0][..]), (&[2.0, 0.0][..], &[1.0][..])] {
+            assert!(!p.certify(f, u).is_certified(), "sparse: f {f:?}, u {u:?}");
+        }
+    }
+}
