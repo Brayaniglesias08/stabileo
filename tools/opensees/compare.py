@@ -156,6 +156,39 @@ def _get(d, *keys, default=0.0):
     return default
 
 
+# 2D support type -> restrained (ux, uz, ry), as dof.rs is_dof_restrained_2d.
+SUPPORT_FLAGS_2D = {
+    "fixed": (1, 1, 1), "pinned": (1, 1, 0), "rollerX": (0, 1, 0), "rollerY": (1, 0, 0), "rollerZ": (1, 0, 0),
+    "guidedX": (0, 1, 1), "guidedY": (1, 0, 1), "guidedZ": (1, 0, 1),
+}
+_TYPE_OF_FLAGS_2D = {(1, 1, 1): "fixed", (1, 1, 0): "pinned", (0, 1, 0): "rollerX", (1, 0, 0): "rollerZ",
+                     (0, 1, 1): "guidedX", (1, 0, 1): "guidedZ"}
+
+
+def _plain_rigid_2d(s):
+    return s["type"] in SUPPORT_FLAGS_2D and all(
+        not s.get(k) for k in ("kx", "ky", "kz", "dx", "dy", "dz", "dry", "drz", "angle"))
+
+
+def supports_by_node_2d(supports):
+    """One support per node, as DofNumbering::build_2d sees them: several
+    plain rigid supports on one node merge by OR (any of them restraining a
+    DOF restrains it). Any other shared node is refused by the engine
+    (validate_input_2d, reject_ambiguous_shared_supports), so which one is
+    kept there does not matter; the highest id is."""
+    at = {}
+    for s in sorted(supports.values(), key=lambda s: s["id"]):
+        at.setdefault(s["nodeId"], []).append(s)
+    out = {}
+    for nid, ss in at.items():
+        if len(ss) > 1 and all(_plain_rigid_2d(s) for s in ss):
+            fl = tuple(max(SUPPORT_FLAGS_2D[s["type"]][k] for s in ss) for k in range(3))
+            out[nid] = dict(ss[-1], type=_TYPE_OF_FLAGS_2D[fl])
+        else:
+            out[nid] = ss[-1]
+    return out
+
+
 # ---------------------------------------------------------------- OpenSees
 
 def _ops():
@@ -1247,9 +1280,7 @@ def _planar_th_in_3d(d, spec):
     flags = {"fixed": (1, 1, 1), "pinned": (1, 1, 0), "rollerX": (0, 1, 0), "rollerY": (1, 0, 0),
              "rollerZ": (1, 0, 0), "guidedX": (0, 1, 1), "guidedY": (1, 0, 1), "guidedZ": (1, 0, 1),
              "spring": (0, 0, 0)}
-    win = {}
-    for s_ in sorted(d["supports"].values(), key=lambda s_: s_["id"]):
-        win[s_["nodeId"]] = s_  # the highest id wins (DofNumbering::build_2d)
+    win = supports_by_node_2d(d["supports"])  # as DofNumbering::build_2d
     sups = {}
     for nid, s_ in win.items():
         fx, fz, fr = flags[s_["type"]]
