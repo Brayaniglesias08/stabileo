@@ -5761,7 +5761,7 @@ pub(super) fn compute_equilibrium_summary_3d(
         inclined_node_rxn.insert(it.node_id, [0.0; 3]);
     }
 
-    for (&(node_id, local_dof), &global_idx) in &dof_num.map {
+    for ((node_id, local_dof), global_idx) in dof_num.entries_by_dof() {
         if local_dof >= 6 { continue; }
         if global_idx < nf {
             // Free DOF: only applied force
@@ -5809,7 +5809,7 @@ pub(super) fn compute_equilibrium_summary_3d(
         inclined_node_app.insert(it.node_id, [0.0; 3]);
     }
     // Subtract what we already added (in rotated frame) and re-accumulate
-    for (&(node_id, local_dof), &global_idx) in &dof_num.map {
+    for ((node_id, local_dof), global_idx) in dof_num.entries_by_dof() {
         if local_dof >= 3 { continue; }
         if inclined_node_app.contains_key(&node_id) && global_idx < assembled_f.len() {
             applied[local_dof] -= assembled_f[global_idx];
@@ -5871,7 +5871,7 @@ pub(super) fn compute_equilibrium_summary_2d(
         inclined_node_rxn.insert(it.node_id, [0.0; 2]);
     }
 
-    for (&(node_id, local_dof), &global_idx) in &dof_num.map {
+    for ((node_id, local_dof), global_idx) in dof_num.entries_by_dof() {
         if local_dof >= ndirs { continue; }
         if global_idx < nf {
             if global_idx < assembled_f.len() {
@@ -5912,7 +5912,7 @@ pub(super) fn compute_equilibrium_summary_2d(
     for it in inclined_transforms {
         inclined_node_app.insert(it.node_id, [0.0; 2]);
     }
-    for (&(node_id, local_dof), &global_idx) in &dof_num.map {
+    for ((node_id, local_dof), global_idx) in dof_num.entries_by_dof() {
         if local_dof >= 2 { continue; }
         if inclined_node_app.contains_key(&node_id) && global_idx < assembled_f.len() {
             applied[local_dof] -= assembled_f[global_idx];

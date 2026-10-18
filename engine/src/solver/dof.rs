@@ -12,6 +12,18 @@ pub struct DofNumbering {
 }
 
 impl DofNumbering {
+    /// Every `((node, local DOF), global index)` in increasing global index.
+    ///
+    /// `map` is a `HashMap`, whose iteration order changes with every instance (its hash
+    /// keys are random). A floating-point sum taken in that order can differ in the last bit
+    /// between two solves of the same model; any loop that ACCUMULATES over the DOFs must
+    /// iterate this instead (tests/determinism.rs).
+    pub fn entries_by_dof(&self) -> Vec<((usize, usize), usize)> {
+        let mut v: Vec<((usize, usize), usize)> = self.map.iter().map(|(&k, &g)| (k, g)).collect();
+        v.sort_unstable_by_key(|&((n, l), g)| (g, n, l));
+        v
+    }
+
     /// DOFs per node of a 2D model: 3 (ux, uz, θ) with frames, 2 for all-truss.
     pub fn dofs_per_node_2d(input: &SolverInput) -> usize {
         let has_frame = input.elements.values().any(|e| e.elem_type == "frame");
