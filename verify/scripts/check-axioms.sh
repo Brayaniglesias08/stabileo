@@ -58,12 +58,12 @@ theorems=(
 	Certify.Bundle.check_sound
 	Certify.Bundle.check_sound_coercive
 	# interval arithmetic (abstract outward rounding down x ≤ x ≤ up x)
-	Certify.mem_add
-	Certify.mem_sub
-	Certify.mem_mul
-	Certify.mem_div
-	Certify.mem_sqrt
-	Certify.mem_square
+	Certify.Interval.mem_add
+	Certify.Interval.mem_sub
+	Certify.Interval.mem_mul
+	Certify.Interval.mem_div
+	Certify.Interval.mem_sqrt
+	Certify.Interval.mem_square
 	# buckling
 	Certify.buckling_enclosure
 	Certify.buckling_criticalFactor_mem
@@ -98,7 +98,7 @@ trap 'rm -rf "$tmp"' EXIT
 	echo 'import Certify'
 	for t in "${theorems[@]}"; do echo "#print axioms $t"; done
 } > "$tmp/Axioms.lean"
-out=$(lake env lean "$tmp/Axioms.lean" 2>&1)
+out=$(lake env lean "$tmp/Axioms.lean" 2>&1) || true  # errors are reported below
 echo "$out"
 bad=$(echo "$out" | grep -oE '\[[^]]*\]' | tr -d '[]' | tr ',' '\n' | sed 's/^ *//' |
 	grep -vxE 'propext|Classical\.choice|Quot\.sound' | grep -v '^$' || true)
