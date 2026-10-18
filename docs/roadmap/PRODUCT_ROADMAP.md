@@ -99,8 +99,8 @@ What remains after the October 2026 safety wave (certified solver, differential 
 5. **Physics invariants on every model (metamorphic testing).** Rigid rotation, mirroring, node renumbering and unit scaling leave physical results unchanged; superposition and Maxwell–Betti reciprocity hold for linear analyses; external work equals strain energy. Run across all analyses and the whole example corpus; no reference solution needed.
 6. **Units in the type system.** Dimensioned quantities in Rust and TypeScript, so kN/N and m/mm mix-ups fail to compile instead of producing wrong numbers.
 7. **Clause traceability enforced in CI, and independent implementations.** A machine-readable map clause → implementation → tests → published example; CI fails when a clause has no test. The most-used checks (CIRSOC 201, CIRSOC 301) get a second implementation written from the clause text alone, compared on random inputs.
-8. **Re-check prompt for old projects.** When a saved project opens in a version whose results changed for its features, say what changed and offer to re-run.
-9. **Reproducibility and provenance.** Every report records the version, commit and certificate hashes, so anyone can reproduce it bit for bit.
+8. **Re-check prompt for old projects.** When a saved project opens in a version whose results changed for its features, say what changed and offer to re-run. *In progress (#328): registry of result changes, solve stamps, blocking notice, stale marking — `docs/verification/PROVENANCE.md`.*
+9. **Reproducibility and provenance.** Every report records the version, commit and certificate hashes, so anyone can reproduce it bit for bit. *In progress (#328): provenance block in every report, reproduce dialog and CLI, determinism fixes and test — `docs/verification/PROVENANCE.md`.*
 10. **Opt-in field telemetry.** Solver refusals, diagnostics and crashes from real use (opt-in, no model content without consent), to learn how real models fail.
 11. **More formal proofs.** More kernels proved in Lean, and machine-checked correspondence between the Rust implementation and the proved algorithm for the critical kernels.
 
