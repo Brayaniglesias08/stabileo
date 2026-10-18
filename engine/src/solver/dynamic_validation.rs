@@ -116,12 +116,25 @@ fn validate_masses_3d(input: &SolverInput3D) -> Result<bool, String> {
         check_mass_value(&format!("Line mass on element {}", lm.element_id), lm.mass_per_length)?;
         any |= lm.mass_per_length > 0.0;
     }
+    // Thickness by id, one map per shell family, built once: a search per
+    // area mass made this quadratic in the number of shells.
+    let by_id = |it: &mut dyn Iterator<Item = (usize, f64)>| -> HashMap<usize, f64> { it.collect() };
+    let (quads, plates, quad9s, curved) = if input.masses.area.is_empty() {
+        Default::default()
+    } else {
+        (
+            by_id(&mut input.quads.values().map(|q| (q.id, q.thickness))),
+            by_id(&mut input.plates.values().map(|q| (q.id, q.thickness))),
+            by_id(&mut input.quad9s.values().map(|q| (q.id, q.thickness))),
+            by_id(&mut input.curved_shells.values().map(|q| (q.id, q.thickness))),
+        )
+    };
     for am in &input.masses.area {
         let thickness = match am.kind.as_str() {
-            "quad" => input.quads.values().find(|q| q.id == am.element_id).map(|q| q.thickness),
-            "plate" => input.plates.values().find(|q| q.id == am.element_id).map(|q| q.thickness),
-            "quad9" => input.quad9s.values().find(|q| q.id == am.element_id).map(|q| q.thickness),
-            "curvedShell" => input.curved_shells.values().find(|q| q.id == am.element_id).map(|q| q.thickness),
+            "quad" => quads.get(&am.element_id).copied(),
+            "plate" => plates.get(&am.element_id).copied(),
+            "quad9" => quad9s.get(&am.element_id).copied(),
+            "curvedShell" => curved.get(&am.element_id).copied(),
             other => return Err(format!(
                 "Area mass on element {}: unknown kind \"{other}\" (quad, plate, quad9 or curvedShell)",
                 am.element_id
@@ -137,6 +150,18 @@ fn validate_masses_3d(input: &SolverInput3D) -> Result<bool, String> {
         any |= am.mass_per_area > 0.0;
     }
     Ok(any)
+}
+
+/// The nodal and line masses of a 2D model are well formed (see
+/// `validate_masses_2d`), for an analysis that reads them but does not need
+/// mass to be present (spectral with given modes, reduction).
+pub(crate) fn validate_mass_input_2d(input: &SolverInput) -> Result<(), String> {
+    validate_masses_2d(input).map(|_| ())
+}
+
+/// The nodal, line and area masses of a 3D model are well formed.
+pub(crate) fn validate_mass_input_3d(input: &SolverInput3D) -> Result<(), String> {
+    validate_masses_3d(input).map(|_| ())
 }
 
 /// The mass of a 2D model: densities (see `validate_densities`) and nodal and
@@ -168,3 +193,35 @@ pub(crate) fn validate_time_params(time_step: f64, n_steps: usize) -> Result<(),
 /// Most time steps one time-history run may take. The count comes from the
 /// model and sizes the stored response history (steps × DOFs).
 pub const MAX_TIME_STEPS: usize = 200_000;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::*;
+
+    /// A 3D model of `n` quads, each with an area mass.
+    fn many_quads(n: usize) -> SolverInput3D {
+        let mut input: SolverInput3D = serde_json::from_value(serde_json::json!({
+            "nodes": {}, "materials": {}, "sections": {}, "elements": {}, "supports": {}, "loads": []
+        })).unwrap();
+        for k in 0..4 {
+            input.nodes.insert(k.to_string(), SolverNode3D { id: k, x: k as f64, y: 0.0, z: 0.0 });
+        }
+        for id in 0..n {
+            input.quads.insert(id.to_string(), SolverQuadElement { id, nodes: [0, 1, 2, 3], material_id: 1, thickness: 0.2 });
+            input.masses.area.push(AreaMass { element_id: id, kind: "quad".into(), mass_per_area: 0.3 });
+        }
+        input
+    }
+
+    #[test]
+    fn area_mass_validation_is_linear_in_the_number_of_shells() {
+        // 40 000 quads: a search per entry is 8·10⁸ map visits (seconds);
+        // a lookup per entry is milliseconds. 1 s is far from both.
+        let input = many_quads(40_000);
+        let t = std::time::Instant::now();
+        assert!(validate_masses_3d(&input).unwrap());
+        let dt = t.elapsed();
+        assert!(dt.as_secs_f64() < 1.0, "area-mass validation of 40 000 quads took {dt:?}");
+    }
+}

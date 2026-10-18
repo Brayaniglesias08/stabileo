@@ -642,3 +642,50 @@ fn models_without_masses_serialize_as_before() {
     let back: SolverInput = serde_json::from_value(serde_json::to_value(&input).unwrap()).unwrap();
     assert_eq!(back.masses.nodal.len(), 1);
 }
+
+// ─── Every entry point that assembles mass validates it (Codex review) ────
+
+#[test]
+fn craig_bampton_refuses_invalid_masses() {
+    let dens = HashMap::from([("1".to_string(), 7850.0)]);
+    let cb = |masses: Value| craig_bampton_2d(&CraigBamptonInput {
+        solver: cantilever_2d(4.0, 4, 0.01, 1e-4, masses), boundary_nodes: vec![5], n_modes: 2, densities: dens.clone() });
+    // A negative boundary mass went into M; a mass on a missing node was dropped.
+    assert!(cb(json!({"nodal": [{"nodeId": 5, "mass": -3.0}]})).unwrap_err().contains(">= 0"));
+    assert!(cb(json!({"nodal": [{"nodeId": 99, "mass": 3.0}]})).unwrap_err().contains("node 99"));
+    assert!(cb(json!({"line": [{"elementId": 42, "massPerLength": 1.0}]})).unwrap_err().contains("element 42"));
+    assert!(cb(json!({"nodal": [{"nodeId": 5, "mass": 3.0}]})).is_ok());
+}
+
+#[test]
+fn craig_bampton_3d_refuses_invalid_masses() {
+    use dedaliano_engine::solver::reduction::{craig_bampton_3d, CraigBamptonInput3D};
+    let dens = HashMap::from([("1".to_string(), 7850.0)]);
+    let cb = |masses: Value| craig_bampton_3d(&CraigBamptonInput3D {
+        solver: cantilever_3d(4.0, 4, masses), boundary_nodes: vec![5], n_modes: 2, densities: dens.clone() });
+    assert!(cb(json!({"nodal": [{"nodeId": 5, "mass": 1.0, "izz": -2.0}]})).unwrap_err().contains(">= 0"));
+    assert!(cb(json!({"nodal": [{"nodeId": 77, "mass": 1.0}]})).unwrap_err().contains("node 77"));
+    assert!(cb(json!({"area": [{"elementId": 1, "kind": "quad", "massPerArea": 1.0}]})).unwrap_err().contains("does not exist"));
+    assert!(cb(json!({"nodal": [{"nodeId": 5, "mass": 1.0}]})).is_ok());
+}
+
+#[test]
+fn spectral_refuses_invalid_masses() {
+    // Spectral takes its modes as given, but its certificate re-assembles M
+    // from the model's masses.
+    use dedaliano_engine::solver::spectral::solve_spectral_2d;
+    let good = cantilever_2d(3.0, 2, 0.01, 1e-4, json!({"nodal": [{"nodeId": 3, "mass": 2.0}]}));
+    let modal = solve_modal_2d(&good, &no_density(), 1).unwrap();
+    let spectral = |solver: SolverInput| -> Result<_, String> {
+        let input: SpectralInput = serde_json::from_value(json!({
+            "solver": solver, "modes": modal.modes, "densities": {},
+            "spectrum": {"name": "flat", "points": [{"period": 0.0, "sa": 0.3}, {"period": 4.0, "sa": 0.3}]},
+            "direction": "X",
+        })).unwrap();
+        solve_spectral_2d(&input)
+    };
+    assert!(spectral(good.clone()).is_ok());
+    let mut bad = good;
+    bad.masses.nodal[0].mass = -2.0;
+    assert!(spectral(bad).unwrap_err().contains(">= 0"));
+}
