@@ -85,6 +85,14 @@ pub fn settle(first: Verdict, retry: impl FnOnce() -> Verdict) -> Verdict {
     }
 }
 
+/// Analyses that must reproduce the linear static solution on any model they
+/// accept (see the "linear agreement" invariant).
+pub const REDUCES_TO_LINEAR: &[&str] = &[
+    "linear (dense reference)", "linear (sparse path)", "linear (PCG)", "constrained", "certified linear", "load combinations",
+    "staged (one stage)", "staged (loads in two stages)", "Winkler (no foundation)", "contact (no gaps)", "SSI (no soil springs)",
+    "creep & shrinkage (t = t0)",
+];
+
 pub struct Ctx<'a> {
     pub tally: &'a Tally,
     pub rng_seed: u64,
@@ -183,6 +191,25 @@ pub fn check_case(ctx: &Ctx, c: &Case2, anas: &[Ana2], invariants: &[&str]) {
                     same(a, &c.units(&u), Ok(base.units(&u)), &cond)
                 }
                 "superposition" => superposition(a, c, &base, &cond),
+                "linear agreement" => {
+                    // Analyses that reduce to the linear solve on this model
+                    // (one or several stages with the full structure, no
+                    // foundation, no gaps, no soil springs, t = t0, a single
+                    // combination, other solver paths) must agree with it.
+                    if !REDUCES_TO_crate::response::static_2d(&dedaliano_engine::solver::linear::solve_2d(&c.s)?)EAR.iter().any(|n| a.name == *n) {
+                        Verdict::NotApplicable
+                    } else {
+                        match guarded(|| Ok(crate::response::static_2d(&dedaliano_engine::solver::linear::solve_2d(&c.s)?))) {
+                            Err(e) => Verdict::Refused(format!("linear: {e}")),
+                            Ok(lin) => {
+                                let exp = lin.common(&base);
+                                let got = base.common(&exp);
+                                let rel = rel_for(a.name, a.iter_tol, &cond) * 2.0;
+                                judge(compare_with_floor(&got.flat(), &exp.flat(), cond.lchar, rel, crate::checks2::load_floor_2d(&c.s, cond.lchar)), rel)
+                            }
+                        }
+                    }
+                }
                 "reciprocity" => reciprocity(a, c, &cond, &mut rng),
                 "energy" => energy(a, c, &cond, &mut rng),
                 _ => Verdict::NotApplicable,

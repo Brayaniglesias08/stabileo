@@ -3,7 +3,7 @@
 use crate::ana2::Law;
 use crate::ana3::{Ana3, Motion};
 use crate::case::Case3;
-use crate::checks2::{guarded, hash, rel_for, settle, transformed_failure};
+use crate::checks2::{guarded, hash, rel_for, settle, transformed_failure, REDUCES_TO_LINEAR};
 use crate::response::{Kind, Resp};
 use crate::tally::{Tally, Verdict};
 use dedaliano_engine::element::compute_local_axes_3d;
@@ -171,6 +171,25 @@ pub fn check_case(ctx: &Ctx, c: &Case3, anas: &[Ana3], invariants: &[&str]) {
                     same(a, &c.units(&u), Ok(base.units(&u)), &cond)
                 }
                 "superposition" => superposition(a, c, &base, &cond),
+                "linear agreement" => {
+                    // Analyses that reduce to the linear solve on this model
+                    // (one or several stages with the full structure, no
+                    // foundation, no gaps, no soil springs, t = t0, a single
+                    // combination, other solver paths) must agree with it.
+                    if !REDUCES_TO_crate::response::static_3d(&dedaliano_engine::solver::linear::solve_3d(&c.s)?)EAR.iter().any(|n| a.name == *n) {
+                        Verdict::NotApplicable
+                    } else {
+                        match guarded(|| Ok(crate::response::static_3d(&dedaliano_engine::solver::linear::solve_3d(&c.s)?))) {
+                            Err(e) => Verdict::Refused(format!("linear: {e}")),
+                            Ok(lin) => {
+                                let exp = lin.common(&base);
+                                let got = base.common(&exp);
+                                let rel = rel_for(a.name, a.iter_tol, &cond) * 2.0;
+                                judge(compare_with_floor(&got.flat(), &exp.flat(), cond.lchar, rel, load_floor_3d(&c.s, cond.lchar)), rel)
+                            }
+                        }
+                    }
+                }
                 "reciprocity" => reciprocity(a, c, &cond, &mut rng),
                 "energy" => energy(a, c, &cond, &mut rng),
                 _ => Verdict::NotApplicable,
