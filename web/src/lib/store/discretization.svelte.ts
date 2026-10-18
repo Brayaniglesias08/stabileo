@@ -73,6 +73,8 @@ type Study =
 const ESTIMATE_EXPORT = 'estimate_discretization_3d';
 const STUDY_EXPORT = 'convergence_study_3d';
 const SETTLE_MS = 300;
+/** The dimension of the solves this store estimates (shells exist in 3D only). */
+const SPACE = '3d' as const;
 
 /** Whether a 3D wire input has shell-type elements (the estimate is about them). */
 function hasShells(wire: Record<string, any>): boolean {
@@ -111,9 +113,9 @@ function createDiscretizationStore() {
       if (timer !== null) { clearTimeout(timer); timer = null; }
       study = { status: 'idle' };
       input = null;
-      if (dim !== '3d') { estimate = { status: 'idle' }; return; }
+      if (dim !== SPACE) { estimate = { status: 'idle' }; return; }
       const found = results ? certifiableInputOf(results) : null;
-      if (!found || found.dim !== '3d' || !hasCertify(ESTIMATE_EXPORT)) { estimate = { status: 'idle' }; showMap = false; return; }
+      if (!found || found.dim !== SPACE || !hasCertify(ESTIMATE_EXPORT)) { estimate = { status: 'idle' }; showMap = false; return; }
       const wire = found.wire();
       if (!hasShells(wire)) { estimate = { status: 'idle' }; showMap = false; return; }
       input = found;
