@@ -94,16 +94,6 @@
   title={t('project.saveTabTooltip')}
 >{t('project.saveTab')}</button>
 
-{#if variant === 'bar'}
-  <!-- Reproduce a report from its provenance block (`ReproduceDialog.svelte`, mounted in App). -->
-  <button
-    class="pfa {variant}"
-    data-testid="pro-reproduce"
-    onclick={() => window.dispatchEvent(new Event('stabileo-reproduce'))}
-    title={t('provenance.reproduce.intro')}
-  >{t('provenance.reproduce.menu')}</button>
-{/if}
-
 <!--
   The production Open path, driven by the visible button above. It carries the same test id as
   the Básico input on purpose: the two are never mounted at once, and a browser journey that

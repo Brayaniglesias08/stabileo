@@ -56,6 +56,8 @@ import { autosaveRevisions as storedAutosaveRevisions } from '../store/autosave-
 import { autosaveFingerprint, clearAutosave, deserializeProject, loadAutosave, type DedalFile } from '../store/file';
 import { lastAutosaveOutcome, requestAutosave } from '../store/autosave-service';
 import { loadFixture } from '../templates/load-fixture';
+import { currentResultProvenance } from '../store/result-provenance';
+import { recheckStore } from '../store/recheck.svelte';
 
 export const E2E_QUERY_FLAG = 'e2e';
 
@@ -410,6 +412,10 @@ export interface StabileoTestHooks {
   }>;
   /** The last write attempt: what triggered it, whether it landed, and on which backend. */
   autosaveOutcome(): unknown;
+  /** The provenance record of the results on screen (`store/result-provenance.ts`). */
+  resultProvenance(): unknown;
+  /** The re-check state: notice up, results stale, the registered changes listed. */
+  recheck(): { noticeOpen: boolean; stale: boolean; changes: string[]; solvedVersion: number | null; stampVersion: number | null };
 }
 
 /**
@@ -441,6 +447,12 @@ export interface StabileoTestActions {
   clearSelection(): void;
   /** Runs the same global solve the toolbar button triggers. */
   solve(): Promise<void>;
+  /**
+   * Solve the base case on the MAIN THREAD (`modelStore.solve3D`/`solve`) and publish it as a
+   * solve does; returns the published results' provenance hash. With `solve()` (the worker pool
+   * in PRO) it is how a spec checks that the thread does not change a single bit.
+   */
+  solveOnMainThread(): string | null;
   /** Activate the RC Design tab (the table only exists while it is selected). */
   openDesignTab(): void;
   seedDetailing(assemblies: unknown): void;
@@ -790,6 +802,14 @@ export function installE2EHooks(): void {
       };
     },
     autosaveOutcome: () => JSON.parse(JSON.stringify(lastAutosaveOutcome())),
+    resultProvenance: () => JSON.parse(JSON.stringify(currentResultProvenance())),
+    recheck: () => ({
+      noticeOpen: recheckStore.noticeOpen,
+      stale: recheckStore.stale,
+      changes: recheckStore.assessment?.changes.map((c) => c.id) ?? [],
+      solvedVersion: recheckStore.assessment?.solvedVersion ?? null,
+      stampVersion: recheckStore.stamp?.resultsVersion ?? null,
+    }),
   };
   const actions: StabileoTestActions = {
     /** Seed a coordinated assembly — the same shape the pipeline writes. */
@@ -851,6 +871,19 @@ export function installE2EHooks(): void {
     /** Reset the selection between gestures — the position, not the subject. */
     clearSelection: () => { uiStore.clearSelection(); },
     solve: async () => { await runGlobalSolve(); },
+    solveOnMainThread: () => {
+      const isPro = uiStore.analysisMode === 'pro';
+      if (uiStore.is3DWorkspace) {
+        const r = modelStore.solve3D(uiStore.includeSelfWeight, uiStore.axisConvention3D === 'leftHand', isPro);
+        if (!r || typeof r === 'string') return null;
+        resultsStore.setResults3D(r);
+      } else {
+        const r = modelStore.solve(uiStore.includeSelfWeight, uiStore.drawPlane2D);
+        if (!r || typeof r === 'string') return null;
+        resultsStore.setResults(r);
+      }
+      return currentResultProvenance().resultsHash;
+    },
     openDesignTab: () => { uiStore.proActiveTab = 'design'; },
     computeDemands: () => designRunStore.computeDemands(),
     codeCheck: () => designRunStore.runCodeCheck(),

@@ -22,6 +22,30 @@ import {
   buildResultProvenance, type AnalysisSettings, type CertificateRecord, type ProvenanceLabels, type ResultProvenance,
 } from '../provenance/result-provenance';
 import { t } from '../i18n';
+import { certifiableInputOf, type CertifiableInput } from '../engine/solver-service';
+import { engineReproduceHashes } from '../engine/wasm-solver';
+
+/**
+ * The engine input of the base linear solve on screen (null: none, or not a plain linear solve).
+ * Set by the static-publish hook in `store/index.ts`, from the raw result before it is drawn.
+ */
+let baseInput: CertifiableInput | null = null;
+export function noteBaseSolve(results: object | null): void {
+  baseInput = results ? certifiableInputOf(results) : null;
+}
+
+/** The solver input of the base solve, as JSON, for the CLI reproduce (`examples/reproduce.rs`). */
+export function baseSolverInputJson(): { dim: '2d' | '3d'; json: string } | null {
+  return baseInput ? { dim: baseInput.dim, json: JSON.stringify(baseInput.wire()) } : null;
+}
+
+/** The engine's own hashes of the base solve (re-solved once in WASM); null when unavailable. */
+function engineHashes(): { input: string; results: string } | null {
+  const b = baseSolverInputJson();
+  if (!b) return null;
+  const h = engineReproduceHashes(b.json, b.dim === '3d');
+  return h ? { input: h.inputSha256, results: h.resultsSha256 } : null;
+}
 
 export function currentAnalysisSettings(): AnalysisSettings {
   const is3D = uiStore.is3DWorkspace;
@@ -81,6 +105,7 @@ export function currentResultProvenance(now?: Date): ResultProvenance {
     certificates: certificates(),
     stale: recheckStore.stale,
     stamp: recheckStore.stamp,
+    engine: results ? engineHashes() : null,
     now,
   });
 }
@@ -96,6 +121,7 @@ export function provenanceLabels(): ProvenanceLabels {
     model: t('provenance.model'),
     settings: t('provenance.settings'),
     results: t('provenance.results'),
+    engineSolve: t('provenance.engineSolve'),
     scope: t('provenance.scope'),
     certificates: t('provenance.certificates'),
     none: t('provenance.none'),

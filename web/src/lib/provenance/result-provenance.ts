@@ -68,6 +68,13 @@ export interface ResultProvenance {
   resultsHash: string | null;
   /** The base solve's hash when the scope is not the base solve. */
   baseResultsHash: string | null;
+  /**
+   * The engine's hashes of the base linear solve: its canonical input and its raw result, as
+   * `cargo run --example reproduce` recomputes them from the exported solver input. null when the
+   * results are not a plain linear solve.
+   */
+  engineInputSha256: string | null;
+  engineResultsSha256: string | null;
   certificates: CertificateRecord[];
   /** The project's results predate registered changes and have not been re-run. */
   stale: boolean;
@@ -103,6 +110,7 @@ export interface ProvenanceInputs {
   certificates?: CertificateRecord[];
   stale: boolean;
   stamp: SolveStamp | null;
+  engine?: { input: string; results: string } | null;
   now?: Date;
 }
 
@@ -123,6 +131,8 @@ export function buildResultProvenance(i: ProvenanceInputs): ResultProvenance {
     scope: i.scope,
     resultsHash: resultsHash(i.results),
     baseResultsHash: base,
+    engineInputSha256: i.engine?.input ?? null,
+    engineResultsSha256: i.engine?.results ?? null,
     certificates: i.certificates ?? [],
     stale: i.stale,
     solvedWith: i.stamp
@@ -199,6 +209,7 @@ export interface ProvenanceLabels {
   model: string;
   settings: string;
   results: string;
+  engineSolve: string;
   scope: string;
   certificates: string;
   none: string;
@@ -230,6 +241,7 @@ export function provenanceTextLines(p: ResultProvenance, l: ProvenanceLabels): A
     [l.settings, `${p.settingsHash} — ${s.analysisMode}, self-weight ${s.includeSelfWeight ? 'on' : 'off'}${s.selfWeightCaseId !== null ? ` (case ${s.selfWeightCaseId})` : ''}, ${s.axisConvention3D}${s.drawPlane2D ? `, plane ${s.drawPlane2D}` : ''}`],
     [l.scope, p.scope],
     [l.results, p.resultsHash ?? l.none],
+    [l.engineSolve, p.engineInputSha256 ? `input ${p.engineInputSha256} · results ${p.engineResultsSha256}` : l.none],
     [l.certificates, p.certificates.length ? p.certificates.map((c) => `${c.scope} ${c.status} ${c.hash}`).join('; ') : l.none],
   ];
 }

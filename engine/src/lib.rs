@@ -11,6 +11,7 @@ pub mod postprocess;
 pub mod section;
 pub mod certify;
 pub mod sanity;
+pub mod reproduce;
 #[cfg(kani)]
 mod kani_proofs;
 
@@ -59,6 +60,14 @@ pub fn engine_build_info() -> String {
         "engineCommit": env!("STABILEO_ENGINE_COMMIT"),
     })
     .to_string()
+}
+
+/// Solve a linear model and hash its input and result for reproduction
+/// (`reproduce::linear_hashes`). JSON in → `ReproduceHashes` JSON out.
+#[wasm_bindgen]
+pub fn engine_reproduce_hashes(json: &str, is_3d: bool) -> Result<String, JsValue> {
+    let h = reproduce::linear_hashes(json, is_3d).map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&h).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 /// Solve 2D linear static analysis. JsValue in → JsValue out (hot path).

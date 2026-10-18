@@ -10325,6 +10325,8 @@ const es: Record<string, string> = {
   "provenance.model": "Contenido del modelo (SHA-256)",
   "provenance.settings": "Configuración del análisis (SHA-256)",
   "provenance.results": "Resultados (SHA-256)",
+  "provenance.engineSolve": "Resolución del motor (entrada · resultado, SHA-256)",
+  "provenance.reproduce.download": "Descargar la entrada del solver",
   "provenance.scope": "Resultado mostrado",
   "provenance.certificates": "Certificados",
   "provenance.none": "ninguno",

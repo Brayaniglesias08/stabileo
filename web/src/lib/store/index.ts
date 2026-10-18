@@ -19,6 +19,7 @@ import { connectionPrompt } from './connection-prompt.svelte';
 import { scheduleDefinedLoadsSync, flushDefinedLoadsSync } from './defined-loads';
 import { viewVisibility } from './view-state.svelte';
 import { recheckStore } from './recheck.svelte';
+import { noteBaseSolve } from './result-provenance';
 
 // Wire model mutations to automatically clear stale results.
 // This ensures results never persist after the model changes,
@@ -128,6 +129,7 @@ resultsStore._setNormalise3D(
 // (`recheck.svelte.ts`): a project solved here no longer reads as stale.
 resultsStore._setOnStaticPublish((r, dim) => {
   certificateStore.track(r, dim);
+  noteBaseSolve(r);
   if (r) recheckStore.noteSolved('linear');
 });
 resultsStore._setOnComboPublish((pc, pco, dim) => {

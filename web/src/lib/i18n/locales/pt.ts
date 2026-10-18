@@ -9969,6 +9969,8 @@ const pt: Translations = {
   "provenance.model": "Conteúdo do modelo (SHA-256)",
   "provenance.settings": "Configuração da análise (SHA-256)",
   "provenance.results": "Resultados (SHA-256)",
+  "provenance.engineSolve": "Resolução do motor (entrada · resultado, SHA-256)",
+  "provenance.reproduce.download": "Baixar a entrada do solver",
   "provenance.scope": "Resultado mostrado",
   "provenance.certificates": "Certificados",
   "provenance.none": "nenhum",

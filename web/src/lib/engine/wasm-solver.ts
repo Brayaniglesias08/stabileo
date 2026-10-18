@@ -193,6 +193,17 @@ export function getWasmBytes(): Promise<ArrayBuffer> {
   return wasmBytesPromise;
 }
 
+let wasmEngineReproduceHashes: ((json: string, is3d: boolean) => string) | null = null;
+
+/**
+ * Solve a linear wire input once more in the engine and hash its canonical input and raw result
+ * (`engine/src/reproduce.rs`); null when the engine has no such export or refuses the input.
+ */
+export function engineReproduceHashes(json: string, is3d: boolean): { inputSha256: string; resultsSha256: string } | null {
+  if (!wasmReady || !wasmEngineReproduceHashes) return null;
+  try { return JSON.parse(wasmEngineReproduceHashes(json, is3d)); } catch { return null; }
+}
+
 /** The engine's own account of its version and commit; null from a build without the export. */
 function engineInfoOf(wasm: unknown): { engineVersion?: string; engineCommit?: string } | null {
   const f = (wasm as { engine_build_info?: () => string }).engine_build_info;
@@ -231,6 +242,7 @@ export async function initSolver(): Promise<void> {
     loadSession3D = wasm.LoadSession3D ?? null;
     registerShellCombinationKernel(wasm.combine_shell_stresses ? packedShellCombinationKernel(wasm.combine_shell_stresses) : null);
     wasmSolve2d = wasm.solve_2d;
+    wasmEngineReproduceHashes = (wasm as { engine_reproduce_hashes?: typeof wasmEngineReproduceHashes }).engine_reproduce_hashes ?? null;
     wasmSolve3d = wasm.solve_3d;
     wasmSolvePdelta2d = wasm.solve_pdelta_2d;
     wasmSolveBuckling2d = wasm.solve_buckling_2d;
