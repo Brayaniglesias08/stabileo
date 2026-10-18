@@ -128,8 +128,15 @@ fn torsion_shear(mx: f64, rs: &ResolvedSection) -> f64 {
             (mx / (2.0 * am * rs.t)) / 1000.0
         }
         _ => {
-            // Saint-Venant open: τ = Mx*t_max/J
-            let t_max = rs.tw.max(rs.tf).max(rs.t);
+            // Saint-Venant open: τ = Mx*t_max/J. A solid rectangle (or a generic section) has no
+            // wall thickness: its "thickness" is the shorter side, τ = Mx·min(b,h)/J, which bounds
+            // the exact Saint-Venant peak from above (×1,48 for a square). It used to take
+            // max(tw, tf, t) = 0 for a rectangle and report no torsional shear at all.
+            let t_max = if matches!(rs.shape.as_str(), "rect" | "generic") {
+                rs.b.min(rs.h)
+            } else {
+                rs.tw.max(rs.tf).max(rs.t)
+            };
             if t_max < 1e-12 { return 0.0; }
             (mx * t_max / rs.j) / 1000.0
         }

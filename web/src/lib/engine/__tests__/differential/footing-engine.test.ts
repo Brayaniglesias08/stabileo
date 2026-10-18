@@ -28,8 +28,10 @@ const footing = fc.record({
   qa: fc.double({ min: 80, max: 600, noNaN: true }),
   N: fc.double({ min: 50, max: 5000, noNaN: true }),
   k: fc.double({ min: 1.2, max: 1.6, noNaN: true }),
-  ms: fc.array(fc.oneof(fc.constant(0), fc.double({ min: -400, max: 400, noNaN: true })), { minLength: 4, maxLength: 4 }),
-  ecc: fc.array(fc.oneof(fc.constant(0), fc.double({ min: -0.6, max: 0.6, noNaN: true })), { minLength: 2, maxLength: 2 }),
+  // Zero or physical: a subnormal eccentricity (5e-324 m) underflows differently in the two
+  // orders of multiplication and only tells "no moment" from "a 1e-320 kN·m moment".
+  ms: fc.array(fc.oneof(fc.constant(0), fc.double({ min: -400, max: 400, noNaN: true }).filter((x) => Math.abs(x) > 1e-6)), { minLength: 4, maxLength: 4 }),
+  ecc: fc.array(fc.oneof(fc.constant(0), fc.double({ min: -0.6, max: 0.6, noNaN: true }).filter((x) => Math.abs(x) > 1e-6)), { minLength: 2, maxLength: 2 }),
   position: fc.constantFrom('interior', 'interior', 'interior', 'edge', 'corner') as fc.Arbitrary<'interior' | 'edge' | 'corner'>,
 }).map((p): FootingInput => ({
   kind: 'isolated',

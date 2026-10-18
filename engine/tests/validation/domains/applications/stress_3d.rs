@@ -224,6 +224,22 @@ fn validation_stress_3d_torsion() {
     assert!(tau_t_max > 0.0, "Torsion shear should be non-zero");
 }
 
+/// The app sends a rectangle resolved with zero wall thicknesses (`resolveSectionGeometryLegacy`).
+/// Its torsional shear is Mx·min(b,h)/J, not zero: the engine took max(tw, tf, t) = 0 and
+/// reported no torsion at all (found by the differential test against the TypeScript oracle).
+#[test]
+fn validation_stress_3d_torsion_rect_with_zero_thicknesses() {
+    let (b, h, mx) = (0.1, 0.2, 2.0);
+    let mut section = rect_section(b, h);
+    section.tw = Some(0.0);
+    section.tf = Some(0.0);
+    section.t = Some(0.0);
+    let j = section.j.unwrap();
+    let r = compute_stress_3d_from_raw(0.0, 0.0, 0.0, mx, 0.0, 0.0, &section, None, Some(0.0), Some(0.0));
+    let expected = mx * b.min(h) / j / 1000.0;
+    assert!((r.tau_torsion.abs() - expected).abs() < 1e-12 * expected, "{} vs {expected}", r.tau_torsion);
+}
+
 // ================================================================
 // 5. Von Mises: Combined Bending + Shear
 // ================================================================

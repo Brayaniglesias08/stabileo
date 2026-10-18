@@ -21,6 +21,26 @@ const OCC = ['exceptional', 'reduced', 'intermediate', 'high', 'full', 'other'] 
 
 const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThanOrEqual(1e-12 * Math.max(1, Math.abs(b)));
 
+/**
+ * Equal structure, numbers to 1e-12 relative. JavaScript's Math.pow and Rust's powf are different
+ * libms and may differ in the last bit (Ta = Cr·h^x); nothing else is allowed to differ.
+ */
+function same(a: unknown, b: unknown, path = ''): void {
+  if (typeof b === 'number' && typeof a === 'number') {
+    expect(Math.abs(a - b), `${path}: ${a} vs ${b}`).toBeLessThanOrEqual(1e-12 * Math.max(Math.abs(b), Number.MIN_VALUE));
+    return;
+  }
+  if (b && typeof b === 'object') {
+    expect(a && typeof a === 'object', path).toBe(true);
+    const ka = Object.keys(a as object).filter((k) => (a as Record<string, unknown>)[k] !== undefined).sort();
+    const kb = Object.keys(b).filter((k) => (b as Record<string, unknown>)[k] !== undefined).sort();
+    expect(ka, path).toEqual(kb);
+    for (const k of kb) same((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], `${path}.${k}`);
+    return;
+  }
+  expect(a, path).toBe(b);
+}
+
 describe('INPRES-CIRSOC 103: engine against the verified oracle', () => {
   it('the spectrum for every zone, site and fault factor', () => {
     for (const zone of ZONES) for (const site of SITES) {
@@ -46,18 +66,18 @@ describe('INPRES-CIRSOC 103: engine against the verified oracle', () => {
       (zone, site, group, system, height, computedT, r, levels, occupancy, retaining, nLevels, regularity) => {
         const spec = S.designSpectrum({ zone, site }) as S.DesignSpectrum;
         const per = M.designPeriod({ heightM: height, system, ...(computedT !== undefined ? { computedT } : {}) }, spec.as);
-        expect(per).toEqual(MO.designPeriod({ heightM: height, system, ...(computedT !== undefined ? { computedT } : {}) }, spec.as));
+        same(per, MO.designPeriod({ heightM: height, system, ...(computedT !== undefined ? { computedT } : {}) }, spec.as));
         expect(M.periodCapFactor(spec.as)).toBe(MO.periodCapFactor(spec.as));
         const coef = M.designSeismicCoefficient({ spectrum: spec, group, r, t: per.t });
-        expect(coef).toEqual(MO.designSeismicCoefficient({ spectrum: spec as never, group, r, t: per.t }));
+        same(coef, MO.designSeismicCoefficient({ spectrum: spec as never, group, r, t: per.t }));
         const v0 = coef.c * 1000;
-        expect(M.distributeInHeight(levels, v0, per.ta * 3, spec.t2)).toEqual(MO.distributeInHeight(levels, v0, per.ta * 3, spec.t2));
+        same(M.distributeInHeight(levels, v0, per.ta * 3, spec.t2), MO.distributeInHeight(levels, v0, per.ta * 3, spec.t2));
         const app = { zone, group, heightM: height, levels: nLevels, regularity, t: per.t, t2: spec.t2 };
-        expect(M.staticMethodApplicable(app)).toEqual(MO.staticMethodApplicable(app));
+        same(M.staticMethodApplicable(app), MO.staticMethodApplicable(app));
         const { t: _t, ...noT } = app;
-        expect(M.staticMethodApplicable(noT)).toEqual(MO.staticMethodApplicable(noT));
+        same(M.staticMethodApplicable(noT), MO.staticMethodApplicable(noT));
         const w = { deadKN: v0, liveKN: height * 10, snowKN: r * 7, occupancy, snowRetaining: retaining };
-        expect(S.seismicWeight(w)).toEqual(SO.seismicWeight(w));
+        same(S.seismicWeight(w), SO.seismicWeight(w));
       },
     ), { numRuns: 3000, seed: 103 });
   });
