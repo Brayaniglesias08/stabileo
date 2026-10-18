@@ -23,6 +23,8 @@ fn timber(b: f64, d: f64, le: f64, lu: Option<f64>, e: f64, e_min: Option<f64>) 
         d,
         le,
         lu,
+        le_b: None,
+            le_bending: None,
         cd: None, cm: None, ct: None,
         cf_bending: None, cf_tension: None, cf_compression: None,
         cfu: None, ci: None, cr: None,
