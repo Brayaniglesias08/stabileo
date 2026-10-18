@@ -257,11 +257,12 @@ impl Relabel {
                     },
                 )
             }),
-            // 3D supports carry no id; keys are arbitrary, so re-key them too.
+            // 3D supports carry no id; their key is the id staged analysis
+            // refers to them by (a number), so re-key them with fresh numbers.
             supports: {
                 let mut v: Vec<SolverSupport3D> = input.supports.values().map(|s| SolverSupport3D { node_id: self.n(s.node_id), ..s.clone() }).collect();
                 rng.shuffle(&mut v);
-                v.into_iter().enumerate().map(|(k, s)| (format!("s{}", 7 * k + 3), s)).collect()
+                v.into_iter().enumerate().map(|(k, s)| ((7 * k + 3).to_string(), s)).collect()
             },
             loads: self.load_order.iter().map(|&i| self.load_3d(&input.loads[i])).collect(),
             constraints: self.constraints(&input.constraints),

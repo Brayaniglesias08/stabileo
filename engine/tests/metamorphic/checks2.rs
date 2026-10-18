@@ -268,7 +268,12 @@ fn superposition(a: &Ana2, c: &Case2, base: &Resp, cond: &Conditioning) -> Verdi
 fn inverse_law(a: &Ana2, c: &Case2, base: &Resp, cond: &Conditioning) -> Verdict {
     let k = 3.7;
     let rel = rel_for(a.name, a.iter_tol, cond);
-    match run(a, &c.with_loads(scale_loads_2d(&c.s.loads, k))) {
+    // The whole action scales: loads and prescribed displacements.
+    let mut ck = c.with_loads(scale_loads_2d(&c.s.loads, k));
+    for sp in ck.s.supports.values_mut() {
+        (sp.dx, sp.dz, sp.dry) = (sp.dx.map(|v| v * k), sp.dz.map(|v| v * k), sp.dry.map(|v| v * k));
+    }
+    match run(a, &ck) {
         Ok(r) => {
             let mut exp = base.clone();
             for it in exp.0.iter_mut() {

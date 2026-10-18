@@ -184,7 +184,14 @@ fn superposition(a: &Ana3, c: &Case3, base: &Resp, cond: &Conditioning) -> Verdi
     if a.law == Law::Inverse {
         let k = 3.7;
         let rel = rel_for(a.name, a.iter_tol, cond);
-        return match run(a, &c.with_loads(scale_loads_3d(&c.s.loads, k))) {
+        // The whole action scales: loads and prescribed displacements.
+        let mut ck = c.with_loads(scale_loads_3d(&c.s.loads, k));
+        for sp in ck.s.supports.values_mut() {
+            for d in [&mut sp.dx, &mut sp.dy, &mut sp.dz, &mut sp.drx, &mut sp.dry, &mut sp.drz] {
+                *d = d.map(|v| v * k);
+            }
+        }
+        return match run(a, &ck) {
             Ok(r) => {
                 let mut exp = base.clone();
                 for it in exp.0.iter_mut() {

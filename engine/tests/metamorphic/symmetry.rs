@@ -310,6 +310,10 @@ pub fn symmetrize_3d(name: &str, half: &SolverInput3D, anti: bool) -> Option<Sym
     let mut case = Case3::new(format!("{name}/{}", if anti { "anti" } else { "sym" }), full);
     case.path = None;
     case.probes = axis.clone();
+    // Excitations given in global axes must share the symmetry: a vertical
+    // ground motion and spectrum direction are invariant under Rz(π).
+    case.p.ground = [0.0, 0.0, 1.0];
+    case.p.axis = 2;
     Some(Sym3 { case, iso, pair })
 }
 
