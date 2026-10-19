@@ -309,6 +309,7 @@
   import ColourScaleLegend from './components/ColourScaleLegend.svelte';
   import SwitchTo2DDialog from './components/SwitchTo2DDialog.svelte';
   import RecheckNotice from './components/RecheckNotice.svelte';
+  import { prepareExportProvenance, pngWithProvenance } from './lib/export/provenance-attach';
   import ReproduceDialog from './components/ReproduceDialog.svelte';
   import TabBar from './components/TabBar.svelte';
   import MobileResultsPanel from './components/MobileResultsPanel.svelte';
@@ -857,12 +858,16 @@
     if (typeof panel === 'string') openBasicPanel(panel, { toggle: false });
   }
 
-  function handleExportPNG() {
+  async function handleExportPNG() {
     // Captioned, with the colour scale drawn into the image (`lib/export/figure.ts`).
     const fig = captureFigure();
-    if (fig) { downloadDataUrlPNG(fig.dataUrl); return; }
-    const canvas = viewportCanvas();
-    if (canvas) downloadCanvasPNG(canvas);
+    const canvas = fig ? null : viewportCanvas();
+    // The picture carries its provenance (a PNG tEXt chunk), prepared like every export's.
+    const record = await prepareExportProvenance();
+    if (!record) return;
+    const embed = (png: Uint8Array) => pngWithProvenance(png, record);
+    if (fig) { downloadDataUrlPNG(fig.dataUrl, embed); return; }
+    if (canvas) downloadCanvasPNG(canvas, embed);
   }
 
   onMount(() => {

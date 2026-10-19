@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { downloadResultText } from '../../lib/export/provenance-attach';
   /**
    * Member deflections relative to the chord: under service loads, or for the result set on
    * screen.
@@ -9,7 +10,6 @@
    */
   import { modelStore, resultsStore, uiStore } from '../../lib/store';
   import { t, tp } from '../../lib/i18n';
-  import { downloadText } from '../../lib/store/file';
   import { serviceSets, serviceDeflections } from '../../lib/store/service-deflection';
   import { deflectionChecks } from '../../lib/store/serviceability';
   import { ruleLabel } from '../../lib/engine/deflection-limits';
@@ -44,7 +44,7 @@
   }
 
   function csv() {
-    downloadText(toCsv(
+    void downloadResultText(toCsv(
       [t('pro.elemLabel'), 'L (m)', 'δ (mm)', 'x (m)', 'L/δ', 'δy (mm)', 'δz (mm)', t('tables.source'), t('defl.cantilever'), t('defl.limits.rule'), t('defl.limits.direction'), t('defl.limits.ratio')],
       rows.map((r) => {
         const c = checks.get(r.id);

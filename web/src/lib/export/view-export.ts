@@ -5,6 +5,8 @@
  * the figures that do not need results still come out and the reason is told. The figures are
  * drawn as vectors (`view-figure.ts`), in 2D and in 3D.
  */
+import { captureProvenanceToken, provenanceForExport, ExportChangedError } from '../store/result-provenance';
+import { svgWithProvenance, imageWithProvenance } from './provenance-attach';
 import { zipSync } from 'fflate';
 import { modelStore, uiStore } from '../store';
 import { t, tp } from '../i18n';
@@ -81,11 +83,31 @@ async function files(req: ViewExportRequest): Promise<Array<{ name: string; blob
 
 /** Download what the request makes: one file, or a zip of several. */
 export async function exportView(req: ViewExportRequest): Promise<boolean> {
-  const fs = await files(req);
-  if (fs.length === 0) return false;
+  // Taken with the request; checked again once the figures are drawn and the hashes are in.
+  const token = captureProvenanceToken();
+  const drawn = await files(req);
+  if (drawn.length === 0) return false;
+  let record;
+  try {
+    record = await provenanceForExport(token);
+  } catch (e) {
+    if (e instanceof ExportChangedError) { uiStore.toast(e.message, 'error'); return false; }
+    throw e;
+  }
+  // Each picture carries the record in its own format (PNG tEXt, JPEG comment, SVG metadata).
+  const fs: Array<{ name: string; blob: Blob }> = [];
+  for (const f of drawn) {
+    if (f.name.endsWith('.svg')) {
+      fs.push({ name: f.name, blob: new Blob([svgWithProvenance(await f.blob.text(), record)], { type: 'image/svg+xml' }) });
+    } else {
+      const bytes = imageWithProvenance(new Uint8Array(await f.blob.arrayBuffer()), record);
+      fs.push({ name: f.name, blob: new Blob([bytes as BlobPart], { type: f.blob.type }) });
+    }
+  }
   if (fs.length === 1) { downloadBlob(fs[0]!.blob, fs[0]!.name); return true; }
   const entries: Record<string, Uint8Array> = {};
   for (const f of fs) entries[f.name] = new Uint8Array(await f.blob.arrayBuffer());
+  entries['provenance.json'] = new TextEncoder().encode(JSON.stringify(record, null, 2));
   downloadBlob(new Blob([zipSync(entries, { level: 0 }) as Uint8Array<ArrayBuffer>], { type: 'application/zip' }), `${fileBase()}_${t('viewExport.figuresFile')}.zip`);
   return true;
 }

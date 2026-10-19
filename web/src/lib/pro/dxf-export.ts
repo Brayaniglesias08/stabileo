@@ -2,9 +2,9 @@
  * PRO's DXF, from the stores to a file: the model as it stands and the results of the chosen set
  * (`pro/export-results.ts`), written by `dxf/writer.ts`.
  */
+import { downloadResultText } from '../export/provenance-attach';
 import { modelStore, resultsStore, uiStore } from '../store';
 import { t } from '../i18n';
-import { downloadText } from '../store/file';
 import { shouldProjectModelToXZ } from '../geometry/coordinate-system';
 import { writeDxf, type DxfContents, type DxfProjection } from '../dxf/writer';
 import type { DxfUnit } from '../dxf/types';
@@ -39,7 +39,8 @@ export function proDxf(req: ProDxfRequest): string {
   }, t);
 }
 
-export function downloadProDxf(req: ProDxfRequest): void {
+export function downloadProDxf(req: ProDxfRequest): Promise<boolean> {
   const safeName = modelStore.model.name.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ _-]/g, '').trim() || t('file.defaultStructure');
-  downloadText(proDxf(req), `${safeName}.dxf`, 'application/dxf');
+  // The DXF carries its provenance as 999 comments (export/provenance-attach.ts).
+  return downloadResultText(proDxf(req), `${safeName}.dxf`, 'application/dxf');
 }

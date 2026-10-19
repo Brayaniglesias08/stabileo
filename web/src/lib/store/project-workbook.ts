@@ -157,7 +157,8 @@ export async function downloadProjectWorkbook(stations: StationSpec, opts: Workb
   const safeName = modelStore.model.name.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ _-]/g, '').trim() || t('file.defaultAnalysis');
   const sheets = currentWorkbookSheets(stations, opts, record);
   if (fitsInXlsx(sheets)) {
-    await exportToExcel({ filename: `${safeName}.xlsx`, onlyExtras: true, extraSheets: sheets });
+    // The cover already carries the provenance, prepared above.
+    await exportToExcel({ filename: `${safeName}.xlsx`, onlyExtras: true, extraSheets: sheets, provenance: false });
     return;
   }
   const zip = workbookZip(sheets);

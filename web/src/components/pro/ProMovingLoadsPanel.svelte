@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { downloadResultText } from '../../lib/export/provenance-attach';
   /**
    * Moving loads in PRO: a train of axles along a path of members (the selection, in order), and
    * each member's envelope over every position (`engine/moving-loads-3d.ts`).
@@ -186,7 +187,7 @@
     // SI, each column with its unit.
     const UNIT: Record<EnvelopeComponent, string> = { n: 'kN', vy: 'kN', vz: 'kN', my: 'kN·m', mz: 'kN·m', torsion: 'kN·m' };
     const head = [t('pro.elemLabel'), ...ENVELOPE_COMPONENTS.flatMap((c) => [`${LABEL[c]} max (${UNIT[c]})`, `${LABEL[c]} min (${UNIT[c]})`])];
-    downloadText(toCsv(head, rows.map((r) => [r.id, ...ENVELOPE_COMPONENTS.flatMap((c) => [r.env[c].max.value, r.env[c].min.value])])),
+    void downloadResultText(toCsv(head, rows.map((r) => [r.id, ...ENVELOPE_COMPONENTS.flatMap((c) => [r.env[c].max.value, r.env[c].min.value])])),
       'moving-load-envelope.csv', 'text/csv;charset=utf-8');
   }
 </script>

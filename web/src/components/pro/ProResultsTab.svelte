@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { downloadResultText } from '../../lib/export/provenance-attach';
   import { resultCaseName } from '../../lib/engine/settlement-case';
   import { untrack } from 'svelte';
   import { activeQuantity, activeRepresentation, representationsFor, showQuantityAs } from '../../lib/store/result-view';
@@ -12,8 +13,7 @@
   import ProDeflectionTable from './ProDeflectionTable.svelte';
   import ProStoryDriftTable from './ProStoryDriftTable.svelte';
   import { deformedView } from '../../lib/store/deformed-view.svelte';
-  import { downloadText } from '../../lib/store/file';
-  import { t } from '../../lib/i18n';
+    import { t } from '../../lib/i18n';
   // The raw forces report is one more answer to "which output am I reading", which is the
   // question this tab's strip already asks. It is NOT in Documentos: §5 keeps raw solver
   // results and reinforcement design as two documents.
@@ -313,7 +313,7 @@
 
   function exportQueryCsv() {
     const csv = rowsToCsv(filteredRows, exportMeta);
-    downloadText(csv, `stabileo-query-${queryComponent}-${exportMeta.sourceKind}.csv`, 'text/csv;charset=utf-8;');
+    void downloadResultText(csv, `stabileo-query-${queryComponent}-${exportMeta.sourceKind}.csv`, 'text/csv;charset=utf-8;');
   }
 
 

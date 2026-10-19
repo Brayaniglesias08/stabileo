@@ -697,19 +697,20 @@ export async function downloadResultsCSV(solveError?: string): Promise<void> {
 // ─── Export PNG ─────────────────────────────────────────────────
 
 /** A PNG given as a data URL, saved under the project's name. */
-export function downloadDataUrlPNG(dataUrl: string): void {
+export function downloadDataUrlPNG(dataUrl: string, embed?: (png: Uint8Array) => Uint8Array): void {
   const safeName = modelStore.model.name.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ _-]/g, '').trim() || t('file.defaultStructure');
   const bin = atob(dataUrl.split(',')[1] ?? '');
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  downloadBlob(new Blob([bytes], { type: 'image/png' }), `${safeName}.png`);
+  downloadBlob(new Blob([(embed ? embed(bytes) : bytes) as BlobPart], { type: 'image/png' }), `${safeName}.png`);
 }
 
-export function downloadCanvasPNG(canvas: HTMLCanvasElement): void {
+export function downloadCanvasPNG(canvas: HTMLCanvasElement, embed?: (png: Uint8Array) => Uint8Array): void {
   canvas.toBlob((blob) => {
     if (!blob) return;
     const safeName = modelStore.model.name.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ _-]/g, '').trim() || t('file.defaultStructure');
-    downloadBlob(blob, `${safeName}.png`);
+    if (!embed) { downloadBlob(blob, `${safeName}.png`); return; }
+    void blob.arrayBuffer().then((b) => downloadBlob(new Blob([embed(new Uint8Array(b)) as BlobPart], { type: 'image/png' }), `${safeName}.png`));
   }, 'image/png');
 }
 
