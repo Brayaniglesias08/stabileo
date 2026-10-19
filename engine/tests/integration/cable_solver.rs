@@ -405,11 +405,9 @@ fn make_stayed_deck(n_elem: usize) -> SolverInput {
         kx: None, ky: None, kz: None,
         dx: None, dz: None, dry: None, angle: None,
     });
-    supports.insert("2".to_string(), SolverSupport {
-        id: 2, node_id: n_elem + 1, support_type: "rollerX".to_string(),
-        kx: None, ky: None, kz: None,
-        dx: None, dz: None, dry: None, angle: None,
-    });
+    // The deck's far end is free: the stays carry it. (This support used to
+    // be typed "roller", which the engine silently treated as no support;
+    // unknown types are now refused, so the free end is stated by omission.)
 
     let mut loads = Vec::new();
     // Constant total deck load (-240 kN) regardless of mesh density.
