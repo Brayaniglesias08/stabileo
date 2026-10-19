@@ -1214,9 +1214,9 @@ pub struct DiaphragmConstraint {
     /// Plane: "XY" (default), "XZ", or "YZ".
     ///
     /// In 3D (Z up) the plane is the diaphragm's own: "XY" is a horizontal floor, rigid in X–Y
-    /// and free to bend vertically. A 2D model is the X–Z plane, and there "XY" (the default)
-    /// and "XZ" both mean the in-plane rigid body of the model plane (u_x, u_z tied to θ), "YZ"
-    /// ties u_z only (docs/solver/assembly-constraints.md, AC-5). So a 3D floor diaphragm is NOT
+    /// and free to bend vertically. A 2D model is the X–Z plane; there only "XY" (the default)
+    /// is accepted, and it means the in-plane rigid body of the model plane (u_x, u_z tied to θ;
+    /// other names are refused) (docs/solver/assembly-constraints.md, AC-5). So a 3D floor diaphragm is NOT
     /// the 2D "XY" one: its trace on a plane frame is an equal u_x (an `equalDOF` on DOF 0),
     /// which is what the web app sends to the 2D solver (`constraint-2d-remap.ts`).
     #[serde(default = "default_diaphragm_plane")]
