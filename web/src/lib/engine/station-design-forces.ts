@@ -1491,9 +1491,16 @@ function solveColumnSections(data: ColumnSectionData, loads: readonly number[]):
   const constants = Float64Array.of(sectionDepth, sectionWidth, fc_kPa, fy_kPa, fy, b1, phiPn, ALPHA1,
     edition === '2005' ? 2005 : 2025);
   const bars = Float64Array.from(barData.flatMap(b => [b.d, b.area_m2]));
-  const values = kernel(constants, bars, Float64Array.from(loads));
-  return loads.map((_, i) => ({ phiMn: values[i * 3], phiPtMax: values[i * 3 + 1],
-    cNeutral: +values[i * 3 + 2].toFixed(4) }));
+  // A load that is not a number has no capacity (the check then fails); the rest go in one call.
+  const finite = loads.filter(Number.isFinite);
+  const values = kernel(constants, bars, Float64Array.from(finite));
+  const phiPtMax = -0.9 * data.fy_kPa * barData.reduce((t, b) => t + b.area_m2, 0);
+  let k = 0;
+  return loads.map((load) => {
+    if (!Number.isFinite(load)) return { phiMn: 0, phiPtMax, cNeutral: NaN };
+    const i = k++;
+    return { phiMn: values[i * 3], phiPtMax: values[i * 3 + 1], cNeutral: +values[i * 3 + 2].toFixed(4) };
+  });
 }
 function solveColumnSection(data: ColumnSectionData, Nu: number): ColumnSectionSolution {
   return solveColumnSections(data, [Nu])[0];
@@ -1543,7 +1550,7 @@ function biaxialCapacity(
   const phiPn0 = axialCap(fc, fy, Ag, AsProv_cm2 * 1e-4, 'ties', edition);
   const fail = { phiPn: +Nu.toFixed(1), phiPn0: +phiPn0.toFixed(1), phiMn: 0, ratio: 0, rhoPercent, rhoOk,
     method: 'load-contour' as const, geometryAware: false, strainCompatible: false, status: 'fail' as const };
-  if (!bars || bars.length < 4) return fail;
+  if (!bars || bars.length < 4 || ![Nu, Muy, Muz].every(Number.isFinite)) return fail;
 
   const own = prepared ?? prepareBiaxialSection(b, h, fc, fy, bars, edition);
   let worst = 0;
