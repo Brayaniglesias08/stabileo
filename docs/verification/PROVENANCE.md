@@ -70,8 +70,8 @@ CSV export:
 | `modelHash` | SHA-256 of the exact canonical JSON of the model, without what cannot move a number (name, title block, notes, views, grid, export record, stamps, revision counters, detailing drawings) |
 | `settings`, `settingsHash` | workspace, self-weight and its case, axis convention, drawing plane |
 | `scope`, `resultsHash`, `baseResultsHash` | the result shown and the base solve, timings excluded |
-| `engineInputSha256`, `engineResultsSha256` | the engine's own hashes of the base linear solve (`engine/src/reproduce.rs`) |
-| `certificates` | status and hash of the result certificate, where certified |
+| `engineInputSha256`, `engineResultsSha256` | the engine's own hashes of the base linear solve (`engine/src/reproduce.rs`), computed as a worker job once per base solve and cached (`ensureEngineHashes`); building a record never solves, exports await the job |
+| `certificates` | status and hash of the certificate of the result the record names (base solve, case, combination or envelope: `certificateStore.forScope`), where certified |
 | `stale`, `solvedWith` | see above |
 
 Hashes are SHA-256 of canonical JSON that keeps every bit (`provenance/exact-hash.ts`): keys sorted,
