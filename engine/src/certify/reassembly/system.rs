@@ -677,6 +677,16 @@ pub struct Agreement {
 
 /// Compare (in global axes) the engine's assembly with the model.
 pub fn agreement(model: &Model, eng: &EngineAssembly) -> Result<Agreement, String> {
+    // A NaN would compare false both ways below and read as agreement.
+    if let Some((&(i, j), v)) = eng.k.iter().find(|(_, v)| !v.is_finite()) {
+        return Err(format!("non-finite entry {v} in the engine's K at ({i}, {j})"));
+    }
+    if let Some((i, v)) = eng.f.iter().enumerate().find(|(_, v)| !v.is_finite()) {
+        return Err(format!("non-finite entry {v} in the engine's f at {i}"));
+    }
+    if eng.rotations.iter().any(|(_, r)| r.iter().flatten().any(|x| !x.is_finite())) {
+        return Err("non-finite inclined-support rotation in the engine's assembly".into());
+    }
     let n = model.n();
     let mut g = vec![usize::MAX; n];
     for i in 0..n {
@@ -750,6 +760,9 @@ pub fn agreement(model: &Model, eng: &EngineAssembly) -> Result<Agreement, Strin
         let refv = model.k[i].get(&j).map(|e| e.v).unwrap_or(I::ZERO);
         let sc = model.k[i].get(&j).map(|e| e.scale).unwrap_or(0.0).max((diag_scale[i] * diag_scale[j]).sqrt());
         let ev = kglob(g[i], g[j]);
+        if !ev.is_finite() || !refv.is_finite() {
+            return Err(format!("non-finite stiffness at {:?}–{:?} (engine {ev:?}, model {refv:?})", model.keys[i], model.keys[j]));
+        }
         // distance between the engine value and the reference enclosure
         let dist = if ev.hi < refv.lo {
             refv.lo - ev.hi
@@ -781,6 +794,9 @@ pub fn agreement(model: &Model, eng: &EngineAssembly) -> Result<Agreement, Strin
             }
         }
         let refv = model.f[i].map(|e| e.v).unwrap_or(I::ZERO);
+        if !ev.is_finite() || !refv.is_finite() {
+            return Err(format!("non-finite load at {:?} (engine {ev:?}, model {refv:?})", model.keys[i]));
+        }
         let sc = node_scale[&model.keys[i].0];
         let dist = if ev.hi < refv.lo {
             refv.lo - ev.hi

@@ -32,5 +32,6 @@ pub use linear::{
 };
 pub use solver::{
     certify_linear_2d, certify_linear_2d_full, certify_linear_3d, certify_linear_3d_full, certify_results_2d,
-    certify_results_3d, certify_load_cases_2d, certify_load_cases_3d, CertificateLevel, CertifiedResults2D, CertifiedResults3D,
+    certify_results_3d, certify_load_cases_2d, certify_load_cases_3d, solver_assembly_2d, solver_assembly_3d, CertificateLevel,
+    CertifiedResults2D, CertifiedResults3D, SolverAssembly,
 };

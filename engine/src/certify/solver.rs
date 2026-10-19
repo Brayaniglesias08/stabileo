@@ -214,6 +214,36 @@ fn solver_used_sparse(nf: usize) -> bool {
     nf >= SPARSE_THRESHOLD
 }
 
+/// Which assembly of K and f the linear solver factored for a solve: the same
+/// dispatch the certificates here follow (`solver_used_sparse`,
+/// `constrained_solver_used_sparse`). The end-to-end check compares exactly
+/// that assembly with its independent re-assembly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SolverAssembly {
+    /// `assemble_stiffness_{2d,3d}` and the dense load vector.
+    Dense,
+    /// `assemble_stiffness_sparse_{2d,3d}` and the sparse-path load vector.
+    Sparse,
+    /// 3D constrained solve: `assemble_sparse_3d`.
+    SparseConstrained3D,
+}
+
+/// The assembly `solve_2d(input)` factored, given its results.
+pub fn solver_assembly_2d(input: &SolverInput, results: &AnalysisResults) -> SolverAssembly {
+    let nf = DofNumbering::build_2d(input).n_free;
+    let sparse = if input.constraints.is_empty() { solver_used_sparse(nf) } else { constrained_solver_used_sparse(nf, results) };
+    if sparse { SolverAssembly::Sparse } else { SolverAssembly::Dense }
+}
+
+/// The assembly `solve_3d(input)` factored.
+pub fn solver_assembly_3d(input: &SolverInput3D) -> SolverAssembly {
+    let expanded = expand_curved_beams_3d(input);
+    if !expanded.constraints.is_empty() {
+        return SolverAssembly::SparseConstrained3D;
+    }
+    if solver_used_sparse(DofNumbering::build_3d(&expanded).n_free) { SolverAssembly::Sparse } else { SolverAssembly::Dense }
+}
+
 /// The constrained solver's path: sparse when large enough and its sparse
 /// Cholesky succeeded (reported in the results), dense otherwise. Same
 /// soundness note as `solver_used_sparse`.

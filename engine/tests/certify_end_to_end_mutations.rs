@@ -21,6 +21,7 @@ use dedaliano_engine::linalg::{transform_force, transform_stiffness};
 use dedaliano_engine::solver::dof::DofNumbering;
 use dedaliano_engine::solver::linear::{solve_2d, solve_3d};
 use dedaliano_engine::types::*;
+use std::collections::HashMap;
 
 // ---------------- models ----------------
 
@@ -136,9 +137,9 @@ fn check_2d(input: &SolverInput, elem: usize, dk: Vec<f64>, df: Vec<f64>) -> Out
     let el = input.elements.values().find(|e| e.id == elem).unwrap();
     let dofs = dof_num.element_dofs(el.node_i, el.node_j);
     let nf = dof_num.n_free;
-    let (engines, u, kff, ff) = plant(engine_assemblies_2d(input, &input.loads), &dofs, &dk, &df, nf);
-    let assembled = certify_linear_system_auto(&kff, nf, &ff, &u);
     let truth = solve_2d(input).unwrap();
+    let (engines, u, kff, ff) = plant(engine_assemblies_2d(input, &input.loads, &truth).unwrap(), &dofs, &dk, &df, nf);
+    let assembled = certify_linear_system_auto(&kff, nf, &ff, &u);
     let mut buggy = truth.clone();
     let mut err2 = 0.0;
     for d in buggy.displacements.iter_mut() {
@@ -151,7 +152,7 @@ fn check_2d(input: &SolverInput, elem: usize, dk: Vec<f64>, df: Vec<f64>) -> Out
             }
         }
     }
-    let with_bug = end_to_end_2d_with(input, &input.loads, &buggy, || engines);
+    let with_bug = end_to_end_2d_with(input, &input.loads, &buggy, || Ok(engines));
     let against_model = end_to_end_2d(input, &input.loads, &buggy);
     Outcome {
         assembled_certifies_bug: assembled.is_certified(),
@@ -166,7 +167,7 @@ fn check_3d(input: &SolverInput3D, elem: usize, dk: Vec<f64>, df: Vec<f64>) -> O
     let el = input.elements.values().find(|e| e.id == elem).unwrap();
     let dofs = dof_num.element_dofs(el.node_i, el.node_j);
     let nf = dof_num.n_free;
-    let (engines, u, kff, ff) = plant(engine_assemblies_3d(input, &input.loads), &dofs, &dk, &df, nf);
+    let (engines, u, kff, ff) = plant(engine_assemblies_3d(input, &input.loads).unwrap(), &dofs, &dk, &df, nf);
     let assembled = certify_linear_system_auto(&kff, nf, &ff, &u);
     let truth = solve_3d(input).unwrap();
     let mut buggy = truth.clone();
@@ -181,7 +182,7 @@ fn check_3d(input: &SolverInput3D, elem: usize, dk: Vec<f64>, df: Vec<f64>) -> O
             }
         }
     }
-    let with_bug = end_to_end_3d_with(input, &input.loads, &buggy, || engines);
+    let with_bug = end_to_end_3d_with(input, &input.loads, &buggy, || Ok(engines));
     let against_model = end_to_end_3d(input, &input.loads, &buggy);
     Outcome {
         assembled_certifies_bug: assembled.is_certified(),
@@ -332,3 +333,102 @@ fn planted_unflipped_my_in_3d_fef_fails() {
     assert_caught("3D q_z moment sign", check_3d(&input, 2, vec![0.0; 144], df));
 }
 
+
+// ---------------- non-finite engine assemblies ----------------
+
+/// A NaN or ±∞ in the engine's K or f must never read as agreement (a NaN
+/// compares false both ways).
+#[test]
+fn non_finite_engine_assembly_is_not_certified() {
+    let input = portal_2d();
+    let r = solve_2d(&input).unwrap();
+    let base = engine_assemblies_2d(&input, &input.loads, &r).unwrap();
+    let key = *base[0].k.keys().find(|&&(i, j)| i == j && i < 3).unwrap();
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let mut k_bad = engine_assemblies_2d(&input, &input.loads, &r).unwrap();
+        k_bad[0].k.insert(key, bad);
+        let e = end_to_end_2d_with(&input, &input.loads, &r, || Ok(k_bad));
+        assert!(matches!(e, EndToEnd::Failed { .. }), "K {bad}: {e:?}");
+        let mut f_bad = engine_assemblies_2d(&input, &input.loads, &r).unwrap();
+        f_bad[0].f[0] = bad;
+        let e = end_to_end_2d_with(&input, &input.loads, &r, || Ok(f_bad));
+        assert!(matches!(e, EndToEnd::Failed { .. }), "f {bad}: {e:?}");
+    }
+    let input = frame_3d();
+    let r = solve_3d(&input).unwrap();
+    let mut k_bad = engine_assemblies_3d(&input, &input.loads).unwrap();
+    let key = *k_bad[0].k.keys().next().unwrap();
+    k_bad[0].k.insert(key, f64::NAN);
+    let e = end_to_end_3d_with(&input, &input.loads, &r, || Ok(k_bad));
+    assert!(matches!(e, EndToEnd::Failed { .. }), "3D K NaN: {e:?}");
+    let mut f_bad = engine_assemblies_3d(&input, &input.loads).unwrap();
+    f_bad[0].f[0] = f64::INFINITY;
+    let e = end_to_end_3d_with(&input, &input.loads, &r, || Ok(f_bad));
+    assert!(matches!(e, EndToEnd::Failed { .. }), "3D f inf: {e:?}");
+}
+
+// ---------------- the assembly the solver used ----------------
+
+/// A cantilever of `n_free_nodes` free frame nodes (3 DOFs each), an end node
+/// guided in x (1 free DOF) when `extra`, and `fixed_nodes` unconnected fixed
+/// nodes (restrained DOFs only, so many DOFs but few free ones).
+fn chain_2d(n_free_nodes: usize, extra: bool, fixed_nodes: usize) -> SolverInput {
+    let mut nodes = HashMap::new();
+    let mut elements = HashMap::new();
+    let mut supports = HashMap::new();
+    let node = |id: usize, x: f64, z: f64| SolverNode { id, x, z };
+    let el = |id: usize, i: usize, j: usize| SolverElement {
+        id, elem_type: "frame".into(), node_i: i, node_j: j, material_id: 1, section_id: 1, hinge_start: false, hinge_end: false,
+    };
+    let sup = |id: usize, node_id: usize, t: &str| SolverSupport {
+        id, node_id, support_type: t.into(), kx: None, ky: None, kz: None, dx: None, dz: None, dry: None, angle: None,
+    };
+    nodes.insert("1".into(), node(1, 0.0, 0.0));
+    supports.insert("1".into(), sup(1, 1, "fixed"));
+    let last = n_free_nodes + 1 + extra as usize;
+    for id in 2..=last {
+        nodes.insert(id.to_string(), node(id, (id - 1) as f64, 0.1 * (id as f64).sin()));
+        elements.insert((id - 1).to_string(), el(id - 1, id - 1, id));
+    }
+    if extra {
+        supports.insert("2".into(), sup(2, last, "guidedX"));
+    }
+    for k in 0..fixed_nodes {
+        let id = last + 1 + k;
+        nodes.insert(id.to_string(), node(id, k as f64, -5.0));
+        supports.insert((10 + k).to_string(), sup(10 + k, id, "fixed"));
+    }
+    let loads = vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: 3.0, fz: -10.0, my: 1.0 })];
+    SolverInput {
+        nodes,
+        materials: HashMap::from([("1".into(), SolverMaterial { id: 1, e: 200000.0, nu: 0.3 })]),
+        sections: HashMap::from([("1".into(), SolverSection { id: 1, a: 0.01, iz: 1e-4, as_y: None })]),
+        elements, supports, loads, constraints: vec![], connectors: HashMap::new(), solver_options: None,
+    }
+}
+
+/// The agreement check reads exactly the assembly the solver factored, on
+/// both sides of the dense/sparse threshold (64 free DOFs), including a model
+/// with more than 600 DOFs in all but fewer than 64 free ones (dense).
+#[test]
+fn agreement_reads_the_assembly_the_solver_used() {
+    use dedaliano_engine::certify::{solver_assembly_2d, SolverAssembly};
+    for (free_nodes, extra, fixed, want, nf) in [
+        (21, false, 0, SolverAssembly::Dense, 63),
+        (21, true, 0, SolverAssembly::Sparse, 64),
+        (10, false, 220, SolverAssembly::Dense, 30),
+    ] {
+        let input = chain_2d(free_nodes, extra, fixed);
+        assert_eq!(DofNumbering::build_2d(&input).n_free, nf);
+        let r = solve_2d(&input).unwrap();
+        assert_eq!(solver_assembly_2d(&input, &r), want, "nf {nf}");
+        let e = end_to_end_2d(&input, &input.loads, &r);
+        assert!(e.is_certified(), "nf {nf}: {e:?}");
+        // A 1% change in the assembly the solver used is caught.
+        let mut eng = engine_assemblies_2d(&input, &input.loads, &r).unwrap();
+        let key = *eng[0].k.keys().find(|&&(i, j)| i == j && i < nf).unwrap();
+        *eng[0].k.get_mut(&key).unwrap() *= 1.01;
+        let e = end_to_end_2d_with(&input, &input.loads, &r, || Ok(eng));
+        assert!(matches!(e, EndToEnd::Failed { .. }), "nf {nf}: {e:?}");
+    }
+}
