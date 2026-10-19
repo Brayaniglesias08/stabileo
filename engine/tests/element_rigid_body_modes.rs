@@ -667,7 +667,7 @@ fn assembled_free_model_rigid_modes_and_kernel() {
         left_hand: None, plates, quads, quad9s: HashMap::new(), solid_shells: HashMap::new(),
         curved_shells: HashMap::new(),
         curved_beams: vec![CurvedBeamInput { node_start: 8, node_mid: 6, node_end: 7, material_id: 1, section_id: 1, num_segments: 6, hinge_start: false, hinge_end: false }],
-        connectors: HashMap::new(), solver_options: None,
+        connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     };
     let input = expand_curved_beams_3d(&input);
     assert!(input.nodes.len() > 9, "curved beam was not expanded");

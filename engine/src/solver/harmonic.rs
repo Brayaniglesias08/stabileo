@@ -99,8 +99,7 @@ pub fn solve_harmonic_2d_with_damping(input: &HarmonicInput) -> Result<(Harmonic
     super::linear::validate_input_2d(&input.solver)?;
     // The forcing is the load vector; a support displacement is not in it.
     super::feature_gates::refuse_2d(&input.solver, "Harmonic analysis", &[super::feature_gates::Feature::PrescribedDisplacements])?;
-    let referenced_material_ids = super::dynamic_validation::referenced_material_ids_2d(&input.solver);
-    super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
+    super::dynamic_validation::validate_mass_2d(&input.solver, &input.densities)?;
     if !input.damping_ratio.is_finite() {
         return Err("damping_ratio must be finite".to_string());
     }
@@ -269,8 +268,7 @@ pub fn solve_harmonic_3d_with_damping(input: &HarmonicInput3D) -> Result<(Harmon
         e
     });
     let input = expanded.as_ref().unwrap_or(input);
-    let referenced_material_ids = super::dynamic_validation::referenced_material_ids_3d(&input.solver);
-    super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
+    super::dynamic_validation::validate_mass_3d(&input.solver, &input.densities)?;
     if !input.damping_ratio.is_finite() {
         return Err("damping_ratio must be finite".to_string());
     }

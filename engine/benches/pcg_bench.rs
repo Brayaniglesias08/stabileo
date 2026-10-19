@@ -121,7 +121,7 @@ fn make_ss_plate_3d(n: usize) -> SolverInput3D {
         curved_shells: HashMap::new(),
         curved_beams: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 
@@ -259,7 +259,7 @@ fn make_building_frame_3d(stories: usize, bays_x: usize, bays_y: usize) -> Solve
         curved_shells: HashMap::new(),
         curved_beams: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 

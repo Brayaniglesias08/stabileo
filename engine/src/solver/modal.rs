@@ -52,8 +52,7 @@ pub fn solve_modal_2d(
     num_modes: usize,
 ) -> Result<ModalResult, String> {
     super::linear::validate_input_2d(input)?;
-    let referenced_material_ids = super::dynamic_validation::referenced_material_ids_2d(input);
-    super::dynamic_validation::validate_densities(densities, &referenced_material_ids)?;
+    super::dynamic_validation::validate_mass_2d(input, densities)?;
     if num_modes == 0 {
         return Err("num_modes must be >= 1".to_string());
     }
@@ -65,9 +64,13 @@ pub fn solve_modal_2d(
         return Err("No free DOFs".into());
     }
 
-    let total_mass = compute_total_mass(input, densities);
-    if total_mass < 1e-20 {
-        return Err("No mass assigned — set material densities".into());
+    // Mass ratios divide by the mass that can move in their direction: a
+    // nodal mass may be directional (a floor's horizontal mass only).
+    let [mass_x, mass_z] = total_mass_by_direction_2d(input, densities);
+    let total_mass = mass_x.max(mass_z);
+    let rotary = input.masses.nodal.iter().any(|m| m.rotary_inertia > 0.0);
+    if total_mass < 1e-20 && !rotary {
+        return Err("No mass assigned — set material densities or nodal masses".into());
     }
 
     // Constraint transform, if any: K and M reduce as sparse triple products
@@ -194,8 +197,8 @@ pub fn solve_modal_2d(
         // Effective masses
         let meff_x = gamma_x * gamma_x * phi_m_phi;
         let meff_y = gamma_y * gamma_y * phi_m_phi;
-        let mrx = if total_mass > 1e-20 { meff_x / total_mass } else { 0.0 };
-        let mry = if total_mass > 1e-20 { meff_y / total_mass } else { 0.0 };
+        let mrx = if mass_x > 1e-20 { meff_x / mass_x } else { 0.0 };
+        let mry = if mass_z > 1e-20 { meff_y / mass_z } else { 0.0 };
         cum_mrx += mrx;
         cum_mry += mry;
 
@@ -325,8 +328,7 @@ pub fn solve_modal_3d(
     // does; left in place they were not part of the model at all.
     let expanded = (!input.curved_beams.is_empty()).then(|| super::linear::expand_curved_beams_3d(input));
     let input = expanded.as_ref().unwrap_or(input);
-    let referenced_material_ids = super::dynamic_validation::referenced_material_ids_3d(input);
-    super::dynamic_validation::validate_densities(densities, &referenced_material_ids)?;
+    super::dynamic_validation::validate_mass_3d(input, densities)?;
     if num_modes == 0 {
         return Err("num_modes must be >= 1".to_string());
     }
@@ -336,9 +338,12 @@ pub fn solve_modal_3d(
 
     if nf == 0 { return Err("No free DOFs".into()); }
 
-    let total_mass = compute_total_mass_3d(input, densities);
-    if total_mass < 1e-20 {
-        return Err("No mass assigned — set material densities".into());
+    // Mass ratios per direction: see the 2D solver.
+    let [mass_x, mass_y, mass_z] = total_mass_by_direction_3d(input, densities);
+    let total_mass = mass_x.max(mass_y).max(mass_z);
+    let rotary = input.masses.nodal.iter().any(|m| m.ixx > 0.0 || m.iyy > 0.0 || m.izz > 0.0);
+    if total_mass < 1e-20 && !rotary {
+        return Err("No mass assigned — set material densities or nodal masses".into());
     }
 
     let sasm = assemble_sparse_3d(input, &dof_num, false);
@@ -422,9 +427,9 @@ pub fn solve_modal_3d(
         let meff_x = gamma_x * gamma_x * phi_m_phi;
         let meff_y = gamma_y * gamma_y * phi_m_phi;
         let meff_z = gamma_z * gamma_z * phi_m_phi;
-        let mrx = if total_mass > 1e-20 { meff_x / total_mass } else { 0.0 };
-        let mry = if total_mass > 1e-20 { meff_y / total_mass } else { 0.0 };
-        let mrz = if total_mass > 1e-20 { meff_z / total_mass } else { 0.0 };
+        let mrx = if mass_x > 1e-20 { meff_x / mass_x } else { 0.0 };
+        let mry = if mass_y > 1e-20 { meff_y / mass_y } else { 0.0 };
+        let mrz = if mass_z > 1e-20 { meff_z / mass_z } else { 0.0 };
         cum_mrx += mrx;
         cum_mry += mry;
         cum_mrz += mrz;

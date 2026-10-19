@@ -114,7 +114,7 @@ fn model_2d(theta: f64, rotated: bool, sub: usize, loads: &[(usize, f64, f64)]) 
     }).collect();
     SolverInput {
         nodes, materials, sections, elements, supports, loads,
-        constraints: vec![], connectors: HashMap::new(), solver_options: None,
+        constraints: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 
@@ -432,7 +432,7 @@ fn model_3d(normal: [f64; 3], q: Option<&Mat3>, sub: usize, loads: &[(usize, [f6
         constraints: vec![], left_hand: None,
         plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(),
         solid_shells: HashMap::new(), curved_shells: HashMap::new(), curved_beams: vec![],
-        connectors: HashMap::new(), solver_options: None,
+        connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 

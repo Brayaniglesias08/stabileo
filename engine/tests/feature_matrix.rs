@@ -196,7 +196,7 @@ impl M2 {
                 loads: vec![],
                 constraints: vec![],
                 connectors: HashMap::new(),
-                solver_options: None,
+                solver_options: None, masses: Default::default(),
             },
             rects: HashMap::new(),
         };
@@ -1751,7 +1751,7 @@ impl M3 {
                 nodes: HashMap::new(), materials: HashMap::new(), sections: HashMap::new(), elements: HashMap::new(),
                 supports: HashMap::new(), loads: vec![], constraints: vec![], left_hand: None, plates: HashMap::new(),
                 quads: HashMap::new(), quad9s: HashMap::new(), solid_shells: HashMap::new(), curved_shells: HashMap::new(),
-                curved_beams: vec![], connectors: HashMap::new(), solver_options: None,
+                curved_beams: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
             },
             rects: HashMap::new(),
         };

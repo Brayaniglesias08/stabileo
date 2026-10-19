@@ -448,7 +448,7 @@ mod tests {
             })],
             constraints: vec![], left_hand: None, plates: Map::new(), quads: Map::new(), quad9s: Map::new(),
             solid_shells: Map::new(), curved_beams: vec![], curved_shells: Map::new(), connectors: Map::new(),
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
         };
         let res = solve_3d(&input).unwrap();
         let dof = DofNumbering::build_3d(&input);
@@ -563,7 +563,7 @@ mod tests {
         materials.insert("1".into(), SolverMaterial { id: 1, e: 30_000.0, nu: 0.25 });
         SolverInput3D {
             nodes, materials, sections: Map::new(), elements: Map::new(), supports, loads,
-            constraints: vec![], left_hand: None, solver_options: None,
+            constraints: vec![], left_hand: None, solver_options: None, masses: Default::default(),
             plates, quads, quad9s, solid_shells: Map::new(), curved_shells: Map::new(),
             curved_beams: vec![], connectors: Map::new(),
         }

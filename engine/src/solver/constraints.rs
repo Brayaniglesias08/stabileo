@@ -2856,7 +2856,7 @@ mod tests {
         });
 
         SolverInput {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials, sections, elements, supports,
             loads: vec![SolverLoad::Nodal(SolverNodalLoad {
                 node_id: 2, fx: 0.0, fz: -10.0, my: 0.0,
@@ -3000,7 +3000,7 @@ mod tests {
         });
 
         let solver = SolverInput {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials, sections, elements, supports,
             loads: vec![SolverLoad::Nodal(SolverNodalLoad {
                 node_id: 1, fx: 10.0, fz: 0.0, my: 0.0,
@@ -3116,7 +3116,7 @@ mod tests {
         })];
 
         let solver = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials, sections, elements, supports, loads,
             constraints: vec![], left_hand: None,
             plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(),

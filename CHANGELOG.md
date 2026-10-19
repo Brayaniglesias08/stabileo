@@ -9,17 +9,6 @@ It should capture what changed, not what should be built next.
 
 ## Unreleased
 
-## 0.2.0 (2026-10-18)
-
-**Results change: re-run your projects.** Release notes for users, in English, Spanish and
-Portuguese: [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md) ·
-[es](docs/releases/v0.2.0.es.md) · [pt](docs/releases/v0.2.0.pt.md). They list every change
-that affects results (defaults, loads and combinations, CIRSOC 201/301, ACI, EC3, AISC, AISI,
-analyses), the new refusals, the sanity review and the corrected example models. This is the
-first tagged release: everything below was already deployed to stabileo.com as it was merged.
-The app now shows its version in the status bar and, once, a notice that results may have
-changed with a link to the notes.
-
 ### Changed
 
 #### Design checks against published worked examples, part 2 (2026-10-18)
@@ -42,6 +31,37 @@ compression without `xo` is reported unevaluated.** Examples, sources and discre
   length across b, 0 for sheathing). Defaults unchanged.
 - `foundation_check`: `neglect_size_effect` opts in to ACI 318-19 §13.2.6.2 (λs = 1 for
   footings). Default unchanged (λs applied).
+
+#### Nodal masses in the engine (2026-10-18)
+
+The engine took mass only from material density. `SolverInput`/`SolverInput3D` now take
+`masses`: lumped **nodal** masses (t per direction, rotary inertia in t·m²), mass per length along
+members (**line**, t/m) and, in 3D, per area over shells (**area**, t/m²). They are assembled into
+every mass matrix (dense and sparse, inclined-support frames, before constraint reduction), so
+modal, mass participation, spectral, time history, harmonic, Guyan/Craig–Bampton and their
+certificates all see them; mass ratios divide by the mass per direction. Models without `masses`
+give the same results as before. (#341)
+
+- Validated against closed forms (SDOF, 2-DOF, torsional SDOF, cantilever with a tip mass),
+  equivalent models (raised density, slave masses through a diaphragm, an MPC in place of an
+  inclined support), the Bathe–Wilson frame and the SAC LA 3-storey case with the acceptance
+  suite's mass stubs replaced by nodal masses: `engine/tests/nodal_masses.rs`.
+- Web: the mass source sends load mass as line and area masses instead of copies of the material
+  with a raised density (same modes to 1e-10, tested), and point masses — with a button for floor
+  masses on the diaphragm masters — from the mass-source panel (en/es/pt).
+
+## 0.2.0 (2026-10-18)
+
+**Results change: re-run your projects.** Release notes for users, in English, Spanish and
+Portuguese: [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md) ·
+[es](docs/releases/v0.2.0.es.md) · [pt](docs/releases/v0.2.0.pt.md). They list every change
+that affects results (defaults, loads and combinations, CIRSOC 201/301, ACI, EC3, AISC, AISI,
+analyses), the new refusals, the sanity review and the corrected example models. This is the
+first tagged release: everything below was already deployed to stabileo.com as it was merged.
+The app now shows its version in the status bar and, once, a notice that results may have
+changed with a link to the notes.
+
+### Changed
 
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
