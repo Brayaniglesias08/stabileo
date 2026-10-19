@@ -28,6 +28,7 @@
   import { t } from '../lib/i18n';
   import { engineStatus } from '../lib/store/engine-status.svelte';
   import { isEngineUnavailable } from '../lib/engine/engine-unavailable';
+  import { engineGuarded } from '../lib/store/engine-action';
   import { teAll } from '../lib/i18n/engine-text';
   import { solveFlex, type FlexInput, type FlexCase } from '../lib/engine/codes/argentina/cirsoc-flex';
   import { sheetRows, sectionNumber, type Sec } from './flex/sheet-rows';
@@ -305,9 +306,11 @@
   const num = (k: Sec) => sectionNumber(kase, mode, k);
 
   /* The figures the column sheets draw: see flex/figures.ts. */
-  const characteristic = $derived(characteristicPoints(out.r, mat, kase, mode));
-  const diagram = $derived(columnDiagram(out.r, mat, kase, mode, Pu, Mu));
-  const cut = $derived(fcoSurfaceCut(out.r, input, mat, kase, mode, Pu, Mu, Muy));
+  // The figures integrate the section in the engine too; an engine error leaves the figure out
+  // (the result above already says why when the engine is missing).
+  const characteristic = $derived(engineGuarded(() => characteristicPoints(out.r, mat, kase, mode)).value ?? null);
+  const diagram = $derived(engineGuarded(() => columnDiagram(out.r, mat, kase, mode, Pu, Mu)).value ?? null);
+  const cut = $derived(engineGuarded(() => fcoSurfaceCut(out.r, input, mat, kase, mode, Pu, Mu, Muy)).value ?? null);
   const barTable = $derived(fcoBarTable(out.r, kase));
 
   /** FCO-VERIF's "9.- Posicionamiento de secciones de acero". */
