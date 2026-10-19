@@ -172,13 +172,13 @@ impl Cirsoc201SectionKernel {
         Ok(out)
     }
 
-    /// The biaxial check with the verifier's search settings: the curve sampled in 16 steps,
+    /// The biaxial check with the verifier's search settings: the curve sampled in 10 steps,
     /// regula falsi on the neutral axis and on the moment direction, to 1e-6 rad (`UTIL_LEN` values).
     #[wasm_bindgen(js_name = biaxialFast)]
     pub fn biaxial_fast(&self, pu: f64, mx: f64, my: f64) -> Result<Vec<f64>, JsValue> {
         finite(&[pu, mx, my])?;
         let mut out = Vec::with_capacity(UTIL_LEN);
-        push_util(&mut out, &self.s.biaxial_with(pu, mx, my, 16, 1e-6));
+        push_util(&mut out, &self.s.biaxial_with(pu, mx, my, 10, 1e-6));
         Ok(out)
     }
 

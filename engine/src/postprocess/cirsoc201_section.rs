@@ -499,7 +499,7 @@ impl Section {
             let m = if m.is_finite() && (m - a) * (m - b) < 0.0 { m } else { 0.5 * (a + b) };
             let pm = self.point(nx, ny, m);
             let fm = f(&pm);
-            if fm == 0.0 || (b - a).abs() <= 1e-12 * width {
+            if fm == 0.0 || (b - a).abs() <= 1e-10 * width || fm.abs() <= 1e-9 * (1.0 + pm.s.pn.abs()) {
                 return pm;
             }
             if fa * fm < 0.0 {
