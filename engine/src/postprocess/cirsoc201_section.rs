@@ -219,6 +219,9 @@ pub struct Section {
     ast: f64,
     /// Where the caller's origin sits relative to the gross centroid.
     centroid: Pt,
+    /// Sampled curves already computed, by (nx, ny, n): a curve does not depend on the axial
+    /// force, and the verifier asks the same directions for every station of a member.
+    curves: std::cell::RefCell<std::collections::HashMap<(u64, u64, usize), std::rc::Rc<Vec<SectionPoint>>>>,
 }
 
 fn ring_area_moments(ring: &[Pt]) -> (f64, f64, f64) {
@@ -338,7 +341,7 @@ impl Section {
         // Coordinates stay the caller's (so a bar exactly on the block edge is decided the same
         // way the caller's geometry puts it); moments are taken about the centroid below.
         let ast = bars.iter().map(|b| b[2]).sum();
-        Ok(Section { rings, bars, code, ag, ast, centroid })
+        Ok(Section { rings, bars, code, ag, ast, centroid, curves: Default::default() })
     }
 
     pub fn gross_area(&self) -> f64 {
@@ -484,15 +487,52 @@ impl Section {
         self.point(nx, ny, (a + b) / 2.0)
     }
 
+    /// The root of `f` between `ca` and `cb` (a sign change) by the Illinois variant of
+    /// regula falsi: superlinear where `f` is smooth, bracketed always, to 1e-12 of the bracket.
+    fn refine_fast(&self, nx: f64, ny: f64, ca: f64, cb: f64, f: impl Fn(&SectionPoint) -> f64) -> SectionPoint {
+        let (mut a, mut b) = (ca, cb);
+        let (mut fa, mut fb) = (f(&self.point(nx, ny, a)), f(&self.point(nx, ny, b)));
+        let width = (b - a).abs();
+        let mut side = 0i8;
+        for _ in 0..80 {
+            let m = if fb != fa { (a * fb - b * fa) / (fb - fa) } else { 0.5 * (a + b) };
+            let m = if m.is_finite() && (m - a) * (m - b) < 0.0 { m } else { 0.5 * (a + b) };
+            let pm = self.point(nx, ny, m);
+            let fm = f(&pm);
+            if fm == 0.0 || (b - a).abs() <= 1e-12 * width {
+                return pm;
+            }
+            if fa * fm < 0.0 {
+                b = m;
+                fb = fm;
+                if side == -1 { fa *= 0.5; }
+                side = -1;
+            } else {
+                a = m;
+                fa = fm;
+                if side == 1 { fb *= 0.5; }
+                side = 1;
+            }
+            if (b - a).abs() <= 1e-12 * width {
+                return pm;
+            }
+        }
+        self.point(nx, ny, 0.5 * (a + b))
+    }
+
     /// The first point along a sampled curve where `f` changes sign, refined.
     fn crossing(&self, nx: f64, ny: f64, curve: &[SectionPoint], f: impl Fn(&SectionPoint) -> f64) -> Option<SectionPoint> {
+        self.crossing_with(nx, ny, curve, f, false)
+    }
+
+    fn crossing_with(&self, nx: f64, ny: f64, curve: &[SectionPoint], f: impl Fn(&SectionPoint) -> f64, fast: bool) -> Option<SectionPoint> {
         for w in curve.windows(2) {
             let (fa, fb) = (f(&w[0]), f(&w[1]));
             if fa == 0.0 {
                 return Some(w[0]);
             }
             if fa * fb < 0.0 {
-                return Some(self.refine(nx, ny, w[0].c, w[1].c, f));
+                return Some(if fast { self.refine_fast(nx, ny, w[0].c, w[1].c, f) } else { self.refine(nx, ny, w[0].c, w[1].c, f) });
             }
         }
         None
@@ -505,9 +545,23 @@ impl Section {
     }
 
     /// `at_axial` sampling the curve in `n` steps before refining (the calculator uses 60).
+    /// With fewer than 60 samples the root is refined by regula falsi (the verifier's fast path).
     pub fn at_axial_with(&self, nx: f64, ny: f64, pu: f64, n: usize) -> Option<SectionPoint> {
-        let curve = self.curve(nx, ny, n);
-        self.crossing(nx, ny, &curve, |p| p.s.phi_pn - pu)
+        let key = (nx.to_bits(), ny.to_bits(), n);
+        let cached = self.curves.borrow().get(&key).cloned();
+        let curve = match cached {
+            Some(c) => c,
+            None => {
+                let c = std::rc::Rc::new(self.curve(nx, ny, n));
+                let mut map = self.curves.borrow_mut();
+                if map.len() > 256 {
+                    map.clear();
+                }
+                map.insert(key, c.clone());
+                c
+            }
+        };
+        self.crossing_with(nx, ny, &curve, |p| p.s.phi_pn - pu, n < 60)
     }
 
     /// The end of the diagram on the demand's side: φ·Pn,max in compression, the pure-tension
@@ -617,8 +671,39 @@ impl Section {
         }
         let (mut lo, mut hi) = (0.0, std::f64::consts::FRAC_PI_2);
         let p_lo = at(lo)?;
-        at(hi)?;
+        let p_hi = at(hi)?;
         let mut best = pack(lo, p_lo);
+        if n < 60 {
+            // Fast path: Illinois regula falsi on the direction of the moment, which is smooth
+            // and increasing in the axis angle.
+            let (mut ga, mut gb) = (dir_of(&p_lo) - want, dir_of(&p_hi) - want);
+            if !(ga < 0.0 && gb > 0.0) {
+                return Some(if ga.abs() < gb.abs() { best } else { pack(hi, p_hi) });
+            }
+            let mut side = 0i8;
+            for _ in 0..60 {
+                let m = (lo * gb - hi * ga) / (gb - ga);
+                let m = if m.is_finite() && m > lo && m < hi { m } else { 0.5 * (lo + hi) };
+                let p = at(m)?;
+                best = pack(m, p);
+                let g = dir_of(&p) - want;
+                if g.abs() < tol || (hi - lo) < 1e-12 {
+                    break;
+                }
+                if g < 0.0 {
+                    lo = m;
+                    ga = g;
+                    if side == 1 { gb *= 0.5; }
+                    side = 1;
+                } else {
+                    hi = m;
+                    gb = g;
+                    if side == -1 { ga *= 0.5; }
+                    side = -1;
+                }
+            }
+            return Some(best);
+        }
         for _ in 0..40 {
             let mid = (lo + hi) / 2.0;
             let p = at(mid)?;
@@ -836,6 +921,16 @@ mod tests {
         assert!((u.ratio - 1e6 / s.axial_cap()).abs() < 1e-9);
         let t = s.ray(-1e5, 0.0);
         assert!((t.ratio - 1e5 / -s.tension_cap()).abs() < 1e-3, "{}", t.ratio);
+    }
+
+    #[test]
+    fn fast_biaxial_agrees_with_the_bisection() {
+        let s = column();
+        for (pu, mx, my) in [(5e5, 3e4, 1e4), (2e5, 1e4, 4e4), (-1e5, 2e4, 2e4), (9e5, 1e4, 1e3)] {
+            let a = s.moment_capacity_at_axial(pu, mx, my).unwrap();
+            let b = s.moment_capacity_at_axial_with(pu, mx, my, 24, 1e-6).unwrap();
+            assert!((a.phi_mn - b.phi_mn).abs() < 1e-4 * a.phi_mn, "{pu}: {} vs {}", a.phi_mn, b.phi_mn);
+        }
     }
 
     #[test]

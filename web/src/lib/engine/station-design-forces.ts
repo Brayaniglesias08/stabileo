@@ -2,7 +2,7 @@ import { getColumnCapacityKernel, columnCapacityKernelRegistered } from './colum
 import { evaluateBeamSection, evaluateBeamSections } from './codes/argentina/cirsoc201-beam-kernel';
 import { beta1, axialCap } from './codes/argentina/cirsoc201-basis';
 import { Cirsoc201EngineUnavailable } from './codes/argentina/cirsoc201-engine';
-import { prepareSection, type Bar as SectionBar } from './codes/argentina/cirsoc201-section';
+import { prepareSection, type Bar as SectionBar, type PreparedSection } from './codes/argentina/cirsoc201-section';
 /**
  * Station-based, sign-aware, per-combo force extraction for member design.
  *
@@ -1530,6 +1530,7 @@ function biaxialCapacity(
   Nu: number, Muy: number, Muz: number,
   bars?: BarInstance[],
   edition: RegulationEdition = '2025',
+  prepared?: { section: PreparedSection; symmetric: boolean },
 ): {
   phiPn: number; phiPn0: number; phiMn: number;
   ratio: number; rhoPercent: number; rhoOk: boolean;
@@ -1544,25 +1545,18 @@ function biaxialCapacity(
     method: 'load-contour' as const, geometryAware: false, strainCompatible: false, status: 'fail' as const };
   if (!bars || bars.length < 4) return fail;
 
-  const sectionBars: SectionBar[] = bars.map((bar) => {
-    const spec = REBAR_DB.find((r) => r.diameter === bar.diameter);
-    return { x: bar.x - b / 2, y: bar.y - h / 2,
-      area: spec ? spec.area * 1e-4 : (Math.PI / 4) * (bar.diameter / 1000) ** 2 };
-  });
-  const section = prepareSection({ kind: 'rect', b, h }, sectionBars, { fc, fy, edition });
+  const own = prepared ?? prepareBiaxialSection(b, h, fc, fy, bars, edition);
   let worst = 0;
   try {
     const mz = Math.abs(Muz), my = Math.abs(Muy);
     // A layout symmetric about both axes has the same contour in every quadrant: one suffices.
-    const mirrored = (fx: number, fy: number) => sectionBars.every((p) => sectionBars.some((q) =>
-      Math.abs(q.x - fx * p.x) < 1e-9 && Math.abs(q.y - fy * p.y) < 1e-9 && Math.abs(q.area - p.area) < 1e-12));
-    const quadrants = mirrored(-1, 1) && mirrored(1, -1) ? [[1, 1]] : [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+    const quadrants = own.symmetric ? [[1, 1]] : [[1, 1], [1, -1], [-1, 1], [-1, -1]];
     for (const [sx, sy] of quadrants) {
-      const u = section.biaxialFast(Nu, sx * mz, sy * my).ratio;
+      const u = own.section.biaxialFast(Nu, sx * mz, sy * my).ratio;
       worst = Math.max(worst, Number.isNaN(u) ? Number.POSITIVE_INFINITY : u);
     }
   } finally {
-    section.free();
+    if (!prepared) own.section.free();
   }
   const Mres = Math.hypot(Muy, Muz);
   const ratio = worst > 1e-9 ? +(1 / worst).toFixed(3) : 999;
@@ -1574,6 +1568,22 @@ function biaxialCapacity(
     phiPn: +Nu.toFixed(1), phiPn0: +phiPn0.toFixed(1),
     phiMn: worst > 1e-9 && Number.isFinite(worst) ? +(Mres / worst).toFixed(2) : 0,
     ratio, rhoPercent, rhoOk, method: 'load-contour', geometryAware: true, strainCompatible: true, status,
+  };
+}
+
+/** The column as the section engine sees it, for the biaxial contour, and whether it is doubly symmetric. */
+function prepareBiaxialSection(b: number, h: number, fc: number, fy: number, bars: readonly BarInstance[],
+  edition: RegulationEdition): { section: PreparedSection; symmetric: boolean } {
+  const sectionBars: SectionBar[] = bars.map((bar) => {
+    const spec = REBAR_DB.find((r) => r.diameter === bar.diameter);
+    return { x: bar.x - b / 2, y: bar.y - h / 2,
+      area: spec ? spec.area * 1e-4 : (Math.PI / 4) * (bar.diameter / 1000) ** 2 };
+  });
+  const mirrored = (fx: number, fy: number) => sectionBars.every((p) => sectionBars.some((q) =>
+    Math.abs(q.x - fx * p.x) < 1e-9 && Math.abs(q.y - fy * p.y) < 1e-9 && Math.abs(q.area - p.area) < 1e-12));
+  return {
+    section: prepareSection({ kind: 'rect', b, h }, sectionBars, { fc, fy, edition }),
+    symmetric: mirrored(-1, 1) && mirrored(1, -1),
   };
 }
 
@@ -1610,6 +1620,7 @@ export function prepareColumnCapacity(input: ColumnCapacitySection,
     y: [...new Set(options.axialLoads?.y?.filter(Number.isFinite) ?? [])],
   };
   const warmed = { z: false, y: false };
+  let biaxialSection: { section: PreparedSection; symmetric: boolean } | null = null;
   const cache = { z: new Map<number, ColumnSectionSolution>(), y: new Map<number, ColumnSectionSolution>() };
   const solveSection: ColumnSectionSolve | undefined = data ? (Nu, axis) => {
     if (reference) return solveColumnSection(data[axis], Nu);
@@ -1631,7 +1642,9 @@ export function prepareColumnCapacity(input: ColumnCapacitySection,
       return columnCapacity(As, b, h, fc, fy, cover, stirrupDia, Nu, Mu, bars, axis, solveSection, edition);
     },
     biaxial(Nu: number, Muy: number, Muz: number) {
-      return biaxialCapacity(As, b, h, fc, fy, cover, stirrupDia, Nu, Muy, Muz, bars, edition);
+      // One engine section for every tuple of this member (freed by the engine's finaliser).
+      if (bars && bars.length >= 4) biaxialSection ??= prepareBiaxialSection(b, h, fc, fy, bars, edition);
+      return biaxialCapacity(As, b, h, fc, fy, cover, stirrupDia, Nu, Muy, Muz, bars, edition, biaxialSection ?? undefined);
     },
   };
 }
