@@ -52,6 +52,11 @@ jobs:
       - name: No sorry, no extra axioms
         working-directory: verify
         run: nix develop ..#verify -c ./scripts/check-axioms.sh
+      # The gate itself: an axiom, implemented_by and extern planted in
+      # Certify/BundleParse.lean must each be rejected (docs/verification/TRUSTED_BASE.md).
+      - name: Axiom gate self-test
+        working-directory: verify
+        run: nix develop ..#verify -c ./scripts/test-axiom-gate.sh
       # Independent re-check of exported certificate bundles by the verified
       # Lean checker (certcheck); tampered bundles must be rejected.
       - name: Certificate bundles
