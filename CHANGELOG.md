@@ -71,6 +71,9 @@ Fiber beams and cables (`docs/solver/special-elements.md`, tests in
   T-sections, eccentric fibers).
 - Fiber member forces are now the fiber section resultants. They were elastic-stiffness forces,
   off by orders of magnitude after yield.
+  The elastic forces removed use the same Timoshenko shear parameters as the linear recovery.
+- Non-positive shear areas (`asY`/`asZ` ≤ 0) are refused. Zero gave a NaN stiffness and a
+  negative value a negative shear parameter, silently.
 - Fiber material history is committed only at convergence, so results no longer depend on the
   load stepping.
 - Steel `hardening_ratio` is now the true post-yield slope over E (it gave αE/(1+α)).
