@@ -15,14 +15,14 @@ async function boot(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => window.__stabileo.solverReady()), { timeout: 60_000 }).toBe(true);
 }
 
-test('a shell model shows its estimated discretization error and runs the convergence check', async ({ page }) => {
+test('a frame-and-shell model shows its estimated discretization error and runs the convergence check', async ({ page }) => {
   test.setTimeout(240_000);
   await boot(page);
-  await page.evaluate((n) => window.__stabileoActions.loadExample(n), 'deep-beam-shell');
+  await page.evaluate((n) => window.__stabileoActions.loadExample(n), 'rc-qa-diagnostic-shells');
   await expect.poll(() => page.evaluate(() => window.__stabileo.elementIds().length + 1)).toBeGreaterThan(0);
-  const before = await page.evaluate(() => window.__stabileo.solveCount());
+  await page.waitForTimeout(500);
   await page.getByTestId('rb-cmd-solve').click();
-  await expect.poll(() => page.evaluate(() => window.__stabileo.solveCount()), { timeout: 60_000 }).toBeGreaterThan(before);
+  await expect.poll(() => page.evaluate(() => window.__stabileo.hasDrawnResults()), { timeout: 60_000 }).toBe(true);
 
   const status = page.getByTestId('discretization-status').first();
   await expect(status).toBeVisible({ timeout: 60_000 });
