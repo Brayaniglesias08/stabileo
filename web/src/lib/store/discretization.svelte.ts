@@ -19,8 +19,9 @@ export interface ElementErrorIndicator {
   elementId: number;
   eta: number;
   energyNorm: number;
-  /** Element error on the scale of the global percentage (see the engine docs). */
-  localPercent: number;
+  /** Element error on the scale of the global percentage (see the engine docs); absent when
+   *  the element is not estimated (alone in its recovery patches). */
+  localPercent?: number | null;
 }
 
 export interface DiscretizationEstimate {
@@ -37,6 +38,8 @@ export interface DiscretizationEstimate {
   frameMembers: number;
   /** Members neither exact nor estimated (warping torsion). */
   inexactMembers?: number[];
+  /** Shell elements alone in their recovery patches: not estimated. */
+  isolatedElements?: number[];
   notes: string[];
 }
 
@@ -49,7 +52,7 @@ export interface QuantityConvergence {
   observedOrder?: number | null;
   extrapolated?: number | null;
   estimatedError?: number | null;
-  status: 'converging' | 'converged' | 'assumedOrder' | 'irregularOrder' | 'oscillating' | 'notConverging' | 'zero';
+  status: 'converging' | 'converged' | 'assumedOrder' | 'irregularOrder' | 'oscillating' | 'notConverging' | 'incomplete' | 'zero';
 }
 
 export interface ConvergenceStudy {
@@ -78,6 +81,7 @@ export interface DiscretizationClaims {
   warpingMembers: number;
   variableMembers: number;
   curvedBeams: boolean;
+  isolatedElements: number;
 }
 
 export function discretizationClaims(e: DiscretizationEstimate, variableMembers: number): DiscretizationClaims {
@@ -92,6 +96,7 @@ export function discretizationClaims(e: DiscretizationEstimate, variableMembers:
     warpingMembers: e.inexactMembers?.length ?? 0,
     variableMembers,
     curvedBeams: e.notes.includes('curvedBeamsSegmented'),
+    isolatedElements: e.isolatedElements?.length ?? 0,
   };
 }
 
@@ -112,6 +117,11 @@ const STUDY_EXPORT = 'convergence_study_3d';
 const SETTLE_MS = 300;
 /** The dimension of the solves this store estimates (shells exist in 3D only). */
 const SPACE = '3d' as const;
+
+/** Convergence statuses from which no error can be read (the engine's `is_inconclusive`). */
+export function isInconclusive(status: QuantityConvergence['status']): boolean {
+  return status === 'oscillating' || status === 'notConverging' || status === 'irregularOrder' || status === 'incomplete';
+}
 
 /** Whether a 3D wire input has shell-type elements (the estimate is about them). */
 function hasShells(wire: Record<string, any>): boolean {
@@ -210,6 +220,8 @@ function createDiscretizationStore() {
       // No map for an estimate that could not be made: zeros there would read as "no error".
       if (estimate.status !== 'done' || estimate.estimate.relativeError == null) return m;
       for (const e of estimate.estimate.elements) {
+        // Not estimated is not "no error": such an element keeps its colour.
+        if (e.localPercent == null || !Number.isFinite(e.localPercent)) continue;
         if (e.kind === 'plate') m.set(`p${e.elementId}`, e.localPercent);
         else if (e.kind === 'quad') m.set(`q${e.elementId}`, e.localPercent);
       }

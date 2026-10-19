@@ -20,7 +20,7 @@ let wire: Record<string, unknown> = {};
 vi.mock('../../engine/certify-jobs', () => ({ runCertify: (...a: unknown[]) => runCertify(...(a as [])), hasCertify: () => true }));
 vi.mock('../../engine/solver-service', () => ({ certifiableInputOf: () => ({ dim: '3d', wire: () => wire }) }));
 
-const { discretizationStore, discretizationClaims } = await import('../discretization.svelte');
+const { discretizationStore, discretizationClaims, isInconclusive } = await import('../discretization.svelte');
 const { resultsStore } = await import('../results.svelte');
 
 async function settle() {
@@ -99,5 +99,25 @@ describe('discretization store', () => {
     const curved = { ...estimate, notes: ['notCertified', 'curvedBeamsSegmented'], frameMembers: 1 };
     expect(discretizationClaims(curved as never, 0).framesExact).toBe(false);
     expect(discretizationClaims(curved as never, 0).curvedBeams).toBe(true);
+  });
+
+  it('leaves elements that were not estimated off the map, and counts them', async () => {
+    const partial = {
+      ...estimate,
+      isolatedElements: [9],
+      elements: [...estimate.elements, { kind: 'quad', elementId: 9, eta: 0, energyNorm: 1, localPercent: undefined }],
+    };
+    expect(discretizationClaims(partial as never, 0).isolatedElements).toBe(1);
+    runCertify.mockImplementationOnce(async () => partial as never);
+    wire = { quads: { 3: {}, 9: {} } };
+    discretizationStore.track({}, '3d');
+    await settle();
+    expect(discretizationStore.elementMap().has('q9')).toBe(false);
+    expect(discretizationStore.elementMap().get('q3')).toBe(14);
+  });
+
+  it('treats oscillating, non-converging, implausible and incomplete sequences as inconclusive', () => {
+    for (const s of ['oscillating', 'notConverging', 'irregularOrder', 'incomplete'] as const) expect(isInconclusive(s)).toBe(true);
+    for (const s of ['converging', 'converged', 'assumedOrder', 'zero'] as const) expect(isInconclusive(s)).toBe(false);
   });
 });

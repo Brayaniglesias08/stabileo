@@ -9,7 +9,7 @@
   import { uiStore, modelStore } from '../lib/store';
   import { isVariableMember } from '../lib/engine/variable-members';
   import { certificateStore, formatBound } from '../lib/store/certificate.svelte';
-  import { discretizationStore, discretizationClaims, type QuantityConvergence } from '../lib/store/discretization.svelte';
+  import { discretizationStore, discretizationClaims, isInconclusive, type QuantityConvergence } from '../lib/store/discretization.svelte';
   import { shellContourColor } from '../lib/three/stress-heatmap';
 
   const is3D = $derived(uiStore.is3DWorkspace);
@@ -96,6 +96,9 @@
     {#if claims && claims.variableMembers > 0}
       <div class="note" data-testid="discretization-variable-members">{t('discretization.variableNotEstimated').replace('{n}', String(claims.variableMembers))}</div>
     {/if}
+    {#if claims && claims.isolatedElements > 0}
+      <div class="note" data-testid="discretization-isolated">{t('discretization.isolatedNotEstimated').replace('{n}', String(claims.isolatedElements))}</div>
+    {/if}
     {#if claims?.curvedBeams}
       <div class="note">{t('discretization.curvedBeamsNotEstimated')}</div>
     {/if}
@@ -137,7 +140,7 @@
           </thead>
           <tbody>
             {#each study.study.quantities as q}
-              <tr class:bad={q.status === 'notConverging' || (q.estimatedError ?? q.relativeChange) > study.study.threshold}>
+              <tr class:bad={isInconclusive(q.status) || (q.estimatedError ?? q.relativeChange) > study.study.threshold}>
                 <td>{quantityLabel(q)}</td>
                 {#each q.values as v}<td>{num(v)}</td>{/each}
                 <td>{num(q.extrapolated)}</td>

@@ -80,7 +80,11 @@ but the load goes straight into the supports — one simply supported element un
 the simplest case; the mesh is too coarse to say anything and the panel warns to refine it), or
 `tooCoarse` when no element shares a node with another of its kind (a one-element mesh): every
 recovery patch is the element itself, so the recovered field is its own and the estimate would
-be ≈ 0 by construction. The
+be ≈ 0 by construction. "Alone" uses the recovery's own patch definition (`recovery::patches`):
+two triangles meeting at a 90° fold share a node but not a patch. When only some elements are
+alone (a lone gusset, an element cut off by folds), they are listed in `isolatedElements`, have
+no indicator (absent, not 0) and no colour on the map, are left out of the global figure, and
+flag the result if they carry more than 0.1 % of the strain energy. The
 element map is not drawn for an estimate that could not be made. In the convergence study a
 governing quantity that is zero on the model as drawn is kept (zero is a value): a one-element
 plate's zero moment against the refined meshes' non-zero ones is an estimated error of 100 %.
@@ -121,7 +125,11 @@ shows a warning.
 * **Richardson.** For q0 (model), q1, q2: observed order `p = log₂((q1 − q0)/(q2 − q1))`,
   `q∞ = q2 + (q2 − q1)/(2ᵖ − 1)`, estimated error of the model `|q0 − q∞|/|q∞|`. Status
   `oscillating` (non-monotone, no extrapolation), `notConverging` (differences growing: a
-  singularity, the value depends on the mesh), `irregularOrder` (p outside [0.5, 6]); with a
+  singularity, the value depends on the mesh), `irregularOrder` (p outside [0.5, 6]; its error is
+  never reported below the largest change seen), `incomplete` (missing on a refined mesh). These
+  four are inconclusive: the study is flagged whatever their numbers, and the change reported is
+  the largest between consecutive meshes, relative to the finest (so [1, 1.01, 0.5] reads 100 %,
+  not 1 %); with a
   single refinement (size limit, 250 000 DOFs by default) the order is assumed to be 1.
 
 ## Validation
