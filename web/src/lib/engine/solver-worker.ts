@@ -97,7 +97,7 @@ self.onmessage = async (e: MessageEvent) => {
 
   if (msg.type === 'certify') {
     const name = String(msg.name ?? '');
-    const fn = /^(certify_|export_(linear|plastic|combination)_bundle_)/.test(name) ? wasmExports[name] : undefined;
+    const fn = /^(certify_|export_(linear|plastic|combination)_bundle_|engine_reproduce_hashes$)/.test(name) ? wasmExports[name] : undefined;
     if (!ready || typeof fn !== 'function') {
       self.postMessage({ type: 'result', id: msg.id, error: `Worker certificate ${name} not available` });
       return;

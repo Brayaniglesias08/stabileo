@@ -28,7 +28,7 @@ import { combinationKind, type WorkbookSource } from '../export/workbook-results
 import { fitsInXlsx, safeText, type WorkbookSheet } from '../export/workbook-cells';
 import { specificationRows } from '../pro/specification-list';
 import { BUILD_COMMIT } from '../build-info';
-import { currentResultProvenance, provenanceLabels } from './result-provenance';
+import { currentResultProvenance, provenanceLabels, ensureEngineHashes } from './result-provenance';
 import { provenanceTextLines } from '../provenance/result-provenance';
 
 function workbookModel(): WorkbookModel {
@@ -125,7 +125,9 @@ export function workbookZip(sheets: readonly WorkbookSheet[]): Uint8Array {
  * included, as the dialog says (`proExport.dataAlways`). One sheet of data used to come as that
  * sheet alone, without the units and the signs its numbers are in.
  */
-export function downloadProjectCsv(stations: StationSpec, opts: WorkbookOptions = {}): void {
+export async function downloadProjectCsv(stations: StationSpec, opts: WorkbookOptions = {}): Promise<void> {
+  // The cover's provenance names the engine's hashes, computed off the main thread (cached).
+  await ensureEngineHashes();
   const safeName = modelStore.model.name.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ _-]/g, '').trim() || t('file.defaultAnalysis');
   const sheets = currentWorkbookSheets(stations, opts);
   const data = sheets.filter((s) => s.name !== 'Cover' && s.name !== 'Conventions');
@@ -135,6 +137,7 @@ export function downloadProjectCsv(stations: StationSpec, opts: WorkbookOptions 
 
 /** Write the project workbook: xlsx when it fits, a zip of CSVs otherwise. */
 export async function downloadProjectWorkbook(stations: StationSpec, opts: WorkbookOptions = {}): Promise<void> {
+  await ensureEngineHashes();
   const safeName = modelStore.model.name.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ _-]/g, '').trim() || t('file.defaultAnalysis');
   const sheets = currentWorkbookSheets(stations, opts);
   if (fitsInXlsx(sheets)) {

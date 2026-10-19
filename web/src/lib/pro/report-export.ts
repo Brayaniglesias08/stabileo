@@ -20,7 +20,7 @@
  * rather than not going out.
  */
 
-import { currentResultProvenance, provenanceLabels } from '../store/result-provenance';
+import { currentResultProvenance, provenanceLabels, ensureEngineHashes } from '../store/result-provenance';
 import { tick } from 'svelte';
 import { viewportCanvas } from '../utils/viewport-canvas';
 import { uiStore } from '../store/ui.svelte';
@@ -125,6 +125,7 @@ export async function exportReportAs(input: ReportExportInputs): Promise<void> {
   if (!data) return;
   data.resultFigures = figures;
   data.designChecks = reportDesignChecks();
+  await ensureEngineHashes();
   data.resultProvenance = { record: currentResultProvenance(), labels: provenanceLabels() };
   openReport(data);
 }

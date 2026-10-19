@@ -23,13 +23,18 @@ import {
 } from '../provenance/result-provenance';
 import { t } from '../i18n';
 import { certifiableInputOf, type CertifiableInput } from '../engine/solver-service';
-import { engineReproduceHashes } from '../engine/wasm-solver';
+import { runCertify, hasCertify } from '../engine/certify-jobs';
 
 /**
  * The engine input of the base linear solve on screen (null: none, or not a plain linear solve).
  * Set by the static-publish hook in `store/index.ts`, from the raw result before it is drawn.
  */
 let baseInput: CertifiableInput | null = null;
+/** The engine's hashes of `baseInput`, once computed (`ensureEngineHashes`). */
+let engineHashCache: { input: CertifiableInput; hashes: { input: string; results: string } | null } | null = null;
+let engineHashPending: { input: CertifiableInput; promise: Promise<{ input: string; results: string } | null> } | null = null;
+let engineHashRuns = 0;
+
 export function noteBaseSolve(results: object | null): void {
   baseInput = results ? certifiableInputOf(results) : null;
 }
@@ -42,12 +47,39 @@ export function baseSolverInputJson(): { dim: '2d' | '3d'; json: string } | null
 /** Which engine input a wire is (the engine's `is_3d`): not a workspace check. */
 const SPACE_INPUT = { '2d': false, '3d': true } as const;
 
-/** The engine's own hashes of the base solve (re-solved once in WASM); null when unavailable. */
-function engineHashes(): { input: string; results: string } | null {
-  const b = baseSolverInputJson();
-  if (!b) return null;
-  const h = engineReproduceHashes(b.json, SPACE_INPUT[b.dim]);
-  return h ? { input: h.inputSha256, results: h.resultsSha256 } : null;
+/**
+ * The engine's own hashes of the base solve: one more engine solve, so it runs in a worker of the
+ * pool (on this thread only where there is no pool), once per base solve, and is cached. Exports
+ * await it before they read the record; building a record never solves (`currentResultProvenance`
+ * reads the cache, and says "none" when it is empty).
+ */
+export async function ensureEngineHashes(): Promise<{ input: string; results: string } | null> {
+  const input = baseInput;
+  if (!input || !hasCertify('engine_reproduce_hashes')) return null;
+  if (engineHashCache?.input === input) return engineHashCache.hashes;
+  if (engineHashPending?.input === input) return engineHashPending.promise;
+  engineHashRuns++;
+  const promise = (async () => {
+    try {
+      const h = await runCertify('engine_reproduce_hashes', [JSON.stringify(input.wire()), SPACE_INPUT[input.dim]]) as { inputSha256: string; resultsSha256: string };
+      return { input: h.inputSha256, results: h.resultsSha256 };
+    } catch {
+      return null;
+    }
+  })();
+  engineHashPending = { input, promise };
+  const hashes = await promise;
+  if (engineHashPending?.input === input) engineHashPending = null;
+  if (baseInput === input) engineHashCache = { input, hashes };
+  return hashes;
+}
+
+/** Test seam: how many engine hash runs have started. */
+export function engineHashRunCount(): number { return engineHashRuns; }
+
+/** The cached engine hashes of the base solve on screen, or null (never computed here). */
+function cachedEngineHashes(): { input: string; results: string } | null {
+  return baseInput && engineHashCache?.input === baseInput ? engineHashCache.hashes : null;
 }
 
 export function currentAnalysisSettings(): AnalysisSettings {
@@ -118,20 +150,27 @@ export function currentScope(): string {
   return scopeLabel(currentScopeRef());
 }
 
-function certificates(): CertificateRecord[] {
-  const s = certificateStore.state;
-  if (s.status !== 'done') return [];
-  const { certificate } = s;
+/** The certificate of the result a scope names (not of what is on screen), when it is done. */
+function certificates(ref: ScopeRef): CertificateRecord[] {
+  if (ref.kind === 'other' || (ref.kind === 'envelope' && ref.name !== null)) return [];
+  const st = certificateStore.forScope(uiStore.is3DWorkspace, ref.kind === 'envelope' ? { kind: 'envelope' } : ref);
+  if (st.status !== 'done') return [];
+  const { certificate } = st;
   return [{
-    scope: s.scope ?? 'single',
+    scope: scopeKey(ref),
     status: certificate.status,
     hash: exactHash({
       certificate,
-      forceBounds: s.forceBounds, shellBounds: s.shellBounds, stationBounds: s.stationBounds,
-      deflectionBounds: s.deflectionBounds, reactionBounds: s.reactionBounds,
+      forceBounds: st.forceBounds, shellBounds: st.shellBounds, stationBounds: st.stationBounds,
+      deflectionBounds: st.deflectionBounds, reactionBounds: st.reactionBounds,
     }),
     ...(certificate.status === 'certified' ? { absBound: certificate.absBound } : {}),
   }];
+}
+
+/** A scope as a certificate's key in the record: `single`, `case:2`, `combo:3`, `envelope`. */
+function scopeKey(ref: ScopeRef): string {
+  return ref.kind === 'case' || ref.kind === 'combo' ? `${ref.kind}:${ref.id}` : ref.kind;
 }
 
 /** The provenance of what is on screen now (results null: none). */
@@ -163,11 +202,12 @@ function resultProvenanceFor(ref: ScopeRef, results: object | null, now?: Date):
     scopeRef: ref,
     results,
     baseResults: base ?? null,
-    certificates: certificates(),
+    certificates: certificates(ref),
     stale: recheckStore.stale,
     stamp: recheckStore.stamp,
-    // The engine's hashes are of the base solve, whichever scope the record names.
-    engine: base ? engineHashes() : null,
+    // The engine's hashes are of the base solve, whichever scope the record names; read from the
+    // cache, never computed here (exports `await ensureEngineHashes()` first).
+    engine: base ? cachedEngineHashes() : null,
     now,
   });
 }

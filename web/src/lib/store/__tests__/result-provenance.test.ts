@@ -10,7 +10,8 @@ import { uiStore } from '../ui.svelte';
 import { resultsStore } from '../results.svelte';
 import '../index';
 import { initSolver } from '../../engine/wasm-solver';
-import { currentResultProvenance, provenanceLabels, baseSolverInputJson } from '../result-provenance';
+import { currentResultProvenance, provenanceLabels, baseSolverInputJson, ensureEngineHashes, engineHashRunCount } from '../result-provenance';
+import { certificateStore } from '../certificate.svelte';
 import { serializeProject, deserializeProject } from '../file';
 import { recheckStore } from '../recheck.svelte';
 import {
@@ -52,9 +53,10 @@ function solveMain(): void {
 }
 
 describe('result provenance', () => {
-  it('records the build, the engine and every hash', () => {
+  it('records the build, the engine and every hash', async () => {
     buildFrame();
     solveMain();
+    await ensureEngineHashes();
     const p = currentResultProvenance();
     const b = buildIdentity();
     expect(b.wasmHash).toMatch(/^[0-9a-f]{64}$/);
@@ -69,12 +71,14 @@ describe('result provenance', () => {
     expect(p.engineResultsSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('solving the same model twice is bit-identical (web results and engine hashes)', () => {
+  it('solving the same model twice is bit-identical (web results and engine hashes)', async () => {
     buildFrame();
     solveMain();
+    await ensureEngineHashes();
     const a = currentResultProvenance();
     resultsStore.clear();
     solveMain();
+    await ensureEngineHashes();
     const b = currentResultProvenance();
     expect(b.resultsHash).toBe(a.resultsHash);
     expect(b.engineResultsSha256).toBe(a.engineResultsSha256);
@@ -153,6 +157,11 @@ function solveWithCombinations(): void {
   modelStore.addNodalLoad3D(top, 0, 7.5, -12, 0, 0, 0, 2);
   modelStore.addCombination('1.2D+1.6L', [{ caseId: 1, factor: 1.2 }, { caseId: 2, factor: 1.6 }]);
   modelStore.addCombination('1.4D', [{ caseId: 1, factor: 1.4 }]);
+  resolveCombinations();
+}
+
+/** Solve the model on hand again, with its combinations. */
+function resolveCombinations(): void {
   solveMain();
   const c = modelStore.solveCombinations3D(true, false, true);
   if (!c || typeof c === 'string') throw new Error(String(c));
@@ -234,42 +243,43 @@ describe('reproduce recomputes the result the report claims, not the one on scre
 });
 
 describe('the verdict compares every hash the report claims', () => {
-  function pair(): { a: ResultProvenance; b: ResultProvenance } {
+  async function pair(): Promise<{ a: ResultProvenance; b: ResultProvenance }> {
     buildFrame();
     solveMain();
+    await ensureEngineHashes();
     const a = currentResultProvenance();
     return { a, b: structuredClone(a) };
   }
 
-  it('an engine hash that differs is not reproduced', () => {
-    const { a, b } = pair();
+  it('an engine hash that differs is not reproduced', async () => {
+    const { a, b } = await pair();
     expect(compareProvenance(a, b).status).toBe('reproduced');
     expect(compareProvenance({ ...a, engineInputSha256: 'f'.repeat(64) }, b).status).toBe('differs');
     expect(compareProvenance({ ...a, engineResultsSha256: 'f'.repeat(64) }, b).status).toBe('differs');
   });
 
-  it('an engine hash the re-run could not compute is incomplete', () => {
-    const { a, b } = pair();
+  it('an engine hash the re-run could not compute is incomplete', async () => {
+    const { a, b } = await pair();
     expect(compareProvenance(a, { ...b, engineResultsSha256: null }).status).toBe('incomplete');
   });
 
-  it('a claimed certificate that differs is not reproduced; one not (yet) recomputed is incomplete', () => {
-    const { a, b } = pair();
+  it('a claimed certificate that differs is not reproduced; one not (yet) recomputed is incomplete', async () => {
+    const { a, b } = await pair();
     const cert = { scope: 'single', status: 'certified', hash: 'c'.repeat(64) };
     expect(compareProvenance({ ...a, certificates: [cert] }, { ...b, certificates: [cert] }).status).toBe('reproduced');
     expect(compareProvenance({ ...a, certificates: [cert] }, { ...b, certificates: [{ ...cert, hash: 'd'.repeat(64) }] }).status).toBe('differs');
     expect(compareProvenance({ ...a, certificates: [cert] }, { ...b, certificates: [] }).status).toBe('incomplete');
   });
 
-  it('a hash field this build does not know is never ignored: incomplete', () => {
-    const { a, b } = pair();
+  it('a hash field this build does not know is never ignored: incomplete', async () => {
+    const { a, b } = await pair();
     const v = compareProvenance({ ...a, futureCheckSha256: 'e'.repeat(64) } as ResultProvenance, b);
     expect(v.status).toBe('incomplete');
     expect(v.hashes.find((h) => h.field === 'futureCheckSha256')?.verdict).toBe('absent');
   });
 
-  it('a base-solve report: its shown-results hash is checked on its own', () => {
-    const { a, b } = pair();
+  it('a base-solve report: its shown-results hash is checked on its own', async () => {
+    const { a, b } = await pair();
     expect(a.scopeRef).toEqual({ kind: 'single' });
     expect(a.resultsHash).toBe(a.baseResultsHash);
     const changed = compareProvenance({ ...a, resultsHash: '9'.repeat(64) }, b);
@@ -281,8 +291,8 @@ describe('the verdict compares every hash the report claims', () => {
     expect(missing.shownResults).toBe('absent');
   });
 
-  it('a different WASM build is reported, not failed', () => {
-    const { a, b } = pair();
+  it('a different WASM build is reported, not failed', async () => {
+    const { a, b } = await pair();
     const v = compareProvenance({ ...a, wasmHash: '0'.repeat(64) }, b);
     expect(v.status).toBe('reproduced');
     expect(v.sameBuild).toBe(false);
@@ -348,5 +358,75 @@ describe('every export says STALE for a project not re-run since registered chan
     })();
     expect(full, 'the PRO report renders from minimal data').not.toBeNull();
     expect(full).toMatch(STALE);
+  });
+});
+
+describe('building a record never solves', () => {
+  it('the engine hashes are computed once per base solve, off the record path', async () => {
+    buildFrame();
+    solveMain();
+    const runs = engineHashRunCount();
+    // A report, a CSV, a workbook: each builds the record; none of them may start a solve.
+    for (let i = 0; i < 3; i++) currentResultProvenance();
+    expect(engineHashRunCount()).toBe(runs);
+    expect(currentResultProvenance().engineInputSha256).toBeNull();
+    await ensureEngineHashes();
+    await ensureEngineHashes();
+    expect(engineHashRunCount()).toBe(runs + 1);
+    expect(currentResultProvenance().engineInputSha256).toMatch(/^[0-9a-f]{64}$/);
+    // A new base solve is a new input: hashed again, once.
+    resultsStore.clear();
+    solveMain();
+    expect(currentResultProvenance().engineInputSha256).toBeNull();
+    await ensureEngineHashes();
+    expect(engineHashRunCount()).toBe(runs + 2);
+  });
+});
+
+describe('a report of a combination records and checks that combination\'s certificate', () => {
+  async function settled(): Promise<void> {
+    const until = Date.now() + 60_000;
+    await new Promise((r) => setTimeout(r, 400));
+    while (certificateStore.computing && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+  }
+
+  it('records the displayed combination\'s certificate, not the base solve\'s', async () => {
+    solveWithCombinations();
+    await settled();
+    const id = modelStore.model.combinations[0]!.id;
+    resultsStore.activeView = 'combo';
+    resultsStore.activeComboId = id;
+    const p = currentResultProvenance();
+    expect(p.certificates.map((c) => c.scope)).toEqual([`combo:${id}`]);
+    resultsStore.activeView = 'single';
+    const out = compareWithResultsOnHand(p);
+    expect(out.ok && out.verdict.status).toBe('reproduced');
+  });
+
+  it('a combination certificate that does not match is not reproduced', async () => {
+    solveWithCombinations();
+    await settled();
+    const id = modelStore.model.combinations[0]!.id;
+    resultsStore.activeView = 'combo';
+    resultsStore.activeComboId = id;
+    const p = currentResultProvenance();
+    const tampered = { ...p, certificates: p.certificates.map((c) => ({ ...c, hash: 'a'.repeat(64) })) };
+    const out = compareWithResultsOnHand(tampered);
+    expect(out.ok && out.verdict.status).toBe('differs');
+  });
+
+  it('a combination certificate that is missing (or still computing) is incomplete', async () => {
+    solveWithCombinations();
+    await settled();
+    const id = modelStore.model.combinations[0]!.id;
+    resultsStore.activeView = 'combo';
+    resultsStore.activeComboId = id;
+    const p = currentResultProvenance();
+    expect(p.certificates).toHaveLength(1);
+    // Re-solved and re-combined, compared before the combinations are certified again.
+    resolveCombinations();
+    expect(certificateStore.computing).toBe(true);
+    const out = compareWithResultsOnHand(p);
+    expect(out.ok && out.verdict.status).toBe('incomplete');
   });
 });

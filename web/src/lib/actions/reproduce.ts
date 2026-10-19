@@ -9,7 +9,7 @@
 import { resultsStore } from '../store';
 import { certificateStore } from '../store/certificate.svelte';
 import { runGlobalSolve } from '../engine/live-calc';
-import { currentResultProvenance, provenanceForScope } from '../store/result-provenance';
+import { currentResultProvenance, provenanceForScope, ensureEngineHashes } from '../store/result-provenance';
 import { compareProvenance, type ResultProvenance, type ReproduceVerdict } from '../provenance/result-provenance';
 import { errorText } from '../utils/error-text';
 
@@ -27,6 +27,7 @@ export async function reproduceFrom(claimed: ResultProvenance): Promise<Reproduc
   // A claimed certificate is compared with the re-run's own, which is computed in the background
   // after the solve: wait for it to settle. One still pending is compared as missing (incomplete).
   if ((claimed.certificates ?? []).length > 0) await settledCertificate();
+  await ensureEngineHashes();
   return compareWithResultsOnHand(claimed);
 }
 
@@ -47,7 +48,8 @@ async function settledCertificate(timeoutMs = 120_000): Promise<void> {
   const until = Date.now() + timeoutMs;
   // The certificate goes pending a short pause after the publish (`certificate.svelte.ts`).
   await new Promise((r) => setTimeout(r, 400));
-  while (certificateStore.state.status === 'pending' && Date.now() < until) {
+  // The base solve's certificate and the cases', combinations' and envelope's (`forScope`).
+  while (certificateStore.computing && Date.now() < until) {
     await new Promise((r) => setTimeout(r, 100));
   }
 }

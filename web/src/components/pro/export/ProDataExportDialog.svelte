@@ -115,7 +115,7 @@
         },
       };
       if (format === 'xlsx') await downloadProjectWorkbook(stations, opts);
-      else downloadProjectCsv(stations, opts);
+      else await downloadProjectCsv(stations, opts);
       open = false;
     } finally {
       busy = false;
