@@ -77,6 +77,13 @@ CSV export:
 Hashes are SHA-256 of canonical JSON that keeps every bit (`provenance/exact-hash.ts`): keys sorted,
 numbers in their shortest round-trip form, `-0`, `NaN` and infinities spelled out.
 
+An async export (calc report, PRO report, workbook, CSV zip) captures what it is taken from
+when it starts (model version and content hash, results on screen, base solve, scope, solve
+stamp) and checks it again after the engine hashes are awaited (`provenanceForExport`). If the
+project moved meanwhile (an edit, another project, another solve or view), nothing is exported
+and the reader is told to export again: a report never carries one state's numbers under
+another state's provenance.
+
 The HTML reports embed the record as `<script type="application/json" id="stabileo-provenance">`.
 
 ## Reproducing a report

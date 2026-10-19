@@ -19,7 +19,7 @@ import { RESULTS_VERSION } from '../provenance/registry';
 import { RESULTS_SCHEMA_VERSION } from '../provenance/solve-stamp';
 import { exactHash } from '../provenance/exact-hash';
 import {
-  buildResultProvenance, type ScopeRef, type AnalysisSettings, type CertificateRecord, type ProvenanceLabels, type ResultProvenance,
+  buildResultProvenance, modelHash, type ScopeRef, type AnalysisSettings, type CertificateRecord, type ProvenanceLabels, type ResultProvenance,
 } from '../provenance/result-provenance';
 import { t } from '../i18n';
 import { certifiableInputOf, type CertifiableInput } from '../engine/solver-service';
@@ -171,6 +171,56 @@ function certificates(ref: ScopeRef): CertificateRecord[] {
 /** A scope as a certificate's key in the record: `single`, `case:2`, `combo:3`, `envelope`. */
 function scopeKey(ref: ScopeRef): string {
   return ref.kind === 'case' || ref.kind === 'combo' ? `${ref.kind}:${ref.id}` : ref.kind;
+}
+
+/**
+ * What an export's data was taken from: the model (its version and content hash), the results on
+ * screen, the base solve the engine hashes are of, the scope and the solve stamp. An async export
+ * captures it when it starts and checks it before it writes the record (`provenanceForExport`), so
+ * a report can never carry one state's numbers under another state's provenance.
+ */
+export interface ProvenanceToken {
+  version: number;
+  results: object | null;
+  base: CertifiableInput | null;
+  scope: string;
+  modelHash: string;
+  stampId: string | null;
+}
+
+export function captureProvenanceToken(): ProvenanceToken {
+  const is3D = uiStore.is3DWorkspace;
+  return {
+    version: modelStore.modelVersion,
+    results: (is3D ? resultsStore.results3D : resultsStore.results) ?? null,
+    base: baseInput,
+    scope: JSON.stringify(currentScopeRef()),
+    modelHash: modelHash(modelStore.snapshot()),
+    stampId: recheckStore.stamp?.id ?? null,
+  };
+}
+
+function tokenStillCurrent(t: ProvenanceToken): boolean {
+  const now = captureProvenanceToken();
+  return now.version === t.version && now.results === t.results && now.base === t.base
+    && now.scope === t.scope && now.stampId === t.stampId && now.modelHash === t.modelHash;
+}
+
+/** The export was started on one state and the project moved under it: nothing is written. */
+export class ExportChangedError extends Error {
+  constructor() { super(t('provenance.exportChanged')); this.name = 'ExportChangedError'; }
+}
+
+/**
+ * The record for an export that captured `token` when it started: the engine hashes are awaited
+ * (off the main thread), then the state is checked against the token. Unchanged: the record, built
+ * in the same tick as the check. Changed (an edit, another project, another solve or view while
+ * the export was being prepared): `ExportChangedError`, so the export is abandoned, never mixed.
+ */
+export async function provenanceForExport(token: ProvenanceToken): Promise<ResultProvenance> {
+  await ensureEngineHashes();
+  if (!tokenStillCurrent(token)) throw new ExportChangedError();
+  return currentResultProvenance();
 }
 
 /** The provenance of what is on screen now (results null: none). */

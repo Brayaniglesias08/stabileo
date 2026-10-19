@@ -10,7 +10,7 @@ import { uiStore } from '../ui.svelte';
 import { resultsStore } from '../results.svelte';
 import '../index';
 import { initSolver } from '../../engine/wasm-solver';
-import { currentResultProvenance, provenanceLabels, baseSolverInputJson, ensureEngineHashes, engineHashRunCount } from '../result-provenance';
+import { currentResultProvenance, provenanceLabels, baseSolverInputJson, ensureEngineHashes, engineHashRunCount, captureProvenanceToken, provenanceForExport, ExportChangedError } from '../result-provenance';
 import { certificateStore } from '../certificate.svelte';
 import { serializeProject, deserializeProject } from '../file';
 import { recheckStore } from '../recheck.svelte';
@@ -428,5 +428,44 @@ describe('a report of a combination records and checks that combination\'s certi
     expect(certificateStore.computing).toBe(true);
     const out = compareWithResultsOnHand(p);
     expect(out.ok && out.verdict.status).toBe('incomplete');
+  });
+});
+
+describe('an async export never pairs one state\'s data with another\'s provenance', () => {
+  it('unchanged: the record describes the state the export started on', async () => {
+    buildFrame();
+    solveMain();
+    const before = currentResultProvenance();
+    const p = await provenanceForExport(captureProvenanceToken());
+    expect(p.modelHash).toBe(before.modelHash);
+    expect(p.resultsHash).toBe(before.resultsHash);
+    expect(p.engineInputSha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('a model edit during the await aborts it', async () => {
+    buildFrame();
+    solveMain();
+    const pending = provenanceForExport(captureProvenanceToken());
+    modelStore.addNode(42, 42, 42);
+    await expect(pending).rejects.toBeInstanceOf(ExportChangedError);
+  });
+
+  it('another project opened during the await aborts it', async () => {
+    buildFrame();
+    solveMain();
+    const other = serializeProject();
+    const pending = provenanceForExport(captureProvenanceToken());
+    expect(deserializeProject(other)).toBe(true);
+    await expect(pending).rejects.toBeInstanceOf(ExportChangedError);
+  });
+
+  it('a new solve, or another result on screen, during the await aborts it', async () => {
+    solveWithCombinations();
+    let pending = provenanceForExport(captureProvenanceToken());
+    solveMain();
+    await expect(pending).rejects.toBeInstanceOf(ExportChangedError);
+    pending = provenanceForExport(captureProvenanceToken());
+    resultsStore.activeView = 'envelope';
+    await expect(pending).rejects.toBeInstanceOf(ExportChangedError);
   });
 });

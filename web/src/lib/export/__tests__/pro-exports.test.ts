@@ -109,6 +109,21 @@ describe('the workbook, sheet by sheet', () => {
   });
 });
 
+describe('an export the project moved under', () => {
+  it('a CSV whose model is edited while its provenance is prepared is not written', async () => {
+    slabFrame();
+    downloads.length = 0;
+    const pending = downloadProjectCsv(5, { sheets: new Set(['Nodes']) });
+    // The edit lands while the export awaits the engine hashes.
+    modelStore.addNode(99, 99, 99);
+    await pending;
+    expect(downloads).toHaveLength(0);
+    // Exported again on the model as it is now: written, and describing it.
+    await downloadProjectCsv(5, { sheets: new Set(['Nodes']) });
+    expect(downloads).toHaveLength(1);
+  });
+});
+
 describe('the DXF', () => {
   it('puts every content on its layer, the shells as 3D faces, in the unit asked for', () => {
     slabFrame();

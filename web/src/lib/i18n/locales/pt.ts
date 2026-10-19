@@ -9976,6 +9976,7 @@ const pt: Translations = {
   "provenance.none": "nenhum",
   "provenance.status": "Status",
   "provenance.current": "Atual: resolvido com a versão de resultados desta compilação.",
+  "provenance.exportChanged": "O projeto mudou enquanto a exportação era preparada; nada foi exportado. Exporte novamente.",
   "provenance.stale": "DESATUALIZADO: estes resultados vêm de um projeto resolvido com uma versão anterior e mudanças registradas o afetam. Execute novamente a análise e o dimensionamento antes de usá-los.",
   "provenance.reproduceNote": "Para reproduzir: abra o mesmo projeto no Stabileo, escolha \"Reproduzir pela procedência\" e cole este relatório; o app resolve novamente e compara cada hash.",
   "provenance.reproduce.title": "Reproduzir pela procedência",

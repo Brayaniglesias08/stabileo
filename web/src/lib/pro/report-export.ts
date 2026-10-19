@@ -20,7 +20,7 @@
  * rather than not going out.
  */
 
-import { currentResultProvenance, provenanceLabels, ensureEngineHashes } from '../store/result-provenance';
+import { captureProvenanceToken, provenanceForExport, provenanceLabels, ExportChangedError } from '../store/result-provenance';
 import { tick } from 'svelte';
 import { viewportCanvas } from '../utils/viewport-canvas';
 import { uiStore } from '../store/ui.svelte';
@@ -110,6 +110,8 @@ export function reportDesignChecks(): NonNullable<ReportData['designChecks']> {
 }
 
 export async function exportReportAs(input: ReportExportInputs): Promise<void> {
+  // What the report is taken from, checked again before its provenance is written.
+  const token = captureProvenanceToken();
   const figures = input.figureOptions ? reportResultFigures(input.config, input.figureOptions) : {};
   // The model's figure is drawn; a capture of the screen only when it cannot be.
   const capture = input.config.sections?.modelData !== false && !figures.model;
@@ -125,8 +127,12 @@ export async function exportReportAs(input: ReportExportInputs): Promise<void> {
   if (!data) return;
   data.resultFigures = figures;
   data.designChecks = reportDesignChecks();
-  await ensureEngineHashes();
-  data.resultProvenance = { record: currentResultProvenance(), labels: provenanceLabels() };
+  try {
+    data.resultProvenance = { record: await provenanceForExport(token), labels: provenanceLabels() };
+  } catch (e) {
+    if (e instanceof ExportChangedError) { uiStore.toast(e.message, 'error'); return; }
+    throw e;
+  }
   openReport(data);
 }
 
