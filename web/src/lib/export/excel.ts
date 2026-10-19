@@ -84,6 +84,8 @@ interface ExcelExportOptions {
 
 /** The current export's solve failure; set for the length of one `exportToExcel`. */
 let solveError: string | null = null;
+/** The current export's provenance status line (STALE or current), for the summary's top. */
+let summaryStatus: readonly [string, string] | null = null;
 
 /** The line a results sheet carries in place of results the model could not produce. */
 function blockedRow(): string[] {
@@ -126,7 +128,8 @@ export const releaseLabel = (r?: { my: boolean; mz: boolean; t: boolean }): stri
   return parts.join('+');
 };
 
-function createSummarySheet(status: readonly [string, string] | null): Xlsx.WorkSheet {
+function createSummarySheet(): Xlsx.WorkSheet {
+  const status = summaryStatus;
   const is3D = uiStore.is3DWorkspace;
   const r3d = resultsStore.results3D;
   const r2d = resultsStore.results;
@@ -645,7 +648,8 @@ export async function buildExcelWorkbook(options: ExcelExportOptions = {}): Prom
 
   const provenanceLines = record ? provenanceTextLines(record, provenanceLabels()) : null;
   if (!onlyExtras) {
-    XLSX.utils.book_append_sheet(wb, createSummarySheet(provenanceLines?.[0] ?? null), t('excel.sheetSummary'));
+    summaryStatus = provenanceLines?.[0] ?? null;
+    XLSX.utils.book_append_sheet(wb, createSummarySheet(), t('excel.sheetSummary'));
     if (includeModel) {
       XLSX.utils.book_append_sheet(wb, createElementsSheet(), t('excel.sheetElements'));
       XLSX.utils.book_append_sheet(wb, createNodesSheet(), t('excel.sheetNodes'));
@@ -684,5 +688,6 @@ export async function buildExcelWorkbook(options: ExcelExportOptions = {}): Prom
   }
 
   solveError = null;
+  summaryStatus = null;
   return wb;
 }
