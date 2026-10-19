@@ -89,6 +89,8 @@ pub enum HarmonicCertificate {
     Uncertified { reason: String },
 }
 
+super::finite::guarded_enum!(HarmonicCertificate);
+
 impl HarmonicCertificate {
     pub fn is_certified(&self) -> bool {
         matches!(self, HarmonicCertificate::Certified { .. })
@@ -104,16 +106,36 @@ pub struct CertifiedHarmonic {
 
 /// Solve 2D harmonic analysis and certify the response at every frequency.
 pub fn certify_harmonic_2d(input: &HarmonicInput) -> Result<CertifiedHarmonic, String> {
+    super::finite::check_input(input)?;
     let (results, damping) = solve_harmonic_2d_with_damping(input)?;
+    super::finite::check_results(&results)?;
     let certificate = certify_harmonic_results_2d(input, &results, damping);
     Ok(CertifiedHarmonic { results, certificate })
 }
 
 /// Solve 3D harmonic analysis and certify the response at every frequency.
 pub fn certify_harmonic_3d(input: &HarmonicInput3D) -> Result<CertifiedHarmonic, String> {
+    super::finite::check_input(input)?;
     let (results, damping) = solve_harmonic_3d_with_damping(input)?;
+    super::finite::check_results(&results)?;
     let certificate = certify_harmonic_results_3d(input, &results, damping);
     Ok(CertifiedHarmonic { results, certificate })
+}
+
+/// Run `run` only on finite input, results and damping, and downgrade a
+/// certificate carrying a non-finite number.
+fn guarded<I: Serialize>(
+    input: &I,
+    results: &HarmonicResult,
+    damping: (f64, f64),
+    run: impl FnOnce() -> Result<HarmonicCertificate, String>,
+) -> HarmonicCertificate {
+    let mut c = super::finite::check_input(&(input, damping))
+        .and_then(|()| super::finite::check_results(results))
+        .and_then(|()| run())
+        .unwrap_or_else(|reason| HarmonicCertificate::Uncertified { reason });
+    super::finite::guard(&mut c);
+    c
 }
 
 fn target(dof: &DofNumbering, node: usize, local: Option<usize>) -> Result<usize, String> {
@@ -151,7 +173,7 @@ pub fn certify_harmonic_results_2d(
         let t = target(&dof, input.response_node_id, local)?;
         Ok(certify_sweep(&stiff.k_ff, &m, &f[..dof.n_free], damping, t, results))
     };
-    run().unwrap_or_else(|reason| HarmonicCertificate::Uncertified { reason })
+    guarded(input, results, damping, run)
 }
 
 /// Certify given 3D harmonic results; `damping = (a₀, a₁)` defines the model.
@@ -176,7 +198,7 @@ pub fn certify_harmonic_results_3d(
         let t = target(&dof, input.response_node_id, local)?;
         Ok(certify_sweep(&asm.k_ff, &m, &asm.f[..dof.n_free], damping, t, results))
     };
-    run().unwrap_or_else(|reason| HarmonicCertificate::Uncertified { reason })
+    guarded(input, results, damping, run)
 }
 
 /// Certify every reported frequency point of `results` for the model
@@ -192,6 +214,10 @@ pub fn certify_sweep(
     let uncert = |reason: String| HarmonicCertificate::Uncertified { reason };
     if results.response_points.is_empty() {
         return uncert("no frequency points".into());
+    }
+    // `max` below drops NaN: a non-finite reported value must not get here.
+    if let Err(e) = super::finite::check_results(results).and_then(|()| super::finite::check_input(&(f, a0, a1))) {
+        return uncert(e);
     }
     let mut points = Vec::with_capacity(results.response_points.len());
     let mut within = true;
@@ -234,7 +260,10 @@ pub fn certify_sweep(
     }
     let peak_amplitude = Enclosure { lo: peak_lo, hi: peak_hi };
     within &= peak_amplitude.contains(results.peak_amplitude);
-    HarmonicCertificate::Certified { a0, a1, points, peak_amplitude, max_reported_error: max_err, reported_within: within }
+    let mut c =
+        HarmonicCertificate::Certified { a0, a1, points, peak_amplitude, max_reported_error: max_err, reported_within: within };
+    super::finite::guard(&mut c);
+    c
 }
 
 /// Enclosure of `|re + i·im|`. The sum of squares is ≥ 0 exactly, but its

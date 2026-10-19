@@ -803,10 +803,12 @@ fn certify_spectral_refusals() {
         panic!()
     };
     assert!(!reported_within);
-    // Unsorted spectrum refused.
+    // Unsorted spectrum refused: by the solver (since #335) and by the
+    // certificate, given results from any source.
     let mut bad = sp.clone();
     bad.spectrum.points.swap(1, 2);
-    let res = solve_spectral_2d(&bad).unwrap();
+    assert!(solve_spectral_2d(&bad).unwrap_err().contains("strictly increasing"));
+    let res = solve_spectral_2d(&sp).unwrap();
     assert!(!certify_spectral_results_2d(&bad, &res).is_certified());
 }
 

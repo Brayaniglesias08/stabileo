@@ -153,6 +153,7 @@ const c301Es: Record<string, string> = {
   'c301.refuse.angleData': 'faltan las alas o el espesor del ángulo (o no son válidos)',
   'c301.refuse.e5Condition': '§E.5: falta cómo se carga el ángulo en sus extremos (axil centrada, E.5(a) o E.5(b))',
   'c301.refuse.e5ConditionUnknown': '§E.5: condición de extremo «{cond}» desconocida',
+  'c301.refuse.loadPositionUnknown': '§F.2: posición de carga «{pos}» desconocida (se acepta: topFlange, web)',
   'c301.refuse.e5Ratio': '§E.5: ángulo unido por el ala corta con bl/bs = {ratio} ≥ 1,7 — va por el Capítulo H, no implementado',
   'c301.refuse.e6Spacing': '§E.6.2.1: falta la separación a entre uniones intermedias del doble ángulo',
   'c301.refuse.e6Connector': '§E.6.2.1: falta el tipo de unión intermedia (bulones sin pretensar o soldadura)',

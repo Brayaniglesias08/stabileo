@@ -63,6 +63,19 @@ shear-corrected and its N includes axial member loads).
   to stabileo's to 1e-12). The adapter asks for 20 more modes than compared
   (capped by the subspace size).
 
+## Conditioning
+
+Frame3DD prints no condition number. The adapter estimates it from an
+independent assembly of the same model (`common/conditioning.py`): `kappa`
+of the model stabileo solves and `kappa_solved` of the nodalized model
+Frame3DD factors. Nodalizing can make the factored system much worse
+conditioned than the model: frame3d-744293 has κ = 314, but a point load
+1.9 mm from a Gauss station of a partial load gives a 1.9 mm sub-member and
+κ = 1.7e11, at which Frame3DD's member force is off by 4e-5 (macOS) and
+1.1e-4 (Linux) from a 100-digit solve, while stabileo agrees with it to
+1e-14. The tolerance is widened to 100 ε κ with the larger of the two
+(static only); the singularity statuses use `kappa`.
+
 ## Results
 
 Run of 2026-10-17:

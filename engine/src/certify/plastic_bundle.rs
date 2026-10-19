@@ -515,8 +515,10 @@ fn kinds() -> [&'static str; 2] {
 
 /// Run the 2D plastic solver, certify the collapse factor and export the bundle.
 pub fn export_plastic_bundle_2d(input: &PlasticInput) -> Result<PlasticBundle, String> {
+    super::finite::check_input(input)?;
     let model = build_model(input)?;
-    let solver = solve_plastic_2d(input).ok();
+    // A non-finite solver result is not even used as a candidate.
+    let solver = solve_plastic_2d(input).ok().filter(|r| super::finite::check_results(r).is_ok());
     let c = plastic_candidates(&model, solver.as_ref())?;
     let field = c.static_field.ok_or_else(|| format!("lower bound: {}", c.static_reason.unwrap_or_default()))?;
     let mech = c.mechanism.ok_or_else(|| format!("upper bound: {}", c.mechanism_reason.unwrap_or_default()))?;
@@ -532,13 +534,14 @@ pub fn export_plastic_bundle_2d(input: &PlasticInput) -> Result<PlasticBundle, S
         .collect::<Result<Vec<_>, String>>()?;
     let x: Vec<Q> = field.elems.iter().flat_map(|e| e.iter().cloned()).collect();
     let prov = Provenance::new(input, "PlasticInput", &kinds())?;
-    plastic_bundle(&lp, 2, prov, (&field.lambda, &x), &hinges)
+    super::finite::finite_output(plastic_bundle(&lp, 2, prov, (&field.lambda, &x), &hinges))
 }
 
 /// Run the 3D plastic solver, certify the collapse factor and export the bundle.
 pub fn export_plastic_bundle_3d(input: &PlasticInput3D) -> Result<PlasticBundle, String> {
+    super::finite::check_input(input)?;
     let model = build_model_3d(input)?;
-    let solver = solve_plastic_3d(input).ok();
+    let solver = solve_plastic_3d(input).ok().filter(|r| super::finite::check_results(r).is_ok());
     let c = plastic_candidates_3d(&model, solver.as_ref().map(|r| (input, r)))?;
     let field = c.static_field.ok_or_else(|| format!("lower bound: {}", c.static_reason.unwrap_or_default()))?;
     let mech = c.mechanism.ok_or_else(|| format!("upper bound: {}", c.mechanism_reason.unwrap_or_default()))?;
@@ -552,7 +555,7 @@ pub fn export_plastic_bundle_3d(input: &PlasticInput3D) -> Result<PlasticBundle,
         .collect::<Result<Vec<_>, String>>()?;
     let x: Vec<Q> = field.elems.iter().flat_map(|e| e.iter().cloned()).collect();
     let prov = Provenance::new(input, "PlasticInput3D", &kinds())?;
-    plastic_bundle(&lp, 3, prov, (&field.lambda, &x), &hinges)
+    super::finite::finite_output(plastic_bundle(&lp, 3, prov, (&field.lambda, &x), &hinges))
 }
 
 #[cfg(test)]
