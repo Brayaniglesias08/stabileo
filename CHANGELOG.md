@@ -25,6 +25,13 @@ now that the engine ties it. (#342)
 - `engine/src/solver/constraints.rs`: both the dependent-DOF list used by validation and the
   constraint equations tie the slave's in-plane rotation; inclined-support frames go through the
   same equations.
+- **BREAKING (results): 3D XZ diaphragms** coupled the slave to −θy (the XY lever pattern); they
+  now follow ω × r. **Diaphragms in all-truss models are refused**: with no rotational DOFs the
+  floor's rotation cannot be represented (a 3D one tied uz instead). In 2D, plane "XZ" is the
+  model plane as "XY" is; "YZ" is refused.
+- **BREAKING (results): web 2D solves** sent 3D floor (XY) diaphragms as a rigid body in the
+  frame's plane, making floor beams rigid in vertical bending; a floor now ties ux only, a YZ wall
+  uz only, an XZ diaphragm stays a 2D diaphragm.
 - `engine/tests/diaphragm_rotation.rs`: a storey with a diaphragm matches the same storey with a
   floor of in-plane-rigid beams (displacements, column end forces, periods to 1e-4); slave θz =
   master θz in static, modal, 2D and inclined-support cases. On the old code the torsional period
