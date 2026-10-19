@@ -22,6 +22,7 @@ export interface SectionKernelInstance {
   ray(pu: number, mu: number): Float64Array;
   axialLimit(nx: number, ny: number, pu: number): Float64Array;
   biaxial(pu: number, mx: number, my: number): Float64Array;
+  biaxialFast(pu: number, mx: number, my: number): Float64Array;
   momentCapacityAtAxial(pu: number, mx: number, my: number): Float64Array;
   characteristicPoints(nx: number, ny: number): Float64Array;
   free(): void;

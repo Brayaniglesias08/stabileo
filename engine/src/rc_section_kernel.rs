@@ -172,6 +172,16 @@ impl Cirsoc201SectionKernel {
         Ok(out)
     }
 
+    /// The biaxial check with the verifier's search settings: the curve sampled in 24 steps,
+    /// the moment direction to 1e-5 rad (`UTIL_LEN` values).
+    #[wasm_bindgen(js_name = biaxialFast)]
+    pub fn biaxial_fast(&self, pu: f64, mx: f64, my: f64) -> Result<Vec<f64>, JsValue> {
+        finite(&[pu, mx, my])?;
+        let mut out = Vec::with_capacity(UTIL_LEN);
+        push_util(&mut out, &self.s.biaxial_with(pu, mx, my, 24, 1e-5));
+        Ok(out)
+    }
+
     /// `[φMn, φMnx, φMny (sheet signs), fi, …state]`, or NaNs when Pu is out of reach.
     #[wasm_bindgen(js_name = momentCapacityAtAxial)]
     pub fn moment_capacity_at_axial(&self, pu: f64, mx: f64, my: f64) -> Result<Vec<f64>, JsValue> {

@@ -1,5 +1,5 @@
 import { getColumnCapacityKernel, columnCapacityKernelRegistered } from './column-capacity-kernel';
-import { evaluateBeamSection } from './codes/argentina/cirsoc201-beam-kernel';
+import { evaluateBeamSection, evaluateBeamSections } from './codes/argentina/cirsoc201-beam-kernel';
 import { beta1, axialCap } from './codes/argentina/cirsoc201-basis';
 import { Cirsoc201EngineUnavailable } from './codes/argentina/cirsoc201-engine';
 import { prepareSection, type Bar as SectionBar } from './codes/argentina/cirsoc201-section';
@@ -1245,30 +1245,44 @@ export function computeFlexureCapacity(
   AsComp_cm2: number = 0, dPrime: number = 0,
   _tensDia: number = 0, _compDia: number = 0,
   opts: { h?: number; edition?: RegulationEdition; Nu?: number } = {},
-): {
+): FlexureCapacity | null {
+  return computeFlexureCapacities(AsProv_cm2, b, d, fc, fy, AsComp_cm2, dPrime, [opts.Nu ?? 0], opts)[0];
+}
+
+export interface FlexureCapacity {
   phiMn: number; a: number; c: number; phi: number; epsilonT: number;
   isDoubly: boolean; compYields: boolean; fsComp: number; epsilonComp: number;
   fsTension: number; tensionYields: boolean; epsilonTMin: number;
-} | null {
-  if (!(AsProv_cm2 > 0 && b > 0 && d > 0 && fc > 0 && fy > 0)) return null;
+}
+
+/** `computeFlexureCapacity` for many axial forces (kN, + compression) in one engine call. */
+export function computeFlexureCapacities(
+  AsProv_cm2: number, b: number, d: number, fc: number, fy: number,
+  AsComp_cm2: number, dPrime: number, Nus: readonly number[],
+  opts: { h?: number; edition?: RegulationEdition } = {},
+): Array<FlexureCapacity | null> {
+  if (!(AsProv_cm2 > 0 && b > 0 && d > 0 && fc > 0 && fy > 0)) return Nus.map(() => null);
   const isDoubly = AsComp_cm2 > 1e-4 && dPrime > 0 && dPrime < d;
-  const r = evaluateBeamSection({
+  const answers = evaluateBeamSections(Nus.map((Nu) => ({
     edition: opts.edition ?? '2025',
     fc: fc * 1e6, fy: fy * 1e6, b, h: Math.max(opts.h ?? d, d), d,
     As: AsProv_cm2 * 1e-4,
     AsComp: isDoubly ? AsComp_cm2 * 1e-4 : 0, dPrime: isDoubly ? dPrime : 0,
     Ag: b * Math.max(opts.h ?? d, d),
-    NuCompression: (opts.Nu ?? 0) * 1e3,
+    NuCompression: Nu * 1e3,
+  })));
+  return Nus.map((_, i) => {
+    const r = answers?.[i];
+    if (!r || !r.flexureValid || !Number.isFinite(r.phiMn)) return null;
+    const epsilonComp = isDoubly && r.c > dPrime ? 0.003 * (r.c - dPrime) / r.c : 0;
+    return {
+      phiMn: +(r.phiMn / 1e3).toFixed(2), a: r.a, c: r.c, phi: r.phi, epsilonT: r.epsilonT,
+      isDoubly, compYields: epsilonComp >= fy / 200000,
+      fsComp: +(r.fsComp / 1e6).toFixed(1), epsilonComp: +epsilonComp.toFixed(5),
+      fsTension: r.fsTension / 1e6, tensionYields: r.fsTension >= fy * 1e6 * (1 - 1e-9),
+      epsilonTMin: r.epsilonTMin,
+    };
   });
-  if (!r || !r.flexureValid || !Number.isFinite(r.phiMn)) return null;
-  const epsilonComp = isDoubly && r.c > dPrime ? 0.003 * (r.c - dPrime) / r.c : 0;
-  return {
-    phiMn: +(r.phiMn / 1e3).toFixed(2), a: r.a, c: r.c, phi: r.phi, epsilonT: r.epsilonT,
-    isDoubly, compYields: epsilonComp >= fy / 200000,
-    fsComp: +(r.fsComp / 1e6).toFixed(1), epsilonComp: +epsilonComp.toFixed(5),
-    fsTension: r.fsTension / 1e6, tensionYields: r.fsTension >= fy * 1e6 * (1 - 1e-9),
-    epsilonTMin: r.epsilonTMin,
-  };
 }
 
 /**
@@ -1539,8 +1553,12 @@ function biaxialCapacity(
   let worst = 0;
   try {
     const mz = Math.abs(Muz), my = Math.abs(Muy);
-    for (const sx of [1, -1]) for (const sy of [1, -1]) {
-      const u = section.biaxial(Nu, sx * mz, sy * my).ratio;
+    // A layout symmetric about both axes has the same contour in every quadrant: one suffices.
+    const mirrored = (fx: number, fy: number) => sectionBars.every((p) => sectionBars.some((q) =>
+      Math.abs(q.x - fx * p.x) < 1e-9 && Math.abs(q.y - fy * p.y) < 1e-9 && Math.abs(q.area - p.area) < 1e-12));
+    const quadrants = mirrored(-1, 1) && mirrored(1, -1) ? [[1, 1]] : [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+    for (const [sx, sy] of quadrants) {
+      const u = section.biaxialFast(Nu, sx * mz, sy * my).ratio;
       worst = Math.max(worst, Number.isNaN(u) ? Number.POSITIVE_INFINITY : u);
     }
   } finally {
@@ -1768,21 +1786,19 @@ export function verifyProvidedReinforcement(
   const governingFlexure = (
     tuples: Tuple[], sign: 1 | -1, tensArea: number, d: number, compArea: number, dPrime: number,
   ) => {
+    const acting = tuples.filter((t) => { const m = M(t); return sign === 1 ? m > 0.001 : m < -0.001; });
+    const keyOf = (t: Tuple) => { const Nu = -t.n; return Math.abs(Nu) < 1e-6 ? 0 : Nu; };
+    const keys = [...new Set(acting.map(keyOf))];
+    const caps = computeFlexureCapacities(tensArea, section!.b, d, section!.fc, section!.fy, compArea, dPrime, keys,
+      { h: section!.h, edition: spacingRule.edition });
+    const byAxial = new Map(keys.map((k, i) => [k, caps[i]]));
     let demand: { Mu: number; comboName: string; stationX: number; Nu: number } | null = null;
-    let cap: ReturnType<typeof computeFlexureCapacity> = null;
+    let cap: FlexureCapacity | null = null;
     let util = -1;
-    const byAxial = new Map<number, ReturnType<typeof computeFlexureCapacity>>();
-    for (const t of tuples) {
-      const m = M(t);
-      if (sign === 1 ? m <= 0.001 : m >= -0.001) continue;
-      const Mu = Math.abs(m);
-      const Nu = -t.n;
-      const key = Math.abs(Nu) < 1e-6 ? 0 : Nu;
-      if (!byAxial.has(key)) {
-        byAxial.set(key, computeFlexureCapacity(tensArea, section!.b, d, section!.fc, section!.fy, compArea, dPrime, 0, 0,
-          { h: section!.h, edition: spacingRule.edition, Nu: key }));
-      }
-      const c = byAxial.get(key)!;
+    for (const t of acting) {
+      const Mu = Math.abs(M(t));
+      const key = keyOf(t);
+      const c = byAxial.get(key) ?? null;
       const u = c && c.phiMn > 1e-6 ? Mu / c.phiMn : Number.POSITIVE_INFINITY;
       if (u > util || (u === util && Mu > (demand?.Mu ?? 0))) {
         util = u;

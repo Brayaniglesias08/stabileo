@@ -417,7 +417,8 @@ export function checkFlexure(
    */
   const barsDesign = design;
   ({ d, design, AsMin, AsDesign } = first!);
-  const isDoubly = barsDesign.kind === 'doubly' || rebarComp !== undefined;
+  // "Needs compression steel" also when no singly-reinforced steel works at all (a footing reports it).
+  const isDoubly = barsDesign.kind !== 'singly' || rebarComp !== undefined;
   steps.push(`d = ${(d * 100).toFixed(1)} cm, d' = ${(dPrimeAssumed * 100).toFixed(1)} cm`);
   steps.push(`Mu = ${MuAbs.toFixed(2)} kN·m${Nu !== 0 ? `, Nu = ${Nu.toFixed(2)} kN (+ compresión)` : ''}`);
   steps.push(`As,mín = ${AsMin.toFixed(2)} cm²`);

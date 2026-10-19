@@ -501,7 +501,12 @@ impl Section {
     /// The state where φ·Pn = `pu` with the axis normal to (nx, ny); None when the section
     /// cannot carry that axial force in that direction.
     pub fn at_axial(&self, nx: f64, ny: f64, pu: f64) -> Option<SectionPoint> {
-        let curve = self.curve(nx, ny, 60);
+        self.at_axial_with(nx, ny, pu, 60)
+    }
+
+    /// `at_axial` sampling the curve in `n` steps before refining (the calculator uses 60).
+    pub fn at_axial_with(&self, nx: f64, ny: f64, pu: f64, n: usize) -> Option<SectionPoint> {
+        let curve = self.curve(nx, ny, n);
         self.crossing(nx, ny, &curve, |p| p.s.phi_pn - pu)
     }
 
@@ -582,12 +587,19 @@ impl Section {
     /// demand's own moment direction (the load contour), found by bisecting the axis angle.
     /// `mx`, `my` are signed as the CIRSOC_FLEX sheets sign them (positive Mx compresses +y).
     pub fn moment_capacity_at_axial(&self, pu: f64, mx: f64, my: f64) -> Option<MomentCapacity> {
+        self.moment_capacity_at_axial_with(pu, mx, my, 60, 1e-7)
+    }
+
+    /// The load-contour search with a coarser curve sampling (`n`) and an angle tolerance
+    /// (`tol`, radians of moment direction): the verifier's member-by-member check, which asks
+    /// thousands of times per run, uses 24 and 1e-5 (the direction to 0,0006°).
+    pub fn moment_capacity_at_axial_with(&self, pu: f64, mx: f64, my: f64, n: usize, tol: f64) -> Option<MomentCapacity> {
         let sx = if mx < 0.0 { -1.0 } else { 1.0 };
         let sy = if my < 0.0 { -1.0 } else { 1.0 };
         let want = my.abs().atan2(mx.abs());
         let at = |fi: f64| {
             let t = Self::theta_for(fi, sx, sy);
-            self.at_axial(t.cos(), t.sin(), pu)
+            self.at_axial_with(t.cos(), t.sin(), pu, n)
         };
         let sheet_mx = |p: &SectionPoint| -p.s.phi_mnx;
         let sheet_my = |p: &SectionPoint| -p.s.phi_mny;
@@ -612,7 +624,7 @@ impl Section {
             let p = at(mid)?;
             best = pack(mid, p);
             let d = dir_of(&p) - want;
-            if d.abs() < 1e-7 {
+            if d.abs() < tol {
                 break;
             }
             if d < 0.0 {
@@ -626,11 +638,16 @@ impl Section {
 
     /// Biaxial check: the resultant moment over the capacity on the load contour at Pu.
     pub fn biaxial(&self, pu: f64, mx: f64, my: f64) -> Utilisation {
+        self.biaxial_with(pu, mx, my, 60, 1e-7)
+    }
+
+    /// `biaxial` with the search settings of [`Section::moment_capacity_at_axial_with`].
+    pub fn biaxial_with(&self, pu: f64, mx: f64, my: f64, n: usize, tol: f64) -> Utilisation {
         let mres = mx.hypot(my);
         if mres < 1e-6 {
             return self.axial_limit(0.0, 1.0, pu);
         }
-        match self.moment_capacity_at_axial(pu, mx, my) {
+        match self.moment_capacity_at_axial_with(pu, mx, my, n, tol) {
             None => Utilisation { ratio: f64::INFINITY, phi_pn: pu, phi_mn: 0.0, c: f64::NAN, eps_t: f64::NAN, phi: f64::NAN, nx: 0.0, ny: 1.0, axial_only: false },
             Some(g) => {
                 let sx = if mx < 0.0 { -1.0 } else { 1.0 };

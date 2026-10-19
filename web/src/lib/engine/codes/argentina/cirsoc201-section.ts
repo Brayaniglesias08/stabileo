@@ -131,6 +131,8 @@ export interface PreparedSection {
   axialLimit(theta: number, Pu: number): SectionUtilisation;
   /** Biaxial check on the load contour at Pu; Mx, My signed as the sheets sign them. */
   biaxial(Pu: number, Mx: number, My: number): SectionUtilisation;
+  /** The same check with the verifier's coarser search (direction to 1e-5 rad). */
+  biaxialFast(Pu: number, Mx: number, My: number): SectionUtilisation;
   momentCapacityAtAxial(Pu: number, Mx: number, My: number): {
     phiMn: number; phiMnx: number; phiMny: number; fi: number; state: SectionPoint;
   } | null;
@@ -199,6 +201,7 @@ export function prepareSection(outline: Outline, bars: readonly Bar[], mat: Mate
     ray: (Pu, Mu) => utilisationFrom(kernel.ray(Pu * 1000, Mu * 1000)),
     axialLimit: (theta, Pu) => utilisationFrom(kernel.axialLimit(...dir(theta), Pu * 1000)),
     biaxial: (Pu, Mx, My) => utilisationFrom(kernel.biaxial(Pu * 1000, Mx * 1000, My * 1000)),
+    biaxialFast: (Pu, Mx, My) => utilisationFrom(kernel.biaxialFast(Pu * 1000, Mx * 1000, My * 1000)),
     momentCapacityAtAxial(Pu, Mx, My) {
       const v = kernel.momentCapacityAtAxial(Pu * 1000, Mx * 1000, My * 1000);
       if (!Number.isFinite(v[0])) return null;
