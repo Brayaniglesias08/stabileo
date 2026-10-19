@@ -228,8 +228,10 @@ export function compareProvenance(claimed: ResultProvenance, fresh: ResultProven
   const settings = verdict(claimed.settingsHash, fresh.settingsHash);
   const results = verdict(baseHashOf(claimed), baseHashOf(fresh));
   const claimedSingle = claimed.scopeRef ? claimed.scopeRef.kind === 'single' : claimed.scope === 'single';
+  // Compared on its own even when the report showed the base solve: its `resultsHash` is a claim
+  // of its own, and a changed or missing one must not ride on the base solve's verdict.
   const shownResults: FieldVerdict = claimedSingle
-    ? results
+    ? verdict(claimed.resultsHash, baseHashOf(fresh))
     : sameScope(claimed.scopeRef, fresh.scopeRef) ? verdict(claimed.resultsHash, fresh.resultsHash) : 'absent';
   const hashes: ReproduceVerdict['hashes'] = [
     { field: 'modelHash', verdict: model },

@@ -268,6 +268,19 @@ describe('the verdict compares every hash the report claims', () => {
     expect(v.hashes.find((h) => h.field === 'futureCheckSha256')?.verdict).toBe('absent');
   });
 
+  it('a base-solve report: its shown-results hash is checked on its own', () => {
+    const { a, b } = pair();
+    expect(a.scopeRef).toEqual({ kind: 'single' });
+    expect(a.resultsHash).toBe(a.baseResultsHash);
+    const changed = compareProvenance({ ...a, resultsHash: '9'.repeat(64) }, b);
+    expect(changed.status).toBe('differs');
+    expect(changed.shownResults).toBe('differs');
+    expect(changed.results).toBe('match');
+    const missing = compareProvenance({ ...a, resultsHash: null }, b);
+    expect(missing.status).toBe('incomplete');
+    expect(missing.shownResults).toBe('absent');
+  });
+
   it('a different WASM build is reported, not failed', () => {
     const { a, b } = pair();
     const v = compareProvenance({ ...a, wasmHash: '0'.repeat(64) }, b);
