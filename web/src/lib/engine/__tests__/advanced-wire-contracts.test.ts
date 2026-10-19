@@ -138,9 +138,16 @@ describe('advanced analyses: 3D payloads the engine accepts', () => {
   it('imperfections takes a notional-load block, not a type and an amplitude', () => {
     const res = solveWithImperfections3D({
       solver: input3D(),
-      imperfections: { notionalLoads: [{ ratio: 0.005, direction: 0, gravityAxis: 2 }] },
+      // This fixture's plane nodal load reaches the engine along Y (a model with elevation is
+      // not embedded), so its gravity is read there.
+      imperfections: { notionalLoads: [{ ratio: 0.005, direction: 0, gravityAxis: 1 }] },
     });
     expect(res.displacements.length).toBeGreaterThan(0);
+    // Looked for along Z it finds no gravity: refused (it used to add nothing and solve).
+    expect(() => solveWithImperfections3D({
+      solver: input3D(),
+      imperfections: { notionalLoads: [{ ratio: 0.005, direction: 0, gravityAxis: 2 }] },
+    })).toThrow(/no gravity load/);
   });
 
   it('influence line takes a named quantity and a target on a member', () => {
