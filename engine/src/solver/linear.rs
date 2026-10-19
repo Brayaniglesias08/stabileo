@@ -4045,6 +4045,12 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
                 return Err(format!("Support {}: numeric fields must be finite", sup.id));
             }
         }
+        // An unknown type restrained nothing (dof.rs treats it as free): a
+        // misspelt "pin" or "roller" silently removed the support.
+        const TYPES: &[&str] = &["fixed", "pinned", "rollerX", "rollerY", "rollerZ", "guidedX", "guidedY", "guidedZ", "inclinedRoller", "spring"];
+        if !TYPES.contains(&sup.support_type.as_str()) {
+            return Err(format!("Support {}: unknown type {:?} (expected one of {})", sup.id, sup.support_type, TYPES.join(", ")));
+        }
     }
     reject_ambiguous_shared_supports(input.supports.iter().map(|(k, s)| (s.node_id, k.as_str(), plain_rigid_2d(s))))?;
     for load in &input.loads {

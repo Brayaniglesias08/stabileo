@@ -249,12 +249,14 @@ fn plastic_symmetric_portal_collapses_by_its_mechanism() {
     assert!(r.warnings.is_empty(), "{:?}", r.warnings);
 }
 
-/// Plastic collapse refuses imposed deformations, and loads the structure
-/// carries without bending, instead of reporting a factor of ~1e16.
+/// Plastic collapse refuses a model loaded only by imposed deformations, and
+/// loads the structure carries without bending, instead of reporting a
+/// factor of ~1e16.
 #[test]
 fn plastic_refuses_what_it_cannot_scale_to_collapse() {
-    let s = settlement_beam();
-    assert!(plastic_2d(&s).is_err_and(|e| e.contains("prescribed")));
+    let mut s = settlement_beam();
+    s.loads.clear();
+    assert!(plastic_2d(&s).is_err_and(|e| e.contains("mechanical load")));
     let arch = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ex-three-hinge-arch-input.json")).unwrap();
     let a: SolverInput = serde_json::from_str(&arch).unwrap();
     let r = plastic_2d(&a);
@@ -436,5 +438,16 @@ fn shell_rotary_inertia_follows_the_shell() {
         for (x, y) in a.modes.iter().zip(&b.modes) {
             close(y.frequency, x.frequency, 1e-7, "frequency");
         }
+    }
+}
+
+#[test]
+#[ignore]
+fn probe_plastic_file() {
+    let f = std::env::var("PFILE").unwrap();
+    let s: SolverInput = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+    match plastic_2d(&s) {
+        Ok(r) => { println!("factor {} mech {} warn {:?}", r.collapse_factor, r.is_mechanism, r.warnings); for h in &r.hinges { println!("  {h:?}"); } }
+        Err(e) => println!("err {e}"),
     }
 }

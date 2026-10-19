@@ -406,7 +406,7 @@ fn make_stayed_deck(n_elem: usize) -> SolverInput {
         dx: None, dz: None, dry: None, angle: None,
     });
     supports.insert("2".to_string(), SolverSupport {
-        id: 2, node_id: n_elem + 1, support_type: "roller".to_string(),
+        id: 2, node_id: n_elem + 1, support_type: "rollerX".to_string(),
         kx: None, ky: None, kz: None,
         dx: None, dz: None, dry: None, angle: None,
     });

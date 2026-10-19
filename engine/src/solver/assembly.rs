@@ -99,6 +99,34 @@ pub struct InclinedTransformData {
     pub r: [[f64; 3]; 3],        // Rotation matrix (rows = local axes)
 }
 
+/// 2D nodes whose rotation a constraint ties to other DOFs. An artificial
+/// rotational spring on such a node is not inert: once the constraint is
+/// imposed it becomes a real spring on the structure (a rigid-link mechanism
+/// was held by it, so whether it counted as a mechanism depended on the
+/// units — found by the metamorphic checks). The 3D assembler already leaves
+/// constraint nodes out (`orphan_rotation_dofs_3d`).
+pub(crate) fn rotation_tied_nodes_2d(input: &SolverInput) -> std::collections::HashSet<usize> {
+    let mut tied = std::collections::HashSet::new();
+    for c in &input.constraints {
+        match c {
+            Constraint::RigidLink(r) => {
+                tied.insert(r.master_node);
+                if r.dofs.contains(&2) { tied.insert(r.slave_node); }
+            }
+            Constraint::Diaphragm(d) => { tied.insert(d.master_node); }
+            Constraint::EqualDOF(e) => {
+                if e.dofs.contains(&2) { tied.extend([e.master_node, e.slave_node]); }
+            }
+            Constraint::EccentricConnection(e) => {
+                tied.insert(e.master_node);
+                if !e.releases.get(2).copied().unwrap_or(false) { tied.insert(e.slave_node); }
+            }
+            Constraint::LinearMPC(m) => tied.extend(m.terms.iter().filter(|t| t.dof == 2).map(|t| t.node_id)),
+        }
+    }
+    tied
+}
+
 /// Data needed to reverse the 2D inclined support rotation after solving.
 pub struct InclinedTransformData2D {
     pub node_id: usize,
@@ -488,6 +516,8 @@ pub fn assemble_stiffness_2d(input: &SolverInput, dof_num: &DofNumbering) -> Sti
                 }
             }
         }
+        let tied = rotation_tied_nodes_2d(input);
+        rot_restrained.extend(tied.iter().copied());
 
         for (&node_id, &hinges) in &node_hinge_count {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
@@ -509,8 +539,8 @@ pub fn assemble_stiffness_2d(input: &SolverInput, dof_num: &DofNumbering) -> Sti
         let nf = dof_num.n_free;
         let already: std::collections::HashSet<usize> = artificial_dofs.iter().copied().collect();
         let mut idx_to_local: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-        for (&(_, ld), &idx) in &dof_num.map {
-            if idx < nf {
+        for (&(node, ld), &idx) in &dof_num.map {
+            if idx < nf && !tied.contains(&node) {
                 idx_to_local.insert(idx, ld);
             }
         }

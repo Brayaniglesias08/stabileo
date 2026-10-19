@@ -718,10 +718,12 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
     // propped beam at 40% of its collapse load).
     super::super::feature_gates::refuse_3d(&input.solver, "Plastic (pushover) analysis", &[
         super::super::feature_gates::Feature::Constraints, super::super::feature_gates::Feature::Connectors, super::super::feature_gates::Feature::SupportSprings,
-        // Imposed deformations: see the 2D solver.
-        super::super::feature_gates::Feature::ThermalLoads, super::super::feature_gates::Feature::PrescribedDisplacements,
     ])?;
+    // Imposed deformations alone: see the 2D solver.
     let m_ref = load_moment_scale_3d(&input.solver);
+    if !(m_ref > 0.0) {
+        return Err(super::NO_MECHANICAL_LOAD.into());
+    }
     let max_hinges = input.max_hinges.unwrap_or(30);
 
     let mut mp_map: HashMap<usize, (f64, f64)> = HashMap::new();

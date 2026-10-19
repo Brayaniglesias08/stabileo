@@ -21,7 +21,15 @@ fn warned(d: &[StructuredDiagnostic]) -> bool {
 /// fails, dense LU returns results).
 #[test]
 fn non_positive_definite_fuzz_models_are_warned() {
-    let res = solve_2d(&fuzz_models::random_2d_model(86)).expect("solver returns results");
+    // Seed 86 is all trusses with a nodal moment, which is now refused by
+    // name (it was silently dropped); the warning is about the stiffness.
+    let mut m86 = fuzz_models::random_2d_model(86);
+    for l in m86.loads.iter_mut() {
+        if let SolverLoad::Nodal(n) = l {
+            n.my = 0.0;
+        }
+    }
+    let res = solve_2d(&m86).expect("solver returns results");
     assert!(warned(&res.structured_diagnostics), "{:?}", res.structured_diagnostics);
     let res = solve_3d(&fuzz_models::random_3d_model(100_031)).expect("solver returns results");
     assert!(warned(&res.structured_diagnostics), "{:?}", res.structured_diagnostics);

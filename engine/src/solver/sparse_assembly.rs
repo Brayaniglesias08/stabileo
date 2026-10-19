@@ -266,6 +266,7 @@ pub fn assemble_2d_sparse(input: &SolverInput, dof_num: &DofNumbering) -> Triple
             if matches!(sup.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ") { rot_restrained.insert(sup.node_id); }
             if sup.support_type == "spring" && sup.kz.unwrap_or(0.0) > 0.0 { rot_restrained.insert(sup.node_id); }
         }
+        rot_restrained.extend(super::assembly::rotation_tied_nodes_2d(input));
         for (&node_id, &hinges) in &node_hinge_count {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {
@@ -511,6 +512,7 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
                 rot_restrained.insert(sup.node_id);
             }
         }
+        rot_restrained.extend(super::assembly::rotation_tied_nodes_2d(input));
 
         for (&node_id, &hinges) in &node_hinge_count {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
@@ -578,9 +580,10 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
     if dof_num.dofs_per_node >= 3 {
         let artificial_k = if max_diag > 0.0 { max_diag * 1e-10 } else { 1e-6 };
         let already: std::collections::HashSet<usize> = artificial_dofs.iter().copied().collect();
+        let tied = super::assembly::rotation_tied_nodes_2d(input);
         let mut idx_to_local: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-        for (&(_, ld), &idx) in &dof_num.map {
-            if idx < nf {
+        for (&(node, ld), &idx) in &dof_num.map {
+            if idx < nf && !tied.contains(&node) {
                 idx_to_local.insert(idx, ld);
             }
         }
@@ -865,6 +868,7 @@ pub fn assemble_elements_parallel_2d(input: &SolverInput, dof_num: &DofNumbering
             if matches!(sup.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ") { rot_restrained.insert(sup.node_id); }
             if sup.support_type == "spring" && sup.kz.unwrap_or(0.0) > 0.0 { rot_restrained.insert(sup.node_id); }
         }
+        rot_restrained.extend(super::assembly::rotation_tied_nodes_2d(input));
         for (&node_id, &hinges) in &node_hinge_count {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {

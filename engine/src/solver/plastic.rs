@@ -573,14 +573,13 @@ pub fn solve_plastic_2d(input: &PlasticInput) -> Result<PlasticResult, String> {
     // shape of answer for the wrong reason, and no way for the caller to tell
     // the two apart.
     super::linear::validate_input_2d(solver_input)?;
-    // Imposed deformations do not change a collapse load (they are released
-    // as the mechanism forms) and scaling them with λ is meaningless: with a
-    // thermal load or a settlement alone the event loop ran λ up to ~1e16.
-    super::feature_gates::refuse_2d(solver_input, "Plastic (pushover) analysis", &[
-        super::feature_gates::Feature::ThermalLoads,
-        super::feature_gates::Feature::PrescribedDisplacements,
-    ])?;
+    // Imposed deformations (temperatures, settlements) do not change a
+    // collapse load; with no mechanical load at all there is no collapse
+    // factor, and the event loop ran λ up to ~1e16 on the imposed ones.
     let m_ref = load_moment_scale_2d(solver_input);
+    if !(m_ref > 0.0) {
+        return Err(NO_MECHANICAL_LOAD.into());
+    }
 
     let max_hinges = input.max_hinges.unwrap_or(20);
 
@@ -1005,6 +1004,9 @@ pub(crate) fn no_bending_collapse(lambda: f64) -> String {
          plastic analysis has no collapse factor to report. Check axial capacity and buckling instead."
     )
 }
+
+pub(crate) const NO_MECHANICAL_LOAD: &str = "Plastic (pushover) analysis needs a mechanical load to scale to collapse: \
+     temperatures and support settlements alone do not change a collapse load and have no collapse factor.";
 
 /// Σ|load| × model size: the moment scale the loads can produce.
 fn load_moment_scale_2d(input: &SolverInput) -> f64 {
