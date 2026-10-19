@@ -10,7 +10,7 @@
 
 use dedaliano_engine::solver::dof::DofNumbering;
 use dedaliano_engine::solver::linear::{
-    prepare_static_2d, prepare_static_2d_dense_reference, solve_2d,
+    prepare_static_2d, prepare_static_2d_dense_reference, prepare_static_3d, solve_2d, solve_3d,
 };
 use dedaliano_engine::types::*;
 use serde_json::{json, Value};
@@ -1137,5 +1137,693 @@ fn fully_restrained_2d() {
             let d = r.structured_diagnostics.last().unwrap();
             assert_eq!((d.code, d.message.as_str()), (C::ResidualOk, "Fully restrained model (0 free DOFs, 9 restrained)"));
         }
+    }
+}
+
+// ==================== 3D model builder ====================
+
+const IY3: f64 = 1e-4;
+const IZ3: f64 = 6e-5;
+const J3: f64 = 3e-5;
+
+#[derive(Clone, Default)]
+struct M3 {
+    nodes: Vec<(usize, f64, f64, f64)>,
+    elems: Vec<(usize, usize, usize)>,
+    sups: Vec<Value>,
+    loads: Vec<Value>,
+    connectors: Vec<Value>,
+    e: Option<f64>,
+    opts: Option<Value>,
+}
+
+impl M3 {
+    fn node(&mut self, x: f64, y: f64, z: f64) -> usize {
+        let id = self.nodes.len() + 1;
+        self.nodes.push((id, x, y, z));
+        id
+    }
+    fn elem(&mut self, i: usize, j: usize) {
+        let id = self.elems.len() + 1;
+        self.elems.push((id, i, j));
+    }
+    /// Member a–b split into `seg` frame elements.
+    fn member(&mut self, a: usize, b: usize, seg: usize) {
+        let (_, xa, ya, za) = self.nodes[a - 1];
+        let (_, xb, yb, zb) = self.nodes[b - 1];
+        let mut prev = a;
+        for k in 1..seg {
+            let t = k as f64 / seg as f64;
+            let n = self.node(xa + t * (xb - xa), ya + t * (yb - ya), za + t * (zb - za));
+            self.elem(prev, n);
+            prev = n;
+        }
+        self.elem(prev, b);
+    }
+    /// Support with restraint flags [rx, ry, rz, rrx, rry, rrz] and extra fields.
+    fn sup(&mut self, node: usize, r: [bool; 6], extra: Value) {
+        let mut s = json!({ "nodeId": node, "rx": r[0], "ry": r[1], "rz": r[2], "rrx": r[3], "rry": r[4], "rrz": r[5] });
+        for (k, v) in extra.as_object().unwrap() {
+            s[k] = v.clone();
+        }
+        self.sups.push(s);
+    }
+    fn load(&mut self, node: usize, f: [f64; 6]) {
+        self.loads.push(json!({ "type": "nodal", "data": { "nodeId": node, "fx": f[0], "fy": f[1], "fz": f[2], "mx": f[3], "my": f[4], "mz": f[5] } }));
+    }
+    fn input(&self) -> SolverInput3D {
+        let e = self.e.unwrap_or(E_MPA);
+        let nodes: serde_json::Map<String, Value> = self
+            .nodes
+            .iter()
+            .map(|&(id, x, y, z)| (id.to_string(), json!({ "id": id, "x": x, "y": y, "z": z })))
+            .collect();
+        let elems: serde_json::Map<String, Value> = self
+            .elems
+            .iter()
+            .map(|&(id, i, j)| (id.to_string(), json!({ "id": id, "type": "frame", "nodeI": i, "nodeJ": j, "materialId": 1, "sectionId": 1 })))
+            .collect();
+        let sups: serde_json::Map<String, Value> =
+            self.sups.iter().enumerate().map(|(k, s)| ((k + 1).to_string(), s.clone())).collect();
+        let conns: serde_json::Map<String, Value> =
+            self.connectors.iter().map(|c| (c["id"].to_string(), c.clone())).collect();
+        let mut v = json!({
+            "nodes": nodes,
+            "materials": { "1": { "id": 1, "e": e, "nu": 0.3 } },
+            "sections": { "1": { "id": 1, "a": A, "iy": IY3, "iz": IZ3, "j": J3 } },
+            "elements": elems,
+            "supports": sups,
+            "loads": self.loads,
+            "connectors": conns,
+        });
+        if let Some(o) = &self.opts {
+            v["solverOptions"] = o.clone();
+        }
+        serde_json::from_value(v).unwrap()
+    }
+}
+
+/// One-storey space frame on a 4 × 3 plan, offset from the origin: four
+/// columns, four top beams and a diagonal brace, each in `seg` elements.
+/// Corner nodes are 1–8 (bases 1–4) whatever `seg` is, so `seg = 1` (48
+/// DOFs, the dense path) is the exact nodal reference for `seg ≥ 2` (sparse):
+/// prismatic Euler-Bernoulli members under nodal loads are nodally exact.
+/// Bases: fixed with a settlement, pinned, six springs, and an inclined
+/// roller (normal (0.3, 0.4, 0.866)).
+fn frame3(seg: usize) -> M3 {
+    let mut m = M3::default();
+    let plan = [(2.0, 1.0), (6.0, 1.0), (6.0, 4.0), (2.0, 4.0)];
+    for &(x, y) in &plan {
+        m.node(x, y, 0.5);
+    }
+    for &(x, y) in &plan {
+        m.node(x, y, 3.5);
+    }
+    for c in 0..4 {
+        m.member(c + 1, c + 5, seg);
+    }
+    for c in 0..4 {
+        m.member(c + 5, (c + 1) % 4 + 5, seg);
+    }
+    m.member(1, 7, seg);
+    m.sup(1, [true; 6], json!({ "dz": -0.003 }));
+    m.sup(2, [true, true, true, false, false, false], json!({}));
+    m.sup(3, [false; 6], json!({ "kx": 5e4, "ky": 6e4, "kz": 7e4, "krx": 3e3, "kry": 2e3, "krz": 4e3 }));
+    m.sup(4, [false, false, false, true, true, true], json!({ "isInclined": true, "normalX": 0.3, "normalY": 0.4, "normalZ": 0.866 }));
+    m.load(5, [20.0, 5.0, -60.0, 1.0, 0.0, 2.0]);
+    m.load(6, [10.0, -8.0, -80.0, 0.0, -3.0, 0.0]);
+    m.load(7, [0.0, 12.0, -70.0, 0.0, 0.0, -1.5]);
+    m.load(8, [15.0, 0.0, -50.0, 2.5, 0.0, 0.0]);
+    m
+}
+
+fn path_3d(r: &AnalysisResults3D) -> &str {
+    &r.solver_run_meta.as_ref().unwrap().solver_path
+}
+
+#[allow(dead_code)]
+fn show3(label: &str, r: Result<AnalysisResults3D, String>) {
+    match r {
+        Ok(r) => {
+            println!("== {label}: path {} nf {}", path_3d(&r), r.solver_run_meta.as_ref().unwrap().n_free_dofs);
+            for d in &r.structured_diagnostics {
+                println!("   {:?} {:?} {} {:?} {:?} {:?} {:?}", d.code, d.severity, d.message, d.phase, d.value, d.threshold, d.dof_indices);
+            }
+            for d in &r.solver_diagnostics {
+                println!("   [legacy] {} {} {}", d.category, d.severity, d.message);
+            }
+            if let Some(t) = &r.timings {
+                println!("   timings nnz_kff {} nnz_l {} pert {} maxp {} pcg {:?} {:?}", t.nnz_kff, t.nnz_l, t.pivot_perturbations, t.max_perturbation, t.pcg_iterations, t.pcg_final_residual);
+            }
+        }
+        Err(e) => println!("== {label}: ERR {e}"),
+    }
+}
+
+#[allow(dead_code)]
+fn run_all3(label: &str, m: &M3) {
+    show3(&format!("{label}/default"), solve_3d(&m.input()));
+    for o in [json!({ "method": "pcg" }), json!({ "method": "pcg", "preconditioner": "ic0" }), json!({ "method": "pcg", "preconditioner": "jacobi" }), json!({ "method": "pcg", "maxIterations": 1 })] {
+        let mut mm = m.clone();
+        mm.opts = Some(o.clone());
+        show3(&format!("{label}/{o}"), solve_3d(&mm.input()));
+    }
+}
+
+/// Small indefinite gadget for the 3D shift ladder: free node A on springs
+/// c in every DOF but x, tied along x to a fixed node by an axial connector
+/// of stiffness −ε·c (A.x diagonal −ε·c; c dominates max diag). A is loaded
+/// by fy = 50 only (u_A.y = 50/c, u_A.x = 0). Returns A.
+fn add_shift_gadget(m: &mut M3, eps: f64, c: f64) -> usize {
+    let a = m.node(4.0, 2.0, 2.0);
+    let f = m.node(5.0, 2.0, 2.0);
+    m.sup(a, [false; 6], json!({ "ky": c, "kz": c, "krx": c, "kry": c, "krz": c }));
+    m.sup(f, [true; 6], json!({}));
+    let id = m.connectors.len() + 1;
+    m.connectors.push(json!({ "id": id, "nodeI": a, "nodeJ": f, "kAxial": -eps * c }));
+    m.load(a, [0.0, 50.0, 0.0, 0.0, 0.0, 0.0]);
+    a
+}
+
+/// 3D twin of the 2D gadget: free P, Q on springs (kx = k, others 1e5)
+/// joined by an axial connector −k along x: x block [[0, k], [k, 0]], whose
+/// −k eigenvalue no shift up to 10·max diag can lift when k ≫ max diag.
+/// fx = 10 on P, −4 on Q: u_Q = 10/k, u_P = −4/k. Returns (P, Q).
+fn add_gadget3(m: &mut M3, k: f64) -> (usize, usize) {
+    let p = m.node(3.0, 2.0, 2.0);
+    let q = m.node(4.0, 2.0, 2.0);
+    for n in [p, q] {
+        m.sup(n, [false; 6], json!({ "kx": k, "ky": 1e5, "kz": 1e5, "krx": 1e5, "kry": 1e5, "krz": 1e5 }));
+    }
+    let id = m.connectors.len() + 1;
+    m.connectors.push(json!({ "id": id, "nodeI": p, "nodeJ": q, "kAxial": -k }));
+    m.load(p, [10.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+    m.load(q, [-4.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+    (p, q)
+}
+
+/// Free node on translational springs `kt` and rotational springs `kr`,
+/// loaded by a moment mx (rotation mx/kr, no translation). Returns it.
+fn add_floating3(m: &mut M3, kt: f64, kr: f64, mx: f64) -> usize {
+    let n = m.node(3.0, 3.0, 1.0);
+    m.sup(n, [false; 6], json!({ "kx": kt, "ky": kt, "kz": kt, "krx": kr, "kry": kr, "krz": kr }));
+    m.load(n, [0.0, 0.0, 0.0, mx, 0.0, 0.0]);
+    n
+}
+
+
+// ==================== 3D path runner and checks ====================
+
+#[derive(Clone, Copy, Debug)]
+enum Path3 {
+    Default,
+    Pcg(&'static str),
+    PcgMaxit1,
+}
+
+fn with_opts3(m: &M3, o: Value) -> M3 {
+    let mut mm = m.clone();
+    mm.opts = Some(o);
+    mm
+}
+
+fn solve_path_3d(m: &M3, p: Path3) -> Result<AnalysisResults3D, String> {
+    match p {
+        Path3::Default => solve_3d(&m.input()),
+        Path3::Pcg(pc) => solve_3d(&with_opts3(m, json!({ "method": "pcg", "preconditioner": pc, "tolerance": 1e-12 })).input()),
+        Path3::PcgMaxit1 => solve_3d(&with_opts3(m, json!({ "method": "pcg", "maxIterations": 1 })).input()),
+    }
+}
+
+/// Global equilibrium of the reported reactions (springs, inclined supports
+/// and connector anchors included) with the nodal loads: forces and moments
+/// about the origin.
+fn assert_equilibrium_3d(r: &AnalysisResults3D, m: &M3, rel: f64, label: &str) {
+    let pos: std::collections::HashMap<usize, [f64; 3]> = m.nodes.iter().map(|&(id, x, y, z)| (id, [x, y, z])).collect();
+    let mut sum = [0.0f64; 6];
+    let mut scale = 0.0f64;
+    let add = |p: [f64; 3], f: [f64; 6], sum: &mut [f64; 6]| {
+        for k in 0..3 {
+            sum[k] += f[k];
+        }
+        sum[3] += p[1] * f[2] - p[2] * f[1] + f[3];
+        sum[4] += p[2] * f[0] - p[0] * f[2] + f[4];
+        sum[5] += p[0] * f[1] - p[1] * f[0] + f[5];
+    };
+    for l in &m.loads {
+        let d = &l["data"];
+        let f = ["fx", "fy", "fz", "mx", "my", "mz"].map(|k| d[k].as_f64().unwrap());
+        scale = f.iter().fold(scale, |a, b| a.max(b.abs()));
+        add(pos[&(d["nodeId"].as_u64().unwrap() as usize)], f, &mut sum);
+    }
+    for x in &r.reactions {
+        add(pos[&x.node_id], [x.fx, x.fy, x.fz, x.mx, x.my, x.mz], &mut sum);
+    }
+    for (k, v) in sum.iter().enumerate() {
+        assert!(v.abs() <= rel * scale, "{label}: equilibrium component {k} = {v:e}");
+    }
+}
+
+/// Corner displacements (nodes 1–8) and base reactions against the coarse
+/// dense solve of the same frame.
+fn assert_matches_coarse(r: &AnalysisResults3D, coarse: &AnalysisResults3D, tol: f64, label: &str) {
+    let d6 = |d: &Displacement3D| [d.ux, d.uy, d.uz, d.rx, d.ry, d.rz];
+    let r6 = |x: &Reaction3D| [x.fx, x.fy, x.fz, x.mx, x.my, x.mz];
+    let su = coarse.displacements.iter().filter(|d| d.node_id <= 8).flat_map(|d| d6(d)[..3].to_vec()).fold(0.0f64, |a, b| a.max(b.abs()));
+    let sr = coarse.displacements.iter().filter(|d| d.node_id <= 8).flat_map(|d| d6(d)[3..].to_vec()).fold(0.0f64, |a, b| a.max(b.abs()));
+    for c in coarse.displacements.iter().filter(|d| d.node_id <= 8) {
+        let f = r.displacements.iter().find(|d| d.node_id == c.node_id).unwrap();
+        for k in 0..6 {
+            let s = if k < 3 { su } else { sr };
+            assert!((d6(f)[k] - d6(c)[k]).abs() <= tol * s, "{label}: node {} dof {k}: {:e} vs coarse {:e}", c.node_id, d6(f)[k], d6(c)[k]);
+        }
+    }
+    let sf = coarse.reactions.iter().filter(|x| x.node_id <= 4).flat_map(|x| r6(x).to_vec()).fold(0.0f64, |a, b| a.max(b.abs()));
+    for c in coarse.reactions.iter().filter(|x| x.node_id <= 4) {
+        let f = r.reactions.iter().find(|x| x.node_id == c.node_id).unwrap();
+        for k in 0..6 {
+            assert!((r6(f)[k] - r6(c)[k]).abs() <= tol * sf, "{label}: reaction {} comp {k}: {:e} vs coarse {:e}", c.node_id, r6(f)[k], r6(c)[k]);
+        }
+    }
+}
+
+/// Exact diagnostics of a 3D result: `want` lists the codes after the
+/// pre-solve gate ones, in order. Each is checked for its message, severity,
+/// value and threshold; `shift` is the expected regularization shift,
+/// `near_zero` the expected near-zero DOFs, `res_max` bounds the residual.
+fn check_3d(label: &str, r: &AnalysisResults3D, m: &M3, path: &str, want: &[C], shift: f64, near_zero: &[usize], res_max: f64) {
+    let input = m.input();
+    let dn = DofNumbering::build_3d(&input);
+    let nf = dn.n_free;
+    let meta = r.solver_run_meta.as_ref().unwrap();
+    assert_eq!(meta.solver_path, path, "{label}: path");
+    assert_eq!(meta.n_free_dofs, nf, "{label}");
+    // a regularized solve keeps the residual refinement left (≤ 1e-6)
+    let refined = want.contains(&C::DiagonalRegularization) && !want.contains(&C::SparseFallbackDenseLu);
+    assert_equilibrium_3d(r, m, if refined { 1e-3 } else { 1e-9 }, label);
+    let tail: Vec<&StructuredDiagnostic> = r.structured_diagnostics.iter().filter(|d| d.phase.as_deref() != Some("pre_solve")).collect();
+    assert_eq!(tail.iter().map(|d| d.code).collect::<Vec<_>>(), want, "{label}: {:#?}", tail);
+    let dense = path == "dense_lu";
+    let pcg_ok = path.starts_with("pcg_") && path != "pcg_fallback_sparse_cholesky";
+    let lu_prepared = want.contains(&C::CholeskyFailedLuFallback) && !dense;
+    let res_label = if dense {
+        "Dense solver"
+    } else if pcg_ok {
+        "PCG"
+    } else if want.contains(&C::SparseFallbackDenseLu) {
+        "Dense LU fallback"
+    } else {
+        "Sparse Cholesky"
+    };
+    // expected maximum free translation (inclined supports excluded)
+    let incl: Vec<usize> = m.sups.iter().filter(|s| s["isInclined"] == true).map(|s| s["nodeId"].as_u64().unwrap() as usize).collect();
+    let mut umax = 0.0f64;
+    for (&(node, local), &g) in &dn.map {
+        if g < nf && local < 3 && !incl.contains(&node) {
+            let d = r.displacements.iter().find(|d| d.node_id == node).unwrap();
+            umax = umax.max([d.ux, d.uy, d.uz][local].abs());
+        }
+    }
+    let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
+    for &(_, x, y, z) in &m.nodes {
+        for (k, v) in [x, y, z].into_iter().enumerate() {
+            lo[k] = lo[k].min(v);
+            hi[k] = hi[k].max(v);
+        }
+    }
+    let cl = ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2)).sqrt().max(1.0);
+    let lu_msg = "Cholesky factorization failed — LU fallback succeeded but model may be unstable (not positive-definite)";
+    let t = r.timings.as_ref();
+    if let Some(t) = t {
+        assert_eq!(t.n_free, nf, "{label}");
+        assert!(t.total_ms >= t.assembly_ms + t.conditioning_ms + t.symbolic_ms + t.numeric_ms, "{label}: timings {t:?}");
+        let regularized = want.contains(&C::DiagonalRegularization);
+        assert_eq!(t.pivot_perturbations, if regularized { nf } else { 0 }, "{label}");
+        assert_eq!(t.max_perturbation, if regularized { shift } else { 0.0 }, "{label}");
+        assert_eq!(t.pcg_iterations.is_some(), pcg_ok, "{label}");
+    } else {
+        assert!(dense, "{label}: sparse paths report timings");
+    }
+    for (k, d) in tail.iter().enumerate() {
+        let ph = d.phase.as_deref();
+        let sev = (d.severity, ph);
+        match d.code {
+            C::StiffnessNotPositiveDefinite => assert_eq!(sev, (Severity::Warning, Some("factorization")), "{label}"),
+            C::DenseLu => {
+                assert_eq!(d.message, format!("Dense solver ({nf} free DOFs)"), "{label}");
+                assert_eq!(sev, (Severity::Info, Some("solve")), "{label}");
+            }
+            C::SparseCholesky => {
+                assert_eq!(d.message, format!("Sparse Cholesky solver ({nf} free DOFs, nnz(L)={})", t.unwrap().nnz_l), "{label}");
+                assert_eq!(sev, (Severity::Info, Some("solve")), "{label}");
+            }
+            C::SparseFallbackDenseLu => {
+                let why = if lu_prepared { "failed" } else { "residual too large" };
+                assert_eq!(d.message, format!("Sparse Cholesky {why}, fell back to dense LU ({nf} free DOFs)"), "{label}");
+                assert_eq!(sev, (Severity::Warning, Some("solve")), "{label}");
+            }
+            C::CholeskyFailedLuFallback => {
+                assert_eq!(d.message, lu_msg, "{label}");
+                assert_eq!(sev, (Severity::Warning, Some("solve")), "{label}");
+            }
+            C::PcgFallbackDirect => {
+                assert_eq!(d.message, format!("PCG failed verification, fell back to direct solver ({nf} free DOFs)"), "{label}");
+                assert_eq!(sev, (Severity::Warning, Some("solve")), "{label}");
+            }
+            C::PcgSolve => {
+                let pc = path.strip_prefix("pcg_").unwrap();
+                let its: usize = d
+                    .message
+                    .strip_prefix(&format!("PCG solver ({pc} preconditioner, "))
+                    .and_then(|x| x.strip_suffix(&format!(" iterations, {nf} free DOFs)")))
+                    .unwrap_or_else(|| panic!("{label}: {}", d.message))
+                    .parse()
+                    .unwrap();
+                assert_eq!(t.unwrap().pcg_iterations, Some(its), "{label}");
+                let legacy = r.solver_diagnostics.last().unwrap();
+                assert_eq!((legacy.message.as_str(), legacy.severity.as_str()), (d.message.as_str(), "info"), "{label}");
+                assert_eq!(sev, (Severity::Info, Some("solve")), "{label}");
+            }
+            C::SparseFillRatio => {
+                let t = t.unwrap();
+                let fr = t.nnz_l as f64 / t.nnz_kff as f64;
+                assert_eq!((d.value, d.threshold), (Some(fr), Some(20.0)), "{label}");
+                assert_eq!(d.message, format!("Sparse fill ratio: {:.1}x (nnz(K_ff)={}, nnz(L)={})", fr, t.nnz_kff, t.nnz_l), "{label}");
+                let s = if fr > 20.0 { Severity::Warning } else { Severity::Info };
+                assert_eq!(sev, (s, Some("factorization")), "{label}");
+            }
+            C::DiagonalRegularization => {
+                assert_eq!((d.value, d.threshold), (Some(shift), Some(0.0)), "{label}");
+                assert_eq!(d.message, format!("Regularized K_ff with diagonal shift {:.2e}", shift), "{label}");
+                assert_eq!(sev, (Severity::Info, Some("factorization")), "{label}");
+            }
+            C::HighDiagonalRatio | C::ExtremelyHighDiagonalRatio => {
+                let v = d.value.unwrap();
+                let (name, thr, suffix) = if d.code == C::HighDiagonalRatio {
+                    ("High diagonal ratio", 1e8, " — potential conditioning issues")
+                } else {
+                    ("Extremely high diagonal ratio", 1e12, " — matrix is likely ill-conditioned")
+                };
+                assert!(v > thr && (d.code == C::ExtremelyHighDiagonalRatio || v <= 1e12), "{label}: ratio {v:e}");
+                assert_eq!(d.threshold, Some(thr), "{label}");
+                let sfx = if dense || lu_prepared { "" } else { suffix };
+                assert_eq!(d.message, format!("{name} {v:.2e}{sfx}"), "{label}");
+                assert_eq!(sev, (Severity::Warning, Some("conditioning")), "{label}");
+            }
+            C::NearZeroDiagonal => {
+                assert_eq!(d.dof_indices, near_zero, "{label}");
+                assert_eq!(d.message, format!("{} near-zero diagonal entries", near_zero.len()), "{label}");
+                assert_eq!(sev, (Severity::Warning, Some("conditioning")), "{label}");
+            }
+            C::ExcessiveDisplacement => {
+                let v = d.value.unwrap();
+                assert!(close(v, umax, 1e-12), "{label}: max displacement {v:e}, expected {umax:e}");
+                assert!(close(d.threshold.unwrap(), 1000.0 * cl, 1e-12), "{label}: threshold {:?}", d.threshold);
+                assert_eq!(
+                    d.message,
+                    format!("Maximum displacement {v:.2e} exceeds 1000× characteristic length {cl:.2e} — likely mechanism or instability"),
+                    "{label}"
+                );
+                assert_eq!(sev, (Severity::Warning, Some("solve")), "{label}");
+            }
+            C::ResidualOk => {
+                assert_eq!(k, tail.len() - 1, "{label}: residual comes last");
+                let v = d.value.unwrap();
+                assert!(v > 0.0 && v <= res_max, "{label}: residual {v:e} (max {res_max:e})");
+                assert_eq!(d.threshold, Some(1e-6), "{label}");
+                let msg = if dense { format!("Dense solver residual {v:.2e} ({nf} free DOFs)") } else { format!("{res_label} ({nf} free DOFs, residual {v:.2e})") };
+                assert_eq!(d.message, msg, "{label}");
+                assert_eq!(sev, (Severity::Info, Some("solve")), "{label}");
+                assert_eq!(r.equilibrium.as_ref().unwrap().relative_residual, v, "{label}");
+                if pcg_ok {
+                    assert_eq!(t.unwrap().pcg_final_residual, Some(v), "{label}");
+                }
+            }
+            other => panic!("{label}: unexpected {other:?}"),
+        }
+    }
+    // uniqueness of the excessive-displacement decision
+    assert_eq!(want.contains(&C::ExcessiveDisplacement), umax > 1000.0 * cl, "{label}: max translation {umax:e}");
+}
+
+fn not_pd_message3(r: &AnalysisResults3D) -> &str {
+    let v: Vec<_> = r.structured_diagnostics.iter().filter(|d| d.code == C::StiffnessNotPositiveDefinite).collect();
+    assert_eq!(v.len(), 1);
+    &v[0].message
+}
+
+fn legacy3(r: &AnalysisResults3D) -> Vec<(String, String, String)> {
+    r.solver_diagnostics.iter().map(|d| (d.category.clone(), d.severity.clone(), d.message.clone())).collect()
+}
+
+fn lg(c: &str, s: &str, m: &str) -> (String, String, String) {
+    (c.to_string(), s.to_string(), m.to_string())
+}
+
+// ==================== 3D tests ====================
+
+/// Sparse Cholesky, PCG with each preconditioner and the PCG fallback on the
+/// space frame (every support kind, a settlement, a brace), against the
+/// coarse dense solve (itself checked by equilibrium and the dense path's
+/// diagnostics).
+#[test]
+fn spd_space_frame_every_3d_path_matches_coarse_reference() {
+    let coarse_m = frame3(1);
+    let coarse = solve_3d(&coarse_m.input()).unwrap();
+    check_3d("coarse", &coarse, &coarse_m, "dense_lu", &[C::DenseLu, C::ResidualOk], 0.0, &[], 1e-13);
+    assert_eq!(legacy3(&coarse), vec![lg("solver_path", "info", "Dense solver (35 free DOFs)")]);
+    let m = frame3(3);
+    let sc = [C::SparseCholesky, C::SparseFillRatio, C::ResidualOk];
+    let pcg = [C::PcgSolve, C::ResidualOk];
+    for (p, path, want, tol, res) in [
+        (Path3::Default, "sparse_cholesky", &sc[..], 1e-9, 1e-13),
+        (Path3::Pcg("ics"), "pcg_ics", &pcg[..], 1e-7, 1e-11),
+        (Path3::Pcg("ic0"), "pcg_ic0", &pcg[..], 1e-7, 1e-11),
+        // MIC does not factor this pattern and degrades to Jacobi
+        (Path3::Pcg("mic"), "pcg_jacobi", &pcg[..], 1e-7, 1e-11),
+        (Path3::Pcg("ssor"), "pcg_ssor", &pcg[..], 1e-7, 1e-11),
+        (Path3::Pcg("jacobi"), "pcg_jacobi", &pcg[..], 1e-7, 1e-11),
+        (Path3::Pcg("none"), "pcg_none", &pcg[..], 1e-7, 1e-11),
+        (Path3::PcgMaxit1, "pcg_fallback_sparse_cholesky", &[C::PcgFallbackDirect, C::SparseCholesky, C::SparseFillRatio, C::ResidualOk][..], 1e-9, 1e-13),
+    ] {
+        let label = format!("{p:?}");
+        let r = solve_path_3d(&m, p).unwrap();
+        check_3d(&label, &r, &m, path, want, 0.0, &[], res);
+        assert_matches_coarse(&r, &coarse, tol, &label);
+    }
+    let r = solve_path_3d(&m, Path3::Default).unwrap();
+    assert_eq!(legacy3(&r), vec![lg("solver_path", "info", "Sparse Cholesky solver (143 free DOFs)")]);
+    let r = solve_path_3d(&m, Path3::PcgMaxit1).unwrap();
+    let l = legacy3(&r);
+    assert_eq!(l.last().unwrap(), &lg("solver_path", "info", "Sparse Cholesky solver (143 free DOFs)"));
+    assert_eq!((l[l.len() - 2].0.as_str(), l[l.len() - 2].1.as_str()), ("fallback", "warning"));
+}
+
+/// Closed form on the sparse and PCG paths: a 20-element cantilever along x
+/// with a tip load and torque deflects PL³/3EI about each axis and twists
+/// TL/GJ (exact for Euler-Bernoulli elements).
+#[test]
+fn cantilever_closed_form_3d() {
+    let mut m = M3::default();
+    let n = 20;
+    let len = 5.0;
+    let mut prev = m.node(1.0, 1.0, 1.0);
+    for k in 1..=n {
+        let nn = m.node(1.0 + len * k as f64 / n as f64, 1.0, 1.0);
+        m.elem(prev, nn);
+        prev = nn;
+    }
+    m.sup(1, [true; 6], json!({}));
+    let (py, pz, t) = (3.0, -5.0, 2.0);
+    m.load(prev, [0.0, py, pz, t, 0.0, 0.0]);
+    let e = E_MPA * 1000.0;
+    let g = e / 2.6;
+    for p in [Path3::Default, Path3::Pcg("ics"), Path3::PcgMaxit1] {
+        let r = solve_path_3d(&m, p).unwrap();
+        let d = r.displacements.iter().find(|d| d.node_id == prev).unwrap();
+        let tol = if matches!(p, Path3::Pcg(_)) { 1e-7 } else { 1e-10 };
+        assert!(close(d.uy, py * len.powi(3) / (3.0 * e * IZ3), tol), "{p:?}: uy {}", d.uy);
+        assert!(close(d.uz, pz * len.powi(3) / (3.0 * e * IY3), tol), "{p:?}: uz {}", d.uz);
+        assert!(close(d.rx, t * len / (g * J3), tol), "{p:?}: rx {}", d.rx);
+        let rr = &r.reactions[0];
+        assert!(close(rr.fy, -py, 1e-9) && close(rr.fz, -pz, 1e-9) && close(rr.mx, -t, 1e-9), "{p:?}: {rr:?}");
+    }
+}
+
+/// The same prepared 3D structure solved for a second load set 10⁴ times
+/// larger reuses its factor (sparse) or its cached stability check (PCG).
+#[test]
+fn prepared_3d_paths_reuse_the_factor_for_a_second_load_set() {
+    let scale = |m: &M3, f: f64| {
+        let mut b = m.clone();
+        for l in b.loads.iter_mut() {
+            for k in ["fx", "fy", "fz", "mx", "my", "mz"] {
+                let v = l["data"][k].as_f64().unwrap();
+                l["data"][k] = json!(v * f);
+            }
+        }
+        b
+    };
+    let coarse = solve_3d(&frame3(1).input()).unwrap();
+    let coarse_big = solve_3d(&scale(&frame3(1), 1e4).input()).unwrap();
+    for (o, path, want, tol, res) in [
+        (None, "sparse_cholesky", vec![C::SparseCholesky, C::SparseFillRatio, C::ResidualOk], 1e-9, 1e-13),
+        (Some(json!({ "method": "pcg", "tolerance": 1e-12 })), "pcg_ics", vec![C::PcgSolve, C::ResidualOk], 1e-7, 1e-11),
+    ] {
+        let mut m = frame3(3);
+        m.opts = o;
+        let big = scale(&m, 1e4);
+        let i = m.input();
+        let prepared = prepare_static_3d(&i).unwrap();
+        let r1 = prepared.solve_loads(&i.loads).unwrap();
+        check_3d("case 1", &r1, &m, path, &want, 0.0, &[], res);
+        assert_matches_coarse(&r1, &coarse, tol, "case 1");
+        let r2 = prepared.solve_loads(&big.input().loads).unwrap();
+        check_3d("case 2", &r2, &big, path, &want, 0.0, &[], res);
+        assert_matches_coarse(&r2, &coarse_big, tol, "case 2");
+    }
+}
+
+/// Options choose the 3D path: "auto" and "direct" stay direct below 1000
+/// free DOFs; "auto" from 1000 takes the PCG branch.
+#[test]
+fn solver_options_dispatch_3d() {
+    let m = frame3(3);
+    for o in [json!({ "method": "auto" }), json!({ "method": "direct" })] {
+        let r = solve_3d(&with_opts3(&m, o.clone()).input()).unwrap();
+        assert_eq!(path_3d(&r), "sparse_cholesky", "{o}");
+    }
+    let big = frame3(30);
+    let nf = DofNumbering::build_3d(&big.input()).n_free;
+    assert!(nf >= 1000, "nf {nf}");
+    let direct = solve_3d(&with_opts3(&big, json!({ "method": "direct" })).input()).unwrap();
+    assert_eq!(path_3d(&direct), "sparse_cholesky");
+    let auto = solve_3d(&with_opts3(&big, json!({ "method": "auto" })).input()).unwrap();
+    assert!(path_3d(&auto).starts_with("pcg_"), "{}", path_3d(&auto));
+    let umax = direct.displacements.iter().fold(0.0f64, |a, d| a.max(d.ux.abs()).max(d.uy.abs()).max(d.uz.abs()));
+    for (a, b) in direct.displacements.iter().zip(&auto.displacements) {
+        assert_eq!(a.node_id, b.node_id);
+        for (x, y) in [(a.ux, b.ux), (a.uy, b.uy), (a.uz, b.uz)] {
+            assert!((x - y).abs() < 1e-5 * umax, "{x} vs {y}");
+        }
+    }
+}
+
+/// A small negative stiffness (−0.5e-6·c, c the largest diagonal) breaks
+/// unshifted Cholesky; the first shift of the ladder, 1e-6·c, factors K_ff
+/// and iterative refinement recovers the unshifted solution. Sparse path and
+/// PCG (whose stability check refuses a shifted factor) both report the
+/// shift; the coarse dense path solves by LU. The gadget is unloaded along
+/// x and decoupled: u_A = (0, 50/c, 0).
+#[test]
+fn diagonal_shift_regularization_3d() {
+    let c = 1e8;
+    let mut cm = frame3(1);
+    add_shift_gadget(&mut cm, 0.5e-6, c);
+    let coarse = solve_3d(&cm.input()).unwrap();
+    check_3d("coarse", &coarse, &cm, "dense_lu", &[C::StiffnessNotPositiveDefinite, C::DenseLu, C::CholeskyFailedLuFallback, C::ResidualOk], 0.0, &[], 1e-13);
+    assert!(not_pd_message3(&coarse).contains("(Cholesky failed; solved by dense LU)"));
+    let mut m = frame3(3);
+    let a = add_shift_gadget(&mut m, 0.5e-6, c);
+    let shift = 1e-6 * c;
+    let reg = format!("Regularized K_ff with diagonal shift {shift:.2e} (drilling DOF stabilization)");
+    for (p, path, want) in [
+        (Path3::Default, "sparse_cholesky", vec![C::StiffnessNotPositiveDefinite, C::SparseCholesky, C::SparseFillRatio, C::DiagonalRegularization, C::ResidualOk]),
+        (Path3::Pcg("ics"), "pcg_fallback_sparse_cholesky", vec![C::StiffnessNotPositiveDefinite, C::PcgFallbackDirect, C::SparseCholesky, C::SparseFillRatio, C::DiagonalRegularization, C::ResidualOk]),
+    ] {
+        let label = format!("{p:?}");
+        let r = solve_path_3d(&m, p).unwrap();
+        check_3d(&label, &r, &m, path, &want, shift, &[], 1e-6);
+        assert!(not_pd_message3(&r).contains(&format!("(Cholesky needed a diagonal shift of {shift:.2e})")), "{label}");
+        // Refinement stops at the 1e-6 residual check, which on this
+        // conditioning still leaves ~3e-4 relative error in the rotations.
+        assert_matches_coarse(&r, &coarse, 1e-3, &label);
+        let d = r.displacements.iter().find(|d| d.node_id == a).unwrap();
+        assert!(d.ux.abs() < 1e-9 && close(d.uy, 50.0 / c, 1e-3), "{label}: {d:?}");
+        let mut l = legacy3(&r);
+        if matches!(p, Path3::Pcg(_)) {
+            assert_eq!(l.remove(0), lg("fallback", "warning", "Unshifted Cholesky could not verify structural stability; using the direct solver chain instead of PCG"));
+        }
+        assert_eq!(l, vec![lg("solver_path", "info", &reg), lg("solver_path", "info", "Sparse Cholesky solver (149 free DOFs)")], "{label}");
+    }
+}
+
+/// A larger negative stiffness (−0.5e-2·c) walks the ladder to the shift
+/// 1e-2·c, too large for refinement to undo: the residual check rejects the
+/// shifted solution and the dense LU of the unshifted K_ff answers, exactly.
+#[test]
+fn shift_ladder_then_residual_fallback_to_dense_lu_3d() {
+    let c = 1e8;
+    let mut cm = frame3(1);
+    add_shift_gadget(&mut cm, 0.5e-2, c);
+    let coarse = solve_3d(&cm.input()).unwrap();
+    let mut m = frame3(3);
+    let a = add_shift_gadget(&mut m, 0.5e-2, c);
+    let shift = 1e-2 * c;
+    for (p, want) in [
+        (Path3::Default, vec![C::StiffnessNotPositiveDefinite, C::SparseFallbackDenseLu, C::SparseFillRatio, C::DiagonalRegularization, C::ResidualOk]),
+        (Path3::Pcg("ics"), vec![C::StiffnessNotPositiveDefinite, C::PcgFallbackDirect, C::SparseFallbackDenseLu, C::DiagonalRegularization, C::ResidualOk]),
+    ] {
+        let label = format!("{p:?}");
+        let r = solve_path_3d(&m, p).unwrap();
+        check_3d(&label, &r, &m, "sparse_fallback_dense_lu", &want, shift, &[], 1e-12);
+        assert!(not_pd_message3(&r).contains(&format!("(Cholesky needed a diagonal shift of {shift:.2e})")), "{label}");
+        assert_matches_coarse(&r, &coarse, 1e-9, &label);
+        let d = r.displacements.iter().find(|d| d.node_id == a).unwrap();
+        assert!(d.ux.abs() < 1e-12 && close(d.uy, 50.0 / c, 1e-9), "{label}: {d:?}");
+        let l = legacy3(&r);
+        let n = l.len();
+        assert_eq!(l[n - 2], lg("solver_path", "info", &format!("Regularized K_ff with diagonal shift {shift:.2e} (drilling DOF stabilization)")), "{label}");
+        assert_eq!((l[n - 1].0.as_str(), l[n - 1].1.as_str()), ("fallback", "warning"), "{label}");
+        let rejected: f64 = l[n - 1]
+            .2
+            .strip_prefix("Sparse Cholesky residual too large (")
+            .and_then(|x| x.strip_suffix("), fell back to dense LU"))
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(rejected >= 1e-6, "{label}: rejected residual {rejected}");
+    }
+}
+
+/// An eigenvalue −k far below −10·max diag: every shift of the ladder fails.
+/// The sparse path solves by dense LU at prepare, PCG by its lazy dense LU;
+/// the coarse dense path by LU, naming the two zero diagonals. u_Q = 10/k,
+/// u_P = −4/k, spring reactions −k·u.
+#[test]
+fn every_shift_fails_dense_lu_3d() {
+    let k = 1e12;
+    let mut cm = frame3(1);
+    let (cp, cq) = add_gadget3(&mut cm, k);
+    let coarse = solve_3d(&cm.input()).unwrap();
+    let cdn = DofNumbering::build_3d(&cm.input());
+    let nz = vec![cdn.map[&(cp, 0)], cdn.map[&(cq, 0)]];
+    check_3d(
+        "coarse",
+        &coarse,
+        &cm,
+        "dense_lu",
+        &[C::StiffnessNotPositiveDefinite, C::DenseLu, C::CholeskyFailedLuFallback, C::NearZeroDiagonal, C::ResidualOk],
+        0.0,
+        &nz,
+        1e-13,
+    );
+    let mut m = frame3(3);
+    let (p, q) = add_gadget3(&mut m, k);
+    for (pp, want) in [
+        (Path3::Default, vec![C::StiffnessNotPositiveDefinite, C::SparseFallbackDenseLu, C::CholeskyFailedLuFallback, C::ResidualOk]),
+        (Path3::Pcg("ics"), vec![C::StiffnessNotPositiveDefinite, C::PcgFallbackDirect, C::SparseFallbackDenseLu, C::ResidualOk]),
+    ] {
+        let label = format!("{pp:?}");
+        let r = solve_path_3d(&m, pp).unwrap();
+        check_3d(&label, &r, &m, "sparse_fallback_dense_lu", &want, 0.0, &[], 1e-12);
+        assert!(not_pd_message3(&r).contains("(sparse Cholesky failed even with a diagonal shift; solved by dense LU)"), "{label}");
+        assert_matches_coarse(&r, &coarse, 1e-9, &label);
+        let u = |n: usize| r.displacements.iter().find(|d| d.node_id == n).unwrap().ux;
+        assert!(close(u(q), 10.0 / k, 1e-6) && close(u(p), -4.0 / k, 1e-6), "{label}");
+        let rx = |n: usize| r.reactions.iter().find(|x| x.node_id == n).unwrap().fx;
+        assert!(close(rx(q), -10.0, 1e-6) && close(rx(p), 4.0, 1e-6), "{label}");
+        let l = legacy3(&r);
+        assert!(l.contains(&lg("fallback", "warning", "Sparse Cholesky failed even with regularization, fell back to dense LU")), "{label}: {l:?}");
     }
 }
