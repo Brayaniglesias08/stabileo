@@ -173,7 +173,7 @@ fn solve_time_history_2d_inner(
     // Force is computed in nf space then reduced
     let f_0_nf = compute_force_at_step(input, &dof_num, its, m_ground_r.as_deref(), &f_static, 0, dt);
     let f_0 = if let Some(ref cs) = cs { cs.reduce_vector(&f_0_nf) } else { f_0_nf };
-    compute_initial_acceleration(&m_s, c_s, &k_s, &u, &v, &f_0, ns, &mut a_vec);
+    compute_initial_acceleration(&m_s, c_s, &k_s, &u, &v, &f_0, ns, &[], &mut a_vec);
     if let Some(t) = trace.as_deref_mut() {
         let mut tr = DynamicTrace::start(&k_s, &m_s, a0, a1, beta, gamma, alpha, dt);
         tr.push(&f_0, &u, &v, &a_vec);
@@ -422,7 +422,7 @@ fn solve_spd_sparse_or_dense(a: &CscMatrix, b: &[f64], what: &str) -> Result<Vec
 fn compute_initial_acceleration(
     m: &CscMatrix, c: Option<&CscMatrix>, k: &CscMatrix,
     u: &[f64], v: &[f64], f: &[f64],
-    n: usize, a: &mut [f64],
+    n: usize, triads: &[[usize; 3]], a: &mut [f64],
 ) {
     // rhs = F - C*v - K*u
     let kv = k.sym_mat_vec(u);
@@ -432,39 +432,140 @@ fn compute_initial_acceleration(
         rhs[i] = f[i] - cv[i] - kv[i];
     }
 
-    match solve_spd_sparse_or_dense(m, &rhs, "initial acceleration") {
-        Ok(x) => a.copy_from_slice(&x),
-        Err(_) => {
-            // M is singular: some DOFs carry no mass (the rotations of a node
-            // only solid shells reach, lumped-mass rotations). M is positive
-            // semi-definite, so a zero diagonal is a zero row: those DOFs
-            // follow quasi-statically and get no initial acceleration, and the
-            // massive ones solve their own block of M exactly. (The diagonal
-            // solve this used to fall back to straight away replaced a
-            // consistent M by its diagonal for every DOF: the first steps of a
-            // solid-shell model meshed with frames came out up to twice too
-            // large.)
-            let md = m.diagonal();
-            let max_m = md.iter().fold(0.0f64, |acc, v| acc.max(v.abs()));
-            let massive: Vec<usize> = (0..n).filter(|&i| md[i].abs() > max_m * 1e-12).collect();
+    if let Ok(x) = solve_spd_sparse_or_dense(m, &rhs, "initial acceleration") {
+        a.copy_from_slice(&x);
+        return;
+    }
+
+    // M is singular: some motions carry no mass. M is positive semi-definite,
+    // so a direction d with dᵀMd = 0 has M·d = 0: such motions follow
+    // quasi-statically and get no initial acceleration (the minimum-norm
+    // solution, a ⟂ null(M), with the right-hand side projected orthogonally
+    // onto range(M)), and the massive ones solve their own block exactly.
+    //
+    // The null directions are not always coordinate DOFs. The rotary inertia of
+    // a flat shell is about its two in-plane axes, so on an oblique shell the
+    // massless drilling rotation is a combination of θx, θy, θz while every
+    // rotational diagonal is positive. Each node's rotation triad is therefore
+    // first turned to the eigenbasis of its 3×3 block of M (an orthogonal,
+    // coordinate-free change of basis); the null directions then are zero rows
+    // there. Treating only zero diagonals fell back to diagonal lumping of all
+    // of M on an oblique shell: a 45°-rotated cantilever quad got a 25% wrong
+    // initial acceleration (review of #330). (The diagonal solve this used to
+    // fall back to straight away also gave a solid-shell model meshed with
+    // frames first steps up to twice too large.)
+    let (mt, rt, basis) = rotate_triads_to_mass_eigenbasis(m, &rhs, n, triads);
+    let md = mt.diagonal();
+    let max_m = md.iter().fold(0.0f64, |acc, v| acc.max(v.abs()));
+    let massive: Vec<usize> = (0..n).filter(|&i| md[i].abs() > max_m * 1e-12).collect();
+    let mut at = vec![0.0; n];
+    let rhs_m: Vec<f64> = massive.iter().map(|&i| rt[i]).collect();
+    let m_mm = mt.extract_principal_submatrix(&massive);
+    match solve_spd_sparse_or_dense(&m_mm, &rhs_m, "initial acceleration") {
+        Ok(x) => {
+            for (k, &i) in massive.iter().enumerate() {
+                at[i] = x[k];
+            }
+            // Back to the original coordinates: a = Q·ã.
             a.iter_mut().for_each(|x| *x = 0.0);
-            let rhs_m: Vec<f64> = massive.iter().map(|&i| rhs[i]).collect();
-            let m_mm = m.extract_principal_submatrix(&massive);
-            match solve_spd_sparse_or_dense(&m_mm, &rhs_m, "initial acceleration") {
-                Ok(x) => {
-                    for (k, &i) in massive.iter().enumerate() {
-                        a[i] = x[k];
-                    }
-                }
-                Err(_) => {
-                    // Last resort: lumped mass approximation (diagonal)
-                    for i in 0..n {
-                        a[i] = if md[i].abs() > 1e-30 { rhs[i] / md[i] } else { 0.0 };
-                    }
+            for i in 0..n {
+                for &(p, q) in &basis[i] {
+                    a[i] += q * at[p];
                 }
             }
         }
+        Err(_) => {
+            // Last resort: lumped mass approximation (diagonal)
+            let md = m.diagonal();
+            for i in 0..n {
+                a[i] = if md[i].abs() > 1e-30 { rhs[i] / md[i] } else { 0.0 };
+            }
+        }
     }
+}
+
+/// The free (reduced) indices of each node's three rotations (θx, θy, θz), for
+/// the nodes whose three rotations are all independent free DOFs. With
+/// constraints the reduced system keeps the independent free DOFs in ascending
+/// order (`FreeConstraintSystem::from_transform`).
+fn rotation_triads(dof_num: &DofNumbering, cs: Option<&FreeConstraintSystem>) -> Vec<[usize; 3]> {
+    if dof_num.dofs_per_node < 6 {
+        return Vec::new();
+    }
+    let nf = dof_num.n_free;
+    let reduced: Vec<Option<usize>> = match cs {
+        None => (0..nf).map(Some).collect(),
+        Some(cs) => {
+            let mut next = 0;
+            (0..nf).map(|i| if cs.is_dependent(i) { None } else { next += 1; Some(next - 1) }).collect()
+        }
+    };
+    let mut nodes: Vec<usize> = dof_num.map.keys().map(|&(node, _)| node).collect();
+    nodes.sort_unstable();
+    nodes.dedup();
+    let mut out = Vec::new();
+    for node in nodes {
+        let ids: Option<Vec<usize>> = (3..6)
+            .map(|k| dof_num.global_dof(node, k).filter(|&d| d < nf).and_then(|d| reduced[d]))
+            .collect();
+        if let Some(ids) = ids {
+            out.push([ids[0], ids[1], ids[2]]);
+        }
+    }
+    out
+}
+
+/// Q·(…) with Q block-orthogonal: identity outside the triads, and on each triad
+/// the eigenvectors of its 3×3 diagonal block of M. Returns (Qᵀ·M·Q, Qᵀ·r, Q by
+/// rows as (column, value) lists).
+fn rotate_triads_to_mass_eigenbasis(
+    m: &CscMatrix, r: &[f64], n: usize, triads: &[[usize; 3]],
+) -> (CscMatrix, Vec<f64>, Vec<Vec<(usize, f64)>>) {
+    let mut basis: Vec<Vec<(usize, f64)>> = (0..n).map(|i| vec![(i, 1.0)]).collect();
+    if !triads.is_empty() {
+        let dense_entry = |i: usize, j: usize| -> f64 {
+            let (row, col) = if i >= j { (i, j) } else { (j, i) };
+            (m.col_ptr[col]..m.col_ptr[col + 1]).find(|&p| m.row_idx[p] == row).map_or(0.0, |p| m.values[p])
+        };
+        for t in triads {
+            let b: Vec<f64> = (0..9).map(|ab| dense_entry(t[ab / 3], t[ab % 3])).collect();
+            let eig = crate::linalg::jacobi_eigen(&b, 3, 100);
+            for a_ in 0..3 {
+                basis[t[a_]] = (0..3).map(|k| (t[k], eig.vectors[a_ * 3 + k])).collect();
+            }
+        }
+    }
+    // Qᵀ·M·Q over the full symmetric pattern, keeping the lower triangle.
+    let (mut rows, mut cols, mut vals) = (Vec::new(), Vec::new(), Vec::new());
+    for j in 0..n {
+        for p in m.col_ptr[j]..m.col_ptr[j + 1] {
+            let i = m.row_idx[p];
+            let v = m.values[p];
+            let mut push = |i: usize, j: usize| {
+                for &(pi, qi) in &basis[i] {
+                    for &(pj, qj) in &basis[j] {
+                        if pi >= pj {
+                            rows.push(pi);
+                            cols.push(pj);
+                            vals.push(qi * v * qj);
+                        }
+                    }
+                }
+            };
+            push(i, j);
+            if i != j {
+                push(j, i);
+            }
+        }
+    }
+    let mt = CscMatrix::from_triplets(n, &rows, &cols, &vals);
+    let mut rt = vec![0.0; n];
+    for i in 0..n {
+        for &(p, q) in &basis[i] {
+            rt[p] += q * r[i];
+        }
+    }
+    (mt, rt, basis)
 }
 
 /// Build the ground-acceleration influence product M*r (2D).
@@ -1122,7 +1223,8 @@ fn solve_time_history_3d_inner(
     // Force computed in nf space, then reduced
     let f_0_nf = compute_force_at_step_3d(input, &dof_num, its, &m_ground_r_3d, &f_static, 0, dt);
     let f_0 = if let Some(ref cs) = cs3 { cs.reduce_vector(&f_0_nf) } else { f_0_nf };
-    compute_initial_acceleration(&m_s, c_s, &k_s, &u, &v, &f_0, ns, &mut a_vec);
+    let triads = rotation_triads(&dof_num, cs3.as_ref());
+    compute_initial_acceleration(&m_s, c_s, &k_s, &u, &v, &f_0, ns, &triads, &mut a_vec);
     if let Some(t) = trace.as_deref_mut() {
         let mut tr = DynamicTrace::start(&k_s, &m_s, a0, a1, beta, gamma, alpha, dt);
         tr.push(&f_0, &u, &v, &a_vec);

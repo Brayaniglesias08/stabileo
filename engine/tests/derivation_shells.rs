@@ -801,3 +801,55 @@ fn shell_mass_is_rotation_invariant() {
         assert!(defect < 1e-12, "family {family}: mass not rotation invariant, defect {defect:e}");
     }
 }
+
+/// Review of #330 (time history). With the rotary inertia rotated with the element (SH-4),
+/// the massless drilling rotation of an oblique shell is a combination of θx, θy, θz while
+/// every rotational diagonal of M is positive. The initial acceleration only removed
+/// zero-diagonal DOFs, so on such a shell it fell back to diagonal lumping of all of M:
+/// a 45°-rotated cantilever quad's initial acceleration was 25% off and M·a = f was violated.
+/// Metamorphic check: rotating the model and its load rotates a(0), and M·a(0) = f(0).
+#[test]
+fn shell_time_history_initial_acceleration_is_rotation_invariant() {
+    use dedaliano_engine::solver::time_integration::solve_time_history_3d_traced;
+    let pts = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 1.0, 0.0], [0.0, 1.0, 0.0], [4.0, 0.0, 0.0], [4.0, 1.0, 0.0]];
+    let force = [0.3, -0.5, 1.0];
+    let run = |r: &[[f64; 3]; 3]| {
+        let rotated: Vec<[f64; 3]> = pts.iter().map(|p| rot_pt(r, p)).collect();
+        let mut s = with_nodes(0.3, &rotated);
+        s.quads.insert("1".into(), SolverQuadElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2 });
+        s.quads.insert("2".into(), SolverQuadElement { id: 2, nodes: [2, 5, 6, 3], material_id: 1, thickness: 0.2 });
+        fix(&mut s, 1);
+        fix(&mut s, 4);
+        let f = rot_pt(r, &force);
+        let input = TimeHistoryInput3D {
+            solver: s.clone(), densities: [("1".to_string(), 7850.0)].into_iter().collect(),
+            time_step: 1e-3, n_steps: 2, method: "newmark".into(), beta: 0.25, gamma: 0.5, alpha: None,
+            damping_xi: None, ground_accel_x: None, ground_accel_y: None, ground_accel_z: None,
+            force_history: Some(vec![TimeForceRecord3D { time: 0.0, loads: vec![
+                SolverNodalLoad3D { node_id: 5, fx: f[0], fy: f[1], fz: f[2], mx: 0.0, my: 0.0, mz: 0.0, bw: None },
+            ] }]),
+        };
+        let (_, tr) = solve_time_history_3d_traced(&input).unwrap();
+        let dof = DofNumbering::build_3d(&s);
+        let (a0, f0) = (tr.a[0].clone(), tr.f[0].clone());
+        let ma = tr.m.sym_mat_vec(&a0);
+        let fmax = max_abs(&f0);
+        let res = ma.iter().zip(&f0).fold(0.0f64, |w, (x, y)| w.max((x - y).abs()));
+        assert!(res < 1e-9 * fmax, "M·a(0) ≠ f(0): residual {res:e}");
+        // global (node, 6) accelerations of the free nodes
+        let nodes = [2usize, 3, 5, 6];
+        nodes.iter().map(|&nd| std::array::from_fn::<f64, 6, _>(|k| a0[dof.global_dof(nd, k).unwrap()])).collect::<Vec<_>>()
+    };
+    let id = rotation([1.0, 0.0, 0.0], 0.0);
+    let base = run(&id);
+    let scale = base.iter().flat_map(|v| v[..3].iter()).fold(0.0f64, |w, x| w.max(x.abs()));
+    for r in [rotation([1.0, 0.0, 0.0], std::f64::consts::FRAC_PI_4), rotation([0.3, -0.7, 0.5], 0.9)] {
+        let got = run(&r);
+        for (b, g) in base.iter().zip(&got) {
+            let bt = rot_pt(&r, &[b[0], b[1], b[2]]);
+            for k in 0..3 {
+                assert!((g[k] - bt[k]).abs() < 1e-8 * scale, "translational a(0) not rotated: {g:?} vs {bt:?}");
+            }
+        }
+    }
+}
