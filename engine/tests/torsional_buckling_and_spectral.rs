@@ -647,3 +647,52 @@ fn portal_frame_modal_static_limit_matches_static_body_force() {
         assert!(rel(modal, st) < 1e-6, "node {node}: modal {modal:e} vs static {st:e}");
     }
 }
+
+/// Member torques after a second-order solve with the Wagner term are in equilibrium with
+/// the applied torque and the reactions: a compressed cruciform (P = P_T/2) with a torque T
+/// at midspan, fork-supported. Each member's torque is constant along it, the two
+/// members meeting at midspan differ by T, and each end member's torque equals its
+/// support's reaction. Checked for the co-rotational solver (whose residual carries the
+/// Wagner torque, so its force recovery must too) and for P-Delta (Kg·u added to the
+/// member forces).
+#[test]
+fn second_order_member_torques_balance_applied_torque_and_reactions() {
+    let (n, l) = (8usize, 1.5);
+    let s = CRUCIFORM;
+    let p_t = gk() * s.j * s.a / (2.0 * s.iy);
+    let torque = 0.01;
+    let loads = vec![
+        SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: n + 1, fx: -0.5 * p_t, fy: 0.0, fz: 0.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None }),
+        SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: n / 2 + 1, fx: 0.0, fy: 0.0, fz: 0.0, mx: torque, my: 0.0, mz: 0.0, bw: None }),
+    ];
+    let input = make_3d_beam(n, l, E, NU, s.a, s.iy, s.iz, s.j,
+        vec![true, true, true, true, false, false], Some(vec![false, true, true, true, false, false]), loads);
+
+    let check = |name: &str, r: &AnalysisResults3D| {
+        let f = |id: usize| r.element_forces.iter().find(|f| f.element_id == id).unwrap();
+        let tol = 1e-6 * torque;
+        for e in 1..=n {
+            assert!((f(e).mx_start - f(e).mx_end).abs() < tol, "{name}: member {e} torque not constant: {} vs {}", f(e).mx_start, f(e).mx_end);
+        }
+        let jump = (f(n / 2).mx_end - f(n / 2 + 1).mx_start).abs();
+        assert!((jump - torque).abs() < tol, "{name}: torque jump at midspan {jump} vs applied {torque}");
+        let reac = |node: usize| r.reactions.iter().find(|x| x.node_id == node).map_or(0.0, |x| x.mx);
+        assert!((reac(1) + reac(n + 1) + torque).abs() < tol, "{name}: Σ reactions {} + {}, applied {torque}", reac(1), reac(n + 1));
+        assert!((f(1).mx_start.abs() - reac(1).abs()).abs() < tol, "{name}: member 1 torque {} vs reaction {}", f(1).mx_start, reac(1));
+        assert!((f(n).mx_end.abs() - reac(n + 1).abs()).abs() < tol, "{name}: member {n} torque {} vs reaction {}", f(n).mx_end, reac(n + 1));
+        // The second-order twist is amplified, so the support torques are not the
+        // linear T/2 each only by coincidence of symmetry; both must still sum to T.
+    };
+
+    let pd = pdelta::solve_pdelta_3d(&input, 50, 1e-10).unwrap();
+    assert!(pd.converged);
+    check("P-Delta", &pd.results);
+
+    let co = dedaliano_engine::solver::corotational::solve_corotational_3d(&input, 100, 1e-10, 10, false).unwrap();
+    assert!(co.converged);
+    check("corotational", &co.results);
+    // Both second-order solvers amplify the midspan twist by about 1/(1 − P/P_T) = 2.
+    let mid = |r: &AnalysisResults3D| r.displacements.iter().find(|d| d.node_id == n / 2 + 1).unwrap().rx;
+    let amp = mid(&co.results) / mid(&pd.linear_results);
+    assert!((amp - 2.0).abs() < 0.02, "co-rotational twist amplification {amp}");
+}
