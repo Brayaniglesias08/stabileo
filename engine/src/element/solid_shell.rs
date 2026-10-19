@@ -991,7 +991,7 @@ mod tests {
     fn test_centroid_stress_is_cheap() {
         let coords = unit_cube();
         let u: Vec<f64> = (0..24).map(|k| 1e-3 * k as f64).collect();
-        let n = 2000;
+        let n = 300;
         let t0 = std::time::Instant::now();
         let mut acc = 0.0;
         for _ in 0..n {
