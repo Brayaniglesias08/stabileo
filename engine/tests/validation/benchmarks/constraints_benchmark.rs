@@ -559,7 +559,7 @@ fn benchmark_connector_axial_spring() {
     ];
     let sups = vec![
         (1, 1, "fixed"),   // left end fixed
-        (4, 4, "roller"),  // right end roller (uy fixed) to prevent mechanism
+        (4, 4, "rollerX"), // right end roller (uz fixed) to prevent mechanism
     ];
     // Axial load pushing right on node 4
     let loads = vec![SolverLoad::Nodal(SolverNodalLoad {

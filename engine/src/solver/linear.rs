@@ -4046,8 +4046,9 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
             }
         }
         // An unknown type restrained nothing (dof.rs treats it as free): a
-        // misspelt "pin" or "roller" silently removed the support.
-        const TYPES: &[&str] = &["fixed", "pinned", "rollerX", "rollerY", "rollerZ", "guidedX", "guidedY", "guidedZ", "inclinedRoller", "spring"];
+        // misspelt "pin" or "roller" silently removed the support. "free"
+        // states that on purpose and stays allowed.
+        const TYPES: &[&str] = &["fixed", "pinned", "rollerX", "rollerY", "rollerZ", "guidedX", "guidedY", "guidedZ", "inclinedRoller", "spring", "free"];
         if !TYPES.contains(&sup.support_type.as_str()) {
             return Err(format!("Support {}: unknown type {:?} (expected one of {})", sup.id, sup.support_type, TYPES.join(", ")));
         }
