@@ -74,7 +74,9 @@ pub fn bending4(p: &Plane, l: I) -> Option<[[I; 4]; 4]> {
     let f11 = l3.div(c(3.0) * p.ei) + p.shear_flex;
     let f12 = l2.div(c(2.0) * p.ei);
     let f22 = l.div(p.ei);
-    let det = f11 * f22 - f12.square();
+    // det F = f11 f22 − f12² written without the cancellation:
+    // (L/EI)(L³/3EI + s) − L⁴/4E²I² = L⁴/(12 E²I²) + s·L/EI.
+    let det = (l2.square()).div(c(12.0) * p.ei.square()) + p.shear_flex * f22;
     let k11 = f22.div(det);
     let k12 = (-f12).div(det);
     let k22 = f11.div(det);
@@ -316,7 +318,8 @@ mod tests {
         let mut k = LMat::zeros(4);
         place_bending(&mut k, [0, 1, 2, 3], &b, 1.0);
         condense(&mut k, None, 1).unwrap();
-        assert!(close(k.get(0, 0).unwrap(), 3.0 / 8.0, 1e-13));
+        let v = k.get(0, 0).unwrap();
+        assert!(close(v, 3.0 / 8.0, 1e-13), "{v:?}");
         assert!(k.get(1, 1).is_none());
     }
 }

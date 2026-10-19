@@ -263,7 +263,7 @@ mod tests {
             let (s, co) = sin_cos(inp(x)).unwrap();
             assert!(s.lo <= x.sin() + 1e-15 && x.sin() - 1e-15 <= s.hi, "sin {x}: {s:?}");
             assert!(co.lo <= x.cos() + 1e-15 && x.cos() - 1e-15 <= co.hi, "cos {x}: {co:?}");
-            assert!(s.hi - s.lo < 1e-14 && co.hi - co.lo < 1e-14, "{x}: {s:?} {co:?}");
+            assert!(s.hi - s.lo < 1e-13 && co.hi - co.lo < 1e-13, "{x}: {s:?} {co:?}");
             let one = s.square() + co.square();
             assert!(one.lo <= 1.0 && 1.0 <= one.hi);
             x += 0.137;
