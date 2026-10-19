@@ -30,7 +30,8 @@ stiffnesses over twelve decades, any support layout including none, releases, sp
 settlements and nodal, distributed and point loads, so the solver runs on every input
 instead of on the rare bytes that parse as JSON.
 
-The seed corpora come from the web app's template models (`engine/tests/fixtures`):
+The seed corpora come from the web app's template models (`engine/tests/fixtures`),
+plus the inputs of past findings, kept in git under `engine/fuzz/regressions/<target>/`:
 
     cd engine && cargo run --release --example fuzz_seeds   # writes fuzz/corpus/<target>/
 
@@ -43,10 +44,12 @@ Checked on every input by `engine/fuzz/src/lib.rs`:
    subdivisions, arrays over 512, objects over 96 entries) are skipped before solving,
    and libFuzzer's `-timeout` catches the rest.
 3. **Finite results.** Every number in an `Ok` result is finite, except fields that
-   document +∞ (`ALLOWED_NON_FINITE`: `relBound`, `omega2Upper`, `uniquenessRadius`,
-   `bimoment` of combined force bounds, `b2Factor` with `isStable: false`). The check
+   document +∞ (`ALLOWED_NON_FINITE` = `certify::finite::DOCUMENTED_INFINITE`:
+   `relBound`, `omega2Upper`, `uniquenessRadius`, `bimoment` of combined force bounds,
+   `b2Factor` with `isStable: false`), and those may only be +∞, never NaN. The check
    walks the result with a serde serializer, because `serde_json` writes NaN and ±∞ as
-   `null`.
+   `null`. The walker lives in the engine (`certify::finite`), where every certificate
+   entry point runs the same check at run time (CERTIFY.md, "Non-finite numbers").
 4. **Consistent certificates.** Every certified block has non-negative bounds, ordered
    enclosures (`lambdaLower ≤ lambdaUpper`, `omega2Lower ≤ omega2Upper`) that contain the
    solver's value, and a finite error bound.
@@ -63,6 +66,8 @@ Checked on every input by `engine/fuzz/src/lib.rs`:
 | `model_certify` | Several supports on one node: each listed the node's full reaction, so ΣR double-counted it and a certified result was out of equilibrium. The root cause: 2D DOF numbering kept only the highest-id support (`fixed` id 1 plus `pinned` id 2 silently gave a pinned end), 3D ORed the flags but took springs and the inclined flag from one support picked in hash order. | One reaction entry per node; plain rigid restraints on one node merge by OR in 2D and 3D; any other combination (springs, settlements, inclined directions) is rejected with an error naming the node (`validate_input_2d/3d`). The web app already keeps one support per node. | `duplicate_support_reactions.rs` |
 | `json_dynamics` | Harmonic certificate with a response DOF the load does not excite: the interval sum of squares had a −5e−324 lower end, its square root was NaN, and a "certified" result carried NaN enclosures. | Clamp the sum of squares at zero before the square root (sound: it is ≥ 0 exactly). | `fuzz_regressions.rs::harmonic_zero_response_is_finite` |
 | `json_dynamics` | Time-history certificate of a structure at rest: relative residuals divided by max‖u‖ = 0 and reported +∞. | Divide by `max(‖u‖, MIN_POSITIVE)`, and report 0 for a zero residual. | `fuzz_regressions.rs::time_history_zero_solution_residuals_are_finite` |
+| `json_dynamics` (#335) | `certify_spectral_3d` returned `Ok` with every displacement and element-force envelope NaN and the certificate `certified` with error bounds 0. A mode with ω < 0 made the CQC ratio ω_j/ω_i negative and r^1.5 NaN; `Enclosure::error_of` used `f64::max`, which drops NaN, so a NaN reported value got error 0 (only `reportedWithin` was false). | The spectral solver refuses ω ≤ 0 (it also silently dropped such a mode, S_d = 0), non-finite modal data, a non-finite or unsorted spectrum, ξ < 0 and non-positive factors, and checks its output. `error_of` is +∞ for a non-finite value; the certificate refuses non-finite reported values. All certificates: `certify::finite` guard (CERTIFY.md, "Non-finite numbers"). Input in `fuzz/regressions/json_dynamics/`. | `fuzz_regressions.rs::spectral_negative_omega_is_refused`, `certify_nonfinite.rs` (every kind) |
+| `certify_nonfinite.rs` (#335) | The 3D plastic certificate panicked (`denominator == 0` in `num-rational`) on a member with a coordinate of ±1e300: the f64 direction overflowed to 0, picked a reference axis parallel to the member, and an exact local axis of length 0 was inverted. | Refused: the f64 direction must be a unit vector, and an exact local axis must be non-zero. The same tests found the exact plastic certificates running for minutes on a value of ±1e300 or a subnormal (bignum work grows with bit length): input magnitudes outside [1e-30, 1e30] (zero excepted) are now refused (`plastic::EXACT_MIN_ABS`/`EXACT_MAX_ABS`). | `certify_nonfinite.rs::every_leaf_nan_or_inf_is_refused_or_finite`, `mutated_inputs_are_refused_or_finite` |
 
 Found while triaging surviving mutants (below), each with a regression test:
 

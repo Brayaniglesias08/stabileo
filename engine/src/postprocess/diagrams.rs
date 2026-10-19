@@ -97,6 +97,18 @@ pub fn sorted_point_loads(ef: &ElementForces) -> Vec<PointLoadInfo> {
     pl
 }
 
+/// The 2D diagram kinds `compute_diagram_value_at` evaluates.
+pub const DIAGRAM_KINDS_2D: [&str; 3] = ["moment", "shear", "axial"];
+
+/// Refuse an unknown diagram kind (the evaluator returns 0 for one).
+pub fn check_diagram_kind_2d(kind: &str) -> Result<(), String> {
+    if DIAGRAM_KINDS_2D.contains(&kind) {
+        Ok(())
+    } else {
+        Err(format!("unknown diagram kind '{kind}'; accepted: {}", DIAGRAM_KINDS_2D.join(", ")))
+    }
+}
+
 /// Compute the value of a diagram (M, V, or N) at a given normalized position t.
 pub fn compute_diagram_value_at(
     kind: &str,

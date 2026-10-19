@@ -406,7 +406,7 @@ def lower_static_3d(res3, model2d):
     forces = {e: {"nStart": f["nStart"], "nEnd": f["nEnd"], "vStart": f["vzStart"], "vEnd": f["vzEnd"],
                   "mStart": -f["myStart"], "mEnd": -f["myEnd"]} for e, f in res3["forces"].items()}
     return dict(dim=2, disp=disp, reac=reac, forces=forces, art_rot=res3.get("art_rot", []), kappa=res3.get("kappa"),
-                min_pivot=res3.get("min_pivot"))
+                kappa_solved=res3.get("kappa_solved"), min_pivot=res3.get("min_pivot"))
 
 
 def _rank3(vs, tol=1e-9):
