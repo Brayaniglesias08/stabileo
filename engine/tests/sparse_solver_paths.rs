@@ -108,7 +108,7 @@ fn portal(bays: usize, seg: usize) -> (M2, Vec<usize>) {
             *g = m.node(x0 + c as f64 * w, z0 + l as f64 * h);
         }
     }
-    let mut member = |m: &mut M2, a: usize, b: usize| {
+    let member = |m: &mut M2, a: usize, b: usize| {
         let (_, xa, za) = m.nodes[a - 1];
         let (_, xb, zb) = m.nodes[b - 1];
         let mut prev = a;
@@ -499,6 +499,7 @@ use DiagnosticCode as C;
 /// What the reference predicts for the conditioning and displacement checks.
 struct Expect2 {
     nf: usize,
+    maxd: f64,
     ratio: f64,
     near_zero: Vec<usize>,
     max_translation: f64,
@@ -552,7 +553,7 @@ fn expect_2d(m: &M2, rf: &Ref2D) -> Expect2 {
         z1 = z1.max(z);
     }
     let char_length = ((x1 - x0).powi(2) + (z1 - z0).powi(2)).sqrt().max(1.0);
-    Expect2 { nf, ratio: maxd / mind, near_zero, max_translation, char_length }
+    Expect2 { nf, maxd, ratio: maxd / mind, near_zero, max_translation, char_length }
 }
 
 fn close(got: f64, want: f64, rel: f64) -> bool {
@@ -947,6 +948,194 @@ fn excessive_displacement_on_every_2d_path() {
             let r = solve_path_2d(&m, p).unwrap();
             let tol = if matches!(p, Path2::Pcg(_)) { 1e-7 } else { 1e-9 };
             check_2d(&format!("soft seg {seg} gadget {gadget} {p:?}"), &r, &m, &rf, path, &[], head, tol, 1e-10);
+        }
+    }
+}
+
+/// Runs of the frame on each path family: large sparse (seg 4) through
+/// default, dense-reference, PCG and PCG-fallback; small dense (seg 1); and,
+/// with the gadget, the dense-LU fallbacks.
+fn all_2d_variants(base: impl Fn(usize) -> M2) -> Vec<(String, M2, Path2)> {
+    let mut v = Vec::new();
+    for p in [Path2::Default, Path2::DenseRef, Path2::Pcg("ics"), Path2::PcgMaxit1] {
+        v.push((format!("large {p:?}"), base(4), p));
+    }
+    v.push(("small Default".into(), base(1), Path2::Default));
+    for p in [Path2::Default, Path2::DenseRef, Path2::Pcg("ics")] {
+        let mut m = base(4);
+        add_gadget(&mut m, 1e6);
+        v.push((format!("gadget {p:?}"), m, p));
+    }
+    let mut m = base(1);
+    add_gadget(&mut m, 1e6);
+    v.push(("small gadget Default".into(), m, Path2::Default));
+    v
+}
+
+/// Loads so large that the displacements are finite but K·u overflows: the
+/// residual is NaN and every path reports ResidualHigh (and keeps the
+/// solution, legacy 2D semantics). Loads that overflow the displacements
+/// themselves are refused as a mechanism by every path, after a successful
+/// prepare.
+#[test]
+fn overflowing_loads_on_every_2d_path() {
+    let scaled = |seg: usize, e: f64, fz: f64| {
+        let mut m = mixed(seg);
+        m.e = Some(e);
+        for l in m.loads.iter_mut() {
+            l["data"]["fz"] = json!(fz);
+        }
+        m
+    };
+    for (label, m, p) in all_2d_variants(|seg| scaled(seg, E_MPA, -3e304)) {
+        let r = solve_path_2d(&m, p).unwrap_or_else(|e| panic!("{label}: {e}"));
+        let nf = r.solver_run_meta.as_ref().unwrap().n_free_dofs;
+        let d = r.structured_diagnostics.last().unwrap();
+        assert_eq!((d.code, d.severity, d.phase.as_deref()), (C::ResidualHigh, Severity::Warning, Some("solve")), "{label}");
+        assert!(d.value.unwrap().is_nan(), "{label}: {:?}", d.value);
+        assert_eq!(d.threshold, Some(1e-6), "{label}");
+        assert_eq!(d.message, format!("Residual NaN exceeds tolerance ({nf} free DOFs)"), "{label}");
+        assert!(!r.equilibrium.as_ref().unwrap().residual_ok, "{label}");
+        assert!(r.displacements.iter().all(|x| x.ux.is_finite() && x.uz.is_finite()), "{label}");
+        diag(&r.structured_diagnostics, C::ExcessiveDisplacement);
+    }
+    for (label, m, p) in all_2d_variants(|seg| scaled(seg, 1e-3, -1e306)) {
+        let i = m.input();
+        assert!(prepare_static_2d(&i).is_ok(), "{label}: prepare");
+        assert_eq!(solve_path_2d(&m, p).err().as_deref(), Some(SINGULAR), "{label}");
+    }
+}
+
+/// A floor joint with every member end hinged gets artificial rotational
+/// stiffness 1e-10·max diag: a small moment turns it by M/k (and the diagonal
+/// ratio is exactly 1e10); a moment that turns it past 100 rad is refused as
+/// a local mechanism, on every path.
+#[test]
+fn all_hinged_joint_on_every_2d_path() {
+    let hinged = |seg: usize, my: f64| {
+        let mut m = mixed(seg);
+        for l in m.loads.iter_mut() {
+            l["data"]["my"] = json!(0.0);
+        }
+        let j = 2; // column line 0, first floor
+        for e in m.elems.iter_mut() {
+            if e.2 == j {
+                e.4 = true;
+            }
+            if e.3 == j {
+                e.5 = true;
+            }
+        }
+        m.load(j, 0.0, 0.0, my);
+        m
+    };
+    let maxd = |seg: usize| {
+        let m = mixed(seg);
+        expect_2d(&m, &reference_2d(&m)).maxd
+    };
+    for (label, m, p) in all_2d_variants(|seg| hinged(seg, 1e-3)) {
+        let r = solve_path_2d(&m, p).unwrap_or_else(|e| panic!("{label}: {e}"));
+        let seg = if label.contains("small") { 1 } else { 4 };
+        let th = r.displacements.iter().find(|d| d.node_id == 2).unwrap().ry;
+        let want = 1e-3 / (1e-10 * maxd(seg));
+        assert!(th < 100.0 && close(th, want, 1e-6), "{label}: rotation {th:e}, M/k {want:e}");
+        let hd = diag(&r.structured_diagnostics, C::HighDiagonalRatio);
+        assert!(close(hd.value.unwrap(), 1e10, 1e-9), "{label}: {:?}", hd.value);
+        // global force equilibrium from the reported reactions (springs and
+        // the inclined roller included)
+        let input = m.input();
+        let (mut fx, mut fz) = (0.0, 0.0);
+        for l in &input.loads {
+            if let SolverLoad::Nodal(n) = l {
+                fx += n.fx;
+                fz += n.fz;
+            }
+        }
+        let rx: f64 = r.reactions.iter().map(|x| x.rx).sum();
+        let rz: f64 = r.reactions.iter().map(|x| x.rz).sum();
+        assert!((rx + fx).abs() < 1e-6 * fz.abs() && (rz + fz).abs() < 1e-6 * fz.abs(), "{label}: ΣR = ({rx}, {rz}), ΣF = ({fx}, {fz})");
+    }
+    for (label, m, p) in all_2d_variants(|seg| hinged(seg, 1.0)) {
+        let e = solve_path_2d(&m, p).err().unwrap_or_else(|| panic!("{label}: solved"));
+        assert!(e.starts_with(LOCAL_MECH), "{label}: {e}");
+    }
+}
+
+/// Straight beam of `n` frame elements (0.5 m each, from x = 1) on rollerX
+/// supports at both ends: a horizontal rigid-body mechanism.
+fn rolling_beam(n: usize) -> M2 {
+    let mut m = M2::default();
+    let mut prev = m.node(1.0, 0.0);
+    for k in 1..=n {
+        let nn = m.node(1.0 + 0.5 * k as f64, 0.0);
+        m.elem("frame", prev, nn);
+        prev = nn;
+    }
+    m.sup(1, "rollerX", json!({}));
+    m.sup(prev, "rollerX", json!({}));
+    m.load(3, 0.0, -1.0, 0.0);
+    m
+}
+
+/// A genuine mechanism is refused on every path: at prepare by the direct
+/// paths (Cholesky and LU both fail), at solve by PCG (whose stability check
+/// is lazy).
+#[test]
+fn mechanism_is_refused_on_every_2d_path() {
+    let large = rolling_beam(40);
+    for p in [Path2::Default, Path2::DenseRef] {
+        let i = large.input();
+        let prep = if matches!(p, Path2::DenseRef) { prepare_static_2d_dense_reference(&i) } else { prepare_static_2d(&i) };
+        assert_eq!(prep.err().as_deref(), Some(SINGULAR), "{p:?}");
+    }
+    for p in [Path2::Pcg("ics"), Path2::PcgMaxit1] {
+        let mm = match p {
+            Path2::Pcg(pc) => with_opts(&large, json!({ "method": "pcg", "preconditioner": pc })),
+            _ => with_opts(&large, json!({ "method": "pcg", "maxIterations": 1 })),
+        };
+        let i = mm.input();
+        let prepared = prepare_static_2d(&i).unwrap();
+        assert_eq!(prepared.solve_loads(&i.loads).err().as_deref(), Some(SINGULAR), "{p:?}");
+    }
+    assert_eq!(solve_2d(&rolling_beam(10).input()).err().as_deref(), Some(SINGULAR), "small");
+}
+
+/// Every DOF restrained (nf = 0): reactions are K·u_r − F, with a settlement
+/// and rotation imposed (closed form 12EIδ/L³, 6EIδ/L² through the
+/// reference) and without (reactions = −F).
+#[test]
+fn fully_restrained_2d() {
+    for settle in [true, false] {
+        let mut m = M2::default();
+        let a = m.node(1.0, 1.0);
+        let b = m.node(4.0, 1.0);
+        let c = m.node(4.0, 3.0);
+        m.elem("frame", a, b);
+        m.elem("frame", b, c);
+        m.sup(a, "fixed", json!({}));
+        m.sup(b, "fixed", if settle { json!({ "dz": -0.01, "dry": 0.002 }) } else { json!({}) });
+        m.sup(c, "fixed", if settle { json!({ "dx": 0.003 }) } else { json!({}) });
+        m.load(b, 3.0, -7.0, 2.0);
+        m.load(c, -1.0, 0.0, 0.0);
+        let rf = reference_2d(&m);
+        if settle {
+            let ei = E_MPA * 1000.0 * IZ;
+            // member a–b (L = 3): end shear 12EIδ/L³ − 6EIθ/L², δ = −0.01, θ = 0.002
+            let (l, d, t): (f64, f64, f64) = (3.0, -0.01, 0.002);
+            let (v1, v2) = (12.0 * ei * d / l.powi(3), 6.0 * ei * t / l.powi(2));
+            let got = rf.reac[&a][1].abs();
+            assert!(close(got, (v1 + v2).abs(), 1e-9) || close(got, (v1 - v2).abs(), 1e-9), "{got} vs 12EIδ/L³ ± 6EIθ/L²");
+        } else {
+            for (got, want) in rf.reac[&b].iter().zip([-3.0, 7.0, -2.0]) {
+                assert!(close(*got, want, 1e-12));
+            }
+        }
+        for p in [Path2::Default, Path2::DenseRef] {
+            let r = solve_path_2d(&m, p).unwrap();
+            assert_eq!(path_2d(&r), "fully_restrained");
+            assert_matches_reference_2d(&r, &rf, 1e-12, &format!("settle {settle} {p:?}"));
+            let d = r.structured_diagnostics.last().unwrap();
+            assert_eq!((d.code, d.message.as_str()), (C::ResidualOk, "Fully restrained model (0 free DOFs, 9 restrained)"));
         }
     }
 }
