@@ -148,7 +148,11 @@ For each line of `missed.txt`:
 2. **Equivalent**: the mutant cannot change any output (for example `>` to `>=` where
    equality gives the same result, or a heuristic whose failure only makes a
    certificate fail, never wrong). Add it to `exclude_re` in `.cargo/mutants.toml` with a
-   one-line justification.
+   one-line justification. One class is excluded automatically: an operator inside an
+   index made only of integer literals whose mutated index has exactly the same value
+   (`k[0 * 6 + 0]` to `k[0 * 6 - 0]` or `k[0 / 6 + 0]`). `scripts/mutants-equivalent.py`
+   finds them on every run by evaluating both indices; a mutant that changes the index
+   is still tested.
 3. **Dead or diagnostics-only code**: timings, log text, diagnostics that do not gate a
    result. Exclude by name with the reason, or delete the code.
 
