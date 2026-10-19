@@ -208,7 +208,7 @@ and the tests fail when this file is out of date.
 
 ## Violations found and fixed
 
-Each has a minimal reproduction in `engine/tests/metamorphic/regressions.rs`.
+Each has a minimal reproduction in `engine/tests/metamorphic/regressions.rs` (or an existing engine test that now asserts the corrected behaviour).
 
 | Found by | Bug | Effect | Fix |
 |---|---|---|---|
@@ -229,6 +229,8 @@ Each has a minimal reproduction in `engine/tests/metamorphic/regressions.rs`.
 | rotation | Shell mass (MITC4, MITC9, curved shell) put the rotary inertia on global r_x, r_y whatever the shell's orientation. | A wall's frequencies differed from the same shell lying flat (0.2% on the strip, more for thick shells). | Inertia about the shell's in-plane axes, m_rot·(I − n·nᵀ) on the global rotation DOFs. |
 | units | Orphan-rotation detection (dense and sparse 2D and 3D assembly) and the kinematic rank compared rotational stiffness with the largest diagonal entry, a translational stiffness of other units (plus an absolute floor in the kinematic check). | A model in millimetres with one stiff member had a real beam-end rotation locked by the artificial spring (rotation 3·10⁻⁴ → 8·10⁻⁸ rad); mechanism counts depended on the units. | Orphans judged against the largest rotational diagonal (a zero diagonal of the PSD K is a zero row); rank of the Jacobi-scaled matrix, sparse pivots against their own diagonal. |
 | rotation | Modal harmonic analysis kept exactly the part of a repeated eigenvalue the eigensolver happened to return at the top of its computed set and corrected the rest statically. | The response changed with a rotation of the model. | The top cluster of the computed set goes to the static correction in full. |
+| units (via the feature matrix) | The 2D assemblers put an artificial rotational spring (10⁻¹⁰ × the largest, translational, diagonal) on every all-hinged node, including nodes whose rotation a constraint ties to the structure, where it becomes a real spring. | A rigid-link mechanism was held by it; whether the model counted as a mechanism depended on the units. | Constraint-tied rotations get no artificial spring (as in 3D). |
+| full-suite review | An unknown 2D support type ("pin", "roller") restrained nothing. | A misspelt support silently disappeared (three engine tests relied on it). | Unknown types are refused by name. |
 | harness review | `StagedInput3D` had no `leftHand` field; the app sends it and serde dropped it. | Left-handed models staged with right-handed member axes. | Field added and passed to every stage. |
 
 ## Documented exceptions
