@@ -1068,10 +1068,38 @@ pub fn compute_corotational_forces(
             let d_axial = elong;
             let n_axial = e * sec.a / l0 * d_axial;
 
+            // Loads along the bar: their consistent end loads make N vary along it, as the linear
+            // recovery has it (n_start = EAδ/L + f_i, n_end = EAδ/L − f_j), and the diagram reads
+            // the span load itself. Without them a bar under an axial span load reported a
+            // constant N, even in the small-displacement limit.
+            let (mut f_i, mut f_j) = (0.0, 0.0);
+            let mut axial_loads_info = Vec::new();
+            let mut truss_point_loads = Vec::new();
+            for load in &input.loads {
+                match load {
+                    SolverLoad::PointOnElement(pl) if pl.element_id == elem.id => {
+                        let px = pl.px.unwrap_or(0.0);
+                        if px != 0.0 {
+                            f_i += px * (1.0 - pl.a / l0);
+                            f_j += px * pl.a / l0;
+                            truss_point_loads.push(PointLoadInfo { a: pl.a, p: 0.0, px: Some(px), my: None });
+                        }
+                    }
+                    SolverLoad::AxialDistributed(al) if al.element_id == elem.id => {
+                        let (a, b) = (al.a.unwrap_or(0.0), al.b.unwrap_or(l0));
+                        let [fa, fb] = crate::element::axial_distributed_fef(al.q_i, al.q_j, a, b, l0);
+                        f_i += fa;
+                        f_j += fb;
+                        axial_loads_info.push(DistributedLoadInfo { q_i: al.q_i, q_j: al.q_j, a, b });
+                    }
+                    _ => {}
+                }
+            }
+
             forces.push(ElementForces {
                 element_id: elem.id,
-                n_start: n_axial,
-                n_end: n_axial,
+                n_start: n_axial + f_i,
+                n_end: n_axial - f_j,
                 v_start: 0.0,
                 v_end: 0.0,
                 m_start: 0.0,
@@ -1079,8 +1107,8 @@ pub fn compute_corotational_forces(
                 length: l_n,
                 q_i: 0.0,
                 q_j: 0.0,
-                point_loads: Vec::new(),
-                distributed_loads: Vec::new(), distributed_loads_x: Vec::new(),
+                point_loads: truss_point_loads,
+                distributed_loads: Vec::new(), distributed_loads_x: axial_loads_info,
                 hinge_start: false,
                 hinge_end: false,
             });
