@@ -2352,9 +2352,10 @@ fn cases_3d() -> Vec<Case3> {
             if stiff {
                 m.elem(3, "frame", 2, 4, RIGID_MAT, 4);
                 let e = m.elem_mut(3);
-                // The diaphragm ties the slave's in-plane translations to the
-                // master's rigid motion; it leaves the slave's rotation free.
-                (e.release_my_start, e.release_my_end, e.release_t_start, e.release_mz_end) = (true, true, true, true);
+                // The diaphragm makes the two tops one rigid body in plane
+                // (translations and in-plane rotation, #342); out of plane
+                // each top bends and twists on its own.
+                (e.release_my_start, e.release_my_end, e.release_t_start) = (true, true, true);
             }
             // Only column 1–2 carries gravity: tied, the other column braces it.
             // Equal x pushes leave the stand-in member without axial force,

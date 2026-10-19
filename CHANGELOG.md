@@ -50,6 +50,32 @@ give the same results as before. (#341)
   with a raised density (same modes to 1e-10, tested), and point masses — with a button for floor
   masses on the diaphragm masters — from the mass-source panel (en/es/pt).
 
+#### Rigid diaphragm rotates as one body (2026-10-18)
+
+**BREAKING (results): every node of a rigid diaphragm now rotates in plane with its master**
+(θz for an XY diaphragm, θ in 2D). The slave nodes' own in-plane rotation was left free, so the
+columns under a rigid floor twisted against nothing at their tops: storeys were too soft in
+torsion and the column end torques came out zero. SAP2000/ETABS diaphragms and OpenSees
+`rigidDiaphragm` tie it. Engine inputs with a diaphragm get new results (torsional periods,
+column torques and moments, drifts); models without one are unchanged. Web projects are
+unchanged: the web already added an equalDOF on that rotation for every slave, which is removed
+now that the engine ties it. (#342)
+
+- `engine/src/solver/constraints.rs`: both the dependent-DOF list used by validation and the
+  constraint equations tie the slave's in-plane rotation; inclined-support frames go through the
+  same equations.
+- **BREAKING (results): 3D XZ diaphragms** coupled the slave to −θy (the XY lever pattern); they
+  now follow ω × r. **Diaphragms in all-truss models are refused**: with no rotational DOFs the
+  floor's rotation cannot be represented (a 3D one tied uz instead). In 2D, plane "XZ" is the
+  model plane as "XY" is; "YZ" is refused.
+- **BREAKING (results): web 2D solves** sent 3D floor (XY) diaphragms as a rigid body in the
+  frame's plane, making floor beams rigid in vertical bending; a floor now ties ux only, a YZ wall
+  uz only, an XZ diaphragm stays a 2D diaphragm.
+- `engine/tests/diaphragm_rotation.rs`: a storey with a diaphragm matches the same storey with a
+  floor of in-plane-rigid beams (displacements, column end forces, periods to 1e-4); slave θz =
+  master θz in static, modal, 2D and inclined-support cases. On the old code the torsional period
+  of that storey came out 6.9 % long and the column torques were zero.
+
 ## 0.2.0 (2026-10-18)
 
 **Results change: re-run your projects.** Release notes for users, in English, Spanish and

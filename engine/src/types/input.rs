@@ -1301,7 +1301,8 @@ pub enum Constraint {
     /// Rigid link: slave follows master with rigid-body kinematics.
     #[serde(rename = "rigidLink")]
     RigidLink(RigidLinkConstraint),
-    /// Diaphragm: in-plane rigidity coupling translational DOFs.
+    /// Diaphragm: in-plane rigid body — slaves follow the master's in-plane
+    /// translations and rotation, and their own in-plane rotation equals the master's.
     #[serde(rename = "diaphragm")]
     Diaphragm(DiaphragmConstraint),
     /// General linear MPC: Σ(coeff_i × u_i) = 0
