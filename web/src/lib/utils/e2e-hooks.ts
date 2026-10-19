@@ -29,6 +29,7 @@
  */
 
 import { viewportCanvas } from './viewport-canvas';
+import { discretizationStore } from '../store/discretization.svelte';
 import { drawState } from '../store/draw-state.svelte';
 import { projectWorld } from '../viewport3d/camera-probe';
 import { projectNodeToScene } from '../geometry/coordinate-system';
@@ -88,6 +89,8 @@ export interface StabileoTestHooks {
   baselineRevision(): number;
   isBaselineStale(): boolean;
   solveCount(): number;
+  /** The discretization store (`store/discretization.svelte.ts`): estimate status, whether it applies to what is on screen, study status. */
+  discretizationState(): { estimate: string; reason: string | null; idle: string | null; applies: boolean; study: string };
   modelVersion(): number;
   designRunId(): string | null;
   displayStatus(elementId: number): string;
@@ -548,6 +551,16 @@ export function installE2EHooks(): void {
     baselineRevision: () => verificationStore.baselineRevision,
     isBaselineStale: () => verificationStore.isBaselineStale,
     solveCount: () => getStructuralSolveCount(),
+    discretizationState: () => {
+      const e = discretizationStore.estimate, st = discretizationStore.study;
+      return {
+        estimate: e.status,
+        reason: e.status === 'failed' ? e.reason : st.status === 'failed' ? st.reason : null,
+        idle: discretizationStore.idleReason,
+        applies: discretizationStore.applies(),
+        study: st.status,
+      };
+    },
     modelVersion: () => modelStore.modelVersion,
     designRunId: () => {
       const s = verificationStore.runSummary;

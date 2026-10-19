@@ -151,6 +151,8 @@ function createDiscretizationStore() {
   /** Paint shells by their element error indicator. */
   let showMap = $state(false);
   let input: CertifiableInput | null = null;
+  /** Why the store is idle (diagnostics for tests: `2d`, `cleared`, `notCertifiable`, `noExport`, `noShells`). */
+  let idleWhy: string | null = null;
   /**
    * The results object the estimate belongs to, as published (after normalisation). Any other
    * result on screen — a load case, a combination, a P-Δ or spectral result that replaced the
@@ -181,6 +183,7 @@ function createDiscretizationStore() {
     get estimate() { return estimate; },
     get study() { return study; },
     get showMap() { return showMap; },
+    get idleReason() { return idleWhy; },
     /** Whether the error map may take over the viewport: switched on, and an estimate to draw. */
     mapActive(): boolean { return showMap && mapDrawable(estimate) && this.applies(); },
     set showMap(v: boolean) { showMap = v; },
@@ -195,11 +198,15 @@ function createDiscretizationStore() {
       const pub = generation;
       // `setResults3D` publishes the normalised results right after this hook returns.
       queueMicrotask(() => { if (pub === generation) estimated = resultsStore.results3D; });
-      if (dim !== SPACE) { estimate = { status: 'idle' }; showMap = false; return; }
+      const idle = (why: string) => { estimate = { status: 'idle' }; showMap = false; idleWhy = why; };
+      if (dim !== SPACE) return idle('2d');
       const found = results ? certifiableInputOf(results) : null;
-      if (!found || found.dim !== SPACE || !hasCertify(ESTIMATE_EXPORT)) { estimate = { status: 'idle' }; showMap = false; return; }
+      if (!found) return idle(results ? 'notCertifiable' : 'cleared');
+      if (found.dim !== SPACE) return idle('2d');
+      if (!hasCertify(ESTIMATE_EXPORT)) return idle('noExport');
       const wire = found.wire();
-      if (!hasShells(wire)) { estimate = { status: 'idle' }; showMap = false; return; }
+      if (!hasShells(wire)) return idle('noShells:' + Object.keys(wire).map((k) => k + '=' + (wire[k] && typeof wire[k] === 'object' ? Object.keys(wire[k]).length : wire[k])).join(','));
+      idleWhy = null;
       input = found;
       estimate = { status: 'pending' };
       const gen = generation;

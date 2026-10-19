@@ -1,41 +1,37 @@
 /**
- * The discretization-error estimate in the real app (docs/verification/DISCRETIZATION.md):
- * a shell model solved from the ribbon shows "discretization error: estimated ~Y% (… not
+ * The discretization-error estimate in the real app (docs/verification/DISCRETIZATION.md): a
+ * frame-and-shell model solved in PRO shows "discretization error: estimated ~Y% (… not
  * certified)" next to the certificate, and the convergence check re-solves and fills its table.
  *
  * Both run through the worker pool in a real browser: the estimate exports once failed there
  * ("Worker certificate … not available") while every unit test, which runs on the main thread,
  * passed.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, loadModel, solveModel } from './fixtures';
 
-async function boot(page: Page): Promise<void> {
-  await page.goto('/app/basic?e2e=1');
-  await page.waitForFunction(() => !!window.__stabileoActions, null, { timeout: 60_000 });
-  await expect.poll(() => page.evaluate(() => window.__stabileo.solverReady()), { timeout: 60_000 }).toBe(true);
-}
+test('a frame-and-shell model shows its estimated discretization error and runs the convergence check', async ({ pro: page }) => {
+  test.setTimeout(300_000);
+  await loadModel(page, 'rc-qa-diagnostic-shells');
+  await solveModel(page);
+  await expect.poll(() => page.evaluate(() => window.__stabileo.discretizationState().estimate), { timeout: 60_000 })
+    .toBe('done');
+  const state = await page.evaluate(() => window.__stabileo.discretizationState());
+  expect(state.reason, 'the estimate must not fail in the worker').toBeNull();
+  expect(state.applies).toBe(true);
 
-test('a frame-and-shell model shows its estimated discretization error and runs the convergence check', async ({ page }) => {
-  test.setTimeout(240_000);
-  await boot(page);
-  await page.evaluate((n) => window.__stabileoActions.loadExample(n), 'rc-qa-diagnostic-shells');
-  await expect.poll(() => page.evaluate(() => window.__stabileo.elementIds().length + 1)).toBeGreaterThan(0);
-  await page.waitForTimeout(500);
-  await page.getByTestId('rb-cmd-solve').click();
-  await expect.poll(() => page.evaluate(() => window.__stabileo.hasDrawnResults()), { timeout: 60_000 }).toBe(true);
-
+  await page.evaluate(() => window.__stabileoActions.openProTab('results'));
   const status = page.getByTestId('discretization-status').first();
-  await expect(status).toBeVisible({ timeout: 60_000 });
-  // The estimate itself, not "not estimated (Worker certificate … not available)".
+  await expect(status).toBeVisible({ timeout: 30_000 });
   const estimate = page.getByTestId('discretization-estimate').first();
-  await expect(estimate).toBeVisible({ timeout: 60_000 });
   await expect(estimate).toContainText('%');
-  await expect(estimate).toContainText(/certif/i);
+  await expect(estimate).toContainText(/not certified/i);
   await expect(status).not.toContainText(/not available/i);
 
   await page.getByTestId('discretization-run-study').first().click();
+  await expect.poll(() => page.evaluate(() => window.__stabileo.discretizationState().study), { timeout: 240_000 })
+    .not.toBe('running');
+  expect((await page.evaluate(() => window.__stabileo.discretizationState())).reason).toBeNull();
   const table = page.getByTestId('discretization-study').first();
-  await expect(table).toBeVisible({ timeout: 180_000 });
+  await expect(table).toBeVisible();
   await expect(table.locator('tbody tr').first()).toBeVisible();
-  await expect(status).not.toContainText(/not available|not run/i);
 });
