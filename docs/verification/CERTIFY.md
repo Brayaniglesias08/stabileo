@@ -352,6 +352,9 @@ frame buildings above to `target/cert-bundles-large/`.
 
 ### What the Lean checker proves, and what remains trusted
 
+The full list of assumptions per certificate kind (rounding model, interval code, f64
+assembly, parsing, runtimes, Lean kernel) is [TRUSTED_BASE.md](TRUSTED_BASE.md).
+
 | result | checked in Lean (theorem) | still trusted |
 |---|---|---|
 | linear static displacements | `‖K⁻¹f − ũ‖₂ ≤ b` for every `f` in the enclosure (`Bundle.check_sound`) | assembly of `K` and of the `f` enclosure from the input; the JSON reader |
