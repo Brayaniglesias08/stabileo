@@ -7,6 +7,7 @@
  * `cargo run --release --example reproduce` (docs/verification/PROVENANCE.md).
  */
 import { resultsStore } from '../store';
+import { certificateStore } from '../store/certificate.svelte';
 import { runGlobalSolve } from '../engine/live-calc';
 import { currentResultProvenance, provenanceForScope } from '../store/result-provenance';
 import { compareProvenance, type ResultProvenance, type ReproduceVerdict } from '../provenance/result-provenance';
@@ -23,6 +24,9 @@ export async function reproduceFrom(claimed: ResultProvenance): Promise<Reproduc
   } catch (e) {
     return { ok: false, error: errorText(e, 'error') };
   }
+  // A claimed certificate is compared with the re-run's own, which is computed in the background
+  // after the solve: wait for it to settle. One still pending is compared as missing (incomplete).
+  if ((claimed.certificates ?? []).length > 0) await settledCertificate();
   return compareWithResultsOnHand(claimed);
 }
 
@@ -37,4 +41,13 @@ export function compareWithResultsOnHand(claimed: ResultProvenance): ReproduceOu
   const fresh = ref ? provenanceForScope(ref) : { ...currentResultProvenance(), scopeRef: undefined };
   if (!fresh.baseResultsHash && !fresh.resultsHash) return { ok: false, error: 'no results' };
   return { ok: true, verdict: compareProvenance(claimed, fresh), fresh };
+}
+
+async function settledCertificate(timeoutMs = 120_000): Promise<void> {
+  const until = Date.now() + timeoutMs;
+  // The certificate goes pending a short pause after the publish (`certificate.svelte.ts`).
+  await new Promise((r) => setTimeout(r, 400));
+  while (certificateStore.state.status === 'pending' && Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
 }

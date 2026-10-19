@@ -10341,6 +10341,8 @@ const en: Record<string, string> = {
   "provenance.scope": "Result shown",
   "provenance.certificates": "Certificates",
   "provenance.none": "none",
+  "provenance.status": "Status",
+  "provenance.current": "Current: solved with this build's results version.",
   "provenance.stale": "STALE: these results come from a project last solved with an older version, and registered changes concern it. Re-run the analysis and design before relying on them.",
   "provenance.reproduceNote": "To reproduce: open the same project in Stabileo, choose \"Reproduce from provenance\" and paste this report; the app solves again and compares every hash.",
   "provenance.reproduce.title": "Reproduce from provenance",

@@ -190,10 +190,22 @@ export interface ReproduceVerdict {
   results: FieldVerdict;
   /** The result the report showed (a case, a combination, an envelope), recomputed for that scope. */
   shownResults: FieldVerdict;
+  /**
+   * Every hash the report claims, with its verdict: the four above, the engine's, each
+   * certificate's (`certificate:<scope>`), and any other `…Hash` / `…Sha256` field a record
+   * carries, so a field added later is never silently left out.
+   */
+  hashes: Array<{ field: string; verdict: FieldVerdict }>;
   /** The builds differ (a differing result may then be a registered change, not a defect). */
   sameBuild: boolean;
   buildDifferences: string[];
 }
+
+/** Hash fields that name the BUILD, not the answer: a different build is reported, not failed. */
+const BUILD_HASH_FIELDS = new Set(['wasmHash']);
+/** Hash fields compared by their own rule above (scope-aware), not by the generic pass. */
+const SCOPED_HASH_FIELDS = new Set(['modelHash', 'settingsHash', 'resultsHash', 'baseResultsHash']);
+const isHashField = (k: string) => /(Hash|Sha256)$/.test(k);
 
 const verdict = (a: string | null | undefined, b: string | null | undefined): FieldVerdict =>
   !a || !b ? 'absent' : a === b ? 'match' : 'differs';
@@ -219,13 +231,33 @@ export function compareProvenance(claimed: ResultProvenance, fresh: ResultProven
   const shownResults: FieldVerdict = claimedSingle
     ? results
     : sameScope(claimed.scopeRef, fresh.scopeRef) ? verdict(claimed.resultsHash, fresh.resultsHash) : 'absent';
-  const all = [model, settings, results, shownResults];
+  const hashes: ReproduceVerdict['hashes'] = [
+    { field: 'modelHash', verdict: model },
+    { field: 'settingsHash', verdict: settings },
+    { field: 'baseResultsHash', verdict: results },
+    { field: 'resultsHash', verdict: shownResults },
+  ];
+  // Every other hash the report claims: a claimed value must be recomputed and equal.
+  const c = claimed as unknown as Record<string, unknown>;
+  const f = fresh as unknown as Record<string, unknown>;
+  for (const k of Object.keys(c).sort()) {
+    if (!isHashField(k) || SCOPED_HASH_FIELDS.has(k) || BUILD_HASH_FIELDS.has(k)) continue;
+    const v = c[k];
+    if (typeof v !== 'string' || !v) continue; // the report claims nothing here
+    hashes.push({ field: k, verdict: verdict(v, typeof f[k] === 'string' ? (f[k] as string) : null) });
+  }
+  // Certificates: each one the report claims must have been recomputed (not pending) and match.
+  for (const cert of claimed.certificates ?? []) {
+    const mine = (fresh.certificates ?? []).find((x) => x.scope === cert.scope);
+    hashes.push({ field: `certificate:${cert.scope}`, verdict: verdict(cert.hash, mine?.hash) });
+  }
+  const all = hashes.map((h) => h.verdict);
   const status: ReproduceStatus = all.includes('differs') ? 'differs' : all.includes('absent') ? 'incomplete' : 'reproduced';
   const buildDifferences = (['appVersion', 'commit', 'engineVersion', 'engineCommit', 'wasmHash', 'resultsVersion'] as const)
     .filter((k) => String(claimed[k]) !== String(fresh[k]));
   return {
     status, reproduced: status === 'reproduced',
-    model, settings, results, shownResults,
+    model, settings, results, shownResults, hashes,
     sameBuild: buildDifferences.length === 0,
     buildDifferences,
   };
@@ -261,6 +293,9 @@ export interface ProvenanceLabels {
   certificates: string;
   none: string;
   stale: string;
+  /** The status row's name, and its text when the results are current. */
+  status: string;
+  current: string;
   reproduce: string;
 }
 
@@ -280,6 +315,8 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 export function provenanceTextLines(p: ResultProvenance, l: ProvenanceLabels): Array<[string, string]> {
   const s = p.settings;
   return [
+    // First, so no export can carry the record without its re-check status (CSV, workbook, HTML).
+    [l.status, p.stale ? l.stale : l.current],
     [l.app, `${p.appVersion} · ${p.commit}`],
     [l.engine, `${p.engineVersion} · ${p.engineCommit}`],
     [l.wasm, p.wasmHash],

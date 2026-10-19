@@ -90,7 +90,16 @@ The HTML reports embed the record as `<script type="application/json" id="stabil
   verdict is `reproduced` only when every hash the report claims was recomputed and matches;
   `differs` when one does not; `incomplete` when one could not be recomputed (a named envelope not
   on screen, an advanced analysis, a combination or case that does not exist, a record written
-  before scopes were recorded). Incomplete is never shown as success. "Download solver input" saves the base solve's engine
+  before scopes were recorded). Incomplete is never shown as success.
+  Every hash the record claims is compared, not a fixed list: model, settings, base and shown
+  results, the engine's input and result hashes, each certificate (one still being computed
+  counts as missing), and any other `…Hash` / `…Sha256` field, so a field added later cannot be
+  silently ignored. Only `wasmHash` names the build rather than the answer: a different build is
+  reported beside the verdict, not counted as a difference.
+
+Every export opens its provenance with a status line (`provenanceTextLines`): STALE when the
+project's results predate registered changes, else current. The calc and PRO reports (HTML, and
+so their print/PDF view), the CSV and the workbook cover all print it. "Download solver input" saves the base solve's engine
   input.
 - **CLI**: `cargo run --release --example reproduce -- solver-input-3d.json --expect-input <engineInputSha256> --expect-results <engineResultsSha256>`
   solves twice natively, checks the run is deterministic and that both hashes match; exit 1 otherwise.

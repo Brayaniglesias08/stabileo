@@ -62,6 +62,11 @@
   }
 
   const field = (v: string) => t(`provenance.reproduce.field.${v}`);
+  const FIELD_LABEL: Record<string, string> = {
+    modelHash: t('provenance.model'), settingsHash: t('provenance.settings'),
+    baseResultsHash: t('provenance.results'), resultsHash: t('provenance.scope'),
+    engineInputSha256: t('provenance.engineSolve'), engineResultsSha256: t('provenance.engineSolve'),
+  };
 </script>
 
 {#if open}
@@ -78,11 +83,10 @@
           {@const v = outcome.verdict}
           <div class="rp-verdict" class:ok={v.reproduced} data-testid="reproduce-verdict" data-reproduced={v.reproduced} data-status={v.status}>
             <strong>{v.status === 'reproduced' ? t('provenance.reproduce.match') : v.status === 'incomplete' ? t('provenance.reproduce.incomplete') : t('provenance.reproduce.mismatch')}</strong>
-            <ul>
-              <li>{t('provenance.model')}: {field(v.model)}</li>
-              <li>{t('provenance.settings')}: {field(v.settings)}</li>
-              <li>{t('provenance.results')}: {field(v.results)}</li>
-              <li>{t('provenance.scope')}: {field(v.shownResults)}</li>
+            <ul data-testid="reproduce-hashes">
+              {#each v.hashes as h (h.field)}
+                <li data-field={h.field} data-verdict={h.verdict}>{FIELD_LABEL[h.field] ?? h.field}: {field(h.verdict)}</li>
+              {/each}
             </ul>
             {#if v.model === 'differs'}<p>{t('provenance.reproduce.modelDiffers')}</p>{/if}
             {#if !v.sameBuild}<p>{tp('provenance.reproduce.buildDiffers', { fields: v.buildDifferences.join(', ') })}</p>{/if}

@@ -10330,6 +10330,8 @@ const es: Record<string, string> = {
   "provenance.scope": "Resultado mostrado",
   "provenance.certificates": "Certificados",
   "provenance.none": "ninguno",
+  "provenance.status": "Estado",
+  "provenance.current": "Vigente: resuelto con la versión de resultados de esta compilación.",
   "provenance.stale": "DESACTUALIZADO: estos resultados provienen de un proyecto resuelto con una versión anterior y lo afectan cambios registrados. Volvé a correr el análisis y el diseño antes de usarlos.",
   "provenance.reproduceNote": "Para reproducir: abrí el mismo proyecto en Stabileo, elegí \"Reproducir desde la procedencia\" y pegá este informe; la app vuelve a resolver y compara cada hash.",
   "provenance.reproduce.title": "Reproducir desde la procedencia",

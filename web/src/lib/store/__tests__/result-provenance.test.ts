@@ -14,12 +14,16 @@ import { currentResultProvenance, provenanceLabels, baseSolverInputJson } from '
 import { serializeProject, deserializeProject } from '../file';
 import { recheckStore } from '../recheck.svelte';
 import {
-  compareProvenance, parseProvenance, provenanceBlockHtml, modelHash,
+  compareProvenance, parseProvenance, provenanceBlockHtml, modelHash, provenanceTextLines,
 } from '../../provenance/result-provenance';
 import { buildIdentity } from '../../provenance/build-identity';
 import { generateCalcReportHtml } from '../../engine/calc-report';
 import { publishCombinations3D } from '../active-results';
 import { compareWithResultsOnHand } from '../../actions/reproduce';
+import { generateReportHtml, type ReportData } from '../../engine/pro-report';
+import { exportResultsCSV } from '../file';
+import { currentWorkbookSheets } from '../project-workbook';
+import type { ResultProvenance } from '../../provenance/result-provenance';
 
 beforeAll(async () => { await initSolver(); });
 beforeEach(() => {
@@ -226,5 +230,110 @@ describe('reproduce recomputes the result the report claims, not the one on scre
     const { scopeRef: _s, ...legacy } = currentResultProvenance();
     const out = compareWithResultsOnHand(legacy as never);
     expect(out.ok && out.verdict.status).toBe('incomplete');
+  });
+});
+
+describe('the verdict compares every hash the report claims', () => {
+  function pair(): { a: ResultProvenance; b: ResultProvenance } {
+    buildFrame();
+    solveMain();
+    const a = currentResultProvenance();
+    return { a, b: structuredClone(a) };
+  }
+
+  it('an engine hash that differs is not reproduced', () => {
+    const { a, b } = pair();
+    expect(compareProvenance(a, b).status).toBe('reproduced');
+    expect(compareProvenance({ ...a, engineInputSha256: 'f'.repeat(64) }, b).status).toBe('differs');
+    expect(compareProvenance({ ...a, engineResultsSha256: 'f'.repeat(64) }, b).status).toBe('differs');
+  });
+
+  it('an engine hash the re-run could not compute is incomplete', () => {
+    const { a, b } = pair();
+    expect(compareProvenance(a, { ...b, engineResultsSha256: null }).status).toBe('incomplete');
+  });
+
+  it('a claimed certificate that differs is not reproduced; one not (yet) recomputed is incomplete', () => {
+    const { a, b } = pair();
+    const cert = { scope: 'single', status: 'certified', hash: 'c'.repeat(64) };
+    expect(compareProvenance({ ...a, certificates: [cert] }, { ...b, certificates: [cert] }).status).toBe('reproduced');
+    expect(compareProvenance({ ...a, certificates: [cert] }, { ...b, certificates: [{ ...cert, hash: 'd'.repeat(64) }] }).status).toBe('differs');
+    expect(compareProvenance({ ...a, certificates: [cert] }, { ...b, certificates: [] }).status).toBe('incomplete');
+  });
+
+  it('a hash field this build does not know is never ignored: incomplete', () => {
+    const { a, b } = pair();
+    const v = compareProvenance({ ...a, futureCheckSha256: 'e'.repeat(64) } as ResultProvenance, b);
+    expect(v.status).toBe('incomplete');
+    expect(v.hashes.find((h) => h.field === 'futureCheckSha256')?.verdict).toBe('absent');
+  });
+
+  it('a different WASM build is reported, not failed', () => {
+    const { a, b } = pair();
+    const v = compareProvenance({ ...a, wasmHash: '0'.repeat(64) }, b);
+    expect(v.status).toBe('reproduced');
+    expect(v.sameBuild).toBe(false);
+    expect(v.buildDifferences).toContain('wasmHash');
+  });
+});
+
+describe('every export says STALE for a project not re-run since registered changes', () => {
+  function openStale(): void {
+    buildFrame();
+    const file = JSON.parse(serializeProject());
+    delete file.snapshot.solvedWith;
+    expect(deserializeProject(JSON.stringify(file))).toBe(true);
+    expect(recheckStore.stale).toBe(true);
+  }
+  const STALE = /STALE/;
+
+  it('the shared text lines (CSV, workbook) open with the status', () => {
+    openStale();
+    const lines = provenanceTextLines(currentResultProvenance(), provenanceLabels());
+    expect(lines[0]![1]).toMatch(STALE);
+  });
+
+  it('CSV', () => {
+    openStale();
+    expect(exportResultsCSV('not solved')).toMatch(STALE);
+  });
+
+  it('workbook cover', () => {
+    openStale();
+    const cover = currentWorkbookSheets(5, { model: false, results: false }).find((s) => s.name === 'Cover')!;
+    expect(cover.rows.some((r) => r.some((c) => typeof c === 'string' && STALE.test(c)))).toBe(true);
+  });
+
+  it('calc report HTML (and so its print/PDF view)', () => {
+    openStale();
+    const p = currentResultProvenance();
+    const html = generateCalcReportHtml({
+      config: { projectName: 'P', engineerName: '', companyName: '', date: '', notes: '' },
+      is3D: true, analysisMode: 'PRO', provenance: { kind: 'single' }, hasDesignChecks: false,
+      nodes: [], elements: [], materials: [], sections: [], supports: [], loads: [], loadCases: [], combinations: [],
+      solveError: 'not solved',
+      resultProvenance: { record: p, labels: provenanceLabels() },
+    });
+    expect(html).toMatch(STALE);
+    expect(html).toContain('provenance-stale');
+  });
+
+  it('PRO report HTML (and so its print/PDF view)', () => {
+    openStale();
+    const p = currentResultProvenance();
+    const html = provenanceBlockHtml(p, provenanceLabels());
+    expect(html).toMatch(STALE);
+    // The PRO report appends exactly this block (`pro-report.ts`).
+    const full = (() => {
+      try {
+        return generateReportHtml({
+          projectName: 'p', date: 'd', nodes: [], elements: [], materials: [], sections: [], supports: [], loadCount: 0,
+          results: { displacements: [], reactions: [], elementForces: [] }, verifications: [], t: (k: string) => k,
+          resultProvenance: { record: p, labels: provenanceLabels() },
+        } as unknown as ReportData);
+      } catch { return null; }
+    })();
+    expect(full, 'the PRO report renders from minimal data').not.toBeNull();
+    expect(full).toMatch(STALE);
   });
 });

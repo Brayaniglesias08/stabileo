@@ -166,7 +166,8 @@ function resultProvenanceFor(ref: ScopeRef, results: object | null, now?: Date):
     certificates: certificates(),
     stale: recheckStore.stale,
     stamp: recheckStore.stamp,
-    engine: results ? engineHashes() : null,
+    // The engine's hashes are of the base solve, whichever scope the record names.
+    engine: base ? engineHashes() : null,
     now,
   });
 }
@@ -187,6 +188,8 @@ export function provenanceLabels(): ProvenanceLabels {
     certificates: t('provenance.certificates'),
     none: t('provenance.none'),
     stale: t('provenance.stale'),
+    status: t('provenance.status'),
+    current: t('provenance.current'),
     reproduce: t('provenance.reproduceNote'),
   };
 }

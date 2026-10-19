@@ -604,9 +604,8 @@ export function exportResultsCSV(solveError?: string): string {
   lines.push(`# ${t('file.csvProject')}: ${modelStore.model.name}`);
   lines.push(`# ${t('file.csvDate')}: ${new Date().toLocaleString()}`);
   // Which build produced these numbers from which model and settings (`provenance/result-provenance.ts`).
-  const prov = currentResultProvenance();
-  if (prov.stale) lines.push(`# ${t('provenance.stale')}`);
-  for (const [k, v] of provenanceTextLines(prov, provenanceLabels())) lines.push(`# ${k}: ${v}`);
+  // The status row comes first and says STALE when the results predate registered changes.
+  for (const [k, v] of provenanceTextLines(currentResultProvenance(), provenanceLabels())) lines.push(`# ${k}: ${v}`);
   lines.push('');
   if (!r3d && !r2d) {
     lines.push(`# ${t('excel.solveFailed')}`);
