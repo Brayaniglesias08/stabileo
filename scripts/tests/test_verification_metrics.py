@@ -303,7 +303,7 @@ class AcceptanceEvidence(unittest.TestCase):
             os.makedirs(d)
             with open(os.path.join(d, "a.json"), "w") as f:
                 json.dump({"analysis": "modal", "references": [{}, {}]}, f)
-            self.assertEqual(vm.acceptance(), {"cases": 1, "references": 2, "by_analysis": {"modal": 1}})
+            self.assertEqual(vm.acceptance(), {"cases": 1, "references": 2, "by_analysis": {"modal": 1}, "unparsable": []})
         finally:
             vm.ROOT = orig
 
@@ -349,6 +349,136 @@ class CIEvidence(unittest.TestCase):
         m, _ = vm.ci_metrics(ci_gh(caught=0, missed=0), 10)
         self.assertNotIn("mutation_rust", m)
         self.assertNotIn("None", json.dumps(m))
+
+
+class AbsentInputsAreNotNumbers(unittest.TestCase):
+    """Fifth review: an absent or unparsable input must never become a number."""
+
+    def test_differential_artifact_without_report_is_unavailable(self):
+        # The newest artifact holds only a mismatch dump; an older run has a valid report.
+        runs = [dict(run(6), headSha="new"), dict(run(5), headSha="old")]
+        gh = FakeGH({"differential.yml": runs}, {6: ["differential-pynite"], 5: ["differential-pynite"]},
+                    {(6, "differential-pynite"): {"pynite/dump-1.json": json.dumps({"nodes": []})},
+                     (5, "differential-pynite"): {"r.json": json.dumps([{"status": "ok"}] * 3)}})
+        d = vm.differential(gh, 10)
+        self.assertEqual(d["pynite"]["ok"], 3)
+        self.assertEqual(d["pynite"]["sha"], "old")
+
+    def test_differential_no_report_anywhere(self):
+        gh = FakeGH({"differential.yml": [run(6)]}, {6: ["differential-pynite"]},
+                    {(6, "differential-pynite"): {"dump.json": "{}"}})
+        self.assertEqual(vm.differential(gh, 10), {})
+        m, _ = vm.ci_metrics(gh, 10)
+        self.assertNotIn("differential_compared", m)
+
+    def test_mutants_shard_without_outcomes_is_ignored(self):
+        gh = FakeGH({"verify.yml": [run(5)]}, {5: ["mutants-report-0"]},
+                    {(5, "mutants-report-0"): {"debug.log": "x"}})
+        self.assertIsNone(vm.rust_mutants(gh, 10))
+
+    def test_mutants_unknown_plan_is_partial(self):
+        files = mutants_dir(9, 1)
+        del files["mutants.json"]
+        gh = FakeGH({"verify.yml": [run(5)]}, {5: ["mutants-report-0"]}, {(5, "mutants-report-0"): files})
+        m, _ = vm.ci_metrics(gh, 10)
+        self.assertEqual(m["mutation_rust"]["status"], "partial")
+        self.assertIn("plan unknown", m["mutation_rust"]["display"])
+
+    def test_stryker_empty_report_falls_back(self):
+        gh = FakeGH({"mutation-ts.yml": [run(5), run(4)]}, {5: ["stryker-report"], 4: ["stryker-report"]},
+                    {(5, "stryker-report"): stryker(0, 0), (4, "stryker-report"): stryker(3, 1)})
+        self.assertEqual(vm.ts_mutants(gh, 10)["score"], 75.0)
+
+    def test_coverage_malformed_is_unmeasured(self):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "c.json")
+        for text in ("not json", json.dumps({"data": []}), json.dumps({"data": [{"totals": {}}]})):
+            with open(p, "w") as f:
+                f.write(text)
+            self.assertIsNone(vm.coverage(FakeGH({}, {}), 10, p), text)
+
+    def test_coverage_without_branch_instrumentation_has_no_branch_value(self):
+        p = os.path.join(tempfile.mkdtemp(), "c.json")
+        with open(p, "w") as f:
+            json.dump({"data": [{"totals": {"lines": {"percent": 80}, "functions": {"percent": 90},
+                                            "branches": {"count": 0, "percent": 0}}}]}, f)
+        self.assertIsNone(vm.coverage(FakeGH({}, {}), 10, p)["branches"])
+
+    def test_acceptance_unparsable_cases_not_counted(self):
+        orig = vm.ROOT
+        try:
+            vm.ROOT = tempfile.mkdtemp()
+            d = os.path.join(vm.ROOT, "engine", "tests", "acceptance", "models")
+            os.makedirs(d)
+            with open(os.path.join(d, "bad.json"), "w") as f:
+                f.write("{")
+            self.assertIsNone(vm.acceptance())
+            with open(os.path.join(d, "noref.json"), "w") as f:
+                json.dump({"analysis": "modal"}, f)
+            self.assertIsNone(vm.acceptance())
+        finally:
+            vm.ROOT = orig
+
+    def test_git_counts_outside_a_repository(self):
+        orig = vm.ROOT
+        try:
+            vm.ROOT = tempfile.mkdtemp()
+            for k, v in vm.count_metrics().items():
+                self.assertEqual(v["status"], "not_measured", k)
+        finally:
+            vm.ROOT = orig
+        for k, v in vm.count_metrics().items():
+            self.assertEqual(v["status"], "measured", k)
+
+    def test_certified_share_without_certify_doc(self):
+        rows = vm.maturity(vm.feature_matrix(), {})
+        self.assertEqual(vm.certified_metrics(rows)["certified_analyses"]["status"], "measured")
+        with hidden("docs/verification/CERTIFY.md"):
+            m = vm.certified_metrics(vm.maturity(vm.feature_matrix(), {}))
+        for v in m.values():
+            self.assertEqual(v["status"], "not_measured")
+
+    def test_ts_share_without_rust_sources(self):
+        ts = vm.ts_engine_logic()
+        ts["rust_lines"] = 0
+        self.assertEqual(vm.ts_metrics(ts)["rust_share"]["status"], "not_measured")
+
+    def test_undefined_value_never_displayed(self):
+        for st in ("measured", "partial", "retained"):
+            m = vm.metric("x", None, display="None %", status=st)
+            self.assertEqual(m["display"], vm.NOT_MEASURED)
+
+
+class OfflineRecordProvenance(unittest.TestCase):
+    prev = {"generated": "2026-10-01", "metrics": {
+        "mutation_rust": vm.with_sha(vm.metric("Mutation", 80.0, display="80.0 %"), ["oldsha"]),
+        "fuzz_execs": vm.metric("Fuzz", 5),  # no provenance at all
+        "safety_open": vm.metric("Open safety", 7),
+        "gone": vm.metric("Gone", status="not_measured")}}
+
+    def test_ci_metric_from_another_commit_is_not_carried_into_a_release(self):
+        m = vm.retained(self.prev, "mutation_rust", "Mutation", "s", "offline run", record_sha="tagsha")
+        self.assertEqual(m["status"], "not_measured")
+
+    def test_ci_metric_without_provenance_is_not_carried_into_a_release(self):
+        m = vm.retained(self.prev, "fuzz_execs", "Fuzz", "s", "offline run", record_sha="tagsha")
+        self.assertEqual(m["status"], "not_measured")
+
+    def test_ci_metric_from_the_release_commit_is_retained_and_marked(self):
+        m = vm.retained(self.prev, "mutation_rust", "Mutation", "s", "offline run", record_sha="oldsha")
+        self.assertEqual(m["status"], "retained")
+        self.assertIn("retained from 2026-10-01", m["note"])
+        self.assertEqual(vm.snapshot_value(m), "80.0 % (retained)")
+
+    def test_current_dashboard_retains_with_note(self):
+        m = vm.retained(self.prev, "mutation_rust", "Mutation", "s", "offline run")
+        self.assertEqual((m["status"], m["display"]), ("retained", "80.0 %"))
+        m = vm.retained(self.prev, "safety_open", "Open safety", "s", "offline run", record_sha="tagsha")
+        self.assertEqual(vm.snapshot_value(m), "7 (retained)")
+
+    def test_nothing_to_retain(self):
+        for key in ("gone", "absent"):
+            self.assertEqual(vm.retained(self.prev, key, "x", "s", "offline run")["status"], "not_measured")
 
 
 if __name__ == "__main__":

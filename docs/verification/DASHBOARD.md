@@ -6,7 +6,7 @@ data is in [`dashboard.json`](dashboard.json) for the app and the docs site. CI 
 weekly and on every release tag ([workflow](../../.github/workflows/verification-dashboard.yml)).
 **"not yet measured" means exactly that**: no value is estimated or typed in.
 
-Generated 2026-10-19 01:11 UTC at commit `54411ef6b2`.
+Generated 2026-10-19 01:23 UTC at commit `da3b23f1d1`.
 
 These are the metrics behind the exit criteria of the backlog sections of
 [PRODUCT_ROADMAP.md](../roadmap/PRODUCT_ROADMAP.md). Per-item verification levels are in
@@ -16,7 +16,7 @@ These are the metrics behind the exit criteria of the backlog sections of
 
 | Metric | Value | Roadmap section | Source / note |
 |---|---|---|---|
-| Open `safety` issues | **52** | Release safety | GitHub label `safety`; 0 closed |
+| Open `safety` issues | **55** | Release safety | GitHub label `safety`; 0 closed |
 | Safety advisories published (GitHub) | **0** | Release safety | GitHub label `safety-advisory` |
 | Engineering logic in Rust (share of lines) | **64.6 %** | Engineering coverage | engine/src vs TS_ENGINE_LOGIC.md classes (b)+(c); TypeScript (b)+(c): 58924 lines in 161 modules; 13 TS modules not yet classified |
 | TypeScript (b)+(c) modules rated high safety | **88 modules, 35935 lines** | Engineering coverage | TS_ENGINE_LOGIC.md inventory (Safety column) |
@@ -48,7 +48,7 @@ One row per release, from the snapshots in [`releases/`](releases/): each is mea
 
 | Release | Measured | Commit | Open `safety` issues | Engineering logic in Rust (share of lines) | TypeScript (b)+(c) modules rated high safety | Analyses certified | Design checks certified | Acceptance-suite reference values | Mutation score, Rust (cargo-mutants) | Mutation score, TypeScript (Stryker) | Engine line coverage (llvm-cov) | Differential models compared (latest run per harness) | Fuzz executions (latest nightly) | Feature-matrix cells E / IGN / BAD / K |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| v0.2.0 | 2026-10-18 | `5b1482c78c` | 51 | 64.6 % | 88 modules, 35935 lines | 11 of 27 (40.7 %) | 8 of 16 (50.0 %) | not yet measured | 59.9 % (partial: 1251 of 23264 mutants tested) | not yet measured | not yet measured | 6317 (6216 agree, 101 mismatch) | not yet measured | 0 |
+| v0.2.0 | 2026-10-19 | `5b1482c78c` | 53 | 64.6 % | 88 modules, 35935 lines | 11 of 27 (40.7 %) | 8 of 16 (50.0 %) | not yet measured | not yet measured | not yet measured | not yet measured | not yet measured | not yet measured | 0 |
 
 ## Details
 
@@ -106,6 +106,9 @@ One row per release, from the snapshots in [`releases/`](releases/): each is mea
 - [#445](https://github.com/lambdaclass/stabileo/issues/445) Rigid link and diaphragm mean different things in the 2D and the 3D solve of one model
 - [#447](https://github.com/lambdaclass/stabileo/issues/447) Contain first, fix second: per-feature runtime switches (warn/refuse) for known dangerous results
 - [#452](https://github.com/lambdaclass/stabileo/issues/452) 2D: a nodal moment on a node where every frame is hinged is silently lost
+- [#456](https://github.com/lambdaclass/stabileo/issues/456) 3D buckling: compression gate uses end-force average, misses members compressed only between their ends
+- [#458](https://github.com/lambdaclass/stabileo/issues/458) Existing (assembled-level) certificate certifies singular models: all-hinged 2D node with moment/rigid link; skew unstiffened rotation
+- [#459](https://github.com/lambdaclass/stabileo/issues/459) 3D diaphragm in the XZ plane ties slaves with reversed rotation sign
 
 ### Differential testing (latest report per harness on `main`)
 

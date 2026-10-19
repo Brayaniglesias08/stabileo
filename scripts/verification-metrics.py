@@ -71,8 +71,8 @@ def warn(msg: str) -> None:
 
 
 def metric(label, value=None, display=None, status="measured", source="", note="", section=""):
-    if value is None and status == "measured":
-        status = "not_measured"
+    if value is None and status != "not_measured":
+        status = "not_measured"  # an undefined value is never displayed as a number ("None %")
     if status == "not_measured":
         display = NOT_MEASURED
     elif display is None:
@@ -315,20 +315,39 @@ def acceptance():
     models = sorted(glob.glob(os.path.join(ROOT, "engine", "tests", "acceptance", "models", "*.json")))
     if not models:
         return None
-    refs, by_analysis = 0, {}
+    refs, by_analysis, cases, bad = 0, {}, 0, []
     for p in models:
-        with open(p, encoding="utf-8") as f:
-            d = json.load(f)
-        refs += len(d.get("references", []))
-        a = d.get("analysis", "?")
+        try:
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f)
+            r = d["references"]
+            a = d["analysis"]
+            if not isinstance(r, list):
+                raise ValueError("references is not a list")
+        except Exception as ex:
+            bad.append(os.path.basename(p))
+            warn(f"acceptance case {p}: {ex}")
+            continue
+        cases += 1
+        refs += len(r)
         by_analysis[a] = by_analysis.get(a, 0) + 1
-    return {"cases": len(models), "references": refs, "by_analysis": by_analysis}
+    if not cases:
+        return None
+    return {"cases": cases, "references": refs, "by_analysis": by_analysis, "unparsable": bad}
 
 
-def git_grep_count(pattern: str, *paths: str) -> int:
-    r = subprocess.run(["git", "grep", "-hcE", pattern, "--", *paths], cwd=ROOT,
-                       capture_output=True, text=True)
-    return sum(int(x) for x in r.stdout.split() if x.strip().isdigit())
+def git_grep_count(pattern: str, *paths: str) -> int | None:
+    """Matches of `pattern` in tracked files; None when git fails or nothing matches (these counts
+    are of things the repository has, so zero means the evidence is missing, not "none")."""
+    try:
+        r = subprocess.run(["git", "grep", "-hcE", pattern, "--", *paths], cwd=ROOT,
+                           capture_output=True, text=True)
+    except Exception:
+        return None
+    if r.returncode not in (0, 1):
+        return None
+    n = sum(int(x) for x in r.stdout.split() if x.strip().isdigit())
+    return n or None
 
 
 def git_grep_files(pattern: str, *paths: str) -> list[str]:
@@ -350,20 +369,23 @@ def differential(gh: GH, max_runs: int):
         if prog in out:
             continue  # newest report per harness only
         d = gh.download(r["databaseId"], name)
-        if d:
-            out[prog] = _reports(d, r)
+        rep_ = _reports(d, r) if d else None
+        if rep_ is not None:  # an artifact without a parsable report (e.g. only mismatch dumps) is no evidence
+            out[prog] = rep_
     for program, art in (("opensees", "opensees-report"), ("codeaster", "codeaster-report")):
-        hit = find_artifacts(gh, "verify.yml", re.escape(art), max_runs)
-        if hit:
-            r, name = hit[0]
+        for r, name in find_artifacts(gh, "verify.yml", re.escape(art), max_runs, all_matches=True):
             d = gh.download(r["databaseId"], name)
-            if d:
-                out[program] = _reports(d, r)
+            rep_ = _reports(d, r) if d else None
+            if rep_ is not None:
+                out[program] = rep_
+                break
     return out
 
 
-def _reports(d: str, run) -> dict:
-    statuses, analyses = {}, {}
+def _reports(d: str, run) -> dict | None:
+    """Status counts of the run.py / compare.py reports in an artifact directory; None when no
+    report parses (the artifact then says nothing about how many models were compared)."""
+    statuses, analyses, parsed = {}, {}, 0
     for p in glob.glob(os.path.join(d, "**", "*.json"), recursive=True):
         try:
             with open(p, encoding="utf-8") as f:
@@ -372,14 +394,17 @@ def _reports(d: str, run) -> dict:
             continue
         if not isinstance(data, list) or not data or not isinstance(data[0], dict) or "status" not in data[0]:
             continue
+        parsed += 1
         for row in data:
             s = row.get("status", "?")
             statuses[s] = statuses.get(s, 0) + 1
             a = row.get("analysis") or "static"
             ad = analyses.setdefault(a, {})
             ad[s] = ad.get(s, 0) + 1
+    if not parsed:
+        return None
     compared = sum(statuses.get(s, 0) for s in ("ok", "mismatch", "known"))
-    return {"run": run["url"], "date": run["createdAt"][:10], "statuses": statuses,
+    return {"run": run["url"], "sha": run.get("headSha"), "date": run["createdAt"][:10], "statuses": statuses,
             "analyses": analyses, "compared": compared, "ok": statuses.get("ok", 0),
             "mismatch": statuses.get("mismatch", 0), "total": sum(statuses.values())}
 
@@ -401,24 +426,31 @@ def rust_mutants(gh: GH, max_runs: int):
         warn(f"mutants run {run['databaseId']}: {ex}")
         return None
     tot = {"caught": 0, "missed": 0, "timeout": 0, "unviable": 0, "planned": 0}
+    shards, plan_known = 0, True
     for name in names:
         d = gh.download(run["databaseId"], name)
         if not d:
             continue
-        for kind in ("caught", "missed", "timeout", "unviable"):
-            p = os.path.join(d, f"{kind}.txt")
+        files = [os.path.join(d, f"{k}.txt") for k in ("caught", "missed", "timeout", "unviable")]
+        if not any(os.path.exists(p) for p in files):
+            continue  # no outcome files: this shard says nothing
+        shards += 1
+        for kind, p in zip(("caught", "missed", "timeout", "unviable"), files):
             if os.path.exists(p):
                 with open(p, encoding="utf-8") as f:
                     tot[kind] += sum(1 for line in f if line.strip())
         mj = os.path.join(d, "mutants.json")
-        if os.path.exists(mj):
-            try:
-                with open(mj, encoding="utf-8") as f:
-                    tot["planned"] += len(json.load(f))
-            except Exception:
-                pass
+        try:
+            with open(mj, encoding="utf-8") as f:
+                tot["planned"] += len(json.load(f))
+        except Exception:
+            plan_known = False  # unknown plan: never claim the shard is complete
+    if not shards:
+        return None
     tot["tested"] = sum(tot[k] for k in ("caught", "missed", "timeout", "unviable"))
-    tot["shards"] = len(names)
+    tot["plan_known"] = plan_known
+    tot["sha"] = run.get("headSha")
+    tot["shards"] = shards
     tot["jobs"] = {j["name"]: j["conclusion"] for j in jobs}
     tot["run"], tot["date"] = run["url"], run["createdAt"][:10]
     return tot
@@ -436,19 +468,26 @@ def ts_mutants(gh: GH, max_runs: int):
         with open(p, encoding="utf-8") as f:
             rep = json.load(f)
         st = {}
-        for fdata in rep.get("files", {}).values():
-            for m in fdata.get("mutants", []):
-                st[m["status"]] = st.get(m["status"], 0) + 1
+        try:
+            for fdata in rep.get("files", {}).values():
+                for m in fdata.get("mutants", []):
+                    st[m["status"]] = st.get(m["status"], 0) + 1
+        except Exception as ex:
+            warn(f"Stryker report of run {r['databaseId']}: {ex}")
+            continue
         detected = st.get("Killed", 0) + st.get("Timeout", 0)
         valid = detected + st.get("Survived", 0) + st.get("NoCoverage", 0)
-        return {"statuses": st, "score": pct(detected, valid), "run": r["url"], "date": r["createdAt"][:10]}
+        if not valid:
+            continue  # a report with no mutants says nothing; try an older run
+        return {"statuses": st, "score": pct(detected, valid), "run": r["url"], "date": r["createdAt"][:10],
+                "sha": r.get("headSha")}
     return None
 
 
 def fuzz_execs(gh: GH, max_runs: int):
     if not gh.ok:
         return None
-    total, targets = 0, {}
+    total, targets, shas = 0, {}, set()
     for r, name in find_artifacts(gh, "verify.yml", r"fuzz-stats-.+", max_runs):
         d = gh.download(r["databaseId"], name)
         if not d:
@@ -460,18 +499,23 @@ def fuzz_execs(gh: GH, max_runs: int):
                 for m in re.finditer(r"stat::number_of_executed_units:\s*(\d+)", text):
                     targets[name] = targets.get(name, 0) + int(m.group(1))
                     total += int(m.group(1))
-    return {"total": total, "targets": targets} if targets else None
+                    shas.add(r.get("headSha"))
+    return {"total": total, "targets": targets, "shas": sorted(s for s in shas if s)} if targets else None
 
 
 def coverage(gh: GH, max_runs: int, local: str | None, require_sha: str | None = None):
     """Engine coverage from `local`, else from the newest coverage artifact of a main or release-tag
     run. With `require_sha` (recording a release snapshot) only an artifact of a run of exactly that
     commit is accepted; otherwise coverage stays unmeasured for the snapshot."""
-    data = None
+    data, sha = None, None
     if local and os.path.exists(local):
-        with open(local, encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(local, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as ex:
+            warn(f"coverage file {local}: {ex}")
         src = local
+        sha = require_sha  # the caller measured it on the commit being recorded
     elif gh.ok:
         # Coverage is measured by release-tag runs (and manual runs on main), so tag runs count.
         flt = is_main_or_tag_run if not require_sha else (
@@ -482,14 +526,24 @@ def coverage(gh: GH, max_runs: int, local: str | None, require_sha: str | None =
             d = gh.download(hit[0][0]["databaseId"], hit[0][1])
             p = d and next(iter(glob.glob(os.path.join(d, "**", "*.json"), recursive=True)), None)
             if p:
-                with open(p, encoding="utf-8") as f:
-                    data = json.load(f)
+                try:
+                    with open(p, encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception as ex:
+                    warn(f"coverage artifact: {ex}")
                 src = hit[0][0]["url"]
-    if not data:
+                sha = hit[0][0].get("headSha")
+    try:
+        t = data["data"][0]["totals"]
+        out = {"lines": float(t["lines"]["percent"]), "functions": float(t["functions"]["percent"]),
+               "branches": None, "source": src, "sha": sha}
+        b = t.get("branches", {}).get("percent")
+        # llvm-cov reports 0 % branches with count 0 when branch coverage was not enabled
+        if b is not None and t.get("branches", {}).get("count", 1):
+            out["branches"] = float(b)
+        return out
+    except Exception:
         return None
-    t = data["data"][0]["totals"]
-    return {"lines": t["lines"]["percent"], "branches": t.get("branches", {}).get("percent"),
-            "functions": t["functions"]["percent"], "source": src}
 
 
 # --------------------------------------------------------------------------- maturity catalog
@@ -1028,15 +1082,77 @@ S_TRUST, S_COV, S_PROOF, S_REL, S_MULT = ("Trust and verification", "Engineering
                                           "Solver and proof depth", "Release safety", "Multipliers")
 
 
+CI_KEYS = {"differential_compared", "mutation_rust", "mutation_ts", "fuzz_execs", "coverage_lines",
+           "coverage_branches"}
+
+
+def with_sha(m: dict, shas) -> dict:
+    """Record the commit(s) the CI evidence of a metric was measured on."""
+    m["evidence_sha"] = sorted({x for x in shas if x})
+    return m
+
+
+def retained(prev: dict, key: str, label: str, section_name: str, why: str, record_sha: str | None = None) -> dict:
+    """A metric carried over from the previous dashboard (offline run, GitHub unreachable), marked
+    `retained` with where it came from. When recording a release, a CI metric is carried over only
+    if all its evidence was measured on the release commit; otherwise it is not measured."""
+    p = prev.get("metrics", {}).get(key)
+    if not p or p.get("status") == "not_measured" or p.get("value") is None:
+        return metric(label, status="not_measured", note=why, section=section_name)
+    if record_sha is not None and key in CI_KEYS:
+        shas = p.get("evidence_sha") or []
+        if not shas or any(x != record_sha for x in shas):
+            return metric(label, status="not_measured", section=section_name,
+                          note=f"{why}; the previous value was not measured on the release commit")
+    p = dict(p)
+    base = re.sub(r"\s*\(retained from .*\)$", "", p.get("note", ""))
+    p["note"] = (base + f" (retained from {prev.get('generated', 'previous run')}; {why})").strip()
+    p["status"] = "retained"
+    return p
+
+
+def snapshot_value(m: dict) -> str:
+    return m["display"] + (" (retained)" if m.get("status") == "retained" else "")
+
+
+def count_metrics() -> dict:
+    out = {}
+    for key, label, pat, paths, src in (
+            ("engine_tests", "Engine `#[test]` functions", r"^[[:space:]]*#\[test\]", ("engine",), "git grep engine"),
+            ("kani_harnesses", "Kani harnesses", r"kani::proof", ("engine",), "git grep `kani::proof`"),
+            ("lean_theorems", "Lean theorems and lemmas", r"^[[:space:]]*(theorem|lemma) ", ("*.lean",),
+             "verify/*.lean")):
+        n = git_grep_count(pat, *paths)
+        out[key] = metric(label, n, section=S_PROOF, source=src,
+                          note="" if n else "git grep failed or found nothing")
+    return out
+
+
+def certified_metrics(rows) -> dict:
+    out = {}
+    have = bool(read("docs/verification/CERTIFY.md"))
+    for key, lab in (("analyses", "certified_analyses"), ("design", "certified_design")):
+        label = f"{'Analyses' if key == 'analyses' else 'Design checks'} certified"
+        if not have or not rows.get(key):
+            out[lab] = metric(label, status="not_measured", section=S_TRUST,
+                              note="CERTIFY.md or the maturity catalog missing")
+            continue
+        n = sum(1 for r in rows[key] if r["level"] == "Certified")
+        out[lab] = metric(label, n, display=f"{n} of {len(rows[key])} ({pct(n, len(rows[key]))} %)",
+                          section=S_TRUST, source="MATURITY.md (CERTIFY.md)")
+    return out
+
+
 def ts_metrics(ts) -> dict:
     """Rust vs TypeScript metrics; not measured when the inventory could not be read (an empty
     inventory would otherwise read as "100 % Rust")."""
     labels = {"rust_share": "Engineering logic in Rust (share of lines)",
               "ts_high_safety": "TypeScript (b)+(c) modules rated high safety",
               "ts_engineering_lines": "TypeScript engineering arithmetic, classes (b)+(c) (lines)"}
-    if sum(c["modules"] for c in ts["by_class"].values()) == 0:
+    if sum(c["modules"] for c in ts["by_class"].values()) == 0 or not ts["rust_lines"]:
         return {k: metric(l, status="not_measured", section=S_COV,
-                          note="TS_ENGINE_LOGIC.md inventory missing or unreadable") for k, l in labels.items()}
+                          note="TS_ENGINE_LOGIC.md inventory or engine/src missing or unreadable")
+                for k, l in labels.items()}
     ts_eng = ts["by_class"]["b"]["lines"] + ts["by_class"]["c"]["lines"]
     share = pct(ts["rust_lines"], ts["rust_lines"] + ts_eng)
     return {
@@ -1082,34 +1198,37 @@ def ci_metrics(gh, max_runs: int):
         comp = sum(r["compared"] for r in diff.values())
         ok = sum(r["ok"] for r in diff.values())
         mis = sum(r["mismatch"] for r in diff.values())
-        M["differential_compared"] = metric(
+        M["differential_compared"] = with_sha(metric(
             "Differential models compared (latest run per harness)", comp,
             display=f"{comp} ({ok} agree, {mis} mismatch)", section=S_TRUST,
             source=", ".join(sorted(diff)),
             note="see Details; no report yet: " + (", ".join(
                 h for h in ("frame3dd", "pynite", "mystran", "kratos", "calculix", "opensees", "codeaster")
-                if h not in diff) or "none"))
+                if h not in diff) or "none")), [r["sha"] for r in diff.values()])
     rm = rust_mutants(gh, max_runs)
     details["rust_mutants"] = rm
     sc = pct(rm["caught"], rm["caught"] + rm["missed"]) if rm else None
     if sc is not None:
-        partial = rm["tested"] < rm["planned"]
-        M["mutation_rust"] = metric(
+        partial = not rm["plan_known"] or rm["tested"] < rm["planned"]
+        size = (f"{rm['tested']} of {rm['planned']} mutants tested" if rm["plan_known"]
+                else f"{rm['tested']} mutants tested, plan unknown")
+        M["mutation_rust"] = with_sha(metric(
             "Mutation score, Rust (cargo-mutants)", sc,
-            display=f"{sc} %" + (f" (partial: {rm['tested']} of {rm['planned']} mutants tested)" if partial else ""),
+            display=f"{sc} %" + (f" (partial: {size})" if partial else ""),
             section=S_PROOF, status="partial" if partial else "measured",
             source=f"verify.yml [{rm['date']}]({rm['run']})",
             note=f"caught/(caught+missed); {rm['shards']} shards; jobs: "
-                 + ", ".join(sorted(set(str(v) for v in rm["jobs"].values()))))
+                 + ", ".join(sorted(set(str(v) for v in rm["jobs"].values())))), [rm["sha"]])
     tm = ts_mutants(gh, max_runs)
     details["ts_mutants"] = tm
     if tm and tm.get("score") is not None:
-        M["mutation_ts"] = metric("Mutation score, TypeScript (Stryker)", tm["score"], display=f"{tm['score']} %",
-                                  section=S_COV, source=f"mutation-ts.yml [{tm['date']}]({tm['run']})")
+        M["mutation_ts"] = with_sha(metric("Mutation score, TypeScript (Stryker)", tm["score"],
+                                           display=f"{tm['score']} %", section=S_COV,
+                                           source=f"mutation-ts.yml [{tm['date']}]({tm['run']})"), [tm["sha"]])
     fz = fuzz_execs(gh, max_runs)
     if fz:
-        M["fuzz_execs"] = metric("Fuzz executions (latest nightly)", fz["total"], section=S_TRUST,
-                                 source="verify.yml fuzz-stats-*")
+        M["fuzz_execs"] = with_sha(metric("Fuzz executions (latest nightly)", fz["total"], section=S_TRUST,
+                                          source="verify.yml fuzz-stats-*"), fz["shas"])
     return M, details
 
 
@@ -1140,14 +1259,13 @@ def main():
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     M, details = {}, {}
 
+    record_sha = None
+    if a.record:
+        record_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
+                                    text=True).stdout.strip()
+
     def keep_prev(key, label, section_name, why):
-        p = prev.get("metrics", {}).get(key)
-        if p and p.get("status") != "not_measured":
-            p = dict(p)
-            base = re.sub(r"\s*\(kept from .*\)$", "", p.get("note", ""))
-            p["note"] = (base + f" (kept from {prev.get('generated', 'previous run')}; {why})").strip()
-            return p
-        return metric(label, status="not_measured", note=why, section=section_name)
+        return retained(prev, key, label, section_name, why, record_sha)
 
 
     # Safety issues and roadmap issues
@@ -1166,6 +1284,8 @@ def main():
             for lab in ("roadmap:multiplier", "roadmap:verification", "roadmap:coverage", "roadmap:solver-proofs",
                         "roadmap:release-safety"):
                 o, c = len(gh.issues(lab, "open")), len(gh.issues(lab, "closed"))
+                if o + c == 0:
+                    continue  # label missing or renamed: not measured, never "0 of 0"
                 sec = {"roadmap:multiplier": S_MULT, "roadmap:verification": S_TRUST, "roadmap:coverage": S_COV,
                        "roadmap:solver-proofs": S_PROOF, "roadmap:release-safety": S_REL}[lab]
                 M[f"issues_{lab.split(':')[1]}"] = metric(f"Backlog issues closed (`{lab}`)", c,
@@ -1195,11 +1315,7 @@ def main():
         st = gh.issue_states(issue_nums)
         issue_state = {str(k): v for k, v in st.items()} or issue_state
     rows = maturity(fm, issue_state)
-    for key, lab in (("analyses", "certified_analyses"), ("design", "certified_design")):
-        n = sum(1 for r in rows[key] if r["level"] == "Certified")
-        M[lab] = metric(f"{'Analyses' if key == 'analyses' else 'Design checks'} certified", n,
-                        display=f"{n} of {len(rows[key])} ({pct(n, len(rows[key]))} %)", section=S_TRUST,
-                        source="MATURITY.md (CERTIFY.md)")
+    M.update(certified_metrics(rows))
     lv = {k: {l: sum(1 for r in rows[k] if r["level"] == l) for l in LEVELS} for k in rows}
     details["maturity_levels"] = lv
 
@@ -1221,12 +1337,7 @@ def main():
                                       section=S_COV)
 
     # Static counts
-    M["engine_tests"] = metric("Engine `#[test]` functions", git_grep_count(r"^[[:space:]]*#\[test\]", "engine"),
-                               section=S_PROOF, source="git grep engine")
-    M["kani_harnesses"] = metric("Kani harnesses", git_grep_count(r"kani::proof", "engine"), section=S_PROOF,
-                                 source="git grep `kani::proof`")
-    M["lean_theorems"] = metric("Lean theorems and lemmas", git_grep_count(r"^[[:space:]]*(theorem|lemma) ", "*.lean"),
-                                section=S_PROOF, source="verify/*.lean")
+    M.update(count_metrics())
 
     # CI artifacts
     if a.record:
@@ -1239,11 +1350,14 @@ def main():
     head_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     cov = coverage(gh, a.max_runs, a.coverage_json, require_sha=head_sha if a.record else None)
     if cov:
-        M["coverage_lines"] = metric("Engine line coverage (llvm-cov)", cov["lines"], display=f"{cov['lines']:.1f} %",
-                                     section=S_PROOF, source=cov["source"])
+        cs = [cov["sha"]] if cov.get("sha") else []
+        M["coverage_lines"] = with_sha(metric("Engine line coverage (llvm-cov)", cov["lines"],
+                                              display=f"{cov['lines']:.1f} %", section=S_PROOF,
+                                              source=cov["source"]), cs)
         if cov.get("branches") is not None:
-            M["coverage_branches"] = metric("Engine branch coverage (llvm-cov)", cov["branches"],
-                                            display=f"{cov['branches']:.1f} %", section=S_PROOF, source=cov["source"])
+            M["coverage_branches"] = with_sha(metric("Engine branch coverage (llvm-cov)", cov["branches"],
+                                                     display=f"{cov['branches']:.1f} %", section=S_PROOF,
+                                                     source=cov["source"]), cs)
     where = "of the release commit" if a.record else "on main"
     for key, label, sec, why in (
         ("differential_compared", "Differential models compared (latest run per harness)", S_TRUST,
@@ -1284,7 +1398,7 @@ def main():
         if err:
             sys.exit(err)
         write_release(RELEASES_DIR, {"release": a.record, "date": now[:10], "commit": commit,
-                                     "values": {k: metrics[k]["display"] for k in HISTORY_KEYS if k in metrics}})
+                                     "values": {k: snapshot_value(metrics[k]) for k in HISTORY_KEYS if k in metrics}})
     history = load_history(RELEASES_DIR)
 
     doc = {"schema": 1, "generated": now, "commit": commit, "metrics": metrics,

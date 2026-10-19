@@ -1,12 +1,12 @@
 {
  "schema": 1,
- "generated": "2026-10-19 01:11 UTC",
- "commit": "54411ef6b2",
+ "generated": "2026-10-19 01:23 UTC",
+ "commit": "da3b23f1d1",
  "metrics": {
   "safety_open": {
    "label": "Open `safety` issues",
-   "value": 52,
-   "display": "52",
+   "value": 55,
+   "display": "55",
    "status": "measured",
    "source": "GitHub label `safety`",
    "note": "0 closed",
@@ -91,7 +91,10 @@
    "status": "partial",
    "source": "verify.yml [2026-10-18](https://github.com/lambdaclass/stabileo/actions/runs/39099586668)",
    "note": "caught/(caught+missed); 8 shards; jobs: cancelled",
-   "section": "Solver and proof depth"
+   "section": "Solver and proof depth",
+   "evidence_sha": [
+    "fa6620a17064ea69258fed65b29f85d663a81010"
+   ]
   },
   "mutation_ts": {
    "label": "Mutation score, TypeScript (Stryker)",
@@ -127,7 +130,10 @@
    "status": "measured",
    "source": "codeaster, frame3dd, kratos, opensees, pynite",
    "note": "see Details; no report yet: mystran, calculix",
-   "section": "Trust and verification"
+   "section": "Trust and verification",
+   "evidence_sha": [
+    "fa6620a17064ea69258fed65b29f85d663a81010"
+   ]
   },
   "fuzz_execs": {
    "label": "Fuzz executions (latest nightly)",
@@ -914,19 +920,19 @@
  "history": [
   {
    "release": "v0.2.0",
-   "date": "2026-10-18",
+   "date": "2026-10-19",
    "commit": "5b1482c78c",
    "values": {
-    "safety_open": "51",
+    "safety_open": "53",
     "rust_share": "64.6 %",
     "ts_high_safety": "88 modules, 35935 lines",
     "certified_analyses": "11 of 27 (40.7 %)",
     "certified_design": "8 of 16 (50.0 %)",
     "acceptance_refs": "not yet measured",
-    "mutation_rust": "59.9 % (partial: 1251 of 23264 mutants tested)",
+    "mutation_rust": "not yet measured",
     "mutation_ts": "not yet measured",
     "coverage_lines": "not yet measured",
-    "differential_compared": "6317 (6216 agree, 101 mismatch)",
+    "differential_compared": "not yet measured",
     "fuzz_execs": "not yet measured",
     "fm_bad": "0"
    }
@@ -1398,6 +1404,18 @@
    {
     "number": 452,
     "title": "2D: a nodal moment on a node where every frame is hinged is silently lost"
+   },
+   {
+    "number": 456,
+    "title": "3D buckling: compression gate uses end-force average, misses members compressed only between their ends"
+   },
+   {
+    "number": 458,
+    "title": "Existing (assembled-level) certificate certifies singular models: all-hinged 2D node with moment/rigid link; skew unstiffened rotation"
+   },
+   {
+    "number": 459,
+    "title": "3D diaphragm in the XZ plane ties slaves with reversed rotation sign"
    }
   ],
   "ts": {
@@ -1495,6 +1513,7 @@
   "differential": {
    "pynite": {
     "run": "https://github.com/lambdaclass/stabileo/actions/runs/39097987226",
+    "sha": "fa6620a17064ea69258fed65b29f85d663a81010",
     "date": "2026-10-18",
     "statuses": {
      "ill_conditioned": 222,
@@ -1517,6 +1536,7 @@
    },
    "kratos": {
     "run": "https://github.com/lambdaclass/stabileo/actions/runs/39097987226",
+    "sha": "fa6620a17064ea69258fed65b29f85d663a81010",
     "date": "2026-10-18",
     "statuses": {
      "ok": 712,
@@ -1539,6 +1559,7 @@
    },
    "frame3dd": {
     "run": "https://github.com/lambdaclass/stabileo/actions/runs/39097987226",
+    "sha": "fa6620a17064ea69258fed65b29f85d663a81010",
     "date": "2026-10-18",
     "statuses": {
      "ok": 1099,
@@ -1567,6 +1588,7 @@
    },
    "opensees": {
     "run": "https://github.com/lambdaclass/stabileo/actions/runs/39099586668",
+    "sha": "fa6620a17064ea69258fed65b29f85d663a81010",
     "date": "2026-10-18",
     "statuses": {
      "ok": 3233,
@@ -1615,6 +1637,7 @@
    },
    "codeaster": {
     "run": "https://github.com/lambdaclass/stabileo/actions/runs/39099586668",
+    "sha": "fa6620a17064ea69258fed65b29f85d663a81010",
     "date": "2026-10-18",
     "statuses": {
      "ok": 412,
@@ -1651,6 +1674,8 @@
    "unviable": 51,
    "planned": 23264,
    "tested": 1251,
+   "plan_known": true,
+   "sha": "fa6620a17064ea69258fed65b29f85d663a81010",
    "shards": 8,
    "jobs": {
     "mutants (5)": "cancelled",
