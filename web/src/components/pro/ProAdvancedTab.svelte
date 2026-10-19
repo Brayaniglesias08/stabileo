@@ -1,5 +1,7 @@
 <script lang="ts">
   import { centerlineInput, dynamicInput } from '../../lib/store/dynamic-input';
+  import { engineStatus } from '../../lib/store/engine-status.svelte';
+  import { isWasmReady } from '../../lib/engine/wasm-solver';
   import { userSpectrumPointsInG } from '../../lib/engine/spectral-case';
   import { lateralPatternLoads } from '../../lib/engine/pushover-pattern';
   import { incrementalOutcome, convergedPercent } from '../../lib/engine/incremental-outcome';
@@ -314,7 +316,12 @@
   /** Damping ratio for the modal combination (CQC correlation). The spectrum is the code's. */
   let spectralXi = $state(0.05);
   const fromProject = seismicSettings?.zone !== undefined;
-  const codeSpectrum = $derived(designSpectrum({ zone: seismicZone, site: siteClass }));
+  const codeSpectrum = $derived(
+    // The spectrum is the engine's: until it is loaded the code spectrum is refused, by name.
+    (engineStatus.ready || isWasmReady())
+      ? designSpectrum({ zone: seismicZone, site: siteClass })
+      : { blocked: { key: 'engine.unavailable' }, refs: [] },
+  );
 
   function handleSpectral() {
     solveError = null;

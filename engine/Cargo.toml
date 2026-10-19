@@ -18,7 +18,7 @@ manual-bench-phases = []
 [dependencies]
 wasm-bindgen = "0.2"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 serde-wasm-bindgen = "0.6"
 
 # Constrained Delaunay triangulation with Ruppert-style quality refinement.

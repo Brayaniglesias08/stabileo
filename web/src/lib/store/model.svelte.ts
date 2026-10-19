@@ -1,6 +1,7 @@
 import {
   defaultCodeSettings, migrateCodeSettings, type ProjectCodeSettings,
 } from '../codes/project-code-settings';
+import { engineFailureMessage } from '../engine/engine-unavailable';
 import { loadCasesInUse } from '../model/loads/load-cases-in-use';
 import { refreshRatios } from '../section/drawn';
 import {
@@ -45,7 +46,7 @@ import { getFixture, is2DFixture, is3DFixture } from '../templates/fixture-index
 import { loadFixture } from '../templates/load-fixture';
 import { inferLoadCaseType } from '../engine/combinations-service';
 import { addsLoop, singleSolveModel } from '../engine/case-effects';
-import { t } from '../i18n';
+import { t, tp } from '../i18n';
 import { GRAVITY_SELF_WEIGHT, planSelfWeight, type SelfWeightLoad } from '../engine/analysis-settings';
 import { type ModelData, shouldEmbedFlat2DModelIn3D, validateAndSolve2D, validateAndSolve2DAsync, buildSolverInput2D, validateAndSolve3D, validateAndSolve3DAsync, buildSolverInput3D as buildSolverInput3DFn, solveCombinations2D, solveCombinations3D as solveCombinations3DFn, solveCombinations3DParallel as solveCombinations3DParallelFn } from '../engine/solver-service';
 import { computeInfluenceLine as computeInfluenceLineFn } from '../engine/influence-service';
@@ -4344,15 +4345,24 @@ function createModelStore() {
      *  Shell elements are only included when isPro=true. */
     solveCombinations3D(includeSelfWeight = false, leftHand = false, isPro = false, spectral?: Map<number, AnalysisResults3D>): { perCase: Map<number, AnalysisResults3D>; perCombo: Map<number, AnalysisResults3D>; envelope: FullEnvelope3D; unstable?: number[] } | string | null {
       if (this.hasSlidingJoints()) return t('advanced.sliding3dUnsupported');
-      const r = solveCombinations3DFn(
-        { nodes: model.nodes, elements: model.elements, supports: model.supports,
-          loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro, includeSelfWeight), groups: model.groups,
-          plates: isPro ? model.plates : undefined,
-          quads: isPro ? model.quads : undefined,
-          constraints: isPro ? model.constraints : undefined,
-          connectors: isPro ? model.connectors : undefined },
-        model.loadCases, model.combinations, includeSelfWeight, leftHand, spectral,
-      );
+      // Shell recombination is the engine's kernel: its absence or refusal is the solve's
+      // error message, as every other solve failure is, never an exception past the button.
+      let r;
+      try {
+        r = solveCombinations3DFn(
+          { nodes: model.nodes, elements: model.elements, supports: model.supports,
+            loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro, includeSelfWeight), groups: model.groups,
+            plates: isPro ? model.plates : undefined,
+            quads: isPro ? model.quads : undefined,
+            constraints: isPro ? model.constraints : undefined,
+            connectors: isPro ? model.connectors : undefined },
+          model.loadCases, model.combinations, includeSelfWeight, leftHand, spectral,
+        );
+      } catch (err) {
+        const m = engineFailureMessage(err);
+        if (!m) throw err;
+        return tp(m.key, m.params ?? {});
+      }
       // The active list is a PRO definition; Basic keeps enveloping every combination.
       return isPro ? scopeBundle3D(r, model.resultScopes, model.combinations) : r;
     },
@@ -4360,15 +4370,24 @@ function createModelStore() {
     /** Async parallel version of solveCombinations3D — uses Web Workers for parallel solving. */
     async solveCombinations3DParallel(includeSelfWeight = false, leftHand = false, isPro = false, spectral?: Map<number, AnalysisResults3D>): Promise<{ perCase: Map<number, AnalysisResults3D>; perCombo: Map<number, AnalysisResults3D>; envelope: FullEnvelope3D; unstable?: number[] } | string | null> {
       if (this.hasSlidingJoints()) return t('advanced.sliding3dUnsupported');
-      const r = await solveCombinations3DParallelFn(
-        { nodes: model.nodes, elements: model.elements, supports: model.supports,
-          loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro, includeSelfWeight), groups: model.groups,
-          plates: isPro ? model.plates : undefined,
-          quads: isPro ? model.quads : undefined,
-          constraints: isPro ? model.constraints : undefined,
-          connectors: isPro ? model.connectors : undefined },
-        model.loadCases, model.combinations, includeSelfWeight, leftHand, spectral,
-      );
+      // Shell recombination is the engine's kernel: its absence or refusal is the solve's
+      // error message, as every other solve failure is, never an exception past the button.
+      let r;
+      try {
+        r = await solveCombinations3DParallelFn(
+          { nodes: model.nodes, elements: model.elements, supports: model.supports,
+            loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro, includeSelfWeight), groups: model.groups,
+            plates: isPro ? model.plates : undefined,
+            quads: isPro ? model.quads : undefined,
+            constraints: isPro ? model.constraints : undefined,
+            connectors: isPro ? model.connectors : undefined },
+          model.loadCases, model.combinations, includeSelfWeight, leftHand, spectral,
+        );
+      } catch (err) {
+        const m = engineFailureMessage(err);
+        if (!m) throw err;
+        return tp(m.key, m.params ?? {});
+      }
       // The active list is a PRO definition; Basic keeps enveloping every combination.
       return isPro ? scopeBundle3D(r, model.resultScopes, model.combinations) : r;
     },
