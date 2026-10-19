@@ -554,7 +554,7 @@ impl Section {
             None => {
                 let c = std::rc::Rc::new(self.curve(nx, ny, n));
                 let mut map = self.curves.borrow_mut();
-                if map.len() > 256 {
+                if map.len() > 32 {
                     map.clear();
                 }
                 map.insert(key, c.clone());

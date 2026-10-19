@@ -1648,6 +1648,11 @@ export function prepareColumnCapacity(input: ColumnCapacitySection,
     uniaxial(Nu: number, Mu: number, axis: 'z' | 'y' = 'z') {
       return columnCapacity(As, b, h, fc, fy, cover, stirrupDia, Nu, Mu, bars, axis, solveSection, edition);
     },
+    /** Free the engine section held for the biaxial checks (it is rebuilt if asked again). */
+    dispose() {
+      biaxialSection?.section.free();
+      biaxialSection = null;
+    },
     biaxial(Nu: number, Muy: number, Muz: number) {
       // One engine section for every tuple of this member (freed by the engine's finaliser).
       if (bars && bars.length >= 4) biaxialSection ??= prepareBiaxialSection(b, h, fc, fy, bars, edition);
@@ -2468,6 +2473,9 @@ export function verifyProvidedReinforcement(
           }
         }
       }
+      // Release the engine section now rather than whenever the collector gets to it: a design
+      // run builds thousands of them.
+      capacity.dispose();
       if (worst) {
         checkedAxes.add(axes.flexure);
         if (worst.biaxial) checkedAxes.add(axes.secondaryFlexure);
