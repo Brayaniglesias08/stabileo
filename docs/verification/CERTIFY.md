@@ -217,10 +217,13 @@ listed in `excludedDofs`. A load on such a DOF means the model has no solution:
 
 Besides the bound, the result must be the engine's answer to *this* model:
 
-* **Assembly**: the engine's `K` and `f` (both the dense and the sparse assembly, rotated
-  back at inclined supports) must lie within `1e-10` of each entry's scale (`Σ|terms|`, or
-  `√(K_ii K_jj)`) of the re-assembled enclosures; the engine's artificial stiffness on
-  DOFs the model does not determine is not compared.
+* **Assembly**: the engine's `K` and `f`, exactly the assembly the solver factored for this
+  solve (`certify::solver_assembly_2d/3d`: dense below 64 free DOFs, sparse above, the
+  constrained paths; a dense assembly over `4 · MAX_CERTIFY_N` DOFs is not read and the
+  result is `uncertified`), rotated back at inclined supports, must lie within `1e-10` of
+  each entry's scale (`Σ|terms|`, or `√(K_ii K_jj)`) of the re-assembled enclosures. A NaN
+  or infinity anywhere in it is a failure. The engine's artificial stiffness on DOFs the
+  model does not determine is not compared.
 * **Kinematics**: `‖C q̃ + p − ũ‖ ≤ 1e-9 ‖ũ‖`: the returned displacements satisfy the
   model's supports, settlements, inclined supports and constraints.
 
@@ -275,7 +278,7 @@ model"), and the end-to-end bound against the model still exceeds the real error
 wrong sign in the 2D transformation, the `(2 − φ)` Timoshenko term dropped, a uniform-load
 fixed-end moment `qL²/8`, the 3D roll angle's sign, the 3D shear-area pairing swapped, the
 `q_z` moments not negated. `scripts/e2e-planted-bugs.sh` plants bugs in the engine's
-source instead and runs the end-to-end tests: all 15 caught (each fails the end-to-end tests; the assembled-level tests would pass): the 2D transform's `−sin`
+source (in a temporary git worktree of `HEAD`, never the checkout) instead and runs the end-to-end tests: all 15 caught (each fails the end-to-end tests; the assembled-level tests would pass): the 2D transform's `−sin`
 sign; the `(2 − φ)` and `(4 + φ)` Timoshenko terms; the hinge's condensed factor `12/(4 + φ)` as 3;
 the uniform-load end moment `qL²/12` as `qL²/8`; the sign of the Timoshenko moment correction of
 the fixed-end forces; the `q_z` moments not negated in 3D; the `(2 − φ)` ratio of the hinge
