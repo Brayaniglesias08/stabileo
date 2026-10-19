@@ -57,15 +57,17 @@ export interface TorsionGap {
  * The frame members whose torsion data is missing (`SolverSection3D.torsionGap`), by section.
  *
  * Buckling, P-Δ and the geometrically nonlinear analyses read the Wagner term of every
- * compressed member: with no J the member's torsional buckling cannot be formed (it is sent
- * released in torsion, so it would simply be missing), and with no shear centre a tee, channel
+ * compressed member: with no J the member's torsional buckling cannot be formed (the static
+ * solve refuses it too, `jRefusal3D`), and with no shear centre a tee, channel
  * or angle loses its flexural-torsional coupling, which governs those sections. Both are refused
  * rather than computed without the term.
  */
 export function torsionGaps3D(input: SolverInput3D): TorsionGap[] {
   const out = new Map<number, TorsionGap>();
   for (const e of input.elements.values()) {
-    if (e.type !== 'frame') continue;
+    // A member released in torsion has no torsional terms to form (#434 drops them with the
+    // release), so nothing is missing for it.
+    if (e.type !== 'frame' || e.releaseTStart || e.releaseTEnd) continue;
     const s = input.sections.get(e.sectionId);
     if (!s?.torsionGap) continue;
     let g = out.get(s.id);

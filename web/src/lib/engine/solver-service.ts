@@ -1664,9 +1664,14 @@ export function hasLoadCarrying3D(model: ModelData): boolean {
  * tube, or Saint-Venant solved on the section's mesh. It used to fall back to `0.001·Iy` when
  * none existed. That number was invented, and once the geometric stiffness carried the Wagner
  * term (#434) it set a torsional buckling load GJ/r0² out of nothing — spurious low torsional
- * modes, P-Δ instabilities. Now a section with no J is sent with `j: 0` and its members released
- * in torsion (`buildSolverInput3D`): they carry no torque, which is what an unknown J supports,
- * and `torsionGap: 'j'` makes buckling and P-Δ refuse them by name (`torsionGapRefusal3D`).
+ * modes, P-Δ instabilities. Now a section with no J is sent with `j: 0`, which the engine refuses
+ * on any member not released in torsion, and `torsionGap: 'j'` makes the web's own analyses say
+ * so by section and member first (`torsionGapRefusal` in `wasm-solver.ts`, `jRefusal3D`).
+ *
+ * Releasing those members in torsion instead, so the static solve could run, was tried and is
+ * wrong: a twist that only the unknown J resisted becomes a rotation nothing resists, the
+ * vanishing spring of `orphan-rotations-3d.ts` holds it, and a real mechanism (a roof truss free
+ * to roll about its chord) solved as a structure. Every 3D frame analysis depends on J.
  *
  * The shear centre (`shearCenterY/Z`, from the centroid, local y across the width and z up the
  * depth — the frame `iy`/`iz` are in, and the section's rotation is the member's roll as for
@@ -1711,9 +1716,6 @@ export function buildSolverInput3D(
   if (hasCaseDisplacements(model.loads)) model = { ...model, supports: supportsWithImposed(model.supports, imposedOf(model.loads)) };
   const project2DToXZ = shouldEmbedFlat2DModelIn3D(model);
   const solverLoads = buildSolverLoads3D(model, model.loads, includeSelfWeight, userLeftHand);
-
-  // Sections with no torsion constant: their members go released in torsion (see `torsionOf`).
-  const noTorsionConstant = new Set(Array.from(model.sections.values()).filter((s) => torsionOf(solverProperties(s)).torsionGap === 'j').map((s) => s.id));
 
   const input: SolverInput3D = {
     nodes: new Map(Array.from(model.nodes.entries()).map(([id, n]) => [id, mapModelNodeToSolver3D(n, project2DToXZ)])),
@@ -1774,8 +1776,7 @@ export function buildSolverInput3D(
         releaseMyEnd: project2DToXZ ? (e.releaseJ?.mz === true) : (e.releaseJ?.my === true),
         releaseMzStart: project2DToXZ ? false : (e.releaseI?.mz === true),
         releaseMzEnd: project2DToXZ ? false : (e.releaseJ?.mz === true),
-        // A member whose section has no J carries no torque (`torsionOf`): released at its start.
-        releaseTStart: e.releaseI?.t === true || noTorsionConstant.has(e.sectionId),
+        releaseTStart: e.releaseI?.t === true,
         releaseTEnd: e.releaseJ?.t === true,
       };
       if (e.localYx !== undefined) {
@@ -2063,7 +2064,31 @@ function prepareSolve3D(model: ModelData, includeSelfWeight = false, leftHand = 
   const input = buildSolveInput3D(model, includeSelfWeight, leftHand);
   if (!input) return t('svc.emptyModel');
   if (typeof input === 'string') return input;
-  return unheldMomentRefusal3D(input) ?? input;
+  return unheldMomentRefusal3D(input) ?? jRefusal3D(input) ?? input;
+}
+
+/**
+ * A frame member carrying torsion whose section has no torsion constant (`torsionOf`), refused
+ * with the section and members named. The engine refuses `j: 0` too, in its own words; this says
+ * what to do about it. A member released in torsion at an end needs no J and is not counted.
+ */
+export function jRefusal3D(input: SolverInput3D): string | null {
+  const bySection = new Map<number, number[]>();
+  for (const e of input.elements.values()) {
+    if (e.type !== 'frame' || e.releaseTStart || e.releaseTEnd) continue;
+    const s = input.sections.get(e.sectionId);
+    if (s?.torsionGap !== 'j') continue;
+    bySection.set(s.id, [...(bySection.get(s.id) ?? []), e.id]);
+  }
+  const first = bySection.entries().next();
+  if (first.done) return null;
+  const [sid, members] = first.value;
+  const name = input.sections.get(sid)?.name;
+  members.sort((a, b) => a - b);
+  return tp('svc.noTorsionConstant', {
+    section: name ? `${sid} (${name})` : String(sid),
+    members: members.slice(0, 8).join(', ') + (members.length > 8 ? ', …' : ''),
+  });
 }
 
 /**
@@ -2118,7 +2143,7 @@ export function advancedRefusal3D(input: SolverInput3D): string | null {
   addConstraintAdjacency(adj, input.constraints);
   const disconnected = connectivityRefusal(input.nodes.keys(), connected, adj, () => nodesOnMembersHint(input));
   if (disconnected) return disconnected;
-  const moment = unheldMomentRefusal3D(input);
+  const moment = unheldMomentRefusal3D(input) ?? jRefusal3D(input);
   if (moment) return moment;
   const solved = guardSolve3D(input);
   return 'error' in solved

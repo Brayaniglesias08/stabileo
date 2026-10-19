@@ -14,6 +14,7 @@ import { historyStore } from '../../store/history.svelte';
 import { uiStore } from '../../store/ui.svelte';
 import '../../store';
 import { initSolver, solveBuckling3D, solvePDelta3D, solve3D } from '../wasm-solver';
+import { validateAndSolve3D } from '../solver-service';
 import { solverProperties } from '../../section/state';
 import { bucklingWarpingInput } from '../buckling-warping';
 import type { SolverInput3D } from '../types-3d';
@@ -42,6 +43,11 @@ function forkColumn(section: Parameters<typeof modelStore.addSection>[0], l: num
   return { sec, nodes, elems };
 }
 
+const md = () => ({
+  nodes: modelStore.nodes, elements: modelStore.elements, supports: modelStore.supports,
+  loads: modelStore.loads, materials: modelStore.materials, sections: modelStore.sections,
+  analysis: modelStore.analysis, groups: modelStore.model.groups,
+});
 const input = () => modelStore.buildSolverInput3D(false, false, { expandMemberOffsets: false }) as SolverInput3D;
 
 /** Max |twist| (rz, the column is along Z) over max |translation| of a mode. */
@@ -173,25 +179,34 @@ describe('Tee column: flexural-torsional with Cw ≈ 0', () => {
 });
 
 describe('no invented torsion constant', () => {
-  it('a section with no J is sent j = 0, released in torsion, and buckling and P-Δ refuse it by name', () => {
+  it('a section with no J is sent j = 0 and every 3D frame analysis refuses it by name', () => {
     // Stated by its properties only, with no J and no geometry.
     const { sec, elems } = forkColumn({ name: 'Declared', a: 50e-4, iy: 8000e-8, iz: 600e-8 }, 3, 2);
     const i = input();
     expect(i.sections.get(sec)!.j).toBe(0);
     expect(i.sections.get(sec)!.torsionGap).toBe('j');
-    for (const id of elems) expect(i.elements.get(id)!.releaseTStart).toBe(true);
-    // The static solve runs, and the member carries no torque.
-    const lin = solve3D(i);
-    for (const f of lin.elementForces) expect(f.mxStart).toBe(0);
+    for (const id of elems) expect(i.elements.get(id)!.releaseTStart).toBe(false);
+    const said = validateAndSolve3D(md() as never, false, false);
+    expect(typeof said).toBe('string');
+    expect(said as string).toMatch(/torsion constant J/);
+    expect(said as string).toContain(elems.join(', '));
+    expect(() => solve3D(i)).toThrow(/torsion constant J/);
     expect(() => solveBuckling3D(i, 2)).toThrow(/J/);
     expect(() => solvePDelta3D(i, 20, 1e-6)).toThrow(/J/);
+  });
+
+  it('a member released in torsion needs no J', () => {
+    const { elems } = forkColumn({ name: 'Declared', a: 50e-4, iy: 8000e-8, iz: 600e-8 }, 3, 1);
+    modelStore.updateElement(elems[0]!, { releaseJ: { my: false, mz: false, t: true } } as never);
+    const said = validateAndSolve3D(md() as never, false, false);
+    expect(typeof said, String(said)).not.toBe('string');
   });
 
   it('a channel stated by its properties only has no shear centre: buckling refuses rather than drop the coupling', () => {
     const { sec } = forkColumn({ name: 'C declared', shape: 'U', declared: true, a: 32.2e-4, iy: 1910e-8, iz: 148e-8, j: 11.9e-8 } as never, 2, 2);
     const i = input();
     expect(i.sections.get(sec)!.torsionGap).toBe('shearCentre');
-    expect(() => solveBuckling3D(i, 2)).toThrow(/shear centre/);
+    expect(() => solveBuckling3D(i, 2)).toThrow(/shear center/);
   });
 });
 
