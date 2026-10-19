@@ -477,7 +477,7 @@ export function syncColorMap3D(ctx: ResultsSyncContext): void {
 
   // The discretization-error map (an estimate, `store/discretization.svelte.ts`) takes over the
   // shells while it is switched on; members are dimmed so the shells read.
-  if (r3d && discretizationStore.showMap && discretizationStore.applies() && discretizationStore.estimate.status === 'done') {
+  if (r3d && discretizationStore.mapActive()) {
     clearHeatmapMeshes(ctx);
     forEachElementVisual(ctx, (id, group) => {
       if (group) { showOriginalMeshes(group, true); setGroupColor(group, 0x888888); }

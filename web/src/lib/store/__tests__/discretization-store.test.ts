@@ -120,4 +120,22 @@ describe('discretization store', () => {
     for (const s of ['oscillating', 'notConverging', 'irregularOrder', 'incomplete'] as const) expect(isInconclusive(s)).toBe(true);
     for (const s of ['converging', 'converged', 'assumedOrder', 'zero'] as const) expect(isInconclusive(s)).toBe(false);
   });
+
+  it('turns the map off when a later solve cannot be estimated, so it never holds the viewport', async () => {
+    wire = { quads: { 3: {} } };
+    const base = { displacements: [], reactions: [], elementForces: [] } as never;
+    discretizationStore.track(base, '3d');
+    resultsStore.setResults3D(base);
+    await settle();
+    discretizationStore.showMap = true;
+    expect(discretizationStore.mapActive()).toBe(true);
+    const unest = { ...estimate, relativeError: undefined, unestimableReason: 'noStrainEnergy' };
+    runCertify.mockImplementationOnce(async () => unest as never);
+    const next = { displacements: [], reactions: [], elementForces: [] } as never;
+    discretizationStore.track(next, '3d');
+    resultsStore.setResults3D(next);
+    await settle();
+    expect(discretizationStore.showMap).toBe(false);
+    expect(discretizationStore.mapActive()).toBe(false);
+  });
 });

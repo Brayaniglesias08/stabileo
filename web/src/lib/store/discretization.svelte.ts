@@ -151,13 +151,22 @@ function createDiscretizationStore() {
     } catch (e) {
       next = { status: 'failed', reason: errorText(e, 'error') };
     }
-    if (gen === generation) estimate = next;
+    if (gen !== generation) return;
+    estimate = next;
+    // A map that can no longer be drawn must not keep the viewport (its toggle is hidden then).
+    if (!mapDrawable(next)) showMap = false;
+  }
+
+  function mapDrawable(e: Estimate): boolean {
+    return e.status === 'done' && e.estimate.relativeError != null && Number.isFinite(e.estimate.relativeError);
   }
 
   return {
     get estimate() { return estimate; },
     get study() { return study; },
     get showMap() { return showMap; },
+    /** Whether the error map may take over the viewport: switched on, and an estimate to draw. */
+    mapActive(): boolean { return showMap && mapDrawable(estimate) && this.applies(); },
     set showMap(v: boolean) { showMap = v; },
 
     /** A base static solve was published (or cleared): estimate it in the background. */
@@ -170,7 +179,7 @@ function createDiscretizationStore() {
       const pub = generation;
       // `setResults3D` publishes the normalised results right after this hook returns.
       queueMicrotask(() => { if (pub === generation) estimated = resultsStore.results3D; });
-      if (dim !== SPACE) { estimate = { status: 'idle' }; return; }
+      if (dim !== SPACE) { estimate = { status: 'idle' }; showMap = false; return; }
       const found = results ? certifiableInputOf(results) : null;
       if (!found || found.dim !== SPACE || !hasCertify(ESTIMATE_EXPORT)) { estimate = { status: 'idle' }; showMap = false; return; }
       const wire = found.wire();

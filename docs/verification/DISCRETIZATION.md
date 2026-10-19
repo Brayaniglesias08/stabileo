@@ -121,7 +121,9 @@ shows a warning.
   shells and solid-shells, whose centre values are mid-surface only, at their integration points
   from the through-thickness pairs; the resultant reaction of each group of
   connected supported nodes (nodal reactions along a line support depend on the mesh, their sum
-  does not); the largest member end moment.
+  does not); the largest moment anywhere along any member, from its exact diagram (a member
+  split by the refinement reads the same, so an exact beam shows no change). Changes below 10⁻⁶
+  of the value count as converged.
 * **Richardson.** For q0 (model), q1, q2: observed order `p = log₂((q1 − q0)/(q2 − q1))`,
   `q∞ = q2 + (q2 − q1)/(2ᵖ − 1)`, estimated error of the model `|q0 − q∞|/|q∞|`. Status
   `oscillating` (non-monotone, no extrapolation), `notConverging` (differences growing: a
