@@ -33,6 +33,24 @@ export interface SolverSection3D {
    */
   shearCenterY?: number;
   shearCenterZ?: number;
+  /**
+   * m⁶ — warping constant. Sent only by the buckling analysis (`buckling-warping.ts`): with it
+   * the engine numbers a warping DOF at every node (Vlasov torsion), which the other analyses
+   * are not given (#439).
+   */
+  cw?: number;
+  /**
+   * Web-only, never sent (`input3DToWireObject` strips it): the section's Cw, for the buckling
+   * analysis to turn into `cw` on the members it can give warping to.
+   */
+  bucklingCw?: number;
+  /**
+   * Web-only, never sent: what is missing for the section's torsional terms. `'j'`: no torsion
+   * constant — its members are sent released in torsion (`j: 0`) and buckling and P-Δ refuse
+   * them. `'shearCentre'`: a tee, channel or angle whose shear centre nothing placed — buckling
+   * and P-Δ refuse, since taking the centroid drops its flexural-torsional coupling.
+   */
+  torsionGap?: 'j' | 'shearCentre';
 }
 
 // ─── Elements ────────────────────────────────────────────────────
