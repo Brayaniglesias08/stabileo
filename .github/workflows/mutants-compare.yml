@@ -3,6 +3,7 @@ name: Mutants scope comparison (temporary)
 # TEMPORARY, removed before merge: before/after caught counts of the mutants
 # of the 2D static solver (prepare_static_2d_impl, PreparedStatic2D) with the
 # solver test scope of main (before) and of this branch (after).
+# Run 2: after only (wider scope); before is run 39184247667.
 on:
   push:
     branches: [ci/verification-jobs]
@@ -18,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [before, after]
+        variant: [after]
         shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -30,10 +30,14 @@ case $scope in
   solver | all)
     files+=(-f engine/src/solver/dof.rs -f engine/src/solver/assembly.rs -f engine/src/solver/linear.rs)
     # core (linear_2d, linear_3d, ...), integration, properties_2d and
-    # solver_invariants exercise the plain 2D/3D static paths of linear.rs:
-    # without them 244 of 269 mutants of a linear.rs shard went uncaught (#339).
+    # solver_invariants exercise the plain 2D/3D static paths of linear.rs; the
+    # next ones the sparse, PCG and sparse-dense-LU paths (nf >= 64) and their
+    # diagnostics. Without them 272 of 305 mutants of the 2D static solver went
+    # uncaught (#339).
     tests+=(certify certify_bundle duplicate_support_reactions determinate_exact index_exhaustive
-      fuzz_regressions solver_mutation_kills core integration properties_2d solver_invariants)
+      fuzz_regressions solver_mutation_kills core integration properties_2d solver_invariants
+      pcg_solver_tests sparse_ex_analysis_regressions nan_output_gates conditioning_adversarial
+      assembly_paths feature_matrix)
     ;;&
   element | all)
     files+=(-f 'engine/src/element/**')
