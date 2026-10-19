@@ -2153,3 +2153,54 @@ fn fully_restrained_3d() {
         assert_eq!((d.code, d.message.as_str()), (C::ResidualOk, "Fully restrained model (0 free DOFs, 12 restrained)"));
     }
 }
+
+/// Cubic lattice of frame members, `k` nodes per edge, fixed at the base.
+fn lattice3(k: usize) -> M3 {
+    let mut m = M3::default();
+    let id = |i: usize, j: usize, l: usize| 1 + i + k * (j + k * l);
+    for l in 0..k {
+        for j in 0..k {
+            for i in 0..k {
+                m.node(i as f64, j as f64, l as f64);
+            }
+        }
+    }
+    for l in 0..k {
+        for j in 0..k {
+            for i in 0..k {
+                if i + 1 < k { m.elem(id(i, j, l), id(i + 1, j, l)); }
+                if j + 1 < k { m.elem(id(i, j, l), id(i, j + 1, l)); }
+                if l + 1 < k { m.elem(id(i, j, l), id(i, j, l + 1)); }
+            }
+        }
+    }
+    for j in 0..k {
+        for i in 0..k {
+            m.sup(id(i, j, 0), [true; 6], json!({}));
+        }
+    }
+    m.load(id(k - 1, k - 1, k - 1), [1.0, 2.0, -3.0, 0.0, 0.0, 0.0]);
+    m
+}
+
+/// A cubic lattice (7 nodes per edge) fills its Cholesky factor more than
+/// 20× K_ff: the fill-ratio diagnostic turns into a warning, on the sparse
+/// path and on the PCG fallback; the answer balances the load.
+#[test]
+fn heavy_fill_lattice_warns_3d() {
+    let m = lattice3(7);
+    for (p, path, want) in [
+        (Path3::Default, "sparse_cholesky", vec![C::SparseCholesky, C::SparseFillRatio, C::ResidualOk]),
+        (Path3::PcgMaxit1, "pcg_fallback_sparse_cholesky", vec![C::PcgFallbackDirect, C::SparseCholesky, C::SparseFillRatio, C::ResidualOk]),
+    ] {
+        let r = solve_path_3d(&m, p).unwrap();
+        let t = r.timings.as_ref().unwrap();
+        assert!(t.nnz_l as f64 > 20.0 * t.nnz_kff as f64, "fill {}", t.nnz_l as f64 / t.nnz_kff as f64);
+        check_3d(&format!("{p:?}"), &r, &m, path, &want, 0.0, &[], 1e-12);
+        assert_eq!(diag_3d(&r, C::SparseFillRatio).severity, Severity::Warning);
+    }
+}
+
+fn diag_3d(r: &AnalysisResults3D, c: C) -> &StructuredDiagnostic {
+    diag(&r.structured_diagnostics, c)
+}
