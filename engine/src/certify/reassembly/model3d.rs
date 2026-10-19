@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use super::element::*;
 use super::ia::*;
-use super::model2d::{linear_mpc, thermal_moment};
+use super::model2d::{check_member_load_ids, linear_mpc, missing_dof_load, thermal_moment};
 use super::system::*;
 use crate::types::*;
 
@@ -161,6 +161,8 @@ pub(super) fn build(input: &SolverInput3D, loads: &[SolverLoad3D]) -> Result<Mod
         by_elem.entry(id).or_default().push(ld);
     }
 
+    let members: std::collections::HashSet<usize> = input.elements.values().map(|e| e.id).collect();
+    check_member_load_ids(by_elem.keys().copied(), &members)?;
     let mut elems: Vec<&SolverElement3D> = input.elements.values().collect();
     elems.sort_by_key(|e| e.id);
     for el in elems {
@@ -335,9 +337,8 @@ pub(super) fn build(input: &SolverInput3D, loads: &[SolverLoad3D]) -> Result<Mod
         if let SolverLoad3D::Nodal(nl) = ld {
             for (d, v) in [nl.fx, nl.fy, nl.fz, nl.mx, nl.my, nl.mz].into_iter().enumerate() {
                 if v != 0.0 {
-                    if let Some(i) = model.dof(nl.node_id, d) {
-                        model.add_f(i, inp(v));
-                    }
+                    let i = model.dof(nl.node_id, d).ok_or_else(|| missing_dof_load(&model, nl.node_id, d))?;
+                    model.add_f(i, inp(v));
                 }
             }
         }
@@ -352,9 +353,42 @@ pub(super) fn build(input: &SolverInput3D, loads: &[SolverLoad3D]) -> Result<Mod
 
 fn plain_3d(s: &SolverSupport3D) -> bool {
     !s.is_inclined.unwrap_or(false)
+        && !s.rw.unwrap_or(false)
+        && [s.normal_x, s.normal_y, s.normal_z].into_iter().all(|v| v.unwrap_or(0.0) == 0.0)
         && [s.kx, s.ky, s.kz, s.krx, s.kry, s.krz, s.kw, s.dx, s.dy, s.dz, s.drx, s.dry, s.drz]
             .into_iter()
             .all(|v| v.unwrap_or(0.0) == 0.0)
+}
+
+/// Support fields the model would not use: refused, never dropped.
+fn ignored_support_fields_3d(s: &SolverSupport3D, dpn: usize) -> Result<(), String> {
+    let nz = |v: Option<f64>| v.unwrap_or(0.0) != 0.0;
+    let node = s.node_id;
+    if s.rw.unwrap_or(false) || nz(s.kw) {
+        return Err(format!("out of scope: warping restraint at node {node}"));
+    }
+    let inclined = s.is_inclined.unwrap_or(false);
+    if !inclined && [s.normal_x, s.normal_y, s.normal_z].into_iter().any(nz) {
+        return Err(format!("unsupported: a normal on the support at node {node}, which is not inclined"));
+    }
+    if dpn < 6 && ([s.krx, s.kry, s.krz].into_iter().any(|k| k.unwrap_or(0.0) > 0.0) || [s.drx, s.dry, s.drz].into_iter().any(nz)) {
+        return Err(format!("unsupported: a rotational spring or prescribed rotation at node {node} of a model without rotations"));
+    }
+    let flags = [s.rx, s.ry, s.rz, s.rrx, s.rry, s.rrz];
+    let springs = [s.kx, s.ky, s.kz, s.krx, s.kry, s.krz];
+    let pres = [s.dx, s.dy, s.dz, s.drx, s.dry, s.drz];
+    for d in 0..6 {
+        let used = if inclined {
+            // translations: projected on the normal; rotations: by their flags
+            d < 3 || flags[d]
+        } else {
+            flags[d] && springs[d].unwrap_or(0.0) <= 0.0
+        };
+        if nz(pres[d]) && !used {
+            return Err(format!("unsupported: a prescribed displacement on DOF {d} at node {node}, which its support leaves free"));
+        }
+    }
+    Ok(())
 }
 
 fn supports(input: &SolverInput3D, model: &mut Model, kin: &mut Kinematics, dpn: usize) -> Result<(), String> {
@@ -383,6 +417,7 @@ fn supports(input: &SolverInput3D, model: &mut Model, kin: &mut Kinematics, dpn:
             continue;
         }
         let s = sups[0];
+        ignored_support_fields_3d(s, dpn)?;
         let springs = [s.kx, s.ky, s.kz, s.krx, s.kry, s.krz];
         for (d, k) in springs.iter().enumerate() {
             if let Some(k) = *k {
@@ -448,28 +483,30 @@ fn constraints(input: &SolverInput3D, model: &Model, kin: &mut Kinematics, dpn: 
     let nodes: HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
     let off = |m: usize, s: usize| -> Result<V3, String> {
         let (a, b) = (nodes.get(&m).ok_or("constraint node missing")?, nodes.get(&s).ok_or("constraint node missing")?);
-        Ok([inp(b.x) - inp(a.x), inp(b.y) - inp(a.y), inp(b.z) - inp(a.z)])
+        let dd = |p: f64, q: f64| if p == q { I::ZERO } else { inp(q) - inp(p) };
+        Ok([dd(a.x, b.x), dd(a.y, b.y), dd(a.z, b.z)])
     };
     let dof = |n: usize, d: usize| model.dof(n, d);
+    // A DOF a constraint names must exist: never drop part of a constraint.
+    let need = |n: usize, d: usize| dof(n, d).ok_or_else(|| format!("unsupported: a constraint names DOF {d} of node {n}, which the model does not have"));
     // Translation d of the slave: u_m,d + (θ × r)_d.
-    let rigid = |m: usize, d: usize, r: &V3| -> Vec<(usize, I)> {
-        let mut t = Vec::new();
-        if let Some(md) = dof(m, d) {
-            t.push((md, c(1.0)));
-        }
+    let rigid = |m: usize, d: usize, r: &V3| -> Result<Vec<(usize, I)>, String> {
+        let mut t = vec![(need(m, d)?, c(1.0))];
         // (θ × r)_x = θy rz − θz ry ; _y = θz rx − θx rz ; _z = θx ry − θy rx
         let terms: [(usize, I); 2] = match d {
             0 => [(4, r[2]), (5, -r[1])],
             1 => [(5, r[0]), (3, -r[2])],
             2 => [(3, r[1]), (4, -r[0])],
-            _ => return t,
+            _ => return Ok(t),
         };
         for (rd, coef) in terms {
-            if let Some(x) = dof(m, rd) {
-                t.push((x, coef));
+            if coef == I::ZERO {
+                continue;
             }
+            let x = dof(m, rd).ok_or_else(|| format!("unsupported: a rigid offset from node {m}, which has no rotations in this model"))?;
+            t.push((x, coef));
         }
-        t
+        Ok(t)
     };
     for con in &input.constraints {
         match con {
@@ -477,9 +514,7 @@ fn constraints(input: &SolverInput3D, model: &Model, kin: &mut Kinematics, dpn: 
                 let dofs: Vec<usize> = if rl.dofs.is_empty() { (0..dpn.min(3)).collect() } else { rl.dofs.clone() };
                 let r = off(rl.master_node, rl.slave_node)?;
                 for d in dofs {
-                    if let Some(s) = dof(rl.slave_node, d) {
-                        kin.equation(s, rigid(rl.master_node, d, &r));
-                    }
+                    kin.equation(need(rl.slave_node, d)?, rigid(rl.master_node, d, &r)?);
                 }
             }
             Constraint::Diaphragm(dia) => {
@@ -499,32 +534,24 @@ fn constraints(input: &SolverInput3D, model: &Model, kin: &mut Kinematics, dpn: 
                     let normal = 3 - ds[0] - ds[1];
                     r[normal] = I::ZERO;
                     for d in ds {
-                        if let Some(s) = dof(sn, d) {
-                            let mut t = Vec::new();
-                            if let Some(md) = dof(dia.master_node, d) {
-                                t.push((md, c(1.0)));
-                            }
-                            // rotation about the plane normal (DOF 3 + normal)
-                            if let Some(rot) = dof(dia.master_node, 3 + normal) {
-                                // (e_normal × r)_d
-                                let e_n = {
-                                    let mut v = [I::ZERO; 3];
-                                    v[normal] = c(1.0);
-                                    v
-                                };
-                                let coef = cross(&e_n, &r)[d];
-                                t.push((rot, coef));
-                            }
-                            kin.equation(s, t);
+                        let mut t = vec![(need(dia.master_node, d)?, c(1.0))];
+                        // rotation about the plane normal (DOF 3 + normal): (e_normal × r)_d
+                        let e_n = {
+                            let mut v = [I::ZERO; 3];
+                            v[normal] = c(1.0);
+                            v
+                        };
+                        let coef = cross(&e_n, &r)[d];
+                        if coef != I::ZERO {
+                            t.push((need(dia.master_node, 3 + normal)?, coef));
                         }
+                        kin.equation(need(sn, d)?, t);
                     }
                 }
             }
             Constraint::EqualDOF(eq) => {
                 for &d in &eq.dofs {
-                    if let (Some(s), Some(m)) = (dof(eq.slave_node, d), dof(eq.master_node, d)) {
-                        kin.equation(s, vec![(m, c(1.0))]);
-                    }
+                    kin.equation(need(eq.slave_node, d)?, vec![(need(eq.master_node, d)?, c(1.0))]);
                 }
             }
             Constraint::EccentricConnection(ec) => {
@@ -533,9 +560,7 @@ fn constraints(input: &SolverInput3D, model: &Model, kin: &mut Kinematics, dpn: 
                     if ec.releases.get(d).copied().unwrap_or(false) {
                         continue;
                     }
-                    if let Some(s) = dof(ec.slave_node, d) {
-                        kin.equation(s, rigid(ec.master_node, d, &r));
-                    }
+                    kin.equation(need(ec.slave_node, d)?, rigid(ec.master_node, d, &r)?);
                 }
             }
             Constraint::LinearMPC(mpc) => linear_mpc(mpc, model, kin)?,

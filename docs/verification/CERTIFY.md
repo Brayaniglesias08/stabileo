@@ -247,6 +247,18 @@ partial, trapezoidal, axial), point and thermal member loads. **Out of scope**
 with `Cw > 0` on frames) and bimoment loads, several non-plain supports on one node.
 There are no rigid end offsets in the model format. Shells are next.
 
+**Nothing is dropped.** Every input field the check reads is modelled or refused
+(`engine/tests/certify_end_to_end_inputs.rs`, one negative test per field): a load on a
+node, member or DOF the model does not have (a moment on a model with only trusses and
+cables, which has no rotations) is `failed` (nothing resists it); a support value its type
+does not use (a settlement on a DOF the support leaves free, an angle on a fixed support,
+a rotational spring or prescribed rotation without rotations, a normal on a support that is
+not inclined, warping restraints) and a constraint naming a DOF the model does not have
+(or needing a rotation it lacks for its offset) are `outOfScope`. Ignored by design, because
+they cannot change the mechanics: hinge flags and releases on trusses and cables (they
+carry no moment), a thermal gradient on a truss (a pin-ended bar curves freely), section
+properties a member type does not use.
+
 ### Tests
 
 `engine/tests/certify_end_to_end.rs`, all in the normal suite:
@@ -257,8 +269,8 @@ There are no rigid end offsets in the model format. Shells are next.
 | 3D fixtures (`ex-3d-*`, `random3d-*`) | 32 | 32 | identical |
 | stable random frames, 2D (`tests/e2e_models`) | 200 | 200 | identical |
 | stable random frames, 3D | 150 | 150 | identical |
-| fuzz generators (`fuzz_models`, rich and plain), 2D | 300 | 88; 1 uncertified and 2 with no solution, see findings | identical |
-| fuzz generators, 3D | 240 | 23 (most are mechanisms the solver refuses); 1 uncertified (ill-conditioned beyond `ε`) | identical |
+| fuzz generators (`fuzz_models`, rich and plain), 2D | 300 | 56; 42 out of scope (the rich generator puts settlements on DOFs their support leaves free, refused); 1 uncertified and 2 with no solution, see findings | identical |
+| fuzz generators, 3D | 240 | 20 (most are mechanisms the solver refuses); 4 out of scope; 1 uncertified (ill-conditioned beyond `ε`) | identical |
 | differential generators (`tools/differential`, 14 generators × 200, `e2e_dir`, run by hand) | 2800 | 2534: every model the assembled-level certificate certifies except 6 (two `rich3d` models in three variants, singular in exact arithmetic, see findings) | identical |
 
 The differential models: `python3 tools/differential/dump_models.py DIR 200`, then

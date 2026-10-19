@@ -112,12 +112,16 @@ impl EndToEnd {
 /// Error from model building: out of scope, or a model with no unique solution.
 enum BuildErr {
     Scope(String),
+    /// The model provably has no solution (a load nothing can resist).
+    NoSolution(String),
     Fail(String),
 }
 
 fn classify(e: String) -> BuildErr {
     if e.starts_with("out of scope") || e.starts_with("unsupported") {
         BuildErr::Scope(e)
+    } else if e.starts_with("a load acts on") {
+        BuildErr::NoSolution(e)
     } else {
         BuildErr::Fail(e)
     }
@@ -131,6 +135,7 @@ fn finish(
     let model = match model.map_err(classify) {
         Ok(m) => m,
         Err(BuildErr::Scope(reason)) => return EndToEnd::OutOfScope { reason },
+        Err(BuildErr::NoSolution(reason)) => return EndToEnd::Failed { reason },
         Err(BuildErr::Fail(reason)) => return EndToEnd::Uncertified { reason },
     };
     let u = match u(&model) {

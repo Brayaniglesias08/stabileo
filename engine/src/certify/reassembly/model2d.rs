@@ -46,6 +46,8 @@ pub(super) fn build(input: &SolverInput, loads: &[SolverLoad]) -> Result<Model, 
         };
         by_elem.entry(id).or_default().push(ld);
     }
+    let members: std::collections::HashSet<usize> = input.elements.values().map(|e| e.id).collect();
+    check_member_load_ids(by_elem.keys().copied(), &members)?;
     let mut elems: Vec<&SolverElement> = input.elements.values().collect();
     elems.sort_by_key(|e| e.id);
     for el in elems {
@@ -165,9 +167,8 @@ pub(super) fn build(input: &SolverInput, loads: &[SolverLoad]) -> Result<Model, 
         if let SolverLoad::Nodal(nl) = ld {
             for (d, v) in [(0, nl.fx), (1, nl.fz), (2, nl.my)] {
                 if v != 0.0 {
-                    if let Some(i) = model.dof(nl.node_id, d) {
-                        model.add_f(i, inp(v));
-                    }
+                    let i = model.dof(nl.node_id, d).ok_or_else(|| missing_dof_load(&model, nl.node_id, d))?;
+                    model.add_f(i, inp(v));
                 }
             }
         }
@@ -178,6 +179,27 @@ pub(super) fn build(input: &SolverInput, loads: &[SolverLoad]) -> Result<Model, 
     constraints(input, &model, &mut kin, dpn, has_frame)?;
     kin.build(&mut model)?;
     Ok(model)
+}
+
+/// A nodal load component on a DOF the model does not have: the node is
+/// missing, or the model has no rotations (only trusses and cables) and a
+/// moment acts. Nothing resists it: the model has no solution.
+pub(super) fn missing_dof_load(model: &Model, node: usize, d: usize) -> String {
+    if model.dof(node, 0).is_none() {
+        format!("a load acts on node {node}, which is not in the model: nothing resists it")
+    } else {
+        format!("a load acts on DOF {d} of node {node}, which the model does not have (no member carries moments): nothing resists it")
+    }
+}
+
+/// Member loads must name a member of the model.
+pub(super) fn check_member_load_ids(ids: impl Iterator<Item = usize>, members: &std::collections::HashSet<usize>) -> Result<(), String> {
+    for id in ids {
+        if !members.contains(&id) {
+            return Err(format!("a load acts on element {id}, which is not in the model: nothing resists it"));
+        }
+    }
+    Ok(())
 }
 
 /// EI·α·Δt/h with h = √(12·I/A) (the depth of a rectangle with this A and I),
@@ -213,6 +235,31 @@ fn restrained_2d(t: &str, d: usize) -> bool {
 fn plain_2d(s: &SolverSupport) -> bool {
     RIGID_2D.contains(&s.support_type.as_str())
         && [s.kx, s.ky, s.kz, s.dx, s.dz, s.dry, s.angle].into_iter().all(|v| v.unwrap_or(0.0) == 0.0)
+}
+
+/// Support fields the model would not use: refused, never dropped.
+fn ignored_support_fields_2d(s: &SolverSupport, dpn: usize) -> Result<(), String> {
+    let nz = |v: Option<f64>| v.unwrap_or(0.0) != 0.0;
+    let t = s.support_type.as_str();
+    let node = s.node_id;
+    if dpn < 3 && (s.kz.unwrap_or(0.0) > 0.0 || nz(s.dry)) {
+        return Err(format!("unsupported: a rotational spring or prescribed rotation at node {node} of a model without rotations"));
+    }
+    if nz(s.angle) && t != "spring" && t != "inclinedRoller" {
+        return Err(format!("unsupported: an angle on the {t} support at node {node}"));
+    }
+    // Which prescribed values the support uses.
+    let used = |d: usize| match t {
+        "spring" | "free" => false,
+        "inclinedRoller" if s.angle.is_some() => d < 2,
+        _ => restrained_2d(t, d) && d < dpn,
+    };
+    for (d, v) in [s.dx, s.dz, s.dry].into_iter().enumerate() {
+        if nz(v) && !used(d) {
+            return Err(format!("unsupported: a prescribed displacement on DOF {d} at node {node}, which its {t} support leaves free"));
+        }
+    }
+    Ok(())
 }
 
 fn supports(input: &SolverInput, model: &mut Model, kin: &mut Kinematics, dpn: usize) -> Result<(), String> {
@@ -251,6 +298,7 @@ fn supports(input: &SolverInput, model: &mut Model, kin: &mut Kinematics, dpn: u
         }
         let s = sups[0];
         let t = s.support_type.as_str();
+        ignored_support_fields_2d(s, dpn)?;
         let node_dofs: Vec<Option<usize>> = (0..3).map(|d| model.dof(node, d)).collect();
         let dof = |d: usize| node_dofs[d];
         // Springs.
@@ -308,23 +356,26 @@ pub(super) fn constraints(input: &SolverInput, model: &Model, kin: &mut Kinemati
     let nodes: HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
     let off = |m: usize, s: usize| -> Result<(I, I), String> {
         let (a, b) = (nodes.get(&m).ok_or("constraint node missing")?, nodes.get(&s).ok_or("constraint node missing")?);
-        Ok((inp(b.x) - inp(a.x), inp(b.z) - inp(a.z)))
+        // equal coordinates: an exact 0, not a rounding-wide interval
+        let dd = |p: f64, q: f64| if p == q { I::ZERO } else { inp(q) - inp(p) };
+        Ok((dd(a.x, b.x), dd(a.z, b.z)))
     };
     let dof = |n: usize, d: usize| model.dof(n, d);
+    // A DOF a constraint names must exist: never drop part of a constraint.
+    let need = |n: usize, d: usize| dof(n, d).ok_or_else(|| format!("unsupported: a constraint names DOF {d} of node {n}, which the model does not have"));
     // Rigid kinematics of slave DOF d from master `m` with offset (ox, oz).
-    let rigid = |m: usize, d: usize, ox: I, oz: I| -> Vec<(usize, I)> {
-        let mut t = Vec::new();
-        if let Some(md) = dof(m, d) {
-            t.push((md, c(1.0)));
+    let rigid = |m: usize, d: usize, ox: I, oz: I| -> Result<Vec<(usize, I)>, String> {
+        let mut t = vec![(need(m, d)?, c(1.0))];
+        let coef = match d {
+            0 => -oz,
+            1 => ox,
+            _ => I::ZERO,
+        };
+        if coef != I::ZERO {
+            let r = dof(m, 2).ok_or_else(|| format!("unsupported: a rigid offset from node {m}, which has no rotation in this model"))?;
+            t.push((r, coef));
         }
-        if let Some(r) = dof(m, 2) {
-            match d {
-                0 => t.push((r, -oz)),
-                1 => t.push((r, ox)),
-                _ => {}
-            }
-        }
-        t
+        Ok(t)
     };
     for con in &input.constraints {
         match con {
@@ -332,9 +383,7 @@ pub(super) fn constraints(input: &SolverInput, model: &Model, kin: &mut Kinemati
                 let dofs: Vec<usize> = if rl.dofs.is_empty() { (0..dpn.min(3)).collect() } else { rl.dofs.clone() };
                 let (ox, oz) = off(rl.master_node, rl.slave_node)?;
                 for d in dofs {
-                    if let Some(s) = dof(rl.slave_node, d) {
-                        kin.equation(s, rigid(rl.master_node, d, ox, oz));
-                    }
+                    kin.equation(need(rl.slave_node, d)?, rigid(rl.master_node, d, ox, oz)?);
                 }
             }
             Constraint::Diaphragm(dia) => {
@@ -344,17 +393,13 @@ pub(super) fn constraints(input: &SolverInput, model: &Model, kin: &mut Kinemati
                 for &sn in &dia.slave_nodes {
                     let (ox, oz) = off(dia.master_node, sn)?;
                     for d in [0, 1] {
-                        if let Some(s) = dof(sn, d) {
-                            kin.equation(s, rigid(dia.master_node, d, ox, oz));
-                        }
+                        kin.equation(need(sn, d)?, rigid(dia.master_node, d, ox, oz)?);
                     }
                 }
             }
             Constraint::EqualDOF(eq) => {
                 for &d in &eq.dofs {
-                    if let (Some(s), Some(m)) = (dof(eq.slave_node, d), dof(eq.master_node, d)) {
-                        kin.equation(s, vec![(m, c(1.0))]);
-                    }
+                    kin.equation(need(eq.slave_node, d)?, vec![(need(eq.master_node, d)?, c(1.0))]);
                 }
             }
             Constraint::EccentricConnection(ec) => {
@@ -363,9 +408,7 @@ pub(super) fn constraints(input: &SolverInput, model: &Model, kin: &mut Kinemati
                     if ec.releases.get(d).copied().unwrap_or(false) {
                         continue;
                     }
-                    if let Some(s) = dof(ec.slave_node, d) {
-                        kin.equation(s, rigid(ec.master_node, d, ox, oz));
-                    }
+                    kin.equation(need(ec.slave_node, d)?, rigid(ec.master_node, d, ox, oz)?);
                 }
             }
             Constraint::LinearMPC(mpc) => linear_mpc(mpc, model, kin)?,
@@ -377,8 +420,13 @@ pub(super) fn constraints(input: &SolverInput, model: &Model, kin: &mut Kinemati
 /// Σ cᵢ·uᵢ = 0: eliminate the term with the largest |c| among DOFs that are
 /// neither restrained, nor on an inclined support, nor already a slave.
 pub(super) fn linear_mpc(mpc: &LinearMPCConstraint, model: &Model, kin: &mut Kinematics) -> Result<(), String> {
-    let terms: Vec<(usize, f64)> =
-        mpc.terms.iter().filter_map(|t| model.dof(t.node_id, t.dof).map(|d| (d, t.coefficient))).collect();
+    let mut terms: Vec<(usize, f64)> = Vec::with_capacity(mpc.terms.len());
+    for t in &mpc.terms {
+        let d = model.dof(t.node_id, t.dof).ok_or_else(|| {
+            format!("unsupported: a linear MPC names DOF {} of node {}, which the model does not have", t.dof, t.node_id)
+        })?;
+        terms.push((d, t.coefficient));
+    }
     let dep = terms
         .iter()
         .enumerate()
