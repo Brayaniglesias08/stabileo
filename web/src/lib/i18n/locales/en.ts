@@ -10350,6 +10350,7 @@ const en: Record<string, string> = {
   "provenance.reproduce.close": "Close",
   "provenance.reproduce.invalid": "No Stabileo provenance record was found in that text.",
   "provenance.reproduce.match": "Reproduced bit for bit: same model, same settings, same results.",
+  "provenance.reproduce.incomplete": "Incomplete comparison: nothing differs, but the result the report shows could not be recomputed here (not reproduced).",
   "provenance.reproduce.mismatch": "Not reproduced.",
   "provenance.reproduce.field.match": "matches",
   "provenance.reproduce.field.differs": "differs",

@@ -9983,6 +9983,7 @@ const pt: Translations = {
   "provenance.reproduce.close": "Fechar",
   "provenance.reproduce.invalid": "Nenhum registro de procedência do Stabileo foi encontrado nesse texto.",
   "provenance.reproduce.match": "Reproduzido bit a bit: mesmo modelo, mesma configuração, mesmos resultados.",
+  "provenance.reproduce.incomplete": "Comparação incompleta: nada difere, mas o resultado mostrado no relatório não pôde ser recalculado aqui (não reproduzido).",
   "provenance.reproduce.mismatch": "Não reproduzido.",
   "provenance.reproduce.field.match": "coincide",
   "provenance.reproduce.field.differs": "difere",

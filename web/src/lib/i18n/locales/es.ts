@@ -10339,6 +10339,7 @@ const es: Record<string, string> = {
   "provenance.reproduce.close": "Cerrar",
   "provenance.reproduce.invalid": "No se encontró un registro de procedencia de Stabileo en ese texto.",
   "provenance.reproduce.match": "Reproducido bit a bit: mismo modelo, misma configuración, mismos resultados.",
+  "provenance.reproduce.incomplete": "Comparación incompleta: nada difiere, pero el resultado que muestra el informe no se pudo recalcular acá (no reproducido).",
   "provenance.reproduce.mismatch": "No reproducido.",
   "provenance.reproduce.field.match": "coincide",
   "provenance.reproduce.field.differs": "difiere",

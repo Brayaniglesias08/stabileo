@@ -76,12 +76,13 @@
       {#if outcome}
         {#if outcome.ok}
           {@const v = outcome.verdict}
-          <div class="rp-verdict" class:ok={v.reproduced} data-testid="reproduce-verdict" data-reproduced={v.reproduced}>
-            <strong>{v.reproduced ? t('provenance.reproduce.match') : t('provenance.reproduce.mismatch')}</strong>
+          <div class="rp-verdict" class:ok={v.reproduced} data-testid="reproduce-verdict" data-reproduced={v.reproduced} data-status={v.status}>
+            <strong>{v.status === 'reproduced' ? t('provenance.reproduce.match') : v.status === 'incomplete' ? t('provenance.reproduce.incomplete') : t('provenance.reproduce.mismatch')}</strong>
             <ul>
               <li>{t('provenance.model')}: {field(v.model)}</li>
               <li>{t('provenance.settings')}: {field(v.settings)}</li>
               <li>{t('provenance.results')}: {field(v.results)}</li>
+              <li>{t('provenance.scope')}: {field(v.shownResults)}</li>
             </ul>
             {#if v.model === 'differs'}<p>{t('provenance.reproduce.modelDiffers')}</p>{/if}
             {#if !v.sameBuild}<p>{tp('provenance.reproduce.buildDiffers', { fields: v.buildDifferences.join(', ') })}</p>{/if}

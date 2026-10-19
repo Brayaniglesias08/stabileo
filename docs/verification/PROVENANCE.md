@@ -84,7 +84,13 @@ The HTML reports embed the record as `<script type="application/json" id="stabil
 - **App**: Project → "Reproduce from provenance…" (Básico project panel, PRO Project tab). Paste
   the report's block or load the saved report. The open project is solved again and its model,
   settings and results hashes are compared; a differing build is named, since a difference may be
-  a registered change rather than a defect. "Download solver input" saves the base solve's engine
+  a registered change rather than a defect. The record names the result the report showed
+  (`scopeRef`: base solve, case, combination, envelope, or `other` for an advanced analysis on
+  screen), and the re-run recomputes exactly that result, whatever the screen now shows. The
+  verdict is `reproduced` only when every hash the report claims was recomputed and matches;
+  `differs` when one does not; `incomplete` when one could not be recomputed (a named envelope not
+  on screen, an advanced analysis, a combination or case that does not exist, a record written
+  before scopes were recorded). Incomplete is never shown as success. "Download solver input" saves the base solve's engine
   input.
 - **CLI**: `cargo run --release --example reproduce -- solver-input-3d.json --expect-input <engineInputSha256> --expect-results <engineResultsSha256>`
   solves twice natively, checks the run is deterministic and that both hashes match; exit 1 otherwise.

@@ -34,6 +34,20 @@ export const MODEL_HASH_OMIT = [
 /** Result keys that describe the run, not the answer. */
 export const RESULTS_HASH_OMIT = ['timings', 'solveTimings', 'runMeta', 'meta'] as const;
 
+/** A result a re-run can select again: the base solve, one case, one combination, or an envelope. */
+export type ScopeRef =
+  | { kind: 'single' }
+  | { kind: 'case'; id: number }
+  | { kind: 'combo'; id: number }
+  /** `name`: a named envelope; null: the active combinations' envelope. */
+  | { kind: 'envelope'; name: string | null }
+  /** Something a solve does not reproduce by itself (an advanced analysis's result on screen). */
+  | { kind: 'other'; label: string };
+
+export function sameScope(a: ScopeRef | undefined, b: ScopeRef | undefined): boolean {
+  return !!a && !!b && JSON.stringify(a) === JSON.stringify(b);
+}
+
 export interface AnalysisSettings {
   analysisMode: string;
   includeSelfWeight: boolean;
@@ -64,9 +78,16 @@ export interface ResultProvenance {
   settingsHash: string;
   /** Which result: the base solve, a case, a combination or the envelope, by name. */
   scope: string;
+  /**
+   * The same, as something a re-run can select again (`store/result-provenance.ts`
+   * `resultForScope`). Absent in records written before it existed: such a record can only be
+   * reproduced for its base solve, and a reproduce that cannot recompute the shown result says
+   * the comparison is incomplete.
+   */
+  scopeRef?: ScopeRef;
   /** null: no results (a report written for a model that did not solve). */
   resultsHash: string | null;
-  /** The base solve's hash when the scope is not the base solve. */
+  /** The base solve's hash (equal to `resultsHash` when the base solve is what is shown). */
   baseResultsHash: string | null;
   /**
    * The engine's hashes of the base linear solve: its canonical input and its raw result, as
@@ -105,6 +126,7 @@ export interface ProvenanceInputs {
   snapshot: unknown;
   settings: AnalysisSettings;
   scope: string;
+  scopeRef?: ScopeRef;
   results: unknown;
   baseResults?: unknown;
   certificates?: CertificateRecord[];
@@ -115,7 +137,10 @@ export interface ProvenanceInputs {
 }
 
 export function buildResultProvenance(i: ProvenanceInputs): ResultProvenance {
-  const base = i.baseResults && i.baseResults !== i.results ? resultsHash(i.baseResults) : null;
+  const shown = resultsHash(i.results);
+  const single = i.scopeRef ? i.scopeRef.kind === 'single' : i.scope === 'single';
+  const base = i.baseResults === undefined ? (single ? shown : null)
+    : i.baseResults === i.results ? shown : resultsHash(i.baseResults);
   return {
     schema: PROVENANCE_SCHEMA,
     appVersion: i.build.appVersion,
@@ -129,7 +154,8 @@ export function buildResultProvenance(i: ProvenanceInputs): ResultProvenance {
     settings: i.settings,
     settingsHash: exactHash(i.settings),
     scope: i.scope,
-    resultsHash: resultsHash(i.results),
+    ...(i.scopeRef ? { scopeRef: i.scopeRef } : {}),
+    resultsHash: shown,
     baseResultsHash: base,
     engineInputSha256: i.engine?.input ?? null,
     engineResultsSha256: i.engine?.results ?? null,
@@ -146,14 +172,23 @@ export function buildResultProvenance(i: ProvenanceInputs): ResultProvenance {
 
 export type FieldVerdict = 'match' | 'differs' | 'absent';
 
+/**
+ * reproduced   every compared hash matches, and every hash the report claims was recomputed;
+ * differs      at least one recomputed hash is different;
+ * incomplete   nothing differs, but something the report claims could not be recomputed (its
+ *              result is not selectable here, or a hash is missing): never reported as success.
+ */
+export type ReproduceStatus = 'reproduced' | 'differs' | 'incomplete';
+
 export interface ReproduceVerdict {
-  /** The re-run gave the same results from the same model and settings. */
+  status: ReproduceStatus;
+  /** `status === 'reproduced'`. */
   reproduced: boolean;
   model: FieldVerdict;
   settings: FieldVerdict;
-  /** The base solve's results (every report records them, whatever result it shows). */
+  /** The base solve's results. */
   results: FieldVerdict;
-  /** The result the report showed (a combination, the envelope), when the re-run shows the same one. */
+  /** The result the report showed (a case, a combination, an envelope), recomputed for that scope. */
   shownResults: FieldVerdict;
   /** The builds differ (a differing result may then be a registered change, not a defect). */
   sameBuild: boolean;
@@ -165,19 +200,31 @@ const verdict = (a: string | null | undefined, b: string | null | undefined): Fi
 
 /** The base solve's hash of a record, whatever scope it showed. */
 export function baseHashOf(p: ResultProvenance): string | null {
-  return p.scope === 'single' ? p.resultsHash : p.baseResultsHash ?? null;
+  if (p.baseResultsHash) return p.baseResultsHash;
+  return p.scope === 'single' || p.scopeRef?.kind === 'single' ? p.resultsHash : null;
 }
 
-/** Compare a printed provenance (`claimed`) with the one a fresh re-run produced (`fresh`). */
+/**
+ * Compare a printed provenance (`claimed`) with a re-run's (`fresh`).
+ *
+ * `fresh.resultsHash` must be the hash of the SAME scope the report claims, recomputed for it
+ * (`reproduceFrom` does that); when `fresh` describes another scope, the shown result was not
+ * recomputed and the verdict is at best incomplete.
+ */
 export function compareProvenance(claimed: ResultProvenance, fresh: ResultProvenance): ReproduceVerdict {
   const model = verdict(claimed.modelHash, fresh.modelHash);
   const settings = verdict(claimed.settingsHash, fresh.settingsHash);
   const results = verdict(baseHashOf(claimed), baseHashOf(fresh));
-  const shownResults = claimed.scope === fresh.scope ? verdict(claimed.resultsHash, fresh.resultsHash) : 'absent';
+  const claimedSingle = claimed.scopeRef ? claimed.scopeRef.kind === 'single' : claimed.scope === 'single';
+  const shownResults: FieldVerdict = claimedSingle
+    ? results
+    : sameScope(claimed.scopeRef, fresh.scopeRef) ? verdict(claimed.resultsHash, fresh.resultsHash) : 'absent';
+  const all = [model, settings, results, shownResults];
+  const status: ReproduceStatus = all.includes('differs') ? 'differs' : all.includes('absent') ? 'incomplete' : 'reproduced';
   const buildDifferences = (['appVersion', 'commit', 'engineVersion', 'engineCommit', 'wasmHash', 'resultsVersion'] as const)
     .filter((k) => String(claimed[k]) !== String(fresh[k]));
   return {
-    reproduced: model === 'match' && settings === 'match' && results === 'match' && shownResults !== 'differs',
+    status, reproduced: status === 'reproduced',
     model, settings, results, shownResults,
     sameBuild: buildDifferences.length === 0,
     buildDifferences,

@@ -18,6 +18,8 @@ import {
 } from '../../provenance/result-provenance';
 import { buildIdentity } from '../../provenance/build-identity';
 import { generateCalcReportHtml } from '../../engine/calc-report';
+import { publishCombinations3D } from '../active-results';
+import { compareWithResultsOnHand } from '../../actions/reproduce';
 
 beforeAll(async () => { await initSolver(); });
 beforeEach(() => {
@@ -137,5 +139,92 @@ describe('result provenance', () => {
     expect(currentResultProvenance().stale).toBe(recheckStore.stale);
     solveMain();
     expect(currentResultProvenance().stale).toBe(false);
+  });
+});
+
+/** The frame with a live-load case and two combinations, solved with them, as Calcular does. */
+function solveWithCombinations(): void {
+  buildFrame();
+  const top = [...modelStore.nodes.keys()].slice(-1)[0];
+  modelStore.addNodalLoad3D(top, 0, 7.5, -12, 0, 0, 0, 2);
+  modelStore.addCombination('1.2D+1.6L', [{ caseId: 1, factor: 1.2 }, { caseId: 2, factor: 1.6 }]);
+  modelStore.addCombination('1.4D', [{ caseId: 1, factor: 1.4 }]);
+  solveMain();
+  const c = modelStore.solveCombinations3D(true, false, true);
+  if (!c || typeof c === 'string') throw new Error(String(c));
+  publishCombinations3D(c);
+}
+
+describe('reproduce recomputes the result the report claims, not the one on screen', () => {
+  it('a combination report reproduces while the screen shows the base solve', () => {
+    solveWithCombinations();
+    const comboId = modelStore.model.combinations[0]!.id;
+    resultsStore.activeView = 'combo';
+    resultsStore.activeComboId = comboId;
+    const claimed = currentResultProvenance();
+    expect(claimed.scopeRef).toEqual({ kind: 'combo', id: comboId });
+    resultsStore.activeView = 'single';
+    const out = compareWithResultsOnHand(claimed);
+    expect(out.ok && out.verdict.status).toBe('reproduced');
+    expect(out.ok && out.verdict.shownResults).toBe('match');
+  });
+
+  it('a combination hash that does not match is not reproduced, whatever the screen shows', () => {
+    solveWithCombinations();
+    resultsStore.activeView = 'combo';
+    resultsStore.activeComboId = modelStore.model.combinations[0]!.id;
+    const claimed = { ...currentResultProvenance(), resultsHash: '0'.repeat(64) };
+    resultsStore.activeView = 'single';
+    const out = compareWithResultsOnHand(claimed);
+    expect(out.ok && out.verdict.status).toBe('differs');
+    expect(out.ok && out.verdict.reproduced).toBe(false);
+  });
+
+  it('a report of the other combination is compared with that combination, and a swapped scope differs', () => {
+    solveWithCombinations();
+    const [a, b] = modelStore.model.combinations.map((c) => c.id);
+    resultsStore.activeView = 'combo';
+    resultsStore.activeComboId = a!;
+    const claimedA = currentResultProvenance();
+    // The report claims combination B but carries A's numbers.
+    const swapped = { ...claimedA, scopeRef: { kind: 'combo' as const, id: b! } };
+    const out = compareWithResultsOnHand(swapped);
+    expect(out.ok && out.verdict.status).toBe('differs');
+  });
+
+  it('a claimed scope that does not exist here is an incomplete comparison, never success', () => {
+    solveWithCombinations();
+    const base = currentResultProvenance();
+    for (const scopeRef of [
+      { kind: 'combo' as const, id: 999 },
+      { kind: 'case' as const, id: 999 },
+      { kind: 'envelope' as const, name: 'Not here' },
+      { kind: 'other' as const, label: 'pdelta' },
+    ]) {
+      const out = compareWithResultsOnHand({ ...base, scopeRef, scope: 'x', resultsHash: base.resultsHash });
+      expect(out.ok && out.verdict.status, JSON.stringify(scopeRef)).toBe('incomplete');
+      expect(out.ok && out.verdict.reproduced).toBe(false);
+    }
+  });
+
+  it('an envelope report without an envelope on hand is incomplete', () => {
+    solveWithCombinations();
+    resultsStore.activeView = 'envelope';
+    const claimed = currentResultProvenance();
+    expect(claimed.scopeRef).toEqual({ kind: 'envelope', name: null });
+    // The same model solved without its combinations: no envelope.
+    resultsStore.clear();
+    solveMain();
+    const out = compareWithResultsOnHand(claimed);
+    expect(out.ok && out.verdict.status).toBe('incomplete');
+  });
+
+  it('a record written before scopes were recorded reproduces only a base-solve report', () => {
+    solveWithCombinations();
+    resultsStore.activeView = 'combo';
+    resultsStore.activeComboId = modelStore.model.combinations[0]!.id;
+    const { scopeRef: _s, ...legacy } = currentResultProvenance();
+    const out = compareWithResultsOnHand(legacy as never);
+    expect(out.ok && out.verdict.status).toBe('incomplete');
   });
 });

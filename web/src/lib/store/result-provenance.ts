@@ -19,7 +19,7 @@ import { RESULTS_VERSION } from '../provenance/registry';
 import { RESULTS_SCHEMA_VERSION } from '../provenance/solve-stamp';
 import { exactHash } from '../provenance/exact-hash';
 import {
-  buildResultProvenance, type AnalysisSettings, type CertificateRecord, type ProvenanceLabels, type ResultProvenance,
+  buildResultProvenance, type ScopeRef, type AnalysisSettings, type CertificateRecord, type ProvenanceLabels, type ResultProvenance,
 } from '../provenance/result-provenance';
 import { t } from '../i18n';
 import { certifiableInputOf, type CertifiableInput } from '../engine/solver-service';
@@ -61,18 +61,61 @@ export function currentAnalysisSettings(): AnalysisSettings {
   };
 }
 
+/** Which result is on screen, as something a re-run can select again. */
+export function currentScopeRef(): ScopeRef {
+  const is3D = uiStore.is3DWorkspace;
+  const view = resultsStore.activeView;
+  let ref: ScopeRef;
+  if (view === 'envelope') ref = { kind: 'envelope', name: is3D ? resultsStore.viewedEnvelopeName : null };
+  else if (view === 'combo' && resultsStore.activeComboId !== null) ref = { kind: 'combo', id: resultsStore.activeComboId };
+  else if (resultsStore.activeCaseId !== null && resultsStore.activeCaseId !== undefined) ref = { kind: 'case', id: resultsStore.activeCaseId };
+  else ref = { kind: 'single' };
+  // What is drawn is not the result that scope names (a P-Delta or a collapse on screen): a
+  // re-solve cannot give it back, and the record says so rather than naming the base solve.
+  const shown = is3D ? resultsStore.results3D : resultsStore.results;
+  if (shown && resultForScope(ref) !== shown) return { kind: 'other', label: String(resultsStore.diagramType) };
+  return ref;
+}
+
+/**
+ * The result a scope names in the results on hand, or null when there is none. The same lookup
+ * the views make (`results.svelte.ts` activeView / activeComboId / activeCaseId).
+ */
+export function resultForScope(ref: ScopeRef | undefined): object | null {
+  if (!ref) return null;
+  const is3D = uiStore.is3DWorkspace;
+  switch (ref.kind) {
+    case 'single': return (is3D ? resultsStore.singleResults3D : resultsStore.singleResults) ?? null;
+    case 'case': return (is3D ? resultsStore.perCase3D : resultsStore.perCase).get(ref.id) ?? null;
+    case 'combo': return (is3D ? resultsStore.perCombo3D : resultsStore.perCombo).get(ref.id) ?? null;
+    case 'envelope': {
+      if (!is3D) return ref.name === null ? resultsStore.envelope?.maxAbsResults ?? null : null;
+      if (ref.name === null) return resultsStore.envelope3D?.maxAbsResults3D ?? null;
+      // A named envelope is a view built over the solve; it is not there after a re-solve unless
+      // the same one is being shown.
+      return resultsStore.viewedEnvelopeName === ref.name ? resultsStore.fullEnvelope3D?.maxAbsResults3D ?? null : null;
+    }
+    case 'other': return null;
+  }
+}
+
+/** A scope by name, for the printed record. */
+export function scopeLabel(ref: ScopeRef): string {
+  switch (ref.kind) {
+    case 'single': return 'single';
+    case 'case': return `case ${ref.id} (${modelStore.getLoadCaseName(ref.id) ?? ''})`;
+    case 'combo': {
+      const c = modelStore.model.combinations.find((x) => x.id === ref.id);
+      return `combination ${ref.id}${c ? ` (${c.name})` : ''}`;
+    }
+    case 'envelope': return ref.name === null ? 'envelope' : `envelope "${ref.name}"`;
+    case 'other': return `other (${ref.label})`;
+  }
+}
+
 /** Which result is on screen, by name. */
 export function currentScope(): string {
-  const view = resultsStore.activeView;
-  if (view === 'envelope') return 'envelope';
-  if (view === 'combo') {
-    const id = resultsStore.activeComboId;
-    const c = modelStore.model.combinations.find((x) => x.id === id);
-    return `combination ${id}${c ? ` (${c.name})` : ''}`;
-  }
-  const caseId = resultsStore.activeCaseId;
-  if (caseId !== null && caseId !== undefined) return `case ${caseId} (${modelStore.getLoadCaseName(caseId) ?? ''})`;
-  return 'single';
+  return scopeLabel(currentScopeRef());
 }
 
 function certificates(): CertificateRecord[] {
@@ -94,7 +137,21 @@ function certificates(): CertificateRecord[] {
 /** The provenance of what is on screen now (results null: none). */
 export function currentResultProvenance(now?: Date): ResultProvenance {
   const is3D = uiStore.is3DWorkspace;
-  const results = is3D ? resultsStore.results3D : resultsStore.results;
+  const ref = currentScopeRef();
+  return resultProvenanceFor(ref, (is3D ? resultsStore.results3D : resultsStore.results) ?? null, now);
+}
+
+/**
+ * The provenance of the result a scope names in the results on hand (`results` null: that scope
+ * is not there; the record then carries no results hash for it). What `reproduceFrom` uses to
+ * recompute exactly the result a report claims.
+ */
+export function provenanceForScope(ref: ScopeRef, now?: Date): ResultProvenance {
+  return resultProvenanceFor(ref, resultForScope(ref), now);
+}
+
+function resultProvenanceFor(ref: ScopeRef, results: object | null, now?: Date): ResultProvenance {
+  const is3D = uiStore.is3DWorkspace;
   const base = is3D ? resultsStore.singleResults3D : resultsStore.singleResults;
   return buildResultProvenance({
     build: buildIdentity(),
@@ -102,9 +159,10 @@ export function currentResultProvenance(now?: Date): ResultProvenance {
     resultsSchemaVersion: RESULTS_SCHEMA_VERSION,
     snapshot: modelStore.snapshot(),
     settings: currentAnalysisSettings(),
-    scope: currentScope(),
+    scope: scopeLabel(ref),
+    scopeRef: ref,
     results,
-    baseResults: base,
+    baseResults: base ?? null,
     certificates: certificates(),
     stale: recheckStore.stale,
     stamp: recheckStore.stamp,
