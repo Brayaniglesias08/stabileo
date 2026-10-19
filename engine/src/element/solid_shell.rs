@@ -501,10 +501,24 @@ pub fn solid_shell_stiffness(coords: &[[f64; 3]; 8], e: f64, nu: f64) -> Vec<f64
 /// stiffness: ε = B_ANS·u + G·α, α condensed from u. Used by every stress recovery so
 /// the reported stresses are those the element's energy is built from.
 pub fn solid_shell_strain(coords: &[[f64; 3]; 8], u: &[f64], e: f64, nu: f64, xi: f64, eta: f64, zeta: f64) -> [f64; 6] {
+    // Every enhanced mode is odd in one natural coordinate (ζ, ξ or η), so where all of
+    // them vanish — the centroid, used by the centroid stress recovery and the geometric
+    // stiffness prestress — G = 0 and ε = B_ANS·u exactly: skip building the EAS blocks
+    // and solving for α (a full 8-point integration per call).
+    if eas_modes(xi, eta, zeta).iter().all(|&(_, f)| f == 0.0) {
+        return ans_strain(coords, u, xi, eta, zeta);
+    }
     let c = material_matrix_3d(e, nu);
     let ops = eas_operators(coords, &c);
     let alpha = eas_alpha(&ops, u);
     strain_with_alpha(coords, u, &alpha, xi, eta, zeta)
+}
+
+/// B_ANS·u at (ξ, η, ζ), without the enhanced part.
+fn ans_strain(coords: &[[f64; 3]; 8], u: &[f64], xi: f64, eta: f64, zeta: f64) -> [f64; 6] {
+    let tying = compute_ans_tying(coords);
+    let (b, _) = ans_b_matrix(coords, xi, eta, zeta, &tying);
+    std::array::from_fn(|r| (0..24).map(|j| b[r * 24 + j] * u[j]).sum::<f64>())
 }
 
 fn strain_with_alpha(coords: &[[f64; 3]; 8], u: &[f64], alpha: &[f64; N_EAS], xi: f64, eta: f64, zeta: f64) -> [f64; 6] {
@@ -943,6 +957,55 @@ mod tests {
         let ratio = e_eas / e_ans;
         let expected = (1.0 - 2.0 * 0.3) / (0.7_f64 * 0.7);
         assert!((ratio - expected).abs() < 1e-9, "energy ratio {ratio} vs {expected}");
+    }
+
+    /// The centroid fast path (G = 0 there, so no α solve) equals the full ANS + EAS path
+    /// to round-off, for a general displacement on a distorted, warped element.
+    #[test]
+    fn test_centroid_strain_fast_path_matches_full() {
+        let coords = [
+            [0.1, -0.2, 0.0], [2.0, 0.1, 0.3], [2.3, 1.2, 0.2], [-0.1, 0.9, -0.1],
+            [0.2, -0.1, 0.4], [2.1, 0.0, 0.6], [2.2, 1.3, 0.5], [0.0, 1.0, 0.3],
+        ];
+        let (e, nu) = (200.0e3, 0.3);
+        let u: Vec<f64> = (0..24).map(|k| 1e-3 * ((k * 7 % 11) as f64 - 5.0) * (1.0 + 0.1 * k as f64)).collect();
+        let c = material_matrix_3d(e, nu);
+        let alpha = eas_alpha(&eas_operators(&coords, &c), &u);
+        assert!(alpha.iter().any(|a| a.abs() > 1e-12), "test needs active EAS modes: {alpha:?}");
+        let full = strain_with_alpha(&coords, &u, &alpha, 0.0, 0.0, 0.0);
+        let fast = solid_shell_strain(&coords, &u, e, nu, 0.0, 0.0, 0.0);
+        let scale = full.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        for r in 0..6 {
+            assert!((full[r] - fast[r]).abs() <= 1e-12 * scale, "component {r}: {} vs {}", fast[r], full[r]);
+        }
+        // Off the centroid the enhanced part is real and the full path is taken.
+        let off = solid_shell_strain(&coords, &u, e, nu, 0.3, -0.2, 0.5);
+        let ans_only = ans_strain(&coords, &u, 0.3, -0.2, 0.5);
+        assert!((0..6).any(|r| (off[r] - ans_only[r]).abs() > 1e-9 * scale));
+    }
+
+    /// Perf guard for the centroid recovery (compute_quad_stresses, geometric-stiffness
+    /// prestress): it must cost a small fraction of a stiffness evaluation. Through the full
+    /// EAS path it cost MORE than one (8-point blocks + α solve), >20× the fast path.
+    #[test]
+    fn test_centroid_stress_is_cheap() {
+        let coords = unit_cube();
+        let u: Vec<f64> = (0..24).map(|k| 1e-3 * k as f64).collect();
+        let n = 2000;
+        let t0 = std::time::Instant::now();
+        let mut acc = 0.0;
+        for _ in 0..n {
+            acc += solid_shell_avg_stress(std::hint::black_box(&coords), &u, 200.0e3, 0.3)[0];
+        }
+        let t_stress = t0.elapsed();
+        let t0 = std::time::Instant::now();
+        for _ in 0..n {
+            acc += solid_shell_stiffness(std::hint::black_box(&coords), 200.0e3, 0.3)[0];
+        }
+        let t_k = t0.elapsed();
+        std::hint::black_box(acc);
+        eprintln!("centroid stress {t_stress:?}, stiffness {t_k:?}");
+        assert!(t_stress * 4 < t_k, "centroid stress {t_stress:?} vs stiffness {t_k:?} for {n} calls");
     }
 
     #[test]
