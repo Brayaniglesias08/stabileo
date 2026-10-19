@@ -10,7 +10,7 @@
  * conflict the user is stepping through, whether the sheet preview is open.
  */
 
-import { engineFailureMessage } from '../engine/engine-unavailable';
+import { errorText } from './engine-action';
 import { modelStore } from './model.svelte';
 import { requestAutosave } from './autosave-service';
 import {
@@ -385,11 +385,7 @@ function createDetailingStore() {
         void requestAutosave('detailing');
         return result;
       } catch (e) {
-        // The footing check and the section capacities are the engine's: its absence or its
-        // refusal is said in the reader's language, anything else as it was raised.
-        const m = engineFailureMessage(e);
-        lastError = m ? tp(m.key, m.params ?? {}) : String(e instanceof Error ? e.message : e);
-        return null;
+        lastError = errorText(e); return null; // an engine error in the reader's language
       } finally {
         generating = false;
       }
@@ -552,11 +548,7 @@ function createDetailingStore() {
         void requestAutosave('floorDesign');
         return result;
       } catch (e) {
-        // The footing check and the section capacities are the engine's: its absence or its
-        // refusal is said in the reader's language, anything else as it was raised.
-        const m = engineFailureMessage(e);
-        lastError = m ? tp(m.key, m.params ?? {}) : String(e instanceof Error ? e.message : e);
-        return null;
+        lastError = errorText(e); return null; // an engine error in the reader's language
       } finally {
         generating = false;
       }

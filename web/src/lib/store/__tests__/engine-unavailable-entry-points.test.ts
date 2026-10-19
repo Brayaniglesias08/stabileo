@@ -168,7 +168,7 @@ describe('the remaining entry points route the engine error to the screen', () =
     ['components/pro/ProOtherCodesPanel.svelte', /engineFailureText\(err\)/, /data-testid="other-codes-run-error"/],
     ['components/pro/ProSteelOptimise.svelte', /errorDetail/, /data-testid="so-error"/],
     ['lib/store/steel-optimise.svelte.ts', /engineFailed\(err\)/, /errorDetail/],
-    ['lib/store/detailing.svelte.ts', /engineFailureMessage\(e\)/, /lastError = m \?/],
+    ['lib/store/detailing.svelte.ts', /lastError = errorText\(e\)/, /from '.\/engine-action'/],
     ['lib/store/design-run.svelte.ts', /isEngineUnavailable\(err\)/, /fail\('engine\.unavailable'\)/],
     ['lib/export/excel.ts', /runEngineActionAsync\(\(\) => exportToExcelWithEngine/, /async function exportToExcelWithEngine/],
     ['lib/pro/report-export.ts', /runEngineActionAsync\(\(\) => exportReportWithEngine/, /async function exportReportWithEngine/],

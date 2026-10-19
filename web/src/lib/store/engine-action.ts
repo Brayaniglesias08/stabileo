@@ -48,3 +48,9 @@ export function engineGuarded<T>(compute: () => T): { value: T; error: null } | 
     return { value: null, error: tp(m.key, m.params ?? {}) };
   }
 }
+
+/** The text of any error for a panel: an engine error in the reader's language, anything else as raised. */
+export function errorText(e: unknown): string {
+  const m = engineFailureMessage(e);
+  return m ? tp(m.key, m.params ?? {}) : String(e instanceof Error ? e.message : e);
+}
