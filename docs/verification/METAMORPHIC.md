@@ -139,11 +139,71 @@ and the tests fail when this file is out of date.
 ### 2D
 
 <!-- BEGIN pr_2d -->
+| Analysis | rotation | mirror | relabel | reversal | units | superposition | reciprocity | energy | symmetry | linear agreement | modal orthogonality |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| linear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
+| linear (dense reference) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| linear (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| linear (PCG) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| constrained | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| certified linear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| load combinations | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| staged (one stage) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| staged (loads in two stages) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | · |
+| Winkler (no foundation) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| contact (no gaps) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | · |
+| SSI (no soil springs) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | · |
+| creep & shrinkage (t = t0) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | · |
+| P-Delta | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| corotational | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| material nonlinear | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| fiber nonlinear | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| cable solver | · | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| modal | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | ✓ |
+| certified modal | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| buckling | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ | · | · |
+| time history | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | · |
+| spectral | · | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| harmonic | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | · |
+| plastic collapse | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ | · | · |
+| kinematic check | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| moving loads | · | ✓ | ✓ | ✓ | ✓ | · | · | · | R | · | · |
+| influence line | · | ✓ | ✓ | ✓ | ✓ | · | · | · | R | · | · |
 <!-- END pr_2d -->
 
 ### 3D
 
 <!-- BEGIN pr_3d -->
+| Analysis | rotation | relabel | reversal | units | superposition | reciprocity | energy | symmetry | linear agreement | modal orthogonality |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| linear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
+| linear (sparse path) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| linear (PCG) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| constrained | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| certified linear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| load combinations | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| staged (one stage) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| staged (loads in two stages) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | · |
+| Winkler (no foundation) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| contact (no gaps) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | · |
+| SSI (no soil springs) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | · |
+| creep & shrinkage (t = t0) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | · |
+| P-Delta | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| corotational | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| material nonlinear | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| fiber nonlinear | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| cable solver | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| modal | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | ✓ |
+| certified modal | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| buckling | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ | · | · |
+| time history | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | · |
+| time history (ground motion) | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| spectral | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| harmonic | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | · |
+| plastic collapse | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ | · | · |
+| kinematic check | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · | · |
+| moving loads | ✓ | ✓ | ✓ | ✓ | · | · | · | R | · | · |
+| influence line | ✓ | ✓ | ✓ | ✓ | · | · | · | R | · | · |
 <!-- END pr_3d -->
 
 ## Violations found and fixed
@@ -166,6 +226,9 @@ Each has a minimal reproduction in `engine/tests/metamorphic/regressions.rs`.
 | energy, reversal | Staged 3D recovered member forces as raw K_e·u_e: N at the start and every end value had the opposite sign to every other analysis, member loads were missing from the end forces, reactions were summed from those forces (missing loads at supports, springs, fixed-end forces), and quad stresses were never reported. | Wrong member forces and reactions in every 3D staged result. | Results by the linear recovery: `compute_internal_forces_3d_with_loads` with the cumulative loads, reactions (K·u − F)_r, plate and quad stresses. |
 | linear agreement | Staged analysis (2D and 3D) re-applied the full prescribed displacements in every stage. | A settlement counted once per stage. | Only the change since the previous stage drives a stage. |
 | linear agreement | Load combinations: every case's solution carries the model's settlements, and Σ f_c·R_c counted them Σ f_c times. | 1.0·A + 1.0·B gave twice the settlement; 1.2D + 1.6L, 2.8 times. | The settlement-only solution enters each combination with 1 − Σ f_c (2D and 3D, prepared and constrained paths). |
+| rotation | Shell mass (MITC4, MITC9, curved shell) put the rotary inertia on global r_x, r_y whatever the shell's orientation. | A wall's frequencies differed from the same shell lying flat (0.2% on the strip, more for thick shells). | Inertia about the shell's in-plane axes, m_rot·(I − n·nᵀ) on the global rotation DOFs. |
+| units | Orphan-rotation detection (dense and sparse 2D and 3D assembly) and the kinematic rank compared rotational stiffness with the largest diagonal entry, a translational stiffness of other units (plus an absolute floor in the kinematic check). | A model in millimetres with one stiff member had a real beam-end rotation locked by the artificial spring (rotation 3·10⁻⁴ → 8·10⁻⁸ rad); mechanism counts depended on the units. | Orphans judged against the largest rotational diagonal (a zero diagonal of the PSD K is a zero row); rank of the Jacobi-scaled matrix, sparse pivots against their own diagonal. |
+| rotation | Modal harmonic analysis kept exactly the part of a repeated eigenvalue the eigensolver happened to return at the top of its computed set and corrected the rest statically. | The response changed with a rotation of the model. | The top cluster of the computed set goes to the static correction in full. |
 | harness review | `StagedInput3D` had no `leftHand` field; the app sends it and serde dropped it. | Left-handed models staged with right-handed member axes. | Field added and passed to every stage. |
 
 ## Documented exceptions
