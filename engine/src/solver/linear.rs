@@ -4074,7 +4074,10 @@ fn reject_unimposed_settlements_2d(input: &SolverInput) -> Result<(), String> {
 /// spring frees it; at an inclined support only the normal translation and the flagged
 /// rotations are).
 fn reject_unimposed_settlements_3d(input: &SolverInput3D) -> Result<(), String> {
-    let dpn = DofNumbering::dofs_per_node_3d(input);
+    // Curved beams are expanded into frame members after validation in several entry points
+    // (Winkler, co-rotational, …): counted here as the frames they become, or a curved-beam-only
+    // model would look like a truss model with no rotation DOFs.
+    let dpn = DofNumbering::dofs_per_node_3d(input).max(if input.curved_beams.is_empty() { 0 } else { 6 });
     let mut sups: Vec<(&String, &SolverSupport3D)> = input.supports.iter().collect();
     sups.sort_by_key(|(k, s)| (s.node_id, (*k).clone()));
     for (key, sup) in sups {

@@ -477,3 +477,52 @@ fn geometric_imperfections_are_applied() {
     let base = r.reactions.iter().find(|q| q.node_id == 1).unwrap();
     close("base moment = P·e", base.my.abs(), 100.0 * 0.015, 1e-6);
 }
+
+// ─── Settlement refusal and curved beams (review of #436) ───────────────────
+
+/// A model of one curved beam only: before its expansion into frames (which several entry
+/// points do after validation) it has no frame element, and the rotation of its fixed support
+/// must not be taken for a truss model's missing DOF. A prescribed rotation there is applied,
+/// by every 3D entry point.
+fn curved_only_with_rotation(drz: f64) -> SolverInput3D {
+    let mut fixed = sup3(1, [true; 6]);
+    fixed.as_object_mut().unwrap().insert("drz".into(), json!(drz));
+    in3(json!({
+        "nodes": {"1": {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0}, "2": {"id": 2, "x": 2.0, "y": 0.6, "z": 0.0},
+                  "3": {"id": 3, "x": 4.0, "y": 0.0, "z": 0.0}},
+        "materials": {"1": {"id": 1, "e": MAT, "nu": 0.3}},
+        "sections": {"1": {"id": 1, "a": 0.01, "iy": 1e-4, "iz": 1e-4, "j": 2e-4}},
+        "elements": {},
+        "supports": {"1": fixed, "3": sup3(3, [true, true, true, true, false, false])},
+        "loads": [],
+        "curvedBeams": [{"nodeStart": 1, "nodeMid": 2, "nodeEnd": 3, "materialId": 1, "sectionId": 1, "numSegments": 8}],
+    }))
+}
+
+#[test]
+fn curved_beam_only_model_takes_a_prescribed_rotation_in_every_entry_point() {
+    let rz1 = |d: &[Displacement3D]| d.iter().find(|d| d.node_id == 1).unwrap().rz;
+    let input = curved_only_with_rotation(0.002);
+    let r = solve_3d(&input).expect("linear");
+    close("linear: rz = drz", rz1(&r.displacements), 0.002, 1e-9);
+    let w: WinklerInput3D = serde_json::from_value(json!({"solver": input.clone(), "foundationSprings": []})).unwrap();
+    let r = solve_winkler_3d(&w).expect("winkler");
+    close("winkler: rz = drz", rz1(&r.displacements), 0.002, 1e-9);
+    // The co-rotational solve takes no prescribed displacements at all and says so; what matters
+    // here is that the reason is that one, not "no rotation DOFs".
+    let e = refused(dedaliano_engine::solver::corotational::solve_corotational_3d(&input, 50, 1e-8, 4, false), "prescribed support displacements");
+    assert!(!e.contains("no rotation DOFs"), "{e}");
+    let r = dedaliano_engine::solver::pdelta::solve_pdelta_3d(&input, 20, 1e-6).expect("pdelta");
+    close("pdelta: rz = drz", rz1(&r.results.displacements), 0.002, 1e-9);
+    // And a truss model still refuses it.
+    let truss = in3(json!({
+        "nodes": {"1": {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0}, "2": {"id": 2, "x": 2.0, "y": 0.0, "z": 0.0}},
+        "materials": {"1": {"id": 1, "e": MAT, "nu": 0.3}},
+        "sections": {"1": {"id": 1, "a": 0.01, "iy": 1e-4, "iz": 1e-4, "j": 2e-4}},
+        "elements": {"1": {"id": 1, "type": "truss", "nodeI": 1, "nodeJ": 2, "materialId": 1, "sectionId": 1}},
+        "supports": {"1": {"nodeId": 1, "rx": true, "ry": true, "rz": true, "rrx": true, "rry": true, "rrz": true, "drz": 0.002},
+                     "2": sup3(2, [false, true, true, false, false, false])},
+        "loads": [{"type": "nodal", "data": {"nodeId": 2, "fx": 1.0, "fy": 0.0, "fz": 0.0, "mx": 0.0, "my": 0.0, "mz": 0.0}}],
+    }));
+    refused(solve_3d(&truss), "no rotation DOFs");
+}
