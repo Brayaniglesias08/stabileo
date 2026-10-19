@@ -10,6 +10,7 @@
  * stays thin.
  */
 
+import { noteBaseSolveInput } from '../store/result-provenance';
 import { syncDefinedLoadsForAnalysis } from '../store/defined-loads';
 import { spectralOrSay } from '../actions/solve';
 import { nodesOnMembers } from './nodes-on-members';
@@ -327,6 +328,10 @@ async function globalSolve3D(isStale: () => boolean): Promise<void> {
     if (!firstCaseResult) return t('results.emptyModelError');
 
     resultsStore.setResults3D(firstCaseResult);
+    // A case, or the sum of the cases, has no engine input of its own: the provenance names the
+    // direct single solve's (store/result-provenance.ts), so reports carry engine hashes and the
+    // CLI reproduce has an input to run.
+    noteBaseSolveInput(modelStore.singleSolveInput3D(uiStore.includeSelfWeight, leftHand, isPro));
     publishCombinations3D(comboResult);
 
     const elapsed = performance.now() - t0;

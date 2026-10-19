@@ -1936,11 +1936,11 @@ export function imposedRefusal(model: ModelData): string | null {
  * Validation + wire-input construction for a 3D solve (shared by the sync and
  * async solve paths). Returns the solver input, or an error string, or null.
  */
-function prepareSolve3D(model: ModelData, includeSelfWeight = false, leftHand = false): SolverInput3D | string | null {
+function prepareSolve3D(model: ModelData, includeSelfWeight = false, leftHand = false, countSolve = true): SolverInput3D | string | null {
   // Counts app-side structural-solve dispatches (the sync and worker paths both
   // route through here exactly once) so browser tests can assert that a
   // reinforcement-only edit triggers none. Not part of the solver.
-  noteStructuralSolve();
+  if (countSolve) noteStructuralSolve();
   // Checked on what the engine will see: inactive members and the nodes nothing holds are out.
   // A variable member is its pieces there; a refusal names the member and the model's nodes.
   const pieces = variableExpansionFor(model);
@@ -2178,6 +2178,19 @@ export function finalizeSolve3DResults(results: AnalysisResults3D, model: ModelD
 function excitedMechanism3D(results: AnalysisResults3D): string | null {
   const codes = new Set(((results as { structuredDiagnostics?: Array<{ code?: string }> }).structuredDiagnostics ?? []).map((d) => d.code));
   return codes.has('excessive_displacement') && codes.has('residual_high') ? t('svc.mechanism3d') : null;
+}
+
+/**
+ * The engine input a direct linear solve of `model` would take, without solving (and without
+ * counting a solve): what the provenance's engine hashes and the CLI reproduce are of when the
+ * base result on screen was put together from the case solves (live-calc's combination path).
+ * Null when the model is refused or solves nonlinearly.
+ */
+export function linearSolveInput3D(model: ModelData, includeSelfWeight = false, leftHand = false): CertifiableInput | null {
+  if (hasNonlinearBehaviour(model)) return null;
+  const input = prepareSolve3D(model, includeSelfWeight, leftHand, false);
+  if (input === null || typeof input === 'string') return null;
+  return { dim: '3d', wire: () => input3DToWireObject(input) };
 }
 
 export function validateAndSolve3D(model: ModelData, includeSelfWeight = false, leftHand = false): AnalysisResults3D | string | null {

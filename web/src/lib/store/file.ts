@@ -592,7 +592,7 @@ export async function loadFile(file: File): Promise<{ type: 'tab' | 'session'; c
  * The results as CSV. With `solveError` (the solve run for this export failed) and no results,
  * the file is its header and the reason, so the download still says what happened.
  */
-export function exportResultsCSV(solveError?: string): string {
+export function exportResultsCSV(solveError?: string, record?: ResultProvenance): string {
   const is3D = uiStore.is3DWorkspace;
   const r3d = resultsStore.results3D;
   const r2d = resultsStore.results;
@@ -605,7 +605,7 @@ export function exportResultsCSV(solveError?: string): string {
   lines.push(`# ${t('file.csvDate')}: ${new Date().toLocaleString()}`);
   // Which build produced these numbers from which model and settings (`provenance/result-provenance.ts`).
   // The status row comes first and says STALE when the results predate registered changes.
-  for (const [k, v] of provenanceTextLines(currentResultProvenance(), provenanceLabels())) lines.push(`# ${k}: ${v}`);
+  for (const [k, v] of provenanceTextLines(record ?? currentResultProvenance(), provenanceLabels())) lines.push(`# ${k}: ${v}`);
   lines.push('');
   if (!r3d && !r2d) {
     lines.push(`# ${t('excel.solveFailed')}`);
@@ -665,8 +665,30 @@ export function exportResultsCSV(solveError?: string): string {
   return lines.join('\n');
 }
 
-export function downloadResultsCSV(solveError?: string): void {
-  const csv = exportResultsCSV(solveError);
+/**
+ * The results CSV with its provenance prepared as every export prepares it: engine hashes awaited
+ * (off the main thread), record bound to the state the export started on. Null, said to the
+ * reader, when the project moved meanwhile.
+ */
+export async function prepareResultsCSV(solveError?: string): Promise<string | null> {
+  let record: ResultProvenance;
+  try {
+    record = await provenanceForExport(captureProvenanceToken());
+  } catch (e) {
+    if (e instanceof ExportChangedError) { uiStore.toast(e.message, 'error'); return null; }
+    throw e;
+  }
+  return exportResultsCSV(solveError, record);
+}
+
+/**
+ * Download the results CSV. Async like every export that prints provenance: the record is
+ * prepared with the engine hashes awaited (off the main thread) and bound to the state the export
+ * started on (`provenanceForExport`); if the project moved meanwhile, nothing is written, and the
+ * reader is told.
+ */
+export async function downloadResultsCSV(solveError?: string): Promise<void> {
+  const csv = await prepareResultsCSV(solveError);
   if (!csv) return;
   const safeName = modelStore.model.name.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ _-]/g, '').trim() || t('file.defaultResults');
   downloadText(csv, `${safeName}_${t('file.defaultResults')}.csv`, 'text/csv');
@@ -693,7 +715,8 @@ export function downloadCanvasPNG(canvas: HTMLCanvasElement): void {
 
 import { hydrateProjectProvenance } from './project-provenance';
 import { recheckStore } from './recheck.svelte';
-import { currentResultProvenance, provenanceLabels } from './result-provenance';
+import { currentResultProvenance, provenanceLabels, captureProvenanceToken, provenanceForExport, ExportChangedError } from './result-provenance';
+import type { ResultProvenance } from '../provenance/result-provenance';
 import { provenanceTextLines } from '../provenance/result-provenance';
 import { askAboutOverlapsInModel } from '../model/edit/connection-questions';
 import { viewVisibility } from './view-state.svelte';

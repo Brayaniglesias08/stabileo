@@ -39,6 +39,15 @@ export function noteBaseSolve(results: object | null): void {
   baseInput = results ? certifiableInputOf(results) : null;
 }
 
+/**
+ * The base result on screen was put together from the case solves (live-calc's combination path):
+ * it has no engine input of its own, so the provenance names the engine input of a direct single
+ * solve of the same model (`modelStore.singleSolveInput3D`). Called right after that publish.
+ */
+export function noteBaseSolveInput(input: CertifiableInput | null): void {
+  if (!baseInput) baseInput = input;
+}
+
 /** The solver input of the base solve, as JSON, for the CLI reproduce (`examples/reproduce.rs`). */
 export function baseSolverInputJson(): { dim: '2d' | '3d'; json: string } | null {
   return baseInput ? { dim: baseInput.dim, json: JSON.stringify(baseInput.wire()) } : null;

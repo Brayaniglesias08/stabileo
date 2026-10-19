@@ -22,7 +22,9 @@ import { generateCalcReportHtml } from '../../engine/calc-report';
 import { publishCombinations3D } from '../active-results';
 import { compareWithResultsOnHand } from '../../actions/reproduce';
 import { generateReportHtml, type ReportData } from '../../engine/pro-report';
-import { exportResultsCSV } from '../file';
+import { exportResultsCSV, prepareResultsCSV } from '../file';
+import { runGlobalSolve } from '../../engine/live-calc';
+import { reproduceFrom } from '../../actions/reproduce';
 import { currentWorkbookSheets } from '../project-workbook';
 import type { ResultProvenance } from '../../provenance/result-provenance';
 
@@ -467,5 +469,44 @@ describe('an async export never pairs one state\'s data with another\'s provenan
     pending = provenanceForExport(captureProvenanceToken());
     resultsStore.activeView = 'envelope';
     await expect(pending).rejects.toBeInstanceOf(ExportChangedError);
+  });
+});
+
+describe('a PRO model with combinations, solved as Calcular solves it', () => {
+  async function solvePro(): Promise<void> {
+    buildFrame();
+    const top = [...modelStore.nodes.keys()].slice(-1)[0];
+    modelStore.addNodalLoad3D(top, 0, 7.5, -12, 0, 0, 0, 2);
+    modelStore.addCombination('1.2D+1.6L', [{ caseId: 1, factor: 1.2 }, { caseId: 2, factor: 1.6 }]);
+    await runGlobalSolve();
+    expect(resultsStore.hasCombinations3D).toBe(true);
+  }
+
+  it('its report carries engine hashes, the solver input downloads, and reproduce works', async () => {
+    await solvePro();
+    const input = baseSolverInputJson();
+    expect(input?.dim).toBe('3d');
+    expect(() => JSON.parse(input!.json)).not.toThrow();
+    const p = await provenanceForExport(captureProvenanceToken());
+    expect(p.engineInputSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(p.engineResultsSha256).toMatch(/^[0-9a-f]{64}$/);
+    const out = await reproduceFrom(p);
+    expect(out.ok && out.verdict.status).toBe('reproduced');
+  });
+
+  it('the CSV, as the first export after a solve, has the engine hashes', async () => {
+    await solvePro();
+    const csv = await prepareResultsCSV();
+    expect(csv).toMatch(/input [0-9a-f]{64} · results [0-9a-f]{64}/);
+  });
+});
+
+describe('the basic CSV as the first export after a solve', () => {
+  it('has the engine hashes', async () => {
+    buildFrame();
+    solveMain();
+    expect(currentResultProvenance().engineInputSha256).toBeNull();
+    const csv = await prepareResultsCSV();
+    expect(csv).toMatch(/input [0-9a-f]{64} · results [0-9a-f]{64}/);
   });
 });
