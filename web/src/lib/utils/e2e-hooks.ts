@@ -56,7 +56,7 @@ import { autosaveRevisions as storedAutosaveRevisions } from '../store/autosave-
 import { autosaveFingerprint, clearAutosave, deserializeProject, loadAutosave, type DedalFile } from '../store/file';
 import { lastAutosaveOutcome, requestAutosave } from '../store/autosave-service';
 import { loadFixture } from '../templates/load-fixture';
-import { currentResultProvenance } from '../store/result-provenance';
+import { currentResultProvenance, provenanceForExport, captureProvenanceToken } from '../store/result-provenance';
 import { recheckStore } from '../store/recheck.svelte';
 
 export const E2E_QUERY_FLAG = 'e2e';
@@ -414,6 +414,8 @@ export interface StabileoTestHooks {
   autosaveOutcome(): unknown;
   /** The provenance record of the results on screen (`store/result-provenance.ts`). */
   resultProvenance(): unknown;
+  /** The record as an export writes it: engine hashes awaited, bound to the state (`provenanceForExport`). */
+  exportProvenance(): Promise<unknown>;
   /** The re-check state: notice up, results stale, the registered changes listed. */
   recheck(): { noticeOpen: boolean; stale: boolean; changes: string[]; solvedVersion: number | null; stampVersion: number | null };
 }
@@ -803,6 +805,7 @@ export function installE2EHooks(): void {
     },
     autosaveOutcome: () => JSON.parse(JSON.stringify(lastAutosaveOutcome())),
     resultProvenance: () => JSON.parse(JSON.stringify(currentResultProvenance())),
+    exportProvenance: async () => JSON.parse(JSON.stringify(await provenanceForExport(captureProvenanceToken()))),
     recheck: () => ({
       noticeOpen: recheckStore.noticeOpen,
       stale: recheckStore.stale,

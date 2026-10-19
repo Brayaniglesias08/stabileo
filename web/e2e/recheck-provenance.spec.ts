@@ -8,7 +8,7 @@
  *  - The same model solved twice, and on the worker vs the main thread, gives bit-identical
  *    results; the reproduce dialog confirms a report's provenance.
  */
-import { test, expect } from './fixtures';
+import { test, expect, loadModel, solveModel } from './fixtures';
 import type { Page } from '@playwright/test';
 
 const STEEL = { id: 1, name: 'F-24', e: 200000, nu: 0.3, rho: 78.5, fy: 235 };
@@ -122,5 +122,27 @@ test.describe('@smoke reproducible results', () => {
     await page.getByTestId('reproduce-input').fill(record);
     await page.getByTestId('reproduce-run').click();
     await expect(page.getByTestId('reproduce-verdict')).toHaveAttribute('data-reproduced', 'true', { timeout: 60_000 });
+  });
+});
+
+test.describe('@smoke provenance on a PRO model with combinations (the common path)', () => {
+  test('engine hashes, the solver input, a combination report reproduced', async ({ pro: page }) => {
+    await loadModel(page, 'rc-design-qa-8');
+    await solveModel(page);
+    // The base result is the sum of the case solves here; the record still names the engine input.
+    const p = await page.evaluate(() => window.__stabileo.exportProvenance()) as { engineInputSha256: string | null; engineResultsSha256: string | null; scopeRef: { kind: string } };
+    expect(p.engineInputSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(p.engineResultsSha256).toMatch(/^[0-9a-f]{64}$/);
+
+    await page.evaluate(() => window.dispatchEvent(new Event('stabileo-reproduce')));
+    await page.getByTestId('reproduce-input').fill(JSON.stringify(p));
+    await page.getByTestId('reproduce-run').click();
+    await expect(page.getByTestId('reproduce-verdict')).toHaveAttribute('data-status', 'reproduced', { timeout: 120_000 });
+
+    // The solver input for the CLI reproduce downloads.
+    const download = page.waitForEvent('download');
+    await page.getByTestId('reproduce-download-input').click();
+    const file = await download;
+    expect(file.suggestedFilename()).toBe('solver-input-3d.json');
   });
 });
