@@ -152,6 +152,23 @@ describe('RC design baseline — the flagship frame, member by member', () => {
      * Up: a beam now carries its weight's wL²/8 and its fixed-end moments reach the columns.
      * Down: where wind governs a support region, the added gravity moment opposes it there.
      */
+    /*
+     * And again for refactor/concrete-in-engine (#390), which IS that branch's change: the
+     * station verifier's beam flexure takes the axial force acting with each moment (finding
+     * 17), its biaxial columns are checked on the engine's load contour instead of Bresler with
+     * Nu·φMn/Mu estimates, and the column's axial cap and φ come from the engine. Measured, not
+     * reasoned: the dump below was taken on a detached worktree of the base (5b1482c7, which
+     * reproduces the previous fingerprint f8a66e1b74ca71f1 exactly) and on the branch, all 408:
+     *
+     *   outcome changed               0
+     *   limiting constraint changed   0
+     *   utilisation changed          65  (51 up, 14 down; −0,065 to +0,049)
+     *   worst utilisation after   0,9980 — the gate above still holds
+     *
+     * Up: beams in tension now lose the flexural strength the tension takes, and biaxial columns
+     * are read on the real contour. Down: compressed beams below balance gain some, and the
+     * contour credits what the Bresler estimate did not. No verdict moved.
+     */
     expect(actual).toBe(RECORDED_FINGERPRINT);
   });
 
@@ -251,4 +268,4 @@ describe('RC design baseline — the flagship frame, member by member', () => {
 // or limiting constraint changed; 395 verified and 13 provisional, as before. M2,min for
 // slender columns (§6.6.4.5.4), in the same change, was measured on its own first: it moves no
 // member of this frame.
-const RECORDED_FINGERPRINT = 'f8a66e1b74ca71f1';
+const RECORDED_FINGERPRINT = 'fa8e6e36ba649044';
