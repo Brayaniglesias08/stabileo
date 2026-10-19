@@ -153,6 +153,31 @@ pub struct DynamicsCertificate {
     pub residual_reason: Option<String>,
 }
 
+impl super::finite::Guarded for DynamicsCertificate {
+    fn claims(&self) -> bool {
+        self.stability_certified
+            || self.residual.is_some()
+            || self.energy.is_some()
+            || self.mass_lambda_min_lower.is_some()
+            || self.stiffness_lambda_min_lower.is_some()
+            || self.lambda_max_upper.is_some()
+            || self.dt_critical_lower.is_some()
+    }
+
+    fn downgrade(&mut self, reason: String) {
+        self.stability_certified = false;
+        self.mass_lambda_min_lower = None;
+        self.stiffness_lambda_min_lower = None;
+        self.lambda_max_upper = None;
+        self.dt_critical_lower = None;
+        self.residual = None;
+        self.energy = None;
+        self.time_error_estimate = None;
+        self.stability_reason = Some(reason.clone());
+        self.residual_reason = Some(reason);
+    }
+}
+
 // ───────────────────────────── interval helpers ─────────────────────────────
 
 fn ip(x: f64) -> Interval {
@@ -526,14 +551,26 @@ pub struct CertifiedTimeHistory3D {
     pub certificate: DynamicsCertificate,
 }
 
+/// A non-finite number in the input or the results is an `Err`; a
+/// certificate carrying one is withdrawn.
 pub fn certify_time_history_2d(input: &TimeHistoryInput) -> Result<CertifiedTimeHistory2D, String> {
+    super::finite::check_input(input)?;
     let (results, trace) = solve_time_history_2d_traced(input)?;
-    Ok(CertifiedTimeHistory2D { results, certificate: certify_dynamics(&trace) })
+    super::finite::check_results(&results)?;
+    let mut certificate = certify_dynamics(&trace);
+    super::finite::guard(&mut certificate);
+    Ok(CertifiedTimeHistory2D { results, certificate })
 }
 
+/// A non-finite number in the input or the results is an `Err`; a
+/// certificate carrying one is withdrawn.
 pub fn certify_time_history_3d(input: &TimeHistoryInput3D) -> Result<CertifiedTimeHistory3D, String> {
+    super::finite::check_input(input)?;
     let (results, trace) = solve_time_history_3d_traced(input)?;
-    Ok(CertifiedTimeHistory3D { results, certificate: certify_dynamics(&trace) })
+    super::finite::check_results(&results)?;
+    let mut certificate = certify_dynamics(&trace);
+    super::finite::guard(&mut certificate);
+    Ok(CertifiedTimeHistory3D { results, certificate })
 }
 
 #[cfg(test)]

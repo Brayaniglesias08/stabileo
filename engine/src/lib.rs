@@ -787,6 +787,7 @@ pub fn compute_diagram_value_at(json: &str) -> Result<f64, JsValue> {
     }
     let d: Input = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    postprocess::diagrams::check_diagram_kind_2d(&d.kind).map_err(|e| JsValue::from_str(&e))?;
     Ok(postprocess::diagrams::compute_diagram_value_at(&d.kind, d.t, &d.element_forces))
 }
 
@@ -802,6 +803,7 @@ pub fn compute_diagram_value_at_3d(json: &str) -> Result<f64, JsValue> {
     }
     let d: Input = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    postprocess::diagrams_3d::check_diagram_kind_3d(&d.kind).map_err(|e| JsValue::from_str(&e))?;
     Ok(postprocess::diagrams_3d::evaluate_diagram_3d_at(&d.element_forces, &d.kind, d.t))
 }
 

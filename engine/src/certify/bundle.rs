@@ -185,21 +185,25 @@ pub fn export_linear_bundle(k: &CscMatrix, f: &[Interval], u: &[f64]) -> Result<
 /// Solve a 2D linear static model and export the certificate bundle of its reduced
 /// free-DOF system (the sparse assembly, at any model size).
 pub fn export_linear_bundle_2d(input: &SolverInput) -> Result<LinearBundle, String> {
+    super::finite::check_input(input)?;
     let results = solve_2d(input)?;
+    super::finite::check_results(&results)?;
     let (k, f, u) = reduced_sparse_2d(input, &results).map_err(reason)?;
     let mut b = export_linear_bundle(&k, &f, &u)?;
     b.provenance = Some(Provenance::new(input, "SolverInput", &[KIND_LINEAR])?);
-    Ok(b)
+    super::finite::finite_output(Ok(b))
 }
 
 /// Solve a 3D linear static model and export the certificate bundle of its reduced
 /// free-DOF system (the sparse assembly, at any model size).
 pub fn export_linear_bundle_3d(input: &SolverInput3D) -> Result<LinearBundle, String> {
+    super::finite::check_input(input)?;
     let results = solve_3d(input)?;
+    super::finite::check_results(&results)?;
     let (k, f, u) = reduced_sparse_3d(input, &results).map_err(reason)?;
     let mut b = export_linear_bundle(&k, &f, &u)?;
     b.provenance = Some(Provenance::new(input, "SolverInput3D", &[KIND_LINEAR])?);
-    Ok(b)
+    super::finite::finite_output(Ok(b))
 }
 
 pub(super) fn reason(c: Certificate) -> String {

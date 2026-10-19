@@ -769,7 +769,7 @@ fn get_target_dof_2d(dof_num: &DofNumbering, node_id: usize, dof: &str) -> Resul
         "x" => 0,
         "y" => 1,
         "rz" => 2,
-        _ => return Err(format!("Unknown 2D DOF: {}", dof)),
+        _ => return Err(format!("Unknown 2D response DOF '{dof}'; expected one of \"x\", \"y\", \"rz\"")),
     };
     dof_num.map.get(&(node_id, offset))
         .copied()
@@ -785,7 +785,11 @@ fn get_target_dof_3d(dof_num: &DofNumbering, node_id: usize, dof: &str) -> Resul
         "ry" => 4,
         "rz" => 5,
         "w" => 6,
-        _ => return Err(format!("Unknown 3D DOF: {}", dof)),
+        _ => {
+            return Err(format!(
+                "Unknown 3D response DOF '{dof}'; expected one of \"x\", \"y\", \"z\", \"rx\", \"ry\", \"rz\", \"w\""
+            ))
+        }
     };
     dof_num.map.get(&(node_id, offset))
         .copied()

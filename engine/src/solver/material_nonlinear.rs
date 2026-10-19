@@ -15,6 +15,26 @@ const SPARSE_THRESHOLD: usize = 64;
 /// Default hardening ratio when not specified in the material model.
 const DEFAULT_ALPHA: f64 = 0.01;
 
+/// Accepted `MaterialModel.modelType` values. Both run the same bilinear
+/// N–M interaction law with hardening ratio `alpha`; anything else is refused
+/// rather than run as that law under a name it does not have.
+pub const MATERIAL_MODEL_TYPES: [&str; 2] = ["elastic_perfectly_plastic", "bilinear"];
+
+fn validate_material_models(models: &std::collections::HashMap<String, MaterialModel>) -> Result<(), String> {
+    let mut keys: Vec<&String> = models.keys().collect();
+    keys.sort();
+    for k in keys {
+        let t = &models[k].model_type;
+        if !MATERIAL_MODEL_TYPES.contains(&t.as_str()) {
+            return Err(format!(
+                "material model of material {k}: unknown modelType '{t}'; accepted: {}",
+                MATERIAL_MODEL_TYPES.join(", ")
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Per-element state tracking for the nonlinear material analysis.
 #[derive(Clone)]
 struct ElementState {
@@ -39,6 +59,7 @@ pub fn solve_nonlinear_material_2d(
     // node that does not exist panicked there, which in WASM ends the
     // module rather than the call.
     super::linear::validate_input_2d(&input.solver)?;
+    validate_material_models(&input.material_models)?;
 
     let solver = &input.solver;
     let dof_num = DofNumbering::build_2d(solver);
@@ -861,6 +882,7 @@ pub fn solve_nonlinear_material_3d(
     input: &NonlinearMaterialInput3D,
 ) -> Result<NonlinearMaterialResult3D, String> {
     super::linear::validate_input_3d(&input.solver)?;
+    validate_material_models(&input.material_models)?;
     // The tangent is assembled from members, support springs and connectors.
     super::feature_gates::refuse_3d(&input.solver, "Material-nonlinear analysis", &[super::feature_gates::Feature::Shells])?;
     // Curved beams are expanded into straight members, as every static path

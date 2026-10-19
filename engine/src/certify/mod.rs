@@ -9,6 +9,7 @@ pub mod deflection;
 pub mod design;
 pub mod dynamics;
 pub mod exact;
+pub mod finite;
 pub mod forces;
 pub mod harmonic;
 pub mod interval;

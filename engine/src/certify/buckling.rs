@@ -48,6 +48,8 @@ pub enum BucklingCertificate {
     Uncertified { reason: String },
 }
 
+super::finite::guarded_enum!(BucklingCertificate);
+
 impl BucklingCertificate {
     fn uncertified(reason: impl Into<String>) -> Self {
         BucklingCertificate::Uncertified { reason: reason.into() }
@@ -74,7 +76,9 @@ pub struct CertifiedBuckling3D {
 
 /// Solve 2D linear buckling and certify the first critical load factor.
 pub fn certify_buckling_2d(input: &SolverInput, num_modes: usize) -> Result<CertifiedBuckling2D, String> {
+    super::finite::check_input(input)?;
     let results = solve_buckling_2d(input, num_modes.max(1))?;
+    super::finite::check_results(&results)?;
     let sys = buckling_system_2d(input)?;
     let mode = &results.modes[0];
     let certificate = match gather_u_2d(&sys.dof_num, &mode.displacements) {
@@ -97,12 +101,16 @@ pub fn certify_buckling_2d(input: &SolverInput, num_modes: usize) -> Result<Cert
         }
         Err(c) => BucklingCertificate::uncertified(format!("mode shape: {c:?}")),
     };
+    let mut certificate = certificate;
+    super::finite::guard(&mut certificate);
     Ok(CertifiedBuckling2D { results, certificate })
 }
 
 /// Solve 3D linear buckling and certify the first critical load factor.
 pub fn certify_buckling_3d(input: &SolverInput3D, num_modes: usize) -> Result<CertifiedBuckling3D, String> {
+    super::finite::check_input(input)?;
     let results = solve_buckling_3d(input, num_modes.max(1))?;
+    super::finite::check_results(&results)?;
     let sys = buckling_system_3d(input)?;
     let mode = &results.modes[0];
     let certificate = match gather_u_3d(&sys.dof_num, &mode.displacements) {
@@ -124,6 +132,8 @@ pub fn certify_buckling_3d(input: &SolverInput3D, num_modes: usize) -> Result<Ce
         }
         Err(c) => BucklingCertificate::uncertified(format!("mode shape: {c:?}")),
     };
+    let mut certificate = certificate;
+    super::finite::guard(&mut certificate);
     Ok(CertifiedBuckling3D { results, certificate })
 }
 
