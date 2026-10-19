@@ -122,7 +122,7 @@ def prepare(name, model, binary, workdir, flagged=False):
 
 # The translator's own reasons for rejecting a model that say it has no
 # unique answer either: a load on a rotation nothing stiffens, a mechanism.
-REFUSED_TOO = ("nodal moment on a rotation-free", "rotational mechanism")
+REFUSED_TOO = ("nodal moment on a rotation-free", "rotational mechanism", "free body")
 # Code_Aster's verdicts that the stiffness is singular (a pivot lost more than
 # NPREC = 10 digits, or a null pivot) or too ill-conditioned to solve.
 SINGULAR = ("<FACTOR_11>", "<FACTOR_42>", "<FACTOR_57>")
