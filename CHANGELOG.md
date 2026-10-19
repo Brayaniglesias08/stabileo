@@ -22,6 +22,27 @@ changed with a link to the notes.
 
 ### Changed
 
+#### Design checks against published worked examples, part 2 (2026-10-18)
+
+**BREAKING (results): cold-formed columns, steel columns braced about their weak axis, masonry
+walls and partially grouted masonry shear walls get lower (correct) strengths; cold-formed
+compression without `xo` is reported unevaluated.** Examples, sources and discrepancies in
+`docs/verification/DESIGN_EXAMPLES.md` (D18–D31); tests in `engine/tests/design_worked_examples_2.rs`.
+
+- `cfs_check`: flexural-torsional buckling (AISI S100 E2.2) from the new `xo`, `kx_lx`, `kt_lt`.
+  It was weak-axis flexural buckling only: AISI Design Manual Ex. III-3 gave Pn = 10.4 against
+  6.88 kips (+51 %). Without `xo` a compression demand is unevaluated.
+- `steel_check`: AISC E4-2 torsional buckling of doubly symmetric members (`lcz`, default the
+  longer flexural length); refused when the member can twist over a longer length than it buckles
+  about y and neither J nor Cw is given. Constrained-axis torsion (girts on one flange) is still
+  not covered (D20).
+- `masonry_check`: untied bars no longer count in Pn (`laterally_tied`, +14 % before); shear
+  carries γg (`gamma_g`, default 0.70 when An < b·t, +33 % before).
+- `timber_check`: `le_bending` (Table 3.3.3 row when the loading is known) and `le_b` (column
+  length across b, 0 for sheathing). Defaults unchanged.
+- `foundation_check`: `neglect_size_effect` opts in to ACI 318-19 §13.2.6.2 (λs = 1 for
+  footings). Default unchanged (λs applied).
+
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
 **BREAKING (results): steel members bent about both axes without axial force are now checked by
