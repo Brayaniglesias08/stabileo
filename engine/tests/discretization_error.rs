@@ -7,7 +7,7 @@
 //! summed element by element, and ‖u‖²_E either closed form (Navier series) or the
 //! Richardson-extrapolated limit of ‖u_h‖²_E over a refinement sequence.
 
-use dedaliano_engine::postprocess::discretization::convergence::{convergence_study_3d, governing, is_inconclusive, quantity_convergence, richardson, ConvergenceOptions};
+use dedaliano_engine::postprocess::discretization::convergence::{convergence_study_3d, governing, is_inconclusive, member_moment_max, quantity_convergence, richardson, ConvergenceOptions};
 use dedaliano_engine::postprocess::discretization::refine::{refine_uniform, GeometryMode};
 use dedaliano_engine::postprocess::discretization::{estimate_3d, DiscretizationEstimate};
 use dedaliano_engine::solver::linear;
@@ -937,4 +937,73 @@ fn a_lone_element_is_listed_not_estimated() {
     assert!(e.notes.contains(&"isolatedElementsNotEstimated".to_string()));
     assert!(e.elements.iter().find(|x| x.element_id == 900 && x.kind == "plate").unwrap().local_percent.is_none());
     assert!(e.exceeds_threshold, "a strained element that is not estimated is flagged");
+}
+
+fn beam(id: usize, i: usize, j: usize) -> SolverElement3D {
+    SolverElement3D {
+        id, elem_type: "frame".into(), node_i: i, node_j: j, material_id: 1, section_id: 1,
+        release_my_start: false, release_my_end: false, release_mz_start: false, release_mz_end: false,
+        release_t_start: false, release_t_end: false, local_yx: None, local_yy: None, local_yz: None, roll_angle: None,
+    }
+}
+
+fn udl(element_id: usize, q: f64) -> SolverLoad3D {
+    SolverLoad3D::Distributed(SolverDistributedLoad3D {
+        element_id, q_xi: 0.0, q_xj: 0.0, q_yi: q, q_yj: q, q_zi: 0.0, q_zj: 0.0, a: None, b: None,
+    })
+}
+
+/// A simply supported member under a uniform load: one member or two, the largest moment along
+/// it is the same, qL²/8 (the ends of the one member are zero, its middle is not).
+#[test]
+fn member_moment_max_reads_the_whole_diagram() {
+    let mut input = empty_input();
+    input.materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
+    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 2e-4, cw: None, as_y: None, as_z: None });
+    for (id, x) in [(1, 0.0), (2, 4.0)] {
+        input.nodes.insert(id.to_string(), SolverNode3D { id, x, y: 0.0, z: 0.0 });
+    }
+    input.supports.insert("1".into(), support(1, [true, true, true, true, false, false]));
+    input.supports.insert("2".into(), support(2, [false, true, true, false, false, false]));
+    input.elements.insert("1".into(), beam(1, 1, 2));
+    input.loads.push(udl(1, -10.0));
+    let one = solve(&input).element_forces.iter().map(member_moment_max).fold(0.0, f64::max);
+    let mut split = input.clone();
+    split.nodes.insert("3".into(), SolverNode3D { id: 3, x: 2.0, y: 0.0, z: 0.0 });
+    split.elements.clear();
+    split.elements.insert("1".into(), beam(1, 1, 3));
+    split.elements.insert("2".into(), beam(2, 3, 2));
+    split.loads = vec![udl(1, -10.0), udl(2, -10.0)];
+    let two = solve(&split).element_forces.iter().map(member_moment_max).fold(0.0, f64::max);
+    println!("max moment: one member {one}, two members {two}, qL²/8 = {}", 10.0 * 16.0 / 8.0);
+    assert!((one - 20.0).abs() < 1e-9 * 20.0 && (two - 20.0).abs() < 1e-9 * 20.0);
+}
+
+/// A beam simply supported off the shell, with its middle span along an edge of a (very soft)
+/// shell: refinement splits that span, the beam is exact, and the study must not report a frame
+/// discretization error (end moments alone jumped from the span's ends to its middle).
+#[test]
+fn split_exact_member_raises_no_frame_warning() {
+    let mut input = empty_input();
+    input.materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
+    input.materials.insert("2".into(), SolverMaterial { id: 2, e: 0.2, nu: 0.3 });
+    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 2e-4, cw: None, as_y: None, as_z: None });
+    for (id, x, y) in [(1, -1.0, 0.0), (2, 0.0, 0.0), (3, 1.0, 0.0), (4, 2.0, 0.0), (5, 1.0, 1.0), (6, 0.0, 1.0)] {
+        input.nodes.insert(id.to_string(), SolverNode3D { id, x, y, z: 0.0 });
+    }
+    input.supports.insert("1".into(), support(1, [true, true, true, true, false, false]));
+    input.supports.insert("2".into(), support(4, [false, true, true, false, false, false]));
+    input.supports.insert("3".into(), support(5, [true; 6]));
+    input.supports.insert("4".into(), support(6, [true; 6]));
+    for (id, i, j) in [(1, 1, 2), (2, 2, 3), (3, 3, 4)] {
+        input.elements.insert(id.to_string(), beam(id, i, j));
+        input.loads.push(udl(id, -10.0));
+    }
+    input.quads.insert("10".into(), SolverQuadElement { id: 10, nodes: [2, 3, 5, 6], material_id: 2, thickness: 0.1 });
+    let s = convergence_study_3d(&input, &ConvergenceOptions::default()).unwrap();
+    let q = s.quantities.iter().find(|q| q.quantity == "maxFrameMoment").unwrap();
+    println!("maxFrameMoment {:?} {} {:?}", q.values, q.status, q.estimated_error);
+    assert!(!is_inconclusive(&q.status), "{}", q.status);
+    assert!(q.relative_change < 1e-3, "an exact member moved {}", q.relative_change);
+    assert!(q.estimated_error.unwrap_or(q.relative_change) < 1e-3);
 }

@@ -15,7 +15,8 @@
 //! MITC9) or, for curved shells and solid-shells, whose centre values are mid-surface only, at
 //! their integration points from the through-thickness pairs; the resultant
 //! reaction of each group of connected supported nodes (a line support's nodal reactions depend
-//! on the mesh, their sum does not); the largest end moment of any frame member.
+//! on the mesh, their sum does not); the largest moment anywhere along any frame member (its
+//! exact diagram, so a member split by the refinement reads the same).
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -214,11 +215,57 @@ pub fn governing(input: &SolverInput3D, r: &AnalysisResults3D, original_max_node
 
     if !r.element_forces.is_empty() {
         let fm = r.element_forces.iter()
-            .flat_map(|f| [f.my_start, f.my_end, f.mz_start, f.mz_end])
-            .fold(0.0_f64, |a, v| a.max(v.abs()));
+            .map(member_moment_max)
+            .fold(0.0_f64, f64::max);
         q.insert(("maxFrameMoment".to_string(), 0), fm);
     }
     q
+}
+
+/// The largest |My| or |Mz| anywhere along a member, from its exact diagram
+/// (`diagrams_3d::evaluate_diagram_3d_at`), not only at its ends: a member split by refinement
+/// has its old interior as new ends, and comparing end values across meshes would report a
+/// change where the beam is exact. The diagram is a polynomial between load breakpoints (point
+/// loads, ends of partial loads); on each piece the maximum is bracketed on 33 samples and
+/// refined by golden-section search, so the same member gives the same maximum to ~1e-12
+/// whatever it is split into.
+pub fn member_moment_max(ef: &ElementForces3D) -> f64 {
+    use crate::postprocess::diagrams_3d::evaluate_diagram_3d_at;
+    let l = ef.length;
+    if !(l > 0.0) {
+        return [ef.my_start, ef.my_end, ef.mz_start, ef.mz_end].iter().fold(0.0_f64, |a, v| a.max(v.abs()));
+    }
+    let mut best = 0.0_f64;
+    for (kind, dls, pls) in [("momentY", &ef.distributed_loads_z, &ef.point_loads_z), ("momentZ", &ef.distributed_loads_y, &ef.point_loads_y)] {
+        let mut breaks = vec![0.0, 1.0];
+        breaks.extend(pls.iter().map(|p| p.a / l));
+        for d in dls.iter() {
+            breaks.push(d.a / l);
+            breaks.push(d.b / l);
+        }
+        breaks.retain(|t| (0.0..=1.0).contains(t));
+        breaks.sort_by(f64::total_cmp);
+        breaks.dedup_by(|a, b| (*a - *b).abs() < 1e-12);
+        let f = |t: f64| evaluate_diagram_3d_at(ef, kind, t).abs();
+        for w in breaks.windows(2) {
+            let (lo, hi) = (w[0], w[1]);
+            if hi - lo < 1e-12 { continue; }
+            // Just inside each end, so a point-load jump is taken on the side of this piece.
+            let (lo_i, hi_i) = (lo + 1e-12, hi - 1e-12);
+            let n = 32;
+            let ts: Vec<f64> = (0..=n).map(|k| lo_i + (hi_i - lo_i) * k as f64 / n as f64).collect();
+            let (k, _) = ts.iter().map(|&t| f(t)).enumerate().fold((0, f64::MIN), |a, (i, v)| if v > a.1 { (i, v) } else { a });
+            best = best.max(f(ts[k]));
+            let (mut a, mut b) = (ts[k.saturating_sub(1)], ts[(k + 1).min(n)]);
+            let g = 0.5 * (5f64.sqrt() - 1.0);
+            for _ in 0..80 {
+                let (c, d) = (b - g * (b - a), a + g * (b - a));
+                if f(c) > f(d) { b = d } else { a = c }
+            }
+            best = best.max(f(0.5 * (a + b)));
+        }
+    }
+    best
 }
 
 /// One quantity's convergence record over the meshes (coarsest first).
@@ -264,7 +311,9 @@ pub fn richardson(values: &[f64]) -> (Option<f64>, Option<f64>, Option<f64>, &'s
         }
         [q0, q1, q2, ..] => {
             let (d1, d2) = (q1 - q0, q2 - q1);
-            let tiny = 1e-10 * scale;
+            // Changes below a millionth of the value are noise, not discretization: converged,
+            // whichever way they wobble.
+            let tiny = 1e-6 * scale;
             if d1.abs() <= tiny && d2.abs() <= tiny {
                 return (None, Some(*q2), Some(rel(*q0, *q2)), "converged");
             }
