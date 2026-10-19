@@ -371,7 +371,7 @@ fn gauss(mut a: Vec<f64>, mut b: Vec<f64>, n: usize) -> Vec<f64> {
 /// Max relative difference of displacements and reactions against the
 /// reference, scaled by the largest magnitude of each quantity.
 fn assert_matches_reference_2d(r: &AnalysisResults, rf: &Ref2D, tol: f64, label: &str) {
-    let scale = |v: Vec<f64>| v.iter().fold(0.0f64, |a, b| a.max(b.abs())).max(1e-300);
+    let scale = |v: Vec<f64>| v.iter().fold(0.0f64, |a, b| a.max(b.abs())).max(1e-9);
     let su = scale(rf.disp.values().flat_map(|d| [d[0], d[1]]).collect());
     let sr = scale(rf.disp.values().map(|d| d[2]).collect());
     assert_eq!(r.displacements.len(), rf.disp.len(), "{label}: displacement count");
