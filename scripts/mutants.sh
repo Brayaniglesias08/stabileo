@@ -5,7 +5,8 @@
 # (docs/verification/FUZZ_MUTANTS.md).
 #
 # Equivalent mutants are excluded by name in .cargo/mutants.toml, each with a
-# one-line justification; any other missed mutant fails the run.
+# one-line justification, and the equivalent index-arithmetic mutants by
+# scripts/mutants-equivalent.py; any other missed mutant fails the run.
 #
 # Usage (from anywhere in the repo):
 #   scripts/mutants.sh                          # certify + solver + element
@@ -28,8 +29,11 @@ case $scope in
     ;;&
   solver | all)
     files+=(-f engine/src/solver/dof.rs -f engine/src/solver/assembly.rs -f engine/src/solver/linear.rs)
+    # core (linear_2d, linear_3d, ...), integration, properties_2d and
+    # solver_invariants exercise the plain 2D/3D static paths of linear.rs:
+    # without them 244 of 269 mutants of a linear.rs shard went uncaught (#339).
     tests+=(certify certify_bundle duplicate_support_reactions determinate_exact index_exhaustive
-      fuzz_regressions solver_mutation_kills)
+      fuzz_regressions solver_mutation_kills core integration properties_2d solver_invariants)
     ;;&
   element | all)
     files+=(-f 'engine/src/element/**')
@@ -44,7 +48,14 @@ esac
 # so only the listed targets are built per mutant (`-- …` reaches only the run).
 cargo_args=(-C --lib)
 for t in $(printf '%s\n' "${tests[@]}" | sort -u); do cargo_args+=(-C --test -C "$t"); done
-cargo mutants --package dedaliano-engine "${files[@]}" --timeout-multiplier 3 "${cargo_args[@]}" "$@"
+# Equivalent mutants in constant index arithmetic (k[0 * 6 + 0] -> k[0 * 6 - 0]):
+# found on the current source by scripts/mutants-equivalent.py, which keeps a
+# mutant out only when the mutated index has exactly the same value.
+excl=()
+while IFS= read -r re; do excl+=(--exclude-re "$re"); done < <(
+  cargo mutants --list --json --package dedaliano-engine "${files[@]}" | python3 scripts/mutants-equivalent.py --regex)
+echo "excluded $(( ${#excl[@]} / 2 )) equivalent index-arithmetic mutants (scripts/mutants-equivalent.py)"
+cargo mutants --package dedaliano-engine "${files[@]}" "${excl[@]}" --timeout-multiplier 3 "${cargo_args[@]}" "$@"
 status=$?
 if [[ -s mutants.out/missed.txt ]]; then
   echo "Missed mutants (add a test, or exclude in .cargo/mutants.toml with a justification if equivalent):"
