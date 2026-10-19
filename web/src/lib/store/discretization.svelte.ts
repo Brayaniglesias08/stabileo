@@ -118,6 +118,22 @@ const SETTLE_MS = 300;
 /** The dimension of the solves this store estimates (shells exist in 3D only). */
 const SPACE = '3d' as const;
 
+/**
+ * The 3D viewport's key for a shell indicator. The viewport draws plates as `p{id}` and every
+ * quad as `q{id}`, curved ones included: the web sends a curved quad to the engine as a curved
+ * shell with the quad's own id (`solver-service.ts`). MITC9 quads and solid-shells have no
+ * element in the web model, so no viewport mesh to paint (null).
+ */
+export function viewportShellKey(kind: ElementErrorIndicator['kind'], id: number): string | null {
+  switch (kind) {
+    case 'plate': return `p${id}`;
+    case 'quad':
+    case 'curvedShell': return `q${id}`;
+    case 'quad9':
+    case 'solidShell': return null;
+  }
+}
+
 /** Convergence statuses from which no error can be read (the engine's `is_inconclusive`). */
 export function isInconclusive(status: QuantityConvergence['status']): boolean {
   return status === 'oscillating' || status === 'notConverging' || status === 'irregularOrder' || status === 'incomplete';
@@ -231,8 +247,8 @@ function createDiscretizationStore() {
       for (const e of estimate.estimate.elements) {
         // Not estimated is not "no error": such an element keeps its colour.
         if (e.localPercent == null || !Number.isFinite(e.localPercent)) continue;
-        if (e.kind === 'plate') m.set(`p${e.elementId}`, e.localPercent);
-        else if (e.kind === 'quad') m.set(`q${e.elementId}`, e.localPercent);
+        const key = viewportShellKey(e.kind, e.elementId);
+        if (key !== null) m.set(key, e.localPercent);
       }
       return m;
     },

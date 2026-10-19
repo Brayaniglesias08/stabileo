@@ -20,7 +20,7 @@ let wire: Record<string, unknown> = {};
 vi.mock('../../engine/certify-jobs', () => ({ runCertify: (...a: unknown[]) => runCertify(...(a as [])), hasCertify: () => true }));
 vi.mock('../../engine/solver-service', () => ({ certifiableInputOf: () => ({ dim: '3d', wire: () => wire }) }));
 
-const { discretizationStore, discretizationClaims, isInconclusive } = await import('../discretization.svelte');
+const { discretizationStore, discretizationClaims, isInconclusive, viewportShellKey } = await import('../discretization.svelte');
 const { resultsStore } = await import('../results.svelte');
 
 async function settle() {
@@ -39,7 +39,8 @@ describe('discretization store', () => {
     expect(s.status).toBe('done');
     if (s.status !== 'done') return;
     expect(s.estimate.certified).toBe(false);
-    expect([...discretizationStore.elementMap()]).toEqual([['q3', 14], ['p4', 2]]);
+    // The curved quad (sent to the engine as a curved shell) is painted on its quad mesh.
+    expect([...discretizationStore.elementMap()]).toEqual([['q3', 14], ['p4', 2], ['q5', 3]]);
     expect(discretizationStore.mapRange()).toEqual({ min: 0, max: 14 });
   });
 
@@ -137,5 +138,14 @@ describe('discretization store', () => {
     await settle();
     expect(discretizationStore.showMap).toBe(false);
     expect(discretizationStore.mapActive()).toBe(false);
+  });
+
+  it('maps every element family to the key the viewport draws it under', () => {
+    expect(viewportShellKey('plate', 7)).toBe('p7');
+    expect(viewportShellKey('quad', 7)).toBe('q7');
+    expect(viewportShellKey('curvedShell', 7)).toBe('q7');
+    // No web element: nothing to paint, rather than a key that matches nothing.
+    expect(viewportShellKey('quad9', 7)).toBeNull();
+    expect(viewportShellKey('solidShell', 7)).toBeNull();
   });
 });
