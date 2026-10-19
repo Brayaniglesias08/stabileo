@@ -38,6 +38,14 @@ curved shells, walls in dynamics and heated shells:
   expansion no longer creates membrane force (or a spurious buckling load).
 - DKT nodal stresses subtract the thermal strain, and several thermal loads on one shell are
   summed in stress recovery (only the last was used).
+- Follow-ups from review:
+  - The summed thermal loads are keyed by (family, id), so a quad and a quad9 sharing an id
+    no longer double each other's correction.
+  - The curved-shell rotary mass is built from the nodal directors, so a spin about the
+    director is massless.
+  - The time-history initial acceleration handles mass nullspaces that are not coordinate DOFs
+    (an oblique shell's drilling rotation). It had fallen back to diagonal lumping, giving a
+    25% error on a 45°-rotated quad.
 
 Assembly, supports and constraints (`docs/solver/assembly-constraints.md`, tests in
 `derivation_assembly_constraints.rs`). **BREAKING (results)** for the cases listed:

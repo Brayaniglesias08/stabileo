@@ -518,7 +518,17 @@ $$
 
 $c_1=\frac1{\beta\Delta t^2}$, $c_2=\frac{\gamma}{\beta\Delta t}$, $c_3=\frac1{2\beta}-1$, $c_4=\frac\gamma\beta-1$,
 $c_5=\frac{\Delta t}2(\frac\gamma\beta-2)$. Initial acceleration from $M\mathbf a_0=\mathbf f_0-C\mathbf v_0-K\mathbf u_0$
-(singular $M$: massless DOFs get $a_0=0$ and the massive block is solved exactly).
+When $M$ is singular, the solver takes the minimum-norm solution. Massless motions get no
+initial acceleration ($\mathbf a_0\perp\operatorname{null}M$), the right-hand side is projected
+orthogonally onto $\operatorname{range}M$, and the massive block is solved exactly.
+
+The null directions need not be coordinate DOFs. An oblique flat shell's drilling rotation is a
+combination of $\theta_x,\theta_y,\theta_z$ even when every rotational diagonal is positive. So
+each node's rotation triad is first turned to the eigenbasis of its $3\times3$ block of $M$ (an
+orthogonal, coordinate-free change of basis), and zero-diagonal directions are then dropped. Before
+this change, an oblique shell fell back to diagonal lumping of all of $M$: a 45°-rotated cantilever
+quad's $\mathbf a_0$ was 25% off, with a residual of 0.5 in $M\mathbf a=\mathbf f$ (review of
+#330, `derivation_shells.rs::shell_time_history_initial_acceleration_is_rotation_invariant`).
 
 **Stability.** Newmark is unconditionally stable for $2\beta\ge\gamma\ge\tfrac12$; $\gamma>\tfrac12$
 adds numerical damping (first order accurate); $\gamma<\tfrac12$ amplifies. The code refuses
