@@ -5522,16 +5522,18 @@ pub(crate) fn compute_quad_stresses(
     // Callers that solve a per-case load set (multi-case, staged) pass those
     // loads explicitly; the default is the model's own load list.
     let loads_ref = loads.unwrap_or(&input.loads);
-    let mut thermal_by_elem: std::collections::HashMap<usize, (f64, f64, f64)> =
+    let mut thermal_by_elem: std::collections::HashMap<(bool, usize), (f64, f64, f64)> =
         std::collections::HashMap::new();
     for load in loads_ref {
         match load {
             // Summed as free strains, (1, Σα·ΔTu, Σα·ΔTg): an insert kept only the last
             // thermal load on an element while the load vector sums them all (SH-11).
-            // Quads and quad9s share this map, as they share the QuadStress output.
+            // Keyed by (is_quad9, id): quad and quad9 ids are family-local, so a quad
+            // and a quad9 with the same id must not share (and double) their loads.
             SolverLoad3D::QuadThermal(tl) | SolverLoad3D::Quad9Thermal(tl) => {
                 let alpha = tl.alpha.unwrap_or(1.2e-5);
-                let e = thermal_by_elem.entry(tl.element_id).or_insert((1.0, 0.0, 0.0));
+                let key = (matches!(load, SolverLoad3D::Quad9Thermal(_)), tl.element_id);
+                let e = thermal_by_elem.entry(key).or_insert((1.0, 0.0, 0.0));
                 e.1 += alpha * tl.dt_uniform;
                 e.2 += alpha * tl.dt_gradient;
             }
@@ -5563,7 +5565,7 @@ pub(crate) fn compute_quad_stresses(
         let mut u_local = [0.0; 24];
         u_local.copy_from_slice(&u_local_vec);
 
-        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&quad.id).copied().unwrap_or((0.0, 0.0, 0.0));
+        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&(false, quad.id)).copied().unwrap_or((0.0, 0.0, 0.0));
         let s = crate::element::quad::quad_stresses(&coords, &u_local, e, nu, quad.thickness, alpha, dt_uniform, dt_gradient);
 
         // Nodal stresses at 4 Gauss-extrapolated points
@@ -5599,7 +5601,7 @@ pub(crate) fn compute_quad_stresses(
         let u_global: Vec<f64> = q9_dofs.iter().map(|&d| u[d]).collect();
         let t_q9 = crate::element::quad9::quad9_transform_3d(&coords);
         let u_local_vec = crate::linalg::transform_displacement(&u_global, &t_q9, 54);
-        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&q9.id).copied().unwrap_or((0.0, 0.0, 0.0));
+        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&(true, q9.id)).copied().unwrap_or((0.0, 0.0, 0.0));
         let s = crate::element::quad9::quad9_stresses(&coords, &u_local_vec, e, nu, q9.thickness, alpha, dt_uniform, dt_gradient);
         let nodal_vm = crate::element::quad9::quad9_nodal_von_mises(&coords, &u_local_vec, e, nu, q9.thickness, alpha, dt_uniform);
         stresses.push(QuadStress {
@@ -5697,16 +5699,18 @@ pub(crate) fn compute_quad_nodal_stresses(
     // Index thermal loads by element id so stress recovery can subtract the
     // thermal strain from the total strain (σ = C·ε_mech, not C·ε_total).
     let loads_ref = loads.unwrap_or(&input.loads);
-    let mut thermal_by_elem: std::collections::HashMap<usize, (f64, f64, f64)> =
+    let mut thermal_by_elem: std::collections::HashMap<(bool, usize), (f64, f64, f64)> =
         std::collections::HashMap::new();
     for load in loads_ref {
         match load {
             // Summed as free strains, (1, Σα·ΔTu, Σα·ΔTg): an insert kept only the last
             // thermal load on an element while the load vector sums them all (SH-11).
-            // Quads and quad9s share this map, as they share the QuadStress output.
+            // Keyed by (is_quad9, id): quad and quad9 ids are family-local, so a quad
+            // and a quad9 with the same id must not share (and double) their loads.
             SolverLoad3D::QuadThermal(tl) | SolverLoad3D::Quad9Thermal(tl) => {
                 let alpha = tl.alpha.unwrap_or(1.2e-5);
-                let e = thermal_by_elem.entry(tl.element_id).or_insert((1.0, 0.0, 0.0));
+                let key = (matches!(load, SolverLoad3D::Quad9Thermal(_)), tl.element_id);
+                let e = thermal_by_elem.entry(key).or_insert((1.0, 0.0, 0.0));
                 e.1 += alpha * tl.dt_uniform;
                 e.2 += alpha * tl.dt_gradient;
             }
@@ -5738,7 +5742,7 @@ pub(crate) fn compute_quad_nodal_stresses(
         let mut u_local = [0.0; 24];
         u_local.copy_from_slice(&u_local_vec);
 
-        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&quad.id).copied().unwrap_or((0.0, 0.0, 0.0));
+        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&(false, quad.id)).copied().unwrap_or((0.0, 0.0, 0.0));
         let nodal = crate::element::quad::quad_stress_at_nodes(&coords, &u_local, e, nu, quad.thickness, alpha, dt_uniform, dt_gradient);
         for mut ns in nodal {
             ns.node_index = quad.nodes[ns.node_index];
@@ -5760,7 +5764,7 @@ pub(crate) fn compute_quad_nodal_stresses(
         let u_global: Vec<f64> = q9_dofs.iter().map(|&d| u[d]).collect();
         let t_q9 = crate::element::quad9::quad9_transform_3d(&coords);
         let u_local_vec = crate::linalg::transform_displacement(&u_global, &t_q9, 54);
-        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&q9.id).copied().unwrap_or((0.0, 0.0, 0.0));
+        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&(true, q9.id)).copied().unwrap_or((0.0, 0.0, 0.0));
         let nodal = crate::element::quad9::quad9_stress_at_nodes(&coords, &u_local_vec, e, nu, q9.thickness, alpha, dt_uniform, dt_gradient);
         for mut ns in nodal {
             ns.node_index = q9.nodes[ns.node_index];

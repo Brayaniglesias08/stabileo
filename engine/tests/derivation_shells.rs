@@ -648,3 +648,41 @@ fn sh12_self_weight_is_rho_g_t_area_in_kn_for_every_shell() {
     assert!((sq / expect - 1.0).abs() < 1e-12, "quad {sq} vs {expect}");
     assert!((sc / expect - 1.0).abs() < 1e-12, "curved shell {sc} vs {expect}");
 }
+
+/// SH-11 follow-up (review of #330). Quad and quad9 ids are family-local. When the thermal
+/// loads were summed per element (SH-11), a quad and a quad9 with the same id shared one
+/// entry, so each was corrected for both loads: two free, equally heated patches reported
+/// E·α·ΔT/(1−ν) of fictitious compression. The map is keyed by (family, id).
+#[test]
+fn sh11_quad_and_quad9_with_the_same_id_keep_their_own_thermal_loads() {
+    let pts = [
+        // quad, nodes 1..4
+        [0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 1.5, 0.0], [0.0, 1.5, 0.0],
+        // quad9, nodes 5..13 (corners, midsides 5-6, 6-7, 7-8, 8-5, centre), offset in x
+        [5.0, 0.0, 0.0], [7.0, 0.0, 0.0], [7.0, 1.5, 0.0], [5.0, 1.5, 0.0],
+        [6.0, 0.0, 0.0], [7.0, 0.75, 0.0], [6.0, 1.5, 0.0], [5.0, 0.75, 0.0], [6.0, 0.75, 0.0],
+    ];
+    let mut s = with_nodes(0.3, &pts);
+    s.quads.insert("1".into(), SolverQuadElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2 });
+    s.quad9s.insert("1".into(), SolverQuad9Element { id: 1, nodes: [5, 6, 7, 8, 9, 10, 11, 12, 13], material_id: 1, thickness: 0.2 });
+    fix(&mut s, 1);
+    fix(&mut s, 5);
+    s.loads.push(SolverLoad3D::QuadThermal(thermal(1, 10.0, 5.0)));
+    s.loads.push(SolverLoad3D::Quad9Thermal(thermal(1, 10.0, 5.0)));
+    let r = solve_3d(&s).unwrap();
+    let scale = E * 1e-5 * 10.0 / 0.7;
+    assert!(!r.quad_stresses.is_empty());
+    for q in &r.quad_stresses {
+        for v in [q.sigma_xx, q.sigma_yy, q.tau_xy, q.mx, q.my, q.mxy, q.von_mises] {
+            assert!(v.abs() < 1e-8 * scale, "centroid: {q:?}");
+        }
+        for v in &q.nodal_von_mises {
+            assert!(v.abs() < 1e-8 * scale, "nodal σvm {v}");
+        }
+    }
+    for ns in &r.quad_nodal_stresses {
+        for v in [ns.sigma_xx, ns.sigma_yy, ns.mx, ns.my] {
+            assert!(v.abs() < 1e-8 * scale, "nodal: {ns:?}");
+        }
+    }
+}
