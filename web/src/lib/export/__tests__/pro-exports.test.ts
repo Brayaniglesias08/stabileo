@@ -100,7 +100,7 @@ describe('the workbook, sheet by sheet', () => {
   it('a CSV of one sheet still carries the cover and the conventions, as the dialog says', async () => {
     slabFrame();
     downloads.length = 0;
-    downloadProjectCsv(5, { sheets: new Set(['Nodes']) });
+    await downloadProjectCsv(5, { sheets: new Set(['Nodes']) });
     expect(downloads).toHaveLength(1);
     const { blob, name } = downloads[0]!;
     expect(name).toMatch(/\.zip$/);
