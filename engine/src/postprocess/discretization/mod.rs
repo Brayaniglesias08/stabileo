@@ -48,8 +48,10 @@ pub struct ElementErrorIndicator {
     pub energy_norm: f64,
     /// η_e relative to the mean element share of the total energy, √((U + η²)/N), in percent.
     /// Uniformly spread error gives every element the global percentage; an element above the
-    /// threshold is where refinement pays.
-    pub local_percent: f64,
+    /// threshold is where refinement pays. None when not estimated (the element is alone in its
+    /// recovery patches, or the model's estimate could not be made): never a 0 standing in for
+    /// "unknown".
+    pub local_percent: Option<f64>,
 }
 
 /// Recovery-based estimate of the discretization error of a linear static solution.
@@ -74,7 +76,8 @@ pub struct DiscretizationEstimate {
     pub unestimable_reason: Option<String>,
     /// Estimated energy-norm error η (√(kN·m)).
     pub error_norm: f64,
-    /// Energy norm of the computed solution over the same elements and components.
+    /// Energy norm of the computed solution over the same (estimated, non-isolated) elements
+    /// and components.
     pub solution_norm: f64,
     pub threshold: f64,
     pub exceeds_threshold: bool,
@@ -84,9 +87,15 @@ pub struct DiscretizationEstimate {
     /// Members whose discretization error is neither zero nor estimated: members with warping
     /// torsion (section Cw > 0), whose warping field is a cubic Hermite approximation.
     pub inexact_members: Vec<usize>,
+    /// Shell elements alone in every recovery patch (a lone element, or one separated from its
+    /// neighbours by folds or changes of section): not estimated, and left out of
+    /// `relative_error`. When they carry more than 0.1 % of the strain energy the result is
+    /// flagged.
+    pub isolated_elements: Vec<usize>,
     /// Codes of what the estimate does and does not cover (see DISCRETIZATION.md):
     /// `notCertified`, `transverseShearExcluded`, `framesExact` (every member exact),
-    /// `warpingMembersNotEstimated`, `curvedBeamsSegmented`, `noShellElements`.
+    /// `warpingMembersNotEstimated`, `curvedBeamsSegmented`, `noShellElements`,
+    /// `isolatedElementsNotEstimated`.
     pub notes: Vec<String>,
 }
 
@@ -95,9 +104,9 @@ pub(crate) struct RawEstimate {
     pub per_element: Vec<(samples::Family, usize, f64, f64)>, // (family, id, η², U)
     /// Σ E·V over the sampled elements: the energy of a unit strain everywhere.
     pub energy_scale: f64,
-    /// Elements that share a node with another element of their recovery group: only those
-    /// have a patch the recovered field can be smoother than their own.
-    pub with_neighbours: usize,
+    /// Per element (aligned with `per_element`): alone in every recovery patch, so its
+    /// recovered field is its own and its indicator says nothing.
+    pub isolated: Vec<bool>,
 }
 
 /// Whether anything loads the model: a nonzero reaction or displacement (loads that go straight
@@ -111,15 +120,10 @@ fn is_loaded(results: &AnalysisResults3D) -> bool {
 pub(crate) fn raw_estimate(input: &SolverInput3D, results: &AnalysisResults3D) -> Result<RawEstimate, String> {
     let elems = samples::sample_elements(input, results)?;
     let coords: HashMap<usize, [f64; 3]> = input.nodes.values().map(|n| (n.id, [n.x, n.y, n.z])).collect();
-    let rec = recovery::recover(&elems, &coords);
+    let patches = recovery::patches(&elems);
+    let rec = recovery::recover(&elems, &coords, &patches);
+    let isolated = recovery::isolated(&elems, &patches);
     let mut per_element = Vec::with_capacity(elems.len());
-    let mut by_node: HashMap<(usize, (samples::Family, usize, u64)), usize> = HashMap::new();
-    for e in &elems {
-        for &n in &e.nodes {
-            *by_node.entry((n, e.group_key())).or_default() += 1;
-        }
-    }
-    let with_neighbours = elems.iter().filter(|e| e.nodes.iter().any(|&n| by_node[&(n, e.group_key())] > 1)).count();
     let energy_scale: f64 = elems.iter().map(|e| e.e * e.samples.iter().map(|s| s.weight).sum::<f64>()).sum();
     for (e, nodal) in elems.iter().zip(&rec) {
         let (mut eta2, mut u) = (0.0, 0.0);
@@ -137,38 +141,54 @@ pub(crate) fn raw_estimate(input: &SolverInput3D, results: &AnalysisResults3D) -
         }
         per_element.push((e.family, e.id, eta2, u));
     }
-    Ok(RawEstimate { per_element, energy_scale, with_neighbours })
+    Ok(RawEstimate { per_element, energy_scale, isolated })
 }
 
 /// Estimate the discretization error of a 3D linear static solution of `input`.
 pub fn estimate_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Result<DiscretizationEstimate, String> {
     let raw = raw_estimate(input, results)?;
-    let eta2: f64 = raw.per_element.iter().map(|r| r.2).sum();
-    let u: f64 = raw.per_element.iter().map(|r| r.3).sum();
+    // Elements alone in every recovery patch carry no estimate (their recovered field is their
+    // own): the global figure is over the others, and the isolated ones are listed.
+    let estimated = |i: usize| !raw.isolated[i];
+    let sum = |f: &dyn Fn(usize) -> f64, pick: &dyn Fn(usize) -> bool| -> f64 {
+        (0..raw.per_element.len()).filter(|&i| pick(i)).map(f).sum()
+    };
+    let eta2 = sum(&|i| raw.per_element[i].2, &estimated);
+    let u = sum(&|i| raw.per_element[i].3, &estimated);
+    let u_all = sum(&|i| raw.per_element[i].3, &|_| true);
+    let u_isolated = u_all - u;
     let n = raw.per_element.len();
+    let n_estimated = (0..n).filter(|&i| estimated(i)).count();
+    let isolated_elements: Vec<usize> = (0..n).filter(|&i| !estimated(i)).map(|i| raw.per_element[i].1).collect();
     let mut notes = vec!["notCertified".to_string()];
     let mut unestimable_reason = None;
+    // Strain energy below what a strain of 1e-12 (round-off) everywhere would store is no
+    // energy at all: a ratio of it would be 0/0.
+    let floor = 1e-24 * raw.energy_scale;
     let relative_error = if n > 0 {
         notes.push("transverseShearExcluded".into());
-        let denom = u + eta2;
-        // Strain energy below what a strain of 1e-12 (round-off) everywhere would store is no
-        // energy at all: the estimate would be 0/0.
-        let floor = 1e-24 * raw.energy_scale;
-        if denom > floor && raw.with_neighbours == 0 {
-            // Every element alone in its patch (a one-element mesh): the "recovered" field is the
-            // element's own, the estimate would be ~0 by construction and say nothing.
-            unestimable_reason = Some("tooCoarse".to_string());
-            None
-        } else if denom > floor {
-            Some((eta2 / denom).sqrt())
-        } else {
+        if u_all + eta2 <= floor {
             unestimable_reason = Some(if is_loaded(results) { "noStrainEnergy" } else { "unloaded" }.to_string());
             None
+        } else if n_estimated == 0 || u + eta2 <= floor {
+            // Every strained element alone in its patches (a one-element mesh, or elements
+            // separated by folds sharper than the crease angle): estimates would be ≈ 0 by
+            // construction and say nothing.
+            unestimable_reason = Some("tooCoarse".to_string());
+            None
+        } else {
+            Some((eta2 / (u + eta2)).sqrt())
         }
     } else {
         notes.push("noShellElements".into());
         None
     };
+    // Isolated elements that carry a non-negligible share of the strain energy are an
+    // unestimated part of the answer: flagged, not folded into a reassuring figure.
+    let isolated_significant = relative_error.is_some() && u_isolated > 1e-3 * u_all;
+    if !isolated_elements.is_empty() {
+        notes.push("isolatedElementsNotEstimated".into());
+    }
     let frame_members = input.elements.len();
     let sections: HashMap<usize, &SolverSection3D> = input.sections.values().map(|s| (s.id, s)).collect();
     let mut inexact_members: Vec<usize> = input
@@ -187,16 +207,17 @@ pub fn estimate_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Result
     if frame_members > 0 && inexact_members.is_empty() && input.curved_beams.is_empty() {
         notes.push("framesExact".into());
     }
-    let mean = if n > 0 { ((u + eta2) / n as f64).sqrt() } else { 0.0 };
+    let mean = if n_estimated > 0 { ((u + eta2) / n_estimated as f64).sqrt() } else { 0.0 };
     let elements = raw
         .per_element
         .iter()
-        .map(|&(fam, id, e2, ue)| ElementErrorIndicator {
+        .enumerate()
+        .map(|(i, &(fam, id, e2, ue))| ElementErrorIndicator {
             kind: fam.name().to_string(),
             element_id: id,
             eta: e2.sqrt(),
             energy_norm: ue.sqrt(),
-            local_percent: if mean > 0.0 { 100.0 * e2.sqrt() / mean } else { 0.0 },
+            local_percent: (relative_error.is_some() && estimated(i) && mean > 0.0).then(|| 100.0 * e2.sqrt() / mean),
         })
         .collect();
     let threshold = DEFAULT_THRESHOLD;
@@ -205,7 +226,8 @@ pub fn estimate_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Result
         method: "zz-spr".into(),
         // A loaded mesh too coarse to estimate is flagged like one above the threshold.
         exceeds_threshold: relative_error.is_some_and(|r| r > threshold)
-            || matches!(unestimable_reason.as_deref(), Some("noStrainEnergy" | "tooCoarse")),
+            || matches!(unestimable_reason.as_deref(), Some("noStrainEnergy" | "tooCoarse"))
+            || isolated_significant,
         relative_error,
         unestimable_reason,
         error_norm: eta2.sqrt(),
@@ -214,6 +236,7 @@ pub fn estimate_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Result
         elements,
         frame_members,
         inexact_members,
+        isolated_elements,
         notes,
     })
 }

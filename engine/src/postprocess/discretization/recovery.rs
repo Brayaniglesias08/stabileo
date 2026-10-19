@@ -25,9 +25,15 @@ pub const CREASE_ANGLE_DEG: f64 = 30.0;
 /// that element's own orientation; a1 = 0 for solid-shells).
 pub type NodeValue = ([f64; 6], [f64; 6]);
 
-/// Recover nodal stresses; `out[e][i]` belongs to node `elems[e].nodes[i]`.
-pub fn recover(elems: &[ElemSamples], coords: &HashMap<usize, [f64; 3]>) -> Vec<Vec<NodeValue>> {
-    let mut out: Vec<Vec<NodeValue>> = elems.iter().map(|e| vec![([0.0; 6], [0.0; 6]); e.nodes.len()]).collect();
+/// A recovery patch: the node, and its elements as (element index, local node index,
+/// orientation sign relative to the patch's seed).
+pub type Patch = (usize, Vec<(usize, usize, f64)>);
+
+/// The recovery patches of every node: the elements around it split by family, material,
+/// thickness and normals within `CREASE_ANGLE_DEG` of the patch's first element. The one
+/// definition of a patch: recovery fits over these, and an element alone in all of its patches
+/// has nothing to be compared with (`isolated`).
+pub fn patches(elems: &[ElemSamples]) -> Vec<Patch> {
     let mut incidence: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
     for (ei, e) in elems.iter().enumerate() {
         for (li, &n) in e.nodes.iter().enumerate() {
@@ -37,14 +43,12 @@ pub fn recover(elems: &[ElemSamples], coords: &HashMap<usize, [f64; 3]>) -> Vec<
     let cos_crease = CREASE_ANGLE_DEG.to_radians().cos();
     let mut node_ids: Vec<usize> = incidence.keys().copied().collect();
     node_ids.sort_unstable();
+    let mut out = Vec::new();
     for nid in node_ids {
-        let around = &incidence[&nid];
-        let Some(&xn) = coords.get(&nid) else { continue };
-        // Patches: (seed element, members with orientation sign).
-        let mut patches: Vec<(usize, Vec<(usize, usize, f64)>)> = Vec::new();
-        for &(ei, li) in around {
+        let mut groups: Vec<(usize, Vec<(usize, usize, f64)>)> = Vec::new();
+        for &(ei, li) in &incidence[&nid] {
             let e = &elems[ei];
-            let slot = patches.iter_mut().find(|(seed, _)| {
+            let slot = groups.iter_mut().find(|(seed, _)| {
                 let s = &elems[*seed];
                 s.group_key() == e.group_key() && dot(&s.normal, &e.normal).abs() >= cos_crease
             });
@@ -53,16 +57,37 @@ pub fn recover(elems: &[ElemSamples], coords: &HashMap<usize, [f64; 3]>) -> Vec<
                     let sign = if dot(&elems[*seed].normal, &e.normal) >= 0.0 { 1.0 } else { -1.0 };
                     members.push((ei, li, sign));
                 }
-                None => patches.push((ei, vec![(ei, li, 1.0)])),
+                None => groups.push((ei, vec![(ei, li, 1.0)])),
             }
         }
-        for (seed, members) in patches {
-            let family = elems[seed].family;
-            let fit = fit_patch(elems, &members, &xn, family);
-            for (ei, li, sign) in members {
-                let (a0, a1) = fit;
-                out[ei][li] = (a0, a1.map(|v| v * sign));
+        out.extend(groups.into_iter().map(|(_, m)| (nid, m)));
+    }
+    out
+}
+
+/// Per element: whether it is alone in every recovery patch it belongs to (its "recovered"
+/// field is then its own, and its indicator says nothing).
+pub fn isolated(elems: &[ElemSamples], patches: &[Patch]) -> Vec<bool> {
+    let mut alone = vec![true; elems.len()];
+    for (_, members) in patches {
+        if members.len() > 1 {
+            for &(ei, _, _) in members {
+                alone[ei] = false;
             }
+        }
+    }
+    alone
+}
+
+/// Recover nodal stresses over `patches`; `out[e][i]` belongs to node `elems[e].nodes[i]`.
+pub fn recover(elems: &[ElemSamples], coords: &HashMap<usize, [f64; 3]>, patches: &[Patch]) -> Vec<Vec<NodeValue>> {
+    let mut out: Vec<Vec<NodeValue>> = elems.iter().map(|e| vec![([0.0; 6], [0.0; 6]); e.nodes.len()]).collect();
+    for (nid, members) in patches {
+        let Some(xn) = coords.get(nid) else { continue };
+        let family = elems[members[0].0].family;
+        let (a0, a1) = fit_patch(elems, members, xn, family);
+        for &(ei, li, sign) in members {
+            out[ei][li] = (a0, a1.map(|v| v * sign));
         }
     }
     out

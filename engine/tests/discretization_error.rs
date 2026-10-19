@@ -7,7 +7,7 @@
 //! summed element by element, and ‖u‖²_E either closed form (Navier series) or the
 //! Richardson-extrapolated limit of ‖u_h‖²_E over a refinement sequence.
 
-use dedaliano_engine::postprocess::discretization::convergence::{convergence_study_3d, governing, richardson, ConvergenceOptions};
+use dedaliano_engine::postprocess::discretization::convergence::{convergence_study_3d, governing, is_inconclusive, quantity_convergence, richardson, ConvergenceOptions};
 use dedaliano_engine::postprocess::discretization::refine::{refine_uniform, GeometryMode};
 use dedaliano_engine::postprocess::discretization::{estimate_3d, DiscretizationEstimate};
 use dedaliano_engine::solver::linear;
@@ -865,8 +865,76 @@ fn single_element_mesh_is_too_coarse_to_estimate() {
     }
     let r = solve(&m.input);
     let e = estimate(&m.input, &r);
-    assert!(e.solution_norm > 0.0, "the element is strained");
+    assert!(e.elements.iter().any(|x| x.energy_norm > 0.0), "the element is strained");
     assert_eq!(e.relative_error, None, "estimate {:?} from a patch that is the element itself", e.relative_error);
     assert_eq!(e.unestimable_reason.as_deref(), Some("tooCoarse"));
     assert!(e.exceeds_threshold);
+}
+
+/// A non-monotone sequence is inconclusive: [1, 1.01, 0.5] moved 50 % in its last step, and must
+/// neither report "< 1 %" nor pass the threshold.
+#[test]
+fn oscillating_sequences_are_inconclusive_and_flagged() {
+    let q = quantity_convergence("maxDisplacement", None, vec![1.0, 1.01, 0.5]);
+    assert_eq!(q.status, "oscillating");
+    assert!(is_inconclusive(&q.status));
+    assert_eq!(q.estimated_error, None);
+    assert!(q.relative_change > 0.9, "the last step's change counts: {}", q.relative_change);
+    // Growing differences: not converging, flagged too.
+    let q = quantity_convergence("maxStress", None, vec![1.0, 1.1, 1.3]);
+    assert_eq!(q.status, "notConverging");
+    assert!(is_inconclusive(&q.status));
+    // Implausible order: the error is never smaller than the changes seen.
+    let q = quantity_convergence("maxMoment", None, vec![1.0, 1.2, 1.2000001]);
+    assert_eq!(q.status, "irregularOrder");
+    assert!(q.estimated_error.unwrap() >= q.relative_change);
+    // A converging one is not.
+    let q = quantity_convergence("maxDisplacement", None, vec![0.9, 0.975, 0.99375]);
+    assert_eq!(q.status, "converging");
+    assert!(!is_inconclusive(&q.status));
+}
+
+/// Two triangles meeting at a sharp fold share a node but not a recovery patch: each is alone,
+/// so the estimate is "too coarse", not the ≈ 0 % two single-element patches would give.
+#[test]
+fn elements_separated_by_a_fold_are_isolated() {
+    let mut input = empty_input();
+    input.materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
+    for (id, p) in [(1, [0.0, 0.0, 0.0]), (2, [1.0, 0.0, 0.0]), (3, [0.0, 1.0, 0.0]), (4, [0.0, 0.0, 1.0])] {
+        input.nodes.insert(id.to_string(), SolverNode3D { id, x: p[0], y: p[1], z: p[2] });
+    }
+    // Triangle in the xy-plane and one in the xz-plane, folded 90° along the edge 1–2.
+    input.plates.insert("1".into(), SolverPlateElement { id: 1, nodes: [1, 2, 3], material_id: 1, thickness: 0.05 });
+    input.plates.insert("2".into(), SolverPlateElement { id: 2, nodes: [1, 4, 2], material_id: 1, thickness: 0.05 });
+    input.supports.insert("1".into(), support(1, [true; 6]));
+    input.supports.insert("2".into(), support(2, [true; 6]));
+    input.loads.push(nodal(3, [0.0, 0.0, -1.0]));
+    input.loads.push(nodal(4, [0.0, 1.0, 0.0]));
+    let r = solve(&input);
+    let e = estimate(&input, &r);
+    assert!(e.elements.iter().all(|x| x.energy_norm > 0.0), "both triangles are strained");
+    assert_eq!(e.relative_error, None, "estimate {:?} from single-element patches", e.relative_error);
+    assert_eq!(e.unestimable_reason.as_deref(), Some("tooCoarse"));
+    assert_eq!(e.isolated_elements, vec![1, 2]);
+    assert!(e.elements.iter().all(|x| x.local_percent.is_none()));
+    assert!(e.exceeds_threshold);
+}
+
+/// A plate meshed 4 × 4 with one lone element hanging off a fold: the plate is estimated, the
+/// lone element is listed as not estimated (no 0 % for it), and since it carries strain the
+/// result is flagged.
+#[test]
+fn a_lone_element_is_listed_not_estimated() {
+    let mut m = square_plate(Fam::Dkt, 4, true);
+    let (a, b) = (m.grid[2][2].0, m.grid[3][2].0);
+    m.input.nodes.insert("900".into(), SolverNode3D { id: 900, x: 0.5, y: 0.5, z: 0.3 });
+    m.input.plates.insert("900".into(), SolverPlateElement { id: 900, nodes: [a, b, 900], material_id: 1, thickness: 0.01 });
+    m.input.loads.push(nodal(900, [0.0, 0.0, -1.0]));
+    let r = solve(&m.input);
+    let e = estimate(&m.input, &r);
+    assert!(e.relative_error.is_some());
+    assert_eq!(e.isolated_elements, vec![900]);
+    assert!(e.notes.contains(&"isolatedElementsNotEstimated".to_string()));
+    assert!(e.elements.iter().find(|x| x.element_id == 900 && x.kind == "plate").unwrap().local_percent.is_none());
+    assert!(e.exceeds_threshold, "a strained element that is not estimated is flagged");
 }

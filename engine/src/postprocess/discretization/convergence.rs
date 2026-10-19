@@ -70,14 +70,14 @@ pub struct QuantityConvergence {
     pub node_id: Option<usize>,
     /// One value per mesh, coarsest (the model as drawn) first.
     pub values: Vec<f64>,
-    /// |q₁ − q₀| / |q₁|.
+    /// The largest change between consecutive meshes, relative to the finest value.
     pub relative_change: f64,
     pub observed_order: Option<f64>,
     pub extrapolated: Option<f64>,
     /// Estimated relative discretization error of the model as drawn, |q₀ − q∞| / |q∞|.
     pub estimated_error: Option<f64>,
     /// `converging`, `converged`, `assumedOrder`, `irregularOrder`, `oscillating`,
-    /// `notConverging`, `zero`.
+    /// `notConverging`, `incomplete` (missing on a refined mesh), `zero`.
     pub status: String,
 }
 
@@ -90,7 +90,7 @@ pub struct ConvergenceStudy {
     pub levels: Vec<MeshLevel>,
     pub quantities: Vec<QuantityConvergence>,
     /// Largest estimated error (or relative change, where no extrapolation exists) over the
-    /// governing quantities.
+    /// governing quantities. With any inconclusive quantity the study is flagged regardless.
     pub max_estimated_error: Option<f64>,
     pub threshold: f64,
     pub exceeds_threshold: bool,
@@ -221,6 +221,34 @@ pub fn governing(input: &SolverInput3D, r: &AnalysisResults3D, original_max_node
     q
 }
 
+/// One quantity's convergence record over the meshes (coarsest first).
+pub fn quantity_convergence(name: &str, node_id: Option<usize>, values: Vec<f64>) -> QuantityConvergence {
+    let (p, ext, mut err, status) = richardson(&values);
+    // Every refinement step counts, relative to the finest value: [1, 1.01, 0.5] moved 50 % in
+    // its last step, whatever its first did.
+    let finest = values.last().map_or(0.0, |v| v.abs());
+    let relative_change = values.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f64::max) / finest.max(1e-300);
+    // An implausible order makes the extrapolation unreliable: never smaller than the changes seen.
+    if status == "irregularOrder" {
+        err = err.map(|e| e.max(relative_change));
+    }
+    QuantityConvergence {
+        quantity: name.to_string(),
+        node_id,
+        relative_change,
+        values,
+        observed_order: p,
+        extrapolated: ext,
+        estimated_error: err,
+        status: status.to_string(),
+    }
+}
+
+/// Statuses from which no error estimate can be read.
+pub fn is_inconclusive(status: &str) -> bool {
+    matches!(status, "oscillating" | "notConverging" | "irregularOrder" | "incomplete")
+}
+
 /// Richardson analysis of one quantity over the meshes.
 pub fn richardson(values: &[f64]) -> (Option<f64>, Option<f64>, Option<f64>, &'static str) {
     let scale = values.iter().fold(0.0_f64, |a, v| a.max(v.abs()));
@@ -300,25 +328,28 @@ pub fn convergence_study_3d(input: &SolverInput3D, opts: &ConvergenceOptions) ->
         let values: Vec<f64> = std::iter::once(v0)
             .chain(per_level[1..].iter().map(|g| g.get(k).copied().unwrap_or(f64::NAN)))
             .collect();
-        if values.iter().any(|v| !v.is_finite()) { continue; }
-        let (p, ext, err, status) = richardson(&values);
-        quantities.push(QuantityConvergence {
-            quantity: k.0.clone(),
-            node_id: (k.0 == "reaction").then_some(k.1),
-            relative_change: (values[1] - values[0]).abs() / values[1].abs().max(1e-300),
-            values,
-            observed_order: p,
-            extrapolated: ext,
-            estimated_error: err,
-            status: status.to_string(),
-        });
+        let node = (k.0 == "reaction").then_some(k.1);
+        if values.iter().any(|v| !v.is_finite()) {
+            // Missing on a refined mesh (a support group that did not carry over): reported as
+            // incomplete, never silently dropped.
+            let mut q = quantity_convergence(&k.0, node, values.into_iter().filter(|v| v.is_finite()).collect());
+            q.status = "incomplete".into();
+            q.observed_order = None;
+            q.extrapolated = None;
+            q.estimated_error = None;
+            quantities.push(q);
+            continue;
+        }
+        quantities.push(quantity_convergence(&k.0, node, values));
     }
     let max_estimated_error = quantities.iter()
         .filter(|q| q.status != "zero")
         .map(|q| q.estimated_error.unwrap_or(q.relative_change))
         .fold(None, |a: Option<f64>, v| Some(a.map_or(v, |x| x.max(v))));
+    // Inconclusive sequences (not monotone, not converging, implausible order) are flagged
+    // whatever their numbers: no error estimate can be read from them.
     let exceeds_threshold = max_estimated_error.is_some_and(|v| v > opts.threshold)
-        || quantities.iter().any(|q| q.status == "notConverging");
+        || quantities.iter().any(|q| is_inconclusive(&q.status));
     Ok(ConvergenceStudy {
         certified: false,
         geometry: opts.geometry,
