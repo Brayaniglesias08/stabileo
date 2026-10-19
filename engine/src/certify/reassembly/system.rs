@@ -421,16 +421,33 @@ pub fn certify(model: &Model, u: &[f64]) -> Result<E2eBound, String> {
         if !orphan[qa] {
             continue;
         }
-        for &(i, _) in &ccols[qa] {
+        // The load on the parameter is the reduced load (Cᵀf)_a: loads that
+        // balance through it (opposite moments on one node, or on two
+        // rotations tied together) leave the model solvable. (K p adds
+        // nothing: every row of K in this column's support is empty.)
+        let mut b: Option<I> = None;
+        for &(i, cia) in &ccols[qa] {
             excluded_dof[i] = true;
             if let Some(e) = model.f[i] {
-                if e.v != I::ZERO {
-                    return Err(format!(
-                        "a load acts on DOF {:?}, which nothing stiffens: the model has no solution",
-                        model.keys[i]
-                    ));
-                }
+                let t = cia * e.v;
+                b = Some(match b {
+                    Some(x) => x + t,
+                    None => t,
+                });
             }
+        }
+        let Some(b) = b else { continue };
+        let at = model.keys[ccols[qa][0].0];
+        if !b.is_finite() || b.lo > 0.0 || b.hi < 0.0 {
+            return Err(format!(
+                "a load acts on DOF {at:?}, which nothing stiffens: the model has no solution (net load {b:?})"
+            ));
+        }
+        if b != I::ZERO {
+            return Err(format!(
+                "the net load on DOF {at:?}, which nothing stiffens, is zero only within rounding ({b:?}): \
+                 whether the model has a solution is not decided"
+            ));
         }
     }
     let kept: Vec<usize> = (0..nq).filter(|&q| !orphan[q]).collect();

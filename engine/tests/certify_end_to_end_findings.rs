@@ -129,3 +129,65 @@ fn rigid_link_hides_a_mechanism_2d() {
     eprintln!("{:?}\n{:?}", out.certificate, out.end_to_end);
     assert!(!out.end_to_end.is_certified(), "{:?}", out.end_to_end);
 }
+
+/// Two spans hinged at their common node 2 (its rotation held by nothing),
+/// with nodal moments `m2` on node 2 and, through an equal-DOF tie of
+/// rotations 2 ↔ 4 (node 4 hinged the same way), `m4` on node 4.
+fn hinged_moments(m2: f64, m4: Option<f64>) -> SolverInput {
+    let mut json = String::from(
+        r#"{
+      "nodes": {"1": {"id":1,"x":0,"z":0}, "2": {"id":2,"x":1,"z":0}, "3": {"id":3,"x":2,"z":0},
+                "4": {"id":4,"x":1,"z":2}, "5": {"id":5,"x":0,"z":2}, "6": {"id":6,"x":2,"z":2}},
+      "materials": {"1": {"id":1,"e":200000,"nu":0.3}},
+      "sections": {"1": {"id":1,"a":1.0,"iz":1.0}},
+      "elements": {
+        "1": {"id":1,"type":"frame","nodeI":1,"nodeJ":2,"materialId":1,"sectionId":1,"hingeEnd":true},
+        "2": {"id":2,"type":"frame","nodeI":2,"nodeJ":3,"materialId":1,"sectionId":1,"hingeStart":true},
+        "3": {"id":3,"type":"frame","nodeI":5,"nodeJ":4,"materialId":1,"sectionId":1,"hingeEnd":true},
+        "4": {"id":4,"type":"frame","nodeI":4,"nodeJ":6,"materialId":1,"sectionId":1,"hingeStart":true}
+      },
+      "supports": {"1": {"id":1,"nodeId":1,"type":"fixed"}, "2": {"id":2,"nodeId":3,"type":"fixed"},
+                   "3": {"id":3,"nodeId":5,"type":"fixed"}, "4": {"id":4,"nodeId":6,"type":"fixed"}},
+      "loads": ["#,
+    );
+    json += &format!(r#"{{"type":"nodal","data":{{"nodeId":2,"fx":0,"fz":-10,"my":{m2}}}}}"#);
+    if let Some(m4) = m4 {
+        json += &format!(r#",{{"type":"nodal","data":{{"nodeId":4,"fx":0,"fz":-10,"my":{m4}}}}}"#);
+    }
+    json += "]";
+    if m4.is_some() {
+        json += r#","constraints": [{"type":"equalDOF","masterNode":2,"slaveNode":4,"dofs":[2]}]"#;
+    }
+    json += "}";
+    input_2d(&json)
+}
+
+/// Loads on a DOF nothing stiffens are judged by their net (reduced) load:
+/// opposite moments that balance leave the model solvable and must not be
+/// reported as "no solution"; equal ones must.
+#[test]
+fn balanced_loads_on_an_unstiffened_rotation() {
+    use dedaliano_engine::certify::reassembly::end_to_end_2d;
+    use dedaliano_engine::solver::linear::solve_2d;
+    let not_failed = |input: &SolverInput, what: &str| {
+        let r = solve_2d(input).unwrap();
+        let e = end_to_end_2d(input, &input.loads, &r);
+        assert!(!matches!(e, EndToEnd::Failed { .. }), "{what}: {e:?}");
+        e
+    };
+    // +5 and −5 on the same hinged node.
+    let mut same_node = hinged_moments(5.0, None);
+    same_node.loads.push(SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: 0.0, fz: 0.0, my: -5.0 }));
+    not_failed(&same_node, "+5 and -5 on one node");
+    // Two hinged rotations tied by equal-DOF, opposite moments.
+    not_failed(&hinged_moments(5.0, Some(-5.0)), "tied rotations, opposite moments");
+    // Genuinely inconsistent: tied rotations, moments that add up.
+    let input = hinged_moments(5.0, Some(5.0));
+    match solve_2d(&input) {
+        Ok(r) => match end_to_end_2d(&input, &input.loads, &r) {
+            EndToEnd::Failed { reason } => assert!(reason.contains("nothing stiffens"), "{reason}"),
+            other => panic!("tied rotations, moments that add: {other:?}"),
+        },
+        Err(e) => eprintln!("the engine refuses it too: {e}"),
+    }
+}
