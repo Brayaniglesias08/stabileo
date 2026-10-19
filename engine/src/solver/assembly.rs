@@ -561,6 +561,31 @@ pub fn assemble_stiffness_2d(input: &SolverInput, dof_num: &DofNumbering) -> Sti
 /// A member load on a 2D truss bar, at its nodes: the bar's simply-supported reactions (lever
 /// rule), statically exact, since a truss carries nothing transverse. Read by
 /// `assemble_load_vector_2d`, which every 2D path (dense and sparse) builds its loads with.
+/// The loads on a 2D truss or cable bar into the global load vector: thermal as its
+/// free-expansion end forces, member loads by the lever rule (`truss_member_load_2d`).
+/// Shared by the linear assembly and staged construction, which used to drop every
+/// member load on a bar.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn assemble_truss_loads_2d(
+    loads: &[&SolverLoad], elem_id: usize, l: f64, cos: f64, sin: f64, e: f64, area: f64,
+    truss_dofs: &[usize; 4], f_global: &mut [f64],
+) {
+    for load in loads {
+        match load {
+            SolverLoad::Thermal(tl) if tl.element_id == elem_id => {
+                // Convention matches fef_thermal_2d: node I gets -fx, node J gets +fx (local axial).
+                let alpha = 12e-6; // Steel default
+                let fx = e * area * alpha * tl.dt_uniform;
+                f_global[truss_dofs[0]] += -fx * cos;
+                f_global[truss_dofs[1]] += -fx * sin;
+                f_global[truss_dofs[2]] += fx * cos;
+                f_global[truss_dofs[3]] += fx * sin;
+            }
+            _ => truss_member_load_2d(load, elem_id, l, cos, sin, truss_dofs, f_global),
+        }
+    }
+}
+
 fn truss_member_load_2d(
     load: &SolverLoad, elem_id: usize, l: f64, cos: f64, sin: f64,
     truss_dofs: &[usize; 4], f_global: &mut [f64],
@@ -681,19 +706,7 @@ pub fn assemble_load_vector_2d(
                 dof_num.global_dof(elem.node_j, 0).unwrap(),
                 dof_num.global_dof(elem.node_j, 1).unwrap(),
             ];
-            for load in elem_loads {
-                match load {
-                    SolverLoad::Thermal(tl) if tl.element_id == elem.id => {
-                        let alpha = 12e-6; // Steel default
-                        let fx = e * sec.a * alpha * tl.dt_uniform;
-                        f_global[truss_dofs[0]] += -fx * cos;  // node I, x
-                        f_global[truss_dofs[1]] += -fx * sin;  // node I, z
-                        f_global[truss_dofs[2]] +=  fx * cos;  // node J, x
-                        f_global[truss_dofs[3]] +=  fx * sin;  // node J, z
-                    }
-                    _ => truss_member_load_2d(load, elem.id, l, cos, sin, &truss_dofs, &mut f_global),
-                }
-            }
+            assemble_truss_loads_2d(elem_loads, elem.id, l, cos, sin, e, sec.a, &truss_dofs, &mut f_global);
         } else {
             let t = frame_transform_2d(cos, sin);
             let elem_dofs = dof_num.element_dofs(elem.node_i, elem.node_j);

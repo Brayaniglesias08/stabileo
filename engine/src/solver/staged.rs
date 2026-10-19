@@ -462,6 +462,10 @@ fn assemble_staged_2d(
                     k_global[truss_dofs[i] * n + truss_dofs[j]] += k_elem[i * ndof + j];
                 }
             }
+            // The stage's loads on the bar, as the linear assembly takes them. They used to be
+            // dropped: a bar's member loads (an axial span load among them) never reached it.
+            let load_refs: Vec<&SolverLoad> = stage_input.loads.iter().collect();
+            super::assembly::assemble_truss_loads_2d(&load_refs, elem.id, l, cos, sin, e, sec.a, &truss_dofs, &mut f_global);
         } else {
             let phi = if let Some(as_y) = sec.as_y {
                 let g = e / (2.0 * (1.0 + mat.nu));
@@ -694,6 +698,8 @@ fn assemble_staged_2d_triplets(
                 }
                 diag[truss_dofs[i]] += k_elem[i * ndof + i];
             }
+            let load_refs: Vec<&SolverLoad> = stage_input.loads.iter().collect();
+            super::assembly::assemble_truss_loads_2d(&load_refs, elem.id, l, cos, sin, e, sec.a, &truss_dofs, &mut f_global);
         } else {
             let phi = if let Some(as_y) = sec.as_y {
                 let g = e / (2.0 * (1.0 + mat.nu));
