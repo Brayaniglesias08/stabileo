@@ -179,6 +179,11 @@ Maintain a suite of representative models that look like real engineering work:
 
 These should act as release gates for major solver changes.
 
+The release-gate suite of public benchmark buildings with published reference
+results (SAC steel frames, IASC-ASCE SHM frame, ...) is described in
+[`verification/ACCEPTANCE.md`](verification/ACCEPTANCE.md) and runs as
+`cargo test --release --test acceptance`.
+
 ## Priority Order
 
 The best ROI verification order is:
