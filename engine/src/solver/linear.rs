@@ -3954,6 +3954,46 @@ pub(crate) fn build_reactions_3d_inclined(
 
 // ── Input validation helpers ──
 
+/// Refuse unknown enum-like strings shared by every analysis (they used to
+/// fall back silently): solver options (method, preconditioner, and invalid
+/// PCG tolerance / iteration cap) and diaphragm planes. `planes` are the
+/// planes accepted in this dimension.
+fn reject_unknown_options(opts: &Option<SolverOptions>, constraints: &[Constraint], planes: &[&str]) -> Result<(), String> {
+    let quoted = |v: &[&str]| v.iter().map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(", ");
+    if let Some(o) = opts {
+        const METHODS: [&str; 3] = ["auto", "direct", "pcg"];
+        const PRECONDITIONERS: [&str; 6] = ["ics", "ic0", "mic", "ssor", "jacobi", "none"];
+        if let Some(m) = o.method.as_deref().filter(|m| !METHODS.contains(m)) {
+            return Err(format!("solverOptions.method: unknown value '{m}'; expected one of {}", quoted(&METHODS)));
+        }
+        if let Some(p) = o.preconditioner.as_deref().filter(|p| !PRECONDITIONERS.contains(p)) {
+            return Err(format!(
+                "solverOptions.preconditioner: unknown value '{p}'; expected one of {}",
+                quoted(&PRECONDITIONERS)
+            ));
+        }
+        if let Some(t) = o.tolerance.filter(|t| !(t.is_finite() && *t > 0.0)) {
+            return Err(format!("solverOptions.tolerance: {t} must be finite and > 0"));
+        }
+        if o.max_iterations == Some(0) {
+            return Err("solverOptions.maxIterations: must be > 0".into());
+        }
+    }
+    for c in constraints {
+        if let Constraint::Diaphragm(d) = c {
+            if !planes.contains(&d.plane.as_str()) {
+                return Err(format!(
+                    "Diaphragm (master node {}): unknown plane '{}'; expected {}",
+                    d.master_node,
+                    d.plane,
+                    quoted(planes)
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Several supports on one node. Plain rigid restraints merge: a DOF is
 /// restrained if any of them restrains it (DofNumbering ORs them in 2D and 3D,
 /// and the node gets one reaction entry). Anything else is ambiguous (which
@@ -4160,6 +4200,9 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
     }
     reject_ambiguous_shared_supports(input.supports.iter().map(|(k, s)| (s.node_id, k.as_str(), plain_rigid_2d(s))))?;
     reject_unimposed_settlements_2d(input)?;
+    // In 2D the model plane is the only diaphragm plane (XZ / YZ named DOFs
+    // that do not exist in 2D).
+    reject_unknown_options(&input.solver_options, &input.constraints, &["XY"])?;
     for load in &input.loads {
         let finite = match load {
             SolverLoad::Nodal(l) => l.fx.is_finite() && l.fz.is_finite() && l.my.is_finite(),
@@ -4214,7 +4257,10 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
             return Err(format!("Element {}: section {} does not exist", elem.id, elem.section_id));
         }
         if elem.elem_type != "frame" && elem.elem_type != "truss" && elem.elem_type != "cable" {
-            return Err(format!("Element {}: unknown type '{}'", elem.id, elem.elem_type));
+            return Err(format!(
+                "Element {}: unknown type '{}' (expected one of \"frame\", \"truss\", \"cable\")",
+                elem.id, elem.elem_type
+            ));
         }
     }
 
@@ -4365,6 +4411,7 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
         }
     }
     reject_ambiguous_shared_supports(input.supports.iter().map(|(k, s)| (s.node_id, k.as_str(), plain_rigid_3d(s))))?;
+    reject_unknown_options(&input.solver_options, &input.constraints, &["XY", "XZ", "YZ"])?;
     // An inclined support needs its direction: without a non-zero normal it
     // used to solve silently as an ordinary support with its flags.
     for s in input.supports.values() {
@@ -4442,7 +4489,10 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
             return Err(format!("Element {}: section {} does not exist", elem.id, elem.section_id));
         }
         if elem.elem_type != "frame" && elem.elem_type != "truss" && elem.elem_type != "cable" {
-            return Err(format!("Element {}: unknown type '{}'", elem.id, elem.elem_type));
+            return Err(format!(
+                "Element {}: unknown type '{}' (expected one of \"frame\", \"truss\", \"cable\")",
+                elem.id, elem.elem_type
+            ));
         }
     }
 

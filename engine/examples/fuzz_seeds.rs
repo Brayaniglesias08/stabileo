@@ -7,7 +7,8 @@
 //! input per entry point of each JSON target: selector byte, parameter byte,
 //! then the JSON the entry point takes (the model itself, or the model wrapped
 //! with densities, load cases, time-history or plastic data). OUT_DIR defaults
-//! to fuzz/corpus.
+//! to fuzz/corpus. The inputs of past findings (fuzz/regressions/<target>/,
+//! kept in git) are copied in too, so every run starts from them.
 
 use dedaliano_engine::solver::modal;
 use dedaliano_engine::types::{SolverInput, SolverInput3D};
@@ -58,7 +59,18 @@ fn main() {
             count += 1;
         }
     }
-    eprintln!("wrote {count} seeds from {} fixtures to {}", files.len(), out.display());
+    // Past findings (docs/verification/FUZZ_MUTANTS.md), one directory per target.
+    if let Ok(targets) = fs::read_dir("fuzz/regressions") {
+        for t in targets.filter_map(|e| e.ok()).filter(|e| e.path().is_dir()) {
+            let dir = out.join(t.file_name());
+            fs::create_dir_all(&dir).unwrap();
+            for f in fs::read_dir(t.path()).unwrap().filter_map(|e| e.ok()) {
+                fs::copy(f.path(), dir.join(f.file_name())).unwrap();
+                count += 1;
+            }
+        }
+    }
+    eprintln!("wrote {count} seeds from {} fixtures and fuzz/regressions to {}", files.len(), out.display());
 }
 
 fn is_3d(v: &Value) -> bool {

@@ -142,6 +142,7 @@ const c301En: Record<string, string> = {
   'c301.refuse.angleData': 'the angle legs or thickness are missing (or not valid)',
   'c301.refuse.e5Condition': '§E.5: how the angle is loaded at its ends is not stated (concentric, E.5(a) or E.5(b))',
   'c301.refuse.e5ConditionUnknown': '§E.5: unknown end condition «{cond}»',
+  'c301.refuse.loadPositionUnknown': '§F.2: unknown load position «{pos}» (accepted: topFlange, web)',
   'c301.refuse.e5Ratio': '§E.5: angle connected by the short leg with bl/bs = {ratio} ≥ 1.7 — Chapter H applies, not implemented',
   'c301.refuse.e6Spacing': '§E.6.2.1: the spacing a of the double angle\'s intermediate connectors is missing',
   'c301.refuse.e6Connector': '§E.6.2.1: the intermediate connector type is missing (snug bolts or welds)',
