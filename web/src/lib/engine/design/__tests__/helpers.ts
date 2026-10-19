@@ -8,6 +8,7 @@
 
 import { expect } from 'vitest';
 import { isSolverReady } from '../../wasm-solver';
+import { resolveSectionState } from '../../../section/state';
 import { solveCombinations3D, validateAndSolve3D } from '../../solver-service';
 import { computeStationDemands } from '../../verification-service';
 import {
@@ -29,6 +30,24 @@ export interface FixtureModel {
   data: ContextModelData;
 }
 
+/**
+ * A fixture's sections with the torsion constant the app would give them.
+ *
+ * The fixtures are the generators' JSON, whose rolled profiles carry no J (the catalogue
+ * publishes none for them). Loaded in the app they are resolved and get J by Saint-Venant on
+ * their outline; read raw here they had none, and the solve used to invent `0.001·Iy` (#439),
+ * which it no longer does. Only J is filled: A and I stay as the fixture states them.
+ */
+function withTorsionConstant(sections: Map<number, any>): Map<number, any> {
+  for (const [id, s] of sections) {
+    if (s.j > 0) continue;
+    const st = resolveSectionState(s, { torsion: true });
+    const j = st.kind === 'geometry-backed' ? st.j : null;
+    if (j != null && j > 0) sections.set(id, { ...s, j });
+  }
+  return sections;
+}
+
 /** Build a live model object from a fixture JSON. */
 export function modelFromFixture(fixture: any): FixtureModel {
   const model = {
@@ -36,7 +55,7 @@ export function modelFromFixture(fixture: any): FixtureModel {
     nodes: toMap(fixture.nodes),
     elements: toMap(fixture.elements),
     materials: toMap(fixture.materials),
-    sections: toMap(fixture.sections),
+    sections: withTorsionConstant(toMap(fixture.sections)),
     supports: toMap(fixture.supports),
     loads: JSON.parse(JSON.stringify(fixture.loads)),
     plates: new Map(), quads: new Map(), constraints: [], connectors: new Map(),

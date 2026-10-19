@@ -46,9 +46,13 @@ properly.
   whose section had no J (now zero torque), and analyses refused for sections with no J or a
   missing shear centre. Checked end to end through the model store
   (`web/src/lib/engine/__tests__/section-torsion-buckling.test.ts`).
-- Note: the twist inside one element is a cubic, like the deflection, so a member left as one
-  element between twist restraints overestimates the Cw term as it overestimates the Euler load
-  (up to 21.6 % for fork ends); two elements bring it under 1 %.
+- Torsional modes between twist restraints now appear even in members left as one element:
+  without warping the element's twist is linear, so a member whose two ends are held in twist
+  had no torsional freedom and its torsional buckling was never found (a king-post truss of IPN
+  300 beams, held out of plane at every node: torsional modes at λ = 11.6 behind the in-plane
+  51.7, which the space model now shows). The twist inside one warping element is a cubic, like
+  the deflection, so one element between twist restraints overestimates the Cw term (only) as it
+  overestimates the Euler load (up to 21.6 % for fork ends); two elements bring it under 1 %.
 
 #### Torsional buckling and response-spectrum combination fixed (2026-10-18)
 
