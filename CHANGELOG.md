@@ -9,6 +9,35 @@ It should capture what changed, not what should be built next.
 
 ## Unreleased
 
+### Changed
+
+#### Solid shell: Poisson thickness locking and in-plane locking removed (2026-10-18, #400)
+
+**BREAKING (results): solid-shell (SHB8) models with ν ≠ 0 deflect more — about 22 % more in
+thin-plate bending at ν = 0.3 — and solid shells bent in their own plane deflect up to ~10×
+more.** The old values were too stiff (unconservative for deflections; moments in indeterminate
+structures and modal frequencies shift too). Re-run solid-shell models.
+
+- Root cause: the trilinear element's thickness strain is constant through the thickness, so
+  bending with ν ≠ 0 carried a spurious σ_zz and used the constrained modulus
+  E(1 − ν)/((1 + ν)(1 − 2ν)) instead of E/(1 − ν²): 1.225× too stiff at ν = 0.3 on every mesh
+  (simply supported plate centre deflection 0.80–0.82 of Navier under refinement). Separately,
+  in-plane bending locked through parasitic in-plane shear (MacNeal–Harder in-plane cantilever
+  0.09).
+- Fix (`engine/src/element/solid_shell.rs`): five condensed enhanced assumed strains, Simo–Rifai
+  mapped so the patch test holds — the thickness mode E_ζζ ∝ ζ (Büchter–Ramm–Roehl) and the
+  membrane EAS-4 set (Andelfinger–Ramm) — on top of the existing covariant ANS. Stress recovery
+  uses the same ANS + EAS strains.
+- Now: thin plate (t/a = 0.01, 0.001) → Kirchhoff at observed order 2.0 (32×32: 1.0000); thick
+  plate → Mindlin with κ = 1 (the single-layer limit, 0.8 % / 2.9 % stiffer than κ = 5/6 at
+  t/a = 0.1 / 0.2); pure bending with ν exact; Scordelis–Lo 0.997 (16×16); pinched cylinder 0.988
+  (32×32); hemisphere 0.98–1.00; MacNeal–Harder straight cantilever out-of-plane 0.96–0.98,
+  in-plane 0.98 regular / 0.62 parallelogram / 0.05 trapezoidal (trapezoidal locking, inherent).
+- Tests: `engine/tests/solid_shell_locking.rs`; solid-shell benchmarks tightened (Navier 0.5–2.0×
+  → ±1 %, Scordelis–Lo, twisted beam, hemisphere). Two benchmark bugs fixed: the Navier reference
+  lacked the series' alternating sign (5.7 % high), and the solid-shell hemisphere tests pulled
+  both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
+
 ## 0.2.0 (2026-10-18)
 
 **Results change: re-run your projects.** Release notes for users, in English, Spanish and
