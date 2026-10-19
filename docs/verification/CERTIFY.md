@@ -275,7 +275,13 @@ model"), and the end-to-end bound against the model still exceeds the real error
 wrong sign in the 2D transformation, the `(2 − φ)` Timoshenko term dropped, a uniform-load
 fixed-end moment `qL²/8`, the 3D roll angle's sign, the 3D shear-area pairing swapped, the
 `q_z` moments not negated. `scripts/e2e-planted-bugs.sh` plants bugs in the engine's
-source instead and runs the end-to-end tests: PLANTED_RESULTS
+source instead and runs the end-to-end tests: all 15 caught (each fails the end-to-end tests; the assembled-level tests would pass): the 2D transform's `−sin`
+sign; the `(2 − φ)` and `(4 + φ)` Timoshenko terms; the hinge's condensed factor `12/(4 + φ)` as 3;
+the uniform-load end moment `qL²/12` as `qL²/8`; the sign of the Timoshenko moment correction of
+the fixed-end forces; the `q_z` moments not negated in 3D; the `(2 − φ)` ratio of the hinge
+fixed-end-force condensation; the thermal gradient moment's sign; the roll angle's sign;
+`leftHand` not applied; `φ_y` paired with `Iz`; the rotated 2D spring's coupling sign; the truss
+lever rule with its ends swapped; the thermal α 12e-6 as 1.2e-6.
 
 **Findings** (`engine/tests/certify_end_to_end_findings.rs`):
 
