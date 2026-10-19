@@ -223,7 +223,7 @@ fn certify_2d_inner(input: &SpectralInput, results: &SpectralResult) -> Result<S
             (md.omega * md.omega, phi)
         })
         .collect();
-    let dir = if input.direction == "X" { 0 } else { 1 };
+    let dir = crate::solver::spectral::spectral_direction(&input.direction, &["X", "Y"])?;
     let p = Problem {
         k: stiff.k_ff,
         m,
@@ -231,7 +231,7 @@ fn certify_2d_inner(input: &SpectralInput, results: &SpectralResult) -> Result<S
         r: influence(&dof, dir),
         spectrum: &input.spectrum,
         scale: scale(&input.spectrum, input.importance_factor, input.reduction_factor),
-        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi),
+        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi)?,
     };
     let cores = mode_cores(&p)?;
     let n_comp = 3;
@@ -300,11 +300,7 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
             (md.omega * md.omega, phi)
         })
         .collect();
-    let dir = match input.direction.as_str() {
-        "X" => 0,
-        "Y" => 1,
-        _ => 2,
-    };
+    let dir = crate::solver::spectral::spectral_direction(&input.direction, &["X", "Y", "Z"])?;
     let p = Problem {
         k: stiff.k_ff,
         m,
@@ -312,7 +308,7 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
         r: influence(&dof, dir),
         spectrum: &input.spectrum,
         scale: scale(&input.spectrum, input.importance_factor, input.reduction_factor),
-        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi),
+        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi)?,
     };
     let cores = mode_cores(&p)?;
     let full = |u: &[f64]| {
@@ -393,11 +389,11 @@ fn scale(spectrum: &DesignSpectrum, importance: Option<f64>, reduction: Option<f
     (Interval::point(g) * Interval::point(i)).div(Interval::point(r))
 }
 
-fn cqc_xi(rule: Option<&str>, xi: Option<f64>) -> Option<f64> {
-    match rule.unwrap_or("CQC") {
+fn cqc_xi(rule: Option<&str>, xi: Option<f64>) -> Result<Option<f64>, String> {
+    Ok(match crate::solver::spectral::spectral_rule(rule)? {
         "SRSS" => None,
         _ => Some(xi.unwrap_or(0.05)),
-    }
+    })
 }
 
 /// Exact range of the piecewise-linear spectrum (constant beyond its ends, as

@@ -1375,7 +1375,13 @@ fn sy_of(m: &Cirsoc301MemberData) -> f64 {
 fn ltb_f22<T: Real>(m: &Cirsoc301MemberData, mp: T, fl: f64, st: &mut Steps) -> Result<(T, f64, f64), Refusal> {
     let (fy, e) = (m.fy, m.e);
     let g = m.g.unwrap_or(G_CIRSOC);
-    let top = m.load_position.as_deref().unwrap_or("topFlange") == "topFlange";
+    // Absent: top flange (the conservative case). Present: "topFlange" or
+    // "web" only; any other value is refused, not read as "web".
+    let top = match m.load_position.as_deref() {
+        None | Some("topFlange") => true,
+        Some("web") => false,
+        Some(other) => return Err(refuse("loadPositionUnknown", &[("pos", s(other))])),
+    };
     let a = m.a * 1e6;
     let iy = m.i_weak * 1e12;
     let sx = sx_of(m) * 1e9;

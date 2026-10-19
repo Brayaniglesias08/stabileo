@@ -73,6 +73,18 @@ pub fn diagram_positions_3d(ef: &ElementForces3D, kind: &str) -> Vec<f64> {
 
 // ==================== Evaluate at t ====================
 
+/// The 3D diagram kinds `evaluate_diagram_3d_at` evaluates.
+pub const DIAGRAM_KINDS_3D: [&str; 6] = ["momentY", "momentZ", "shearY", "shearZ", "axial", "torsion"];
+
+/// Refuse an unknown diagram kind (the evaluator returns 0 for one).
+pub fn check_diagram_kind_3d(kind: &str) -> Result<(), String> {
+    if DIAGRAM_KINDS_3D.contains(&kind) {
+        Ok(())
+    } else {
+        Err(format!("unknown diagram kind '{kind}'; accepted: {}", DIAGRAM_KINDS_3D.join(", ")))
+    }
+}
+
 /// Evaluate a 3D diagram value at position t.
 pub fn evaluate_diagram_3d_at(
     ef: &ElementForces3D,

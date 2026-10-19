@@ -338,7 +338,13 @@ pub fn solve_moving_loads_3d(input: &MovingLoadInput3D) -> Result<MovingLoadEnve
     let train = &input.train;
     let step = input.step.unwrap_or(0.25);
 
-    let gravity = input.gravity_direction.as_deref().unwrap_or("z");
+    // "z" (default, −Z) or "y" (−Y), either case; anything else used to
+    // mean −Z silently.
+    let gravity = match input.gravity_direction.as_deref() {
+        None | Some("z") | Some("Z") => "z",
+        Some("y") | Some("Y") => "y",
+        Some(g) => return Err(format!("Moving loads: unknown gravityDirection '{g}'; expected \"z\" or \"y\"")),
+    };
 
     // Build 3D load path
     let path = build_load_path_3d(solver_input, input.path_element_ids.as_deref())?;

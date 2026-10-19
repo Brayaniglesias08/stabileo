@@ -79,6 +79,12 @@ fn solve_time_history_2d_inner(
     super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
     super::dynamic_validation::validate_time_params(input.time_step, input.n_steps)?;
     validate_integration_params(input.beta, input.gamma, input.alpha, input.damping_xi)?;
+    validate_method(&input.method, input.alpha)?;
+    if let Some(d) = input.ground_direction.as_deref() {
+        if !matches!(d, "X" | "x" | "Y" | "y") {
+            return Err(format!("Time history: unknown groundDirection '{d}'; expected \"X\" or \"Y\""));
+        }
+    }
     if let Some(ga) = &input.ground_accel {
         if ga.iter().any(|v| !v.is_finite()) {
             return Err("Ground acceleration history contains non-finite values".to_string());
@@ -339,6 +345,18 @@ fn solve_time_history_2d_inner(
 /// compute. Refusing it would remove a valid capability and accepting it silently
 /// is what this function exists to stop, so it needs a warning channel
 /// `TimeHistoryResult` does not have. Left for the E5 write-up.
+/// The integration method: "newmark" (default) or "hht" (any case). An
+/// unknown name used to be ignored (e.g. "Wilson" ran Newmark), and "hht"
+/// without α ran average-acceleration Newmark under the HHT name.
+fn validate_method(method: &str, alpha: Option<f64>) -> Result<(), String> {
+    match method.to_ascii_lowercase().as_str() {
+        "newmark" => Ok(()),
+        "hht" if alpha.is_some() => Ok(()),
+        "hht" => Err("Time history: method \"hht\" needs alpha (in [-1/3, 0])".into()),
+        _ => Err(format!("Time history: unknown method '{method}'; expected \"newmark\" or \"hht\"")),
+    }
+}
+
 fn validate_integration_params(
     beta: f64, gamma: f64, alpha: Option<f64>, damping_xi: Option<f64>,
 ) -> Result<(), String> {
@@ -480,10 +498,8 @@ fn build_ground_influence_2d(
     input.ground_accel.as_ref()?;
 
     let dir = input.ground_direction.as_deref().unwrap_or("X");
-    let local_dof = match dir {
-        "Y" | "y" => 1,
-        _ => 0, // "X" or default
-    };
+    // Validated: "X"/"x" (default) or "Y"/"y".
+    let local_dof = if matches!(dir, "Y" | "y") { 1 } else { 0 };
 
     Some(ground_influence(dof_num, local_dof, its, m_ff, || {
         mass_matrix::assemble_mass_matrix_2d_sparse_block(&input.solver, dof_num, &input.densities, dof_num.n_total)
@@ -1014,6 +1030,7 @@ fn solve_time_history_3d_inner(
     super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
     super::dynamic_validation::validate_time_params(input.time_step, input.n_steps)?;
     validate_integration_params(input.beta, input.gamma, input.alpha, input.damping_xi)?;
+    validate_method(&input.method, input.alpha)?;
     for ga in [&input.ground_accel_x, &input.ground_accel_y, &input.ground_accel_z] {
         if let Some(ga) = ga {
             if ga.iter().any(|v| !v.is_finite()) {

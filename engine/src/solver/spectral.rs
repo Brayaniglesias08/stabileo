@@ -81,6 +81,27 @@ fn validate_spectral(
     Ok(())
 }
 
+/// The modal combination rule: absent means CQC; anything other than
+/// "SRSS" or "CQC" is refused (it used to fall back to CQC silently).
+pub(crate) fn spectral_rule(rule: Option<&str>) -> Result<&'static str, String> {
+    match rule {
+        None | Some("CQC") => Ok("CQC"),
+        Some("SRSS") => Ok("SRSS"),
+        Some(r) => Err(format!("Spectral analysis: unknown combination rule '{r}'; expected \"SRSS\" or \"CQC\"")),
+    }
+}
+
+/// Index of the excitation direction among `accepted` ("X", "Y"[, "Z"]);
+/// anything else is refused (it used to fall back to Y in 2D and Z in 3D).
+pub(crate) fn spectral_direction(direction: &str, accepted: &[&str]) -> Result<usize, String> {
+    accepted.iter().position(|&d| d == direction).ok_or_else(|| {
+        format!(
+            "Spectral analysis: unknown direction '{direction}'; expected one of {}",
+            accepted.iter().map(|d| format!("\"{d}\"")).collect::<Vec<_>>().join(", ")
+        )
+    })
+}
+
 /// Backstop after the combination: a result with a non-finite number (an
 /// overflow on huge but finite input) is refused, never returned.
 fn check_finite_output(disps: &[f64], forces: &[f64], base_shear: f64, per_mode: &[PerModeResult]) -> Result<(), String> {
@@ -102,10 +123,11 @@ pub fn solve_spectral_2d(input: &SpectralInput) -> Result<SpectralResult, String
     let modes = &input.modes;
     let spectrum = &input.spectrum;
     let direction = &input.direction;
-    let rule = input.rule.as_deref().unwrap_or("CQC");
+    let rule = spectral_rule(input.rule.as_deref())?;
     let xi = input.xi.unwrap_or(0.05);
     let importance_factor = input.importance_factor.unwrap_or(1.0);
     let reduction_factor = input.reduction_factor.unwrap_or(1.0);
+    let dir = spectral_direction(direction, &["X", "Y"])?;
     let checked: Vec<(f64, f64, Vec<f64>)> = modes
         .iter()
         .map(|m| {
@@ -135,13 +157,10 @@ pub fn solve_spectral_2d(input: &SpectralInput) -> Result<SpectralResult, String
         // ω > 0 (validated).
         let sd = sa / (mode.omega * mode.omega);
 
-        let participation = match direction.as_str() {
-            "X" => mode.participation_x,
-            _ => mode.participation_y,
-        };
-        let meff = match direction.as_str() {
-            "X" => mode.effective_mass_x,
-            _ => mode.effective_mass_y,
+        let (participation, meff) = if dir == 0 {
+            (mode.participation_x, mode.effective_mass_x)
+        } else {
+            (mode.participation_y, mode.effective_mass_y)
         };
         let modal_force = meff * sa;
 
@@ -345,10 +364,11 @@ pub fn solve_spectral_3d(input: &SpectralInput3D) -> Result<SpectralResult3D, St
     let modes = &input.modes;
     let spectrum = &input.spectrum;
     let direction = &input.direction;
-    let rule = input.rule.as_deref().unwrap_or("CQC");
+    let rule = spectral_rule(input.rule.as_deref())?;
     let xi = input.xi.unwrap_or(0.05);
     let importance_factor = input.importance_factor.unwrap_or(1.0);
     let reduction_factor = input.reduction_factor.unwrap_or(1.0);
+    let dir = spectral_direction(direction, &["X", "Y", "Z"])?;
     let checked: Vec<(f64, f64, Vec<f64>)> = modes
         .iter()
         .map(|m| {
@@ -377,15 +397,10 @@ pub fn solve_spectral_3d(input: &SpectralInput3D) -> Result<SpectralResult3D, St
         // ω > 0 (validated).
         let sd = sa / (mode.omega * mode.omega);
 
-        let participation = match direction.as_str() {
-            "X" => mode.participation_x,
-            "Y" => mode.participation_y,
-            _ => mode.participation_z,
-        };
-        let meff = match direction.as_str() {
-            "X" => mode.effective_mass_x,
-            "Y" => mode.effective_mass_y,
-            _ => mode.effective_mass_z,
+        let (participation, meff) = match dir {
+            0 => (mode.participation_x, mode.effective_mass_x),
+            1 => (mode.participation_y, mode.effective_mass_y),
+            _ => (mode.participation_z, mode.effective_mass_z),
         };
         let modal_force = meff * sa;
 
