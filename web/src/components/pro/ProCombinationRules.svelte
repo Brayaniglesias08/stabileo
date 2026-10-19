@@ -10,6 +10,7 @@
    * uses the same rules over the cases already in the model.
    */
   import { modelStore, uiStore } from '../../lib/store';
+  import { runEngineAction } from '../../lib/store/engine-action';
   import { t, tp } from '../../lib/i18n';
   import { downloadText } from '../../lib/store/file';
   import { generateCombinations } from '../../lib/codes/cirsoc101/combinations';
@@ -51,14 +52,8 @@
   /** Start from CIRSOC 101, strength and service, for the loads the model has. */
   function seed() {
     const present = presentSymbols(modelStore.model.loadCases);
-    let specs;
-    try {
-      specs = [...generateCombinations({ present }), ...generateServiceCombinations({ present })];
-    } catch (err) {
-      // The combinations are the engine's; without it, say so rather than seed nothing silently.
-      uiStore.toast(`${t('engine.failed')} ${(err as Error)?.message ?? err}`, 'error');
-      return;
-    }
+    const specs = runEngineAction(() => [...generateCombinations({ present }), ...generateServiceCombinations({ present })]);
+    if (!specs) return;
     const ids = freshRuleIds(rules, specs.length);
     write([...rules, ...specs.map((s, i) => specToRule(s, ids[i]!))]);
   }

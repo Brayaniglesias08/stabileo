@@ -3687,6 +3687,7 @@ const en: Record<string, string> = {
   'diag.verifFailFlexure': 'Flexure check FAILED',
   'diag.verifEngineDisagrees': 'The engine re-check does not confirm this pass — treated as a failure',
   'engine.unavailable': 'The calculation engine is not available, so this result was not computed. Reload the page; if it persists, the engine failed to load.',
+  'engine.failedWith': 'The calculation engine could not compute this result: {message}',
   'engine.failed': 'The calculation engine could not compute this result:',
   'diag.verifEngineUnavailable': 'The engine could not re-check this member — not verified',
   'diag.verifWarnFlexure': 'Flexure check near limit',

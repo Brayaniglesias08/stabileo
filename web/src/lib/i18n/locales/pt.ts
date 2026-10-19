@@ -1991,6 +1991,7 @@ const pt: Translations = {
   'diag.verifFailFlexure': 'Verificação de flexão NÃO atende',
   'diag.verifEngineDisagrees': 'A reverificação do motor não confirma este resultado — tratado como falha',
   'engine.unavailable': 'O motor de cálculo não está disponível, então este resultado não foi calculado. Recarregue a página; se persistir, o motor não pôde ser carregado.',
+  'engine.failedWith': 'O motor de cálculo não pôde calcular este resultado: {message}',
   'engine.failed': 'O motor de cálculo não pôde calcular este resultado:',
   'diag.verifEngineUnavailable': 'O motor não pôde reverificar este elemento — não verificado',
   'diag.verifFailShear': 'Verificação de cisalhamento NÃO atende',

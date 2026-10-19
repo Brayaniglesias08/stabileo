@@ -48,3 +48,18 @@ export function engineFailureText(e: unknown): string {
   if (e instanceof Error) return e.message;
   return String(e);
 }
+
+/** Whether `e` is one of the two engine errors above. */
+export function isEngineError(e: unknown): e is EngineUnavailableError | EngineCheckError {
+  return isEngineUnavailable(e) || e instanceof EngineCheckError || (e as { code?: unknown } | null)?.code === 'ENGINE_ERROR';
+}
+
+/**
+ * The message a screen shows for an engine error (`{ key, params }`, rendered at the boundary),
+ * or null when `e` is not one: "engine not available", or the engine's own words.
+ */
+export function engineFailureMessage(e: unknown): { key: string; params?: Record<string, string> } | null {
+  if (isEngineUnavailable(e)) return { key: 'engine.unavailable' };
+  if (isEngineError(e)) return { key: 'engine.failedWith', params: { message: engineFailureText(e) } };
+  return null;
+}

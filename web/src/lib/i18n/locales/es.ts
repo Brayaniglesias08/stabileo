@@ -3680,6 +3680,7 @@ const es: Record<string, string> = {
   'diag.verifFailFlexure': 'Verificación de flexión NO cumple',
   'diag.verifEngineDisagrees': 'La re-verificación del motor no confirma este resultado — se toma como falla',
   'engine.unavailable': 'El motor de cálculo no está disponible, así que este resultado no se calculó. Recargá la página; si persiste, el motor no pudo cargarse.',
+  'engine.failedWith': 'El motor de cálculo no pudo calcular este resultado: {message}',
   'engine.failed': 'El motor de cálculo no pudo calcular este resultado:',
   'diag.verifEngineUnavailable': 'El motor no pudo re-verificar este elemento — no verificado',
   'diag.verifWarnFlexure': 'Verificación de flexión cercana al límite',
