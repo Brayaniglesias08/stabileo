@@ -944,6 +944,19 @@ const CERTIFY_EXPORTS = [
   'estimate_discretization_3d', 'convergence_study_3d',
 ] as const;
 export type CertifyExport = (typeof CERTIFY_EXPORTS)[number];
+
+/** The registry itself, for tests that walk it. */
+export const CERTIFY_EXPORT_NAMES: readonly CertifyExport[] = CERTIFY_EXPORTS;
+
+/**
+ * Whether `name` is one of the exports above: the one registry both the main thread and the
+ * worker (`solver-worker.ts`) dispatch by, so an export added here runs in the worker too (the
+ * worker used to keep its own name pattern, and the discretization exports, which match none of
+ * it, failed there while working on the main thread).
+ */
+export function isCertifyExport(name: string): name is CertifyExport {
+  return (CERTIFY_EXPORTS as readonly string[]).includes(name);
+}
 const certifyExports = new Map<string, (...args: any[]) => any>();
 
 /** Whether this WASM build carries the certify export `name`. */
