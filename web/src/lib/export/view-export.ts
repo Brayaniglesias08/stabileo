@@ -58,8 +58,10 @@ function plans(contents: FigureContent[], req: ViewExportRequest): FigurePlan[] 
 }
 
 /** The files the request makes: name and content. */
-async function files(req: ViewExportRequest): Promise<Array<{ name: string; blob: Blob }>> {
+async function files(req: ViewExportRequest, onDrawn?: () => void): Promise<Array<{ name: string; blob: Blob }>> {
   const contents = await drawable(req.contents);
+  // After the solve `drawable` may run: the state the figures are drawn from.
+  onDrawn?.();
   if (contents.length === 0) return [];
   const base = fileBase();
   const ps = plans(contents, req);
@@ -83,9 +85,9 @@ async function files(req: ViewExportRequest): Promise<Array<{ name: string; blob
 
 /** Download what the request makes: one file, or a zip of several. */
 export async function exportView(req: ViewExportRequest): Promise<boolean> {
-  // Taken with the request; checked again once the figures are drawn and the hashes are in.
-  const token = captureProvenanceToken();
-  const drawn = await files(req);
+  // Taken when the figures are drawn (after any solve); checked again once the hashes are in.
+  let token = captureProvenanceToken();
+  const drawn = await files(req, () => { token = captureProvenanceToken(); });
   if (drawn.length === 0) return false;
   let record;
   try {

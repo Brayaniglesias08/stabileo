@@ -14,7 +14,7 @@
   import { loadComponentsText, distributedText, pointOnElementText, thermalText } from '../lib/engine/calc-report-loads';
   import { t, tp, i18n } from '../lib/i18n';
   import { shouldProjectModelToXZ } from '../lib/geometry/coordinate-system';
-  import { captureProvenanceToken, provenanceForExport, provenanceLabels } from '../lib/store/result-provenance';
+  import { captureProvenanceToken, provenanceForExport, provenanceLabels, ensureEngineHashes } from '../lib/store/result-provenance';
 
   let { open = $bindable(false) }: { open: boolean } = $props();
 
@@ -113,6 +113,8 @@
       const solved = await ensureResults();
       // What the report is taken from, checked again before its provenance is written.
       const token = captureProvenanceToken();
+      // Started now, so the engine hashes are computed while the figures are drawn.
+      void ensureEngineHashes();
       const figureOptions: FigureOptions = { ...DEFAULT_FIGURE_OPTIONS, style: figStyle, values: figValues, lengths: figLengths, loads: false };
       const figures = await reportFigures(content, solved.ok, figureOptions);
       const data = reportData();
