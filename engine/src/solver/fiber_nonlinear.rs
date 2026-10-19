@@ -481,7 +481,10 @@ fn fiber_member_forces_2d(
         let (f_fiber, _) = fiber_element_response_2d(&u_local, l, section, &mut states, n_ip);
         let e = mat_by_id[&elem.material_id].e * 1000.0;
         let sec = sec_by_id[&elem.section_id];
-        let k_el = crate::element::frame_local_stiffness_2d(e, sec.a, sec.iz, l, elem.hinge_start, elem.hinge_end, 0.0);
+        // The elastic end forces to remove are those the linear recovery added:
+        // with the same Timoshenko φ when the section has a shear area.
+        let phi = crate::element::timoshenko_phi_2d(sec, e, mat_by_id[&elem.material_id].nu, l);
+        let k_el = crate::element::frame_local_stiffness_2d(e, sec.a, sec.iz, l, elem.hinge_start, elem.hinge_end, phi);
         let mut d = [0.0; 6];
         for i in 0..6 {
             d[i] = f_fiber[i] - (0..6).map(|j| k_el[i * 6 + j] * u_local[j]).sum::<f64>();
@@ -535,7 +538,9 @@ fn fiber_member_forces_3d(
         let g = e / (2.0 * (1.0 + mat.nu));
         let mut states = es.section_states.clone();
         let (f_fiber, _) = fiber_element_response_3d(&u_local, l, section, &mut states, n_ip, g * sec.j);
-        let k_el = crate::element::frame_local_stiffness_3d(e, sec.a, sec.iy, sec.iz, sec.j, l, g, Hinge3D::from_elem(elem), 0.0, 0.0);
+        // Same Timoshenko (φy, φz) as the linear recovery whose elastic forces this removes.
+        let (phi_y, phi_z) = crate::element::timoshenko_phi_3d(sec, e, g, l);
+        let k_el = crate::element::frame_local_stiffness_3d(e, sec.a, sec.iy, sec.iz, sec.j, l, g, Hinge3D::from_elem(elem), phi_y, phi_z);
         let mut d = [0.0; 12];
         for i in 0..12 {
             d[i] = f_fiber[i] - (0..12).map(|j| k_el[i * 12 + j] * u_local[j]).sum::<f64>();
@@ -1379,6 +1384,121 @@ mod tests {
             tolerance: 1e-6,
             n_increments: 1,
             modified_nr: false,
+        }
+    }
+
+    /// Review of #330. `fiber_member_forces_2d/3d` replace the elastic end forces K·u that the
+    /// linear recovery reported with the fiber resultants. They subtracted the Euler–Bernoulli K
+    /// while the recovery used the Timoshenko K of a section with shear areas, so a spurious
+    /// (K_T − K_EB)·u stayed in the result. Now both use `timoshenko_phi_2d/3d`, and the
+    /// reported end forces are exactly the fiber resultants minus the FEF.
+    ///
+    /// The fiber solvers refuse shear areas today (feature gate), so this is checked here on
+    /// the helper directly, at an arbitrary displacement, instead of through a solve.
+    #[test]
+    fn fiber_member_forces_with_shear_areas_are_resultants_minus_fef_2d() {
+        let mut input = make_cantilever_fiber();
+        input.solver.sections.get_mut("1").unwrap().as_y = Some(0.0667);
+        let q = -12.0;
+        input.solver.loads = vec![SolverLoad::Distributed(SolverDistributedLoad { element_id: 1, q_i: q, q_j: q, a: None, b: None })];
+        let dof_num = DofNumbering::build_2d(&input.solver);
+        let mut u_full = vec![0.0; dof_num.n_total];
+        for (k, v) in [(0usize, 1.0e-4), (1, -3.0e-3), (2, 8.0e-4)] {
+            u_full[dof_num.global_dof(1, k).unwrap()] = v;
+        }
+        let n_ip = 3;
+        let section = &input.fiber_sections["1"];
+        let mut elem_states = HashMap::new();
+        elem_states.insert(1, ElementFiberState {
+            _section_id: "1".into(),
+            section_states: (0..n_ip).map(|_| SectionState::new(section.fibers.len())).collect(),
+        });
+        let mut forces = super::super::linear::compute_internal_forces_2d(&input.solver, &dof_num, &u_full);
+        fiber_member_forces_2d(&input.solver, &input.fiber_sections, &dof_num, &u_full, &elem_states, n_ip, &mut forces);
+
+        let l = 5.0;
+        let u_local = [0.0, 0.0, 0.0, u_full[dof_num.global_dof(1, 0).unwrap()], u_full[dof_num.global_dof(1, 1).unwrap()], u_full[dof_num.global_dof(1, 2).unwrap()]];
+        let mut st: Vec<SectionState> = (0..n_ip).map(|_| SectionState::new(section.fibers.len())).collect();
+        let (f, _) = fiber_element_response_2d(&u_local, l, section, &mut st, n_ip);
+        let fef = crate::element::fef_distributed_2d(q, q, l, 0.0); // uniform: independent of φ
+        let d: Vec<f64> = (0..6).map(|i| f[i] - fef[i]).collect();
+        let ef = &forces[0];
+        let got = [ef.n_start, ef.v_start, ef.m_start, ef.n_end, ef.v_end, ef.m_end];
+        let want = [-d[0], d[1], d[2], d[3], -d[4], -d[5]];
+        let scale = want.iter().fold(0.0f64, |a, v| a.max(v.abs()));
+        for k in 0..6 {
+            assert!((got[k] - want[k]).abs() < 1e-9 * scale, "component {k}: {} vs {}", got[k], want[k]);
+        }
+    }
+
+    #[test]
+    fn fiber_member_forces_with_shear_areas_are_resultants_minus_fef_3d() {
+        use std::collections::HashMap as Map;
+        let l = 4.0;
+        let mut nodes = Map::new();
+        nodes.insert("1".to_string(), SolverNode3D { id: 1, x: 0.0, y: 0.0, z: 0.0 });
+        nodes.insert("2".to_string(), SolverNode3D { id: 2, x: l, y: 0.0, z: 0.0 });
+        let mut materials = Map::new();
+        materials.insert("1".to_string(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
+        let mut sections = Map::new();
+        sections.insert("1".to_string(), SolverSection3D {
+            id: 1, name: None, a: 0.08, iy: 0.2 * 0.4f64.powi(3) / 12.0, iz: 0.4 * 0.2f64.powi(3) / 12.0, j: 1e-4,
+            cw: None, as_y: Some(0.0667), as_z: Some(0.0667),
+        });
+        let mut elements = Map::new();
+        elements.insert("1".to_string(), SolverElement3D {
+            id: 1, elem_type: "frame".into(), node_i: 1, node_j: 2, material_id: 1, section_id: 1,
+            release_my_start: false, release_my_end: false, release_mz_start: false, release_mz_end: false,
+            release_t_start: false, release_t_end: false, local_yx: None, local_yy: None, local_yz: None, roll_angle: None,
+        });
+        let mut supports = Map::new();
+        supports.insert("1".to_string(), SolverSupport3D {
+            node_id: 1, rx: true, ry: true, rz: true, rrx: true, rry: true, rrz: true,
+            kx: None, ky: None, kz: None, krx: None, kry: None, krz: None, dx: None, dy: None, dz: None,
+            drx: None, dry: None, drz: None, normal_x: None, normal_y: None, normal_z: None, is_inclined: None, rw: None, kw: None,
+        });
+        let (qy, qz) = (-7.0, 11.0);
+        let solver = SolverInput3D {
+            solver_options: None, nodes, materials, sections, elements, supports,
+            loads: vec![SolverLoad3D::Distributed(SolverDistributedLoad3D {
+                q_xi: 0.0, q_xj: 0.0, element_id: 1, q_yi: qy, q_yj: qy, q_zi: qz, q_zj: qz, a: None, b: None })],
+            constraints: vec![], left_hand: None, plates: Map::new(), quads: Map::new(), quad9s: Map::new(),
+            solid_shells: Map::new(), curved_shells: Map::new(), curved_beams: vec![], connectors: Map::new(),
+        };
+        let mut fiber_sections = Map::new();
+        fiber_sections.insert("1".to_string(), rectangular_fiber_section(0.2, 0.4, 10, FiberMaterial::Elastic { e: 200_000.0 }));
+        let section = &fiber_sections["1"];
+        let dof_num = DofNumbering::build_3d(&solver);
+        let mut u_full = vec![0.0; dof_num.n_total];
+        for (k, v) in [(0usize, 1e-4), (1, -2e-3), (2, 3e-3), (3, 1e-4), (4, -6e-4), (5, 5e-4)] {
+            u_full[dof_num.global_dof(2, k).unwrap()] = v;
+        }
+        let n_ip = 3;
+        let mut elem_states = HashMap::new();
+        elem_states.insert(1, ElementFiberState {
+            _section_id: "1".into(),
+            section_states: (0..n_ip).map(|_| SectionState::new(section.fibers.len())).collect(),
+        });
+        let mut forces = super::super::linear::compute_internal_forces_3d(&solver, &dof_num, &u_full);
+        fiber_member_forces_3d(&solver, &fiber_sections, &dof_num, &u_full, &elem_states, n_ip, &mut forces);
+
+        let mut u_local = [0.0; 12];
+        for k in 0..6 {
+            u_local[6 + k] = u_full[dof_num.global_dof(2, k).unwrap()];
+        }
+        let e = 200_000.0 * 1000.0;
+        let g = e / 2.6;
+        let mut st: Vec<SectionState> = (0..n_ip).map(|_| SectionState::new(section.fibers.len())).collect();
+        let (f, _) = fiber_element_response_3d(&u_local, l, section, &mut st, n_ip, g * 1e-4);
+        let fef = crate::element::fef_distributed_3d(qy, qy, qz, qz, l, 0.0, 0.0); // uniform: independent of φ
+        let d: Vec<f64> = (0..12).map(|i| f[i] - fef[i]).collect();
+        let ef = &forces[0];
+        let got = [ef.n_start, ef.vy_start, ef.vz_start, ef.mx_start, ef.my_start, ef.mz_start,
+                   ef.n_end, ef.vy_end, ef.vz_end, ef.mx_end, ef.my_end, ef.mz_end];
+        let want = [-d[0], d[1], d[2], d[3], d[4], d[5], d[6], -d[7], -d[8], -d[9], -d[10], -d[11]];
+        let scale = want.iter().fold(0.0f64, |a, v| a.max(v.abs()));
+        for k in 0..12 {
+            assert!((got[k] - want[k]).abs() < 1e-9 * scale, "component {k}: {} vs {}", got[k], want[k]);
         }
     }
 

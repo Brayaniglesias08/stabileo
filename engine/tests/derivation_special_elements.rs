@@ -6,7 +6,7 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use common::make_3d_input;
+use common::{make_3d_beam, make_3d_input, make_beam};
 use dedaliano_engine::element::fiber_beam::*;
 use dedaliano_engine::element::{
     cable_length_catenary, catenary_ordinate, connector_stiffness_3d, ernst_equivalent_modulus,
@@ -760,4 +760,35 @@ fn connector_3d_axes_are_continuous_in_direction() {
     let k2 = connector_stiffness_3d(1.0, 100.0, 1.0, 1.0, 1.0, 1.0, dir(0.9 + 1e-6), 0.0);
     let diff = (0..144).map(|i| (k1[i] - k2[i]).abs()).fold(0.0, f64::max);
     assert!(diff < 0.1, "stiffness jumps by {diff} across the reference switch");
+}
+
+/// SP-7 follow-up (review of #330). The fiber force correction must remove the same elastic
+/// K·u the linear recovery adds; with shear areas that is the Timoshenko K. Both now share
+/// `timoshenko_phi_2d/3d` (unit tests `fiber_member_forces_with_shear_areas_are_resultants_minus_fef_2d/3d`
+/// in `solver/fiber_nonlinear.rs`). Through the public solvers the case is refused today: the
+/// fiber element is Euler–Bernoulli, so a section with shear areas is refused rather than
+/// solved without them. Pinned so that lifting the gate is a deliberate change.
+#[test]
+fn fiber_solvers_refuse_shear_areas() {
+    let sec = rectangular_fiber_section(0.2, 0.4, 10, FiberMaterial::Elastic { e: 200_000.0 });
+    let mut input = fiber_cantilever_2d(3.0, sec, 0.0, -10.0, 5, 1, 1e-10);
+    input.solver.sections.get_mut("1").unwrap().as_y = Some(0.0667);
+    let err = solve_fiber_nonlinear_2d(&input).unwrap_err();
+    assert!(err.contains("shear"), "{err}");
+}
+
+/// Non-positive shear areas are refused by validation: φ = 12EI/(G·As·L²) was ∞ (NaN stiffness)
+/// for 0 and negative for a negative area, silently, on every path.
+#[test]
+fn non_positive_shear_areas_are_refused() {
+    for v in [0.0, -0.05] {
+        let mut s2 = make_beam(1, 3.0, 200_000.0, 0.01, 1e-4, "fixed", None,
+            vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: 0.0, fz: -1.0, my: 0.0 })]);
+        s2.sections.get_mut("1").unwrap().as_y = Some(v);
+        assert!(solve_2d(&s2).unwrap_err().contains("shear area"));
+        let mut s3 = make_3d_beam(1, 3.0, 200_000.0, 0.3, 0.01, 1e-4, 1e-4, 1e-4, vec![true; 6], None,
+            vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: 0.0, fy: 0.0, fz: -1.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None })]);
+        s3.sections.get_mut("1").unwrap().as_z = Some(v);
+        assert!(solve_3d(&s3).unwrap_err().contains("shear area"));
+    }
 }

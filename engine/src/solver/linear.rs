@@ -4047,6 +4047,11 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
         if !s.a.is_finite() || !s.iz.is_finite() || s.as_y.is_some_and(|v| !v.is_finite()) {
             return Err(format!("Section {}: properties must be finite", s.id));
         }
+        // A shear area enters as φ = 12EI/(G·As·L²): 0 gave φ = ∞ (NaN stiffness) and a
+        // negative area a negative φ, silently. Omit it for Euler–Bernoulli.
+        if s.as_y.is_some_and(|v| v <= 0.0) {
+            return Err(format!("Section {}: shear area asY must be positive (omit it for no shear deformation)", s.id));
+        }
     }
     for sup in input.supports.values() {
         for v in [sup.kx, sup.ky, sup.kz, sup.dx, sup.dz, sup.dry, sup.angle].into_iter().flatten() {
@@ -4263,6 +4268,11 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
         let opts_finite = [s.cw, s.as_y, s.as_z].into_iter().flatten().all(|v| v.is_finite());
         if !s.a.is_finite() || !s.iy.is_finite() || !s.iz.is_finite() || !s.j.is_finite() || !opts_finite {
             return Err(format!("Section {}: properties must be finite", s.id));
+        }
+        // φ = 12EI/(G·As·L²): a zero shear area gave φ = ∞ (NaN stiffness), a negative one a
+        // negative φ, silently. Omit it for Euler–Bernoulli.
+        if [s.as_y, s.as_z].into_iter().flatten().any(|v| v <= 0.0) {
+            return Err(format!("Section {}: shear areas asY/asZ must be positive (omit them for no shear deformation)", s.id));
         }
     }
     for sup in input.supports.values() {
@@ -4867,12 +4877,7 @@ pub fn compute_internal_forces_2d_with_loads(
             let t = crate::element::frame_transform_2d(cos, sin);
             let u_local = transform_displacement(&u_global, &t, 6);
 
-            let phi = if let Some(as_y) = sec.as_y {
-                let g = e / (2.0 * (1.0 + mat.nu));
-                12.0 * e * sec.iz / (g * as_y * l * l)
-            } else {
-                0.0
-            };
+            let phi = crate::element::timoshenko_phi_2d(sec, e, mat.nu, l);
             let k_local = crate::element::frame_local_stiffness_2d(
                 e, sec.a, sec.iz, l, elem.hinge_start, elem.hinge_end, phi,
             );
@@ -5094,14 +5099,7 @@ pub fn compute_internal_forces_3d_with_loads(
         );
 
         // Compute Timoshenko shear parameters for each bending plane
-        let (phi_y, phi_z) = if sec.as_y.is_some() || sec.as_z.is_some() {
-            let l2 = l * l;
-            let py = sec.as_y.map(|ay| 12.0 * e * sec.iy / (g * ay * l2)).unwrap_or(0.0);
-            let pz = sec.as_z.map(|az| 12.0 * e * sec.iz / (g * az * l2)).unwrap_or(0.0);
-            (py, pz)
-        } else {
-            (0.0, 0.0)
-        };
+        let (phi_y, phi_z) = crate::element::timoshenko_phi_3d(sec, e, g, l);
 
         // Determine element size and compute f_local
         let (f_local, ndof_elem) = if has_cw && dof_num.dofs_per_node >= 7 {
