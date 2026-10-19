@@ -38,8 +38,15 @@ class FakeGH:
             rs = [r for r in rs if r["headBranch"] == branch]
         return rs[:max_runs]
 
+    jobs_by_run = None  # {run_id: [job, ...]}; default: one mutants job per mutants artifact
+
     def jobs(self, run_id):
-        return [{"name": "mutants (0)", "conclusion": "success"}]
+        if self.jobs_by_run is not None:
+            if run_id not in self.jobs_by_run:
+                raise RuntimeError("jobs unavailable")
+            return self.jobs_by_run[run_id]
+        n = sum(1 for a in self._arts.get(run_id, []) if a.startswith("mutants-report-"))
+        return [{"name": f"mutants ({i})", "conclusion": "success"} for i in range(n)]
 
     def artifacts(self, run_id):
         return [{"name": n, "expired": False} for n in self._arts.get(run_id, [])]
@@ -447,6 +454,38 @@ class AbsentInputsAreNotNumbers(unittest.TestCase):
         for st in ("measured", "partial", "retained"):
             m = vm.metric("x", None, display="None %", status=st)
             self.assertEqual(m["display"], vm.NOT_MEASURED)
+
+
+class MutantShardsCompleteness(unittest.TestCase):
+    def gh(self, present, jobs=4, downloadable=None):
+        names = [f"mutants-report-{k}" for k in range(present)]
+        files = {(5, n): mutants_dir(9, 1) for n in names[: downloadable if downloadable is not None else present]}
+        g = FakeGH({"verify.yml": [run(5)]}, {5: names}, files)
+        if jobs is not None:
+            g.jobs_by_run = {5: [{"name": f"mutants ({i})", "conclusion": "success" if i < present else "failure"}
+                                 for i in range(jobs)]}
+        else:
+            g.jobs_by_run = {}
+        return g
+
+    def test_all_shards_present_is_measured(self):
+        m, _ = vm.ci_metrics(self.gh(4), 10)
+        self.assertEqual(m["mutation_rust"]["status"], "measured")
+
+    def test_three_of_four_shards_is_partial(self):
+        # The fourth job uploaded nothing (e.g. it died before the upload step).
+        m, _ = vm.ci_metrics(self.gh(3, jobs=4), 10)
+        self.assertEqual(m["mutation_rust"]["status"], "partial")
+        self.assertIn("3 of 4 shards reported", m["mutation_rust"]["display"])
+
+    def test_undownloadable_shard_is_partial(self):
+        m, _ = vm.ci_metrics(self.gh(4, jobs=4, downloadable=3), 10)
+        self.assertEqual(m["mutation_rust"]["status"], "partial")
+
+    def test_unknown_job_list_is_partial(self):
+        m, _ = vm.ci_metrics(self.gh(4, jobs=None), 10)
+        self.assertEqual(m["mutation_rust"]["status"], "partial")
+        self.assertIn("number of shards unknown", m["mutation_rust"]["display"])
 
 
 class OfflineRecordProvenance(unittest.TestCase):

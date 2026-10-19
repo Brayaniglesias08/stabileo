@@ -411,7 +411,8 @@ def _reports(d: str, run) -> dict | None:
 
 def rust_mutants(gh: GH, max_runs: int):
     """cargo-mutants totals of the newest main run that uploaded mutants reports (every shard of
-    that run). A shard whose job timed out has tested fewer mutants than it planned."""
+    that run). The aggregate is complete only if every shard the run had (its `mutants` jobs, with
+    or without an artifact) contributed outcomes and every shard tested all it planned."""
     if not gh.ok:
         return None
     hits = find_artifacts(gh, "verify.yml", r"mutants-report-\d+", max_runs)
@@ -421,10 +422,14 @@ def rust_mutants(gh: GH, max_runs: int):
     try:
         names = [a["name"] for a in gh.artifacts(run["databaseId"])
                  if not a["expired"] and re.fullmatch(r"mutants-report-\d+", a["name"])]
-        jobs = [j for j in gh.jobs(run["databaseId"]) if j["name"].startswith("mutants")]
     except Exception as ex:
         warn(f"mutants run {run['databaseId']}: {ex}")
         return None
+    try:
+        jobs = [j for j in gh.jobs(run["databaseId"]) if j["name"].startswith("mutants")]
+    except Exception as ex:
+        warn(f"jobs of mutants run {run['databaseId']}: {ex}")
+        jobs = None  # number of shards unknown: the aggregate can only be partial
     tot = {"caught": 0, "missed": 0, "timeout": 0, "unviable": 0, "planned": 0}
     shards, plan_known = 0, True
     for name in names:
@@ -451,7 +456,11 @@ def rust_mutants(gh: GH, max_runs: int):
     tot["plan_known"] = plan_known
     tot["sha"] = run.get("headSha")
     tot["shards"] = shards
-    tot["jobs"] = {j["name"]: j["conclusion"] for j in jobs}
+    tot["shards_expected"] = max(len(jobs), len(names)) if jobs is not None else None
+    tot["shards_missing"] = (tot["shards_expected"] - shards) if jobs is not None else None
+    tot["complete"] = (jobs is not None and tot["shards_missing"] == 0 and plan_known
+                       and tot["tested"] >= tot["planned"])
+    tot["jobs"] = {j["name"]: j["conclusion"] for j in (jobs or [])}
     tot["run"], tot["date"] = run["url"], run["createdAt"][:10]
     return tot
 
@@ -1209,9 +1218,13 @@ def ci_metrics(gh, max_runs: int):
     details["rust_mutants"] = rm
     sc = pct(rm["caught"], rm["caught"] + rm["missed"]) if rm else None
     if sc is not None:
-        partial = not rm["plan_known"] or rm["tested"] < rm["planned"]
+        partial = not rm["complete"]
         size = (f"{rm['tested']} of {rm['planned']} mutants tested" if rm["plan_known"]
                 else f"{rm['tested']} mutants tested, plan unknown")
+        if rm["shards_missing"] is None:
+            size += "; number of shards unknown"
+        elif rm["shards_missing"]:
+            size += f"; {rm['shards']} of {rm['shards_expected']} shards reported"
         M["mutation_rust"] = with_sha(metric(
             "Mutation score, Rust (cargo-mutants)", sc,
             display=f"{sc} %" + (f" (partial: {size})" if partial else ""),

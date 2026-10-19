@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "generated": "2026-10-19 01:23 UTC",
- "commit": "da3b23f1d1",
+ "generated": "2026-10-19 01:28 UTC",
+ "commit": "d5b7e2c05c",
  "metrics": {
   "safety_open": {
    "label": "Open `safety` issues",
@@ -1677,6 +1677,9 @@
    "plan_known": true,
    "sha": "fa6620a17064ea69258fed65b29f85d663a81010",
    "shards": 8,
+   "shards_expected": 8,
+   "shards_missing": 0,
+   "complete": false,
    "jobs": {
     "mutants (5)": "cancelled",
     "mutants (6)": "cancelled",
