@@ -1070,20 +1070,24 @@ pub fn curved_shell_consistent_mass(
             }
         }
 
-        // Rotational inertia ρ·h³/12·∫ N_i·N_j dA about the two in-plane axes and none
-        // about the normal n: the 3×3 rotation block is that times (I − n·nᵀ), in the
-        // global axes this element is formulated in. It was put on global rx, ry, which is
-        // right only for a horizontal element: a wall got inertia about its own normal
-        // (the drilling rotation) and none about one in-plane axis (SH-4).
+        // Rotational inertia from the element's own kinematics, u_rot = ζ·(h/2)·Σ N_i·(θ_i × d_i):
+        // ½∫ρ|u̇_rot|²dV gives, for the node pair (i, j), ρ·h³/12·∫N_i·N_j dA times
+        //   S_iᵀ·S_j = (d_i·d_j)·I − d_j·d_iᵀ,   S = [d]×,
+        // which is I − d·dᵀ on the diagonal blocks: inertia about the two axes normal to the
+        // nodal director, none for a spin about the director (that rotation moves no material).
+        // It was first on global rx, ry (right only for a horizontal element: a wall got
+        // inertia about its own normal and none about an in-plane axis, SH-4), then on the
+        // Gauss-point surface normal, which gave a director spin positive mass wherever the
+        // director differs from that normal (review of #330).
         let rot_factor = rho * h * h / 12.0;
-        let (g1, g2, _, _) = covariant_basis(coords, dirs, h, xi, eta, 0.0);
-        let nrm = normalize3(&cross3(&g1, &g2));
         for i in 0..4 {
             for j in i..4 {
                 let mass_val = rot_factor * dv * n_shape[i] * n_shape[j];
+                let (di, dj) = (&dirs[i], &dirs[j]);
+                let dij = di[0] * dj[0] + di[1] * dj[1] + di[2] * dj[2];
                 for a in 0..3 {
                     for b in 0..3 {
-                        let p = if a == b { 1.0 } else { 0.0 } - nrm[a] * nrm[b];
+                        let p = if a == b { dij } else { 0.0 } - dj[a] * di[b];
                         let r = i * 6 + 3 + a;
                         let c = j * 6 + 3 + b;
                         m[r * ndof + c] += mass_val * p;

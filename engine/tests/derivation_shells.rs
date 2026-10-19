@@ -5,7 +5,7 @@
 //! OPEN ones are `#[ignore]`d with the question they raise.
 
 use dedaliano_engine::element::curved_shell::{
-    curved_shell_consistent_mass, curved_shell_pressure_load, curved_shell_stiffness,
+    compute_element_directors, curved_shell_consistent_mass, curved_shell_pressure_load, curved_shell_stiffness,
     curved_shell_stiffness_covariant, curved_shell_stiffness_no_ans, curved_shell_stresses,
 };
 use dedaliano_engine::element::quad::{
@@ -684,5 +684,120 @@ fn sh11_quad_and_quad9_with_the_same_id_keep_their_own_thermal_loads() {
         for v in [ns.sigma_xx, ns.sigma_yy, ns.mx, ns.my] {
             assert!(v.abs() < 1e-8 * scale, "nodal: {ns:?}");
         }
+    }
+}
+
+// ───────────────────── shell mass: director spins and rotation invariance ─────────────────────
+
+/// Rotation matrix about the unit axis `k` by angle `t` (Rodrigues).
+fn rotation(k: [f64; 3], t: f64) -> [[f64; 3]; 3] {
+    let n = (k[0] * k[0] + k[1] * k[1] + k[2] * k[2]).sqrt();
+    let k = [k[0] / n, k[1] / n, k[2] / n];
+    let (c, s) = (t.cos(), t.sin());
+    std::array::from_fn(|a| std::array::from_fn(|b| {
+        let kx = [[0.0, -k[2], k[1]], [k[2], 0.0, -k[0]], [-k[1], k[0], 0.0]];
+        (if a == b { c } else { 0.0 }) + s * kx[a][b] + (1.0 - c) * k[a] * k[b]
+    }))
+}
+
+fn rot_pt(r: &[[f64; 3]; 3], p: &[f64; 3]) -> [f64; 3] {
+    std::array::from_fn(|a| r[a][0] * p[0] + r[a][1] * p[1] + r[a][2] * p[2])
+}
+
+/// ‖M_rot − T·M·Tᵀ‖ / ‖M‖ with T the block-diagonal rotation of every 3-vector of DOFs.
+fn rotation_defect(m: &[f64], m_rot: &[f64], n: usize, r: &[[f64; 3]; 3]) -> f64 {
+    let blk = |i: usize, j: usize| if i / 3 == j / 3 { r[i % 3][j % 3] } else { 0.0 };
+    let mut worst = 0.0f64;
+    let scale = m.iter().fold(0.0f64, |a, v| a.max(v.abs()));
+    for i in 0..n {
+        for j in 0..n {
+            let mut v = 0.0;
+            for a in (i / 3) * 3..(i / 3) * 3 + 3 {
+                for b in (j / 3) * 3..(j / 3) * 3 + 3 {
+                    v += blk(i, a) * m[a * n + b] * blk(j, b);
+                }
+            }
+            worst = worst.max((m_rot[i * n + j] - v).abs());
+        }
+    }
+    worst / scale
+}
+
+/// Review of #330. The curved shell's kinematics turn the director by θ × d_i, so a
+/// rotation about the nodal director moves no material and must carry no inertia. The
+/// rotary block used the Gauss-point surface normal and gave that spin positive mass
+/// wherever the director differs from the local normal (here: node 0 of a quad with one
+/// corner raised, director [0,0,1]). The block is now built from the nodal directors.
+#[test]
+fn sh4_curved_shell_director_spin_has_no_mass() {
+    let coords = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.4], [0.0, 1.0, 0.0]];
+    for dirs in [compute_element_directors(&coords), {
+        // a genuinely curved patch with tilted directors
+        let d = |v: [f64; 3]| { let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt(); [v[0] / n, v[1] / n, v[2] / n] };
+        [d([-0.2, -0.1, 1.0]), d([0.3, -0.2, 1.0]), d([0.1, 0.25, 1.0]), d([-0.15, 0.2, 1.0])]
+    }] {
+        let m = curved_shell_consistent_mass(&coords, &dirs, 7.85, 0.2);
+        let scale = m.iter().fold(0.0f64, |a, v| a.max(v.abs()));
+        for i in 0..4 {
+            let mut v = vec![0.0; 24];
+            for a in 0..3 {
+                v[i * 6 + 3 + a] = dirs[i][a];
+            }
+            let mv = mat_vec(&m, &v);
+            assert!(max_abs(&mv) < 1e-13 * scale, "director spin at node {i} has inertia: {:?}", &mv);
+        }
+        // and the rotations about the two axes normal to the director do carry it
+        for i in 0..4 {
+            let r = i * 6 + 3;
+            let tr = m[r * 24 + r] + m[(r + 1) * 24 + r + 1] + m[(r + 2) * 24 + r + 2];
+            assert!(tr > 0.0);
+        }
+    }
+}
+
+/// Metamorphic: rotating a shell rigidly in space rotates its mass matrix with it,
+/// M' = T·M·Tᵀ, for every shell family through the global assembly (element mass, its
+/// local→global transformation and the rotary block).
+#[test]
+fn shell_mass_is_rotation_invariant() {
+    let r = rotation([0.3, -0.7, 0.5], 0.9);
+    let dens: HashMap<String, f64> = [("1".to_string(), 7850.0)].into_iter().collect();
+    let quad = vec![[0.0, 0.0, 0.0], [2.0, 0.1, 0.0], [2.2, 1.5, 0.0], [-0.1, 1.4, 0.0]];
+    let mut q9 = quad.clone();
+    for (a, b) in [(0, 1), (1, 2), (2, 3), (3, 0)] {
+        q9.push(std::array::from_fn(|k| 0.5 * (quad[a][k] + quad[b][k])));
+    }
+    q9.push(std::array::from_fn(|k| 0.25 * (0..4).map(|i| quad[i][k]).sum::<f64>()));
+    let tri = vec![[0.0, 0.0, 0.0], [2.0, 0.1, 0.0], [0.4, 1.5, 0.0]];
+    let curved = vec![[0.0, 0.0, 0.0], [2.0, 0.1, 0.2], [2.2, 1.5, -0.1], [-0.1, 1.4, 0.3]];
+    let build = |family: usize, pts: &[[f64; 3]]| {
+        let mut s = with_nodes(0.3, pts);
+        match family {
+            0 => { s.quads.insert("1".into(), SolverQuadElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2 }); }
+            1 => { s.quad9s.insert("1".into(), SolverQuad9Element { id: 1, nodes: [1, 2, 3, 4, 5, 6, 7, 8, 9], material_id: 1, thickness: 0.2 }); }
+            2 => { s.plates.insert("1".into(), SolverPlateElement { id: 1, nodes: [1, 2, 3], material_id: 1, thickness: 0.2 }); }
+            _ => { s.curved_shells.insert("1".into(), SolverCurvedShellElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2, normals: None }); }
+        }
+        s
+    };
+    for (family, pts) in [(0, &quad), (1, &q9), (2, &tri), (3, &curved)] {
+        let rotated: Vec<[f64; 3]> = pts.iter().map(|p| rot_pt(&r, p)).collect();
+        let (s0, s1) = (build(family, pts), build(family, &rotated));
+        let (d0, d1) = (DofNumbering::build_3d(&s0), DofNumbering::build_3d(&s1));
+        let (m0, m1) = (assemble_mass_matrix_3d(&s0, &d0, &dens), assemble_mass_matrix_3d(&s1, &d1, &dens));
+        // Reorder both into (node, dof) order.
+        let nn = pts.len();
+        let n = nn * 6;
+        let order = |d: &DofNumbering| -> Vec<usize> {
+            (1..=nn).flat_map(|node| (0..6).map(move |k| (node, k))).map(|(node, k)| d.global_dof(node, k).unwrap()).collect()
+        };
+        let (o0, o1) = (order(&d0), order(&d1));
+        let pick = |m: &[f64], o: &[usize], nt: usize| -> Vec<f64> {
+            (0..n * n).map(|ij| m[o[ij / n] * nt + o[ij % n]]).collect()
+        };
+        let a = pick(&m0, &o0, d0.n_total);
+        let b = pick(&m1, &o1, d1.n_total);
+        let defect = rotation_defect(&a, &b, n, &r);
+        assert!(defect < 1e-12, "family {family}: mass not rotation invariant, defect {defect:e}");
     }
 }
