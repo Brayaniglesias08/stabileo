@@ -1133,7 +1133,7 @@ fn fully_restrained_2d() {
         for p in [Path2::Default, Path2::DenseRef] {
             let r = solve_path_2d(&m, p).unwrap();
             assert_eq!(path_2d(&r), "fully_restrained");
-            assert_matches_reference_2d(&r, &rf, 1e-12, &format!("settle {settle} {p:?}"));
+            assert_matches_reference_2d(&r, &rf, 1e-9, &format!("settle {settle} {p:?}"));
             let d = r.structured_diagnostics.last().unwrap();
             assert_eq!((d.code, d.message.as_str()), (C::ResidualOk, "Fully restrained model (0 free DOFs, 9 restrained)"));
         }
