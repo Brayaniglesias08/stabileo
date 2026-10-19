@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "generated": "2026-10-18 20:37 UTC",
- "commit": "6739655768",
+ "generated": "2026-10-19 01:11 UTC",
+ "commit": "54411ef6b2",
  "metrics": {
   "safety_open": {
    "label": "Open `safety` issues",
@@ -99,7 +99,7 @@
    "display": "not yet measured",
    "status": "not_measured",
    "source": "",
-   "note": "no successful nightly Stryker run on main yet",
+   "note": "no successful Stryker run with a defined score found on main",
    "section": "Engineering coverage"
   },
   "coverage_lines": {
@@ -126,7 +126,7 @@
    "display": "6317 (6216 agree, 101 mismatch)",
    "status": "measured",
    "source": "codeaster, frame3dd, kratos, opensees, pynite",
-   "note": "see Details; no report on main yet: mystran, calculix",
+   "note": "see Details; no report yet: mystran, calculix",
    "section": "Trust and verification"
   },
   "fuzz_execs": {

@@ -131,6 +131,8 @@ class GH:
                 warn("gh is not authenticated; GitHub metrics are skipped")
                 self.ok = False
         self.tmp = tempfile.mkdtemp(prefix="stabileo-metrics-")
+        # When recording a release snapshot: only CI runs of exactly this commit are evidence.
+        self.require_sha: str | None = None
 
     def run(self, args, timeout=120):
         r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout)
@@ -201,6 +203,9 @@ def find_artifacts(gh: GH, workflow: str, pattern: str, max_runs: int, all_match
         return found
     for r in runs:
         if r.get("status") != "completed" or (run_filter and not run_filter(r)):
+            continue
+        need = getattr(gh, "require_sha", None)
+        if need and r.get("headSha") != need:
             continue
         try:
             arts = gh.artifacts(r["databaseId"])
@@ -450,7 +455,9 @@ def fuzz_execs(gh: GH, max_runs: int):
             continue
         for p in glob.glob(os.path.join(d, "**", "*"), recursive=True):
             if os.path.isfile(p):
-                for m in re.finditer(r"stat::number_of_executed_units:\s*(\d+)", open(p, encoding="utf-8", errors="ignore").read()):
+                with open(p, encoding="utf-8", errors="ignore") as f:
+                    text = f.read()
+                for m in re.finditer(r"stat::number_of_executed_units:\s*(\d+)", text):
                     targets[name] = targets.get(name, 0) + int(m.group(1))
                     total += int(m.group(1))
     return {"total": total, "targets": targets} if targets else None
@@ -630,6 +637,35 @@ DESIGN_CHECKS = [
 LEVELS = ["Certified", "Benchmarked", "Differential", "Tested", "Unverified"]
 
 
+def harness_sources() -> dict:
+    """What each differential harness in the repository compares, read from its own files."""
+    adapters = {}
+    for prog in ("frame3dd", "pynite", "mystran", "kratos", "calculix"):
+        m = re.search(r"^ANALYSES\s*=\s*\(([^)]*)\)", read(f"tools/differential/{prog}/adapter.py"), re.M)
+        adapters[prog] = set(re.findall(r'"(\w+)"', m.group(1))) if m else set()
+    return {"adapters": adapters, "opensees": read("tools/opensees/README.md"),
+            "codeaster": read("tools/differential/codeaster/README.md"),
+            "docs": {h: bool(read(os.path.normpath(os.path.join("docs/verification", d)))) for h, (d, _) in DIFF.items()}}
+
+
+def harness_covers(src: dict, h: str, analysis: str) -> bool:
+    """Whether harness `h` exists (its README is present) and compares `analysis`."""
+    if not src["docs"].get(h):
+        return False
+    doc, prog = DIFF[h]
+    if prog:
+        return analysis in src["adapters"].get(prog, set())
+    if h == "OpenSees":
+        text = src["opensees"]
+        if analysis == "static":
+            return "linear static" in text.lower() or "member end forces" in text
+        cat = OPENSEES_CATEGORY.get(analysis)
+        return bool(cat) and re.search(r"^\|\s*" + re.escape(cat) + r"\s*\|", text, re.M) is not None
+    if h == "Code_Aster":
+        return analysis == "static" and "linear static" in src["codeaster"]
+    return False
+
+
 def maturity(fm, issue_state):
     certify = read("docs/verification/CERTIFY.md")
     certify_h = set(headings(certify))
@@ -638,25 +674,11 @@ def maturity(fm, issue_state):
     symbolic = read("docs/verification/SYMBOLIC.md")
     examples = read("docs/verification/DESIGN_EXAMPLES.md")
     ts_logic = section(read("docs/verification/TS_ENGINE_LOGIC.md"), "2. Differential tests, TypeScript against Rust")
-    os_readme = read("tools/opensees/README.md")
-    aster_readme = read("tools/differential/codeaster/README.md")
-    adapters = {}
-    for prog in ("frame3dd", "pynite", "mystran", "kratos", "calculix"):
-        m = re.search(r"^ANALYSES\s*=\s*\(([^)]*)\)", read(f"tools/differential/{prog}/adapter.py"), re.M)
-        adapters[prog] = set(re.findall(r'"(\w+)"', m.group(1))) if m else set()
+
+    hsrc = harness_sources()
 
     def harness_does(h, analysis):
-        doc, prog = DIFF[h]
-        if prog:
-            return analysis in adapters.get(prog, set())
-        if h == "OpenSees":
-            if analysis == "static":
-                return "linear static" in os_readme.lower() or "member end forces" in os_readme
-            cat = OPENSEES_CATEGORY.get(analysis)
-            return bool(cat) and re.search(r"^\|\s*" + re.escape(cat) + r"\s*\|", os_readme, re.M) is not None
-        if h == "Code_Aster":
-            return analysis == "static" and "linear static" in aster_readme
-        return False
+        return harness_covers(hsrc, h, analysis)
 
     def bench_ok(names):
         hits = [n for n in names if bench_rows.get(n) in ("Strong", "Good")]
@@ -725,8 +747,11 @@ def maturity(fm, issue_state):
         if b:
             ev["Benchmarked"] = "[BENCHMARKS](../BENCHMARKS.md#solver-capability-matrix): " + "; ".join(
                 f"{n} ({bench_rows[n]})" for n in b)
-        if harnesses:
-            ev["Differential"] = ", ".join(f"[{h}]({DIFF[h][0]})" for h in harnesses)
+        live = [h for h in harnesses if harness_does(h, "static")]
+        for h in set(harnesses) - set(live):
+            warn(f"element {name}: differential harness {h} not found or not comparing static results")
+        if live:
+            ev["Differential"] = ", ".join(f"[{h}]({DIFF[h][0]})" for h in live)
         dims = []
         for dim in ("2D", "3D"):
             for f in feats:
@@ -999,6 +1024,95 @@ def load_history(directory: str) -> list[dict]:
     return sorted(rows, key=lambda r: _version_key(r["release"]))
 
 
+S_TRUST, S_COV, S_PROOF, S_REL, S_MULT = ("Trust and verification", "Engineering coverage",
+                                          "Solver and proof depth", "Release safety", "Multipliers")
+
+
+def ts_metrics(ts) -> dict:
+    """Rust vs TypeScript metrics; not measured when the inventory could not be read (an empty
+    inventory would otherwise read as "100 % Rust")."""
+    labels = {"rust_share": "Engineering logic in Rust (share of lines)",
+              "ts_high_safety": "TypeScript (b)+(c) modules rated high safety",
+              "ts_engineering_lines": "TypeScript engineering arithmetic, classes (b)+(c) (lines)"}
+    if sum(c["modules"] for c in ts["by_class"].values()) == 0:
+        return {k: metric(l, status="not_measured", section=S_COV,
+                          note="TS_ENGINE_LOGIC.md inventory missing or unreadable") for k, l in labels.items()}
+    ts_eng = ts["by_class"]["b"]["lines"] + ts["by_class"]["c"]["lines"]
+    share = pct(ts["rust_lines"], ts["rust_lines"] + ts_eng)
+    return {
+        "rust_share": metric(labels["rust_share"], share, display=f"{share} %", section=S_COV,
+                             source="engine/src vs TS_ENGINE_LOGIC.md classes (b)+(c)",
+                             note=f"TypeScript (b)+(c): {ts_eng} lines in "
+                                  f"{ts['by_class']['b']['modules'] + ts['by_class']['c']['modules']} modules; "
+                                  f"{ts['unclassified']['modules']} TS modules not yet classified"),
+        "ts_high_safety": metric(labels["ts_high_safety"], ts["high_bc"]["modules"],
+                                 display=f"{ts['high_bc']['modules']} modules, {ts['high_bc']['lines']} lines",
+                                 section=S_COV, source="TS_ENGINE_LOGIC.md inventory (Safety column)"),
+        "ts_engineering_lines": metric(labels["ts_engineering_lines"], ts_eng, section=S_COV,
+                                       source="TS_ENGINE_LOGIC.md inventory, recounted"),
+    }
+
+
+def fm_metrics(fm) -> dict:
+    """Feature-matrix metrics; not measured when no cell could be read (zero cells would otherwise
+    read as "0 BAD cells")."""
+    total = {}
+    for d in fm:
+        for sym, n in fm[d]["counts"].items():
+            total[sym] = total.get(sym, 0) + n
+    if not total:
+        why = "FEATURE_MATRIX.md missing or unreadable"
+        return {"fm_cells": metric("Feature-matrix cells (2D + 3D)", status="not_measured", note=why, section=S_COV),
+                "fm_bad": metric("Feature-matrix cells E / IGN / BAD / K", status="not_measured", note=why,
+                                 section=S_COV)}
+    bad = sum(total.get(sym, 0) for sym in ("E", "IGN", "BAD", "K"))
+    return {"fm_cells": metric("Feature-matrix cells (2D + 3D)", sum(total.values()),
+                               display=", ".join(f"{k} {n}" for k, n in sorted(total.items())), section=S_COV,
+                               source="FEATURE_MATRIX.md"),
+            "fm_bad": metric("Feature-matrix cells E / IGN / BAD / K", bad, section=S_COV, source="FEATURE_MATRIX.md")}
+
+
+def ci_metrics(gh, max_runs: int):
+    """Metrics from CI artifacts (honouring gh.require_sha). A metric is left out (and later written
+    as not measured) when no usable artifact exists or its value is undefined."""
+    M, details = {}, {}
+    diff = differential(gh, max_runs)
+    details["differential"] = diff
+    if diff:
+        comp = sum(r["compared"] for r in diff.values())
+        ok = sum(r["ok"] for r in diff.values())
+        mis = sum(r["mismatch"] for r in diff.values())
+        M["differential_compared"] = metric(
+            "Differential models compared (latest run per harness)", comp,
+            display=f"{comp} ({ok} agree, {mis} mismatch)", section=S_TRUST,
+            source=", ".join(sorted(diff)),
+            note="see Details; no report yet: " + (", ".join(
+                h for h in ("frame3dd", "pynite", "mystran", "kratos", "calculix", "opensees", "codeaster")
+                if h not in diff) or "none"))
+    rm = rust_mutants(gh, max_runs)
+    details["rust_mutants"] = rm
+    sc = pct(rm["caught"], rm["caught"] + rm["missed"]) if rm else None
+    if sc is not None:
+        partial = rm["tested"] < rm["planned"]
+        M["mutation_rust"] = metric(
+            "Mutation score, Rust (cargo-mutants)", sc,
+            display=f"{sc} %" + (f" (partial: {rm['tested']} of {rm['planned']} mutants tested)" if partial else ""),
+            section=S_PROOF, status="partial" if partial else "measured",
+            source=f"verify.yml [{rm['date']}]({rm['run']})",
+            note=f"caught/(caught+missed); {rm['shards']} shards; jobs: "
+                 + ", ".join(sorted(set(str(v) for v in rm["jobs"].values()))))
+    tm = ts_mutants(gh, max_runs)
+    details["ts_mutants"] = tm
+    if tm and tm.get("score") is not None:
+        M["mutation_ts"] = metric("Mutation score, TypeScript (Stryker)", tm["score"], display=f"{tm['score']} %",
+                                  section=S_COV, source=f"mutation-ts.yml [{tm['date']}]({tm['run']})")
+    fz = fuzz_execs(gh, max_runs)
+    if fz:
+        M["fuzz_execs"] = metric("Fuzz executions (latest nightly)", fz["total"], section=S_TRUST,
+                                 source="verify.yml fuzz-stats-*")
+    return M, details
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--offline", action="store_true", help="repository only; keep GitHub values from dashboard.json")
@@ -1035,8 +1149,6 @@ def main():
             return p
         return metric(label, status="not_measured", note=why, section=section_name)
 
-    S_TRUST, S_COV, S_PROOF, S_REL, S_MULT = ("Trust and verification", "Engineering coverage",
-                                              "Solver and proof depth", "Release safety", "Multipliers")
 
     # Safety issues and roadmap issues
     issue_state = prev.get("issue_state", {})
@@ -1070,31 +1182,12 @@ def main():
     # Rust vs TypeScript
     ts = ts_engine_logic()
     details["ts"] = ts
-    ts_eng = ts["by_class"]["b"]["lines"] + ts["by_class"]["c"]["lines"]
-    share = pct(ts["rust_lines"], ts["rust_lines"] + ts_eng)
-    M["rust_share"] = metric("Engineering logic in Rust (share of lines)", share, display=f"{share} %", section=S_COV,
-                             source="engine/src vs TS_ENGINE_LOGIC.md classes (b)+(c)",
-                             note=f"TypeScript (b)+(c): {ts_eng} lines in "
-                                  f"{ts['by_class']['b']['modules'] + ts['by_class']['c']['modules']} modules; "
-                                  f"{ts['unclassified']['modules']} TS modules not yet classified")
-    M["ts_high_safety"] = metric("TypeScript (b)+(c) modules rated high safety", ts["high_bc"]["modules"],
-                                 display=f"{ts['high_bc']['modules']} modules, {ts['high_bc']['lines']} lines",
-                                 section=S_COV, source="TS_ENGINE_LOGIC.md inventory (Safety column)")
-    M["ts_engineering_lines"] = metric("TypeScript engineering arithmetic, classes (b)+(c) (lines)", ts_eng,
-                                       section=S_COV, source="TS_ENGINE_LOGIC.md inventory, recounted")
+    M.update(ts_metrics(ts))
 
     # Feature matrix
     fm = feature_matrix()
     details["feature_matrix"] = {d: fm[d]["counts"] for d in fm}
-    total = {}
-    for d in fm:
-        for s, n in fm[d]["counts"].items():
-            total[s] = total.get(s, 0) + n
-    bad = sum(total.get(s, 0) for s in ("E", "IGN", "BAD", "K"))
-    M["fm_cells"] = metric("Feature-matrix cells (2D + 3D)", sum(total.values()),
-                           display=", ".join(f"{s} {n}" for s, n in sorted(total.items())), section=S_COV,
-                           source="FEATURE_MATRIX.md")
-    M["fm_bad"] = metric("Feature-matrix cells E / IGN / BAD / K", bad, section=S_COV, source="FEATURE_MATRIX.md")
+    M.update(fm_metrics(fm))
 
     # Maturity (also gives certified shares)
     issue_nums = catalog_issues()
@@ -1136,41 +1229,13 @@ def main():
                                 section=S_PROOF, source="verify/*.lean")
 
     # CI artifacts
+    if a.record:
+        gh.require_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
+                                        text=True).stdout.strip()
     if gh.ok:
-        diff = differential(gh, a.max_runs)
-        details["differential"] = diff
-        if diff:
-            comp = sum(r["compared"] for r in diff.values())
-            ok = sum(r["ok"] for r in diff.values())
-            mis = sum(r["mismatch"] for r in diff.values())
-            M["differential_compared"] = metric(
-                "Differential models compared (latest run per harness)", comp,
-                display=f"{comp} ({ok} agree, {mis} mismatch)", section=S_TRUST,
-                source=", ".join(sorted(diff)),
-                note="see Details; no report on main yet: " + (", ".join(
-                    h for h in ("frame3dd", "pynite", "mystran", "kratos", "calculix", "opensees", "codeaster")
-                    if h not in diff) or "none"))
-        rm = rust_mutants(gh, a.max_runs)
-        details["rust_mutants"] = rm
-        if rm:
-            sc = pct(rm["caught"], rm["caught"] + rm["missed"])
-            partial = rm["tested"] < rm["planned"]
-            M["mutation_rust"] = metric(
-                "Mutation score, Rust (cargo-mutants)", sc,
-                display=f"{sc} %" + (f" (partial: {rm['tested']} of {rm['planned']} mutants tested)" if partial else ""),
-                section=S_PROOF, status="partial" if partial else "measured",
-                source=f"verify.yml [{rm['date']}]({rm['run']})",
-                note=f"caught/(caught+missed); {rm['shards']} shards; jobs: "
-                     + ", ".join(sorted(set(str(v) for v in rm["jobs"].values()))))
-        tm = ts_mutants(gh, a.max_runs)
-        details["ts_mutants"] = tm
-        if tm:
-            M["mutation_ts"] = metric("Mutation score, TypeScript (Stryker)", tm["score"], display=f"{tm['score']} %",
-                                      section=S_COV, source=f"mutation-ts.yml [{tm['date']}]({tm['run']})")
-        fz = fuzz_execs(gh, a.max_runs)
-        if fz:
-            M["fuzz_execs"] = metric("Fuzz executions (latest nightly)", fz["total"], section=S_TRUST,
-                                     source="verify.yml fuzz-stats-*")
+        ci, ci_details = ci_metrics(gh, a.max_runs)
+        M.update(ci)
+        details.update(ci_details)
     head_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     cov = coverage(gh, a.max_runs, a.coverage_json, require_sha=head_sha if a.record else None)
     if cov:
@@ -1179,12 +1244,14 @@ def main():
         if cov.get("branches") is not None:
             M["coverage_branches"] = metric("Engine branch coverage (llvm-cov)", cov["branches"],
                                             display=f"{cov['branches']:.1f} %", section=S_PROOF, source=cov["source"])
+    where = "of the release commit" if a.record else "on main"
     for key, label, sec, why in (
         ("differential_compared", "Differential models compared (latest run per harness)", S_TRUST,
-         "no differential report found on main"),
-        ("mutation_rust", "Mutation score, Rust (cargo-mutants)", S_PROOF, "no mutants report found on main"),
+         f"no differential report found {where}"),
+        ("mutation_rust", "Mutation score, Rust (cargo-mutants)", S_PROOF,
+         f"no mutants report with a defined score found {where}"),
         ("mutation_ts", "Mutation score, TypeScript (Stryker)", S_COV,
-         "no successful nightly Stryker run on main yet"),
+         f"no successful Stryker run with a defined score found {where}"),
         ("fuzz_execs", "Fuzz executions (latest nightly)", S_TRUST,
          "the nightly fuzz job does not publish execution counts yet (artifact fuzz-stats-<target>)"),
         ("coverage_lines", "Engine line coverage (llvm-cov)", S_PROOF, "no llvm-cov run yet (artifact llvm-cov-summary)"),

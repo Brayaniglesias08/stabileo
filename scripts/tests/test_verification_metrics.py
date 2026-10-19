@@ -38,6 +38,9 @@ class FakeGH:
             rs = [r for r in rs if r["headBranch"] == branch]
         return rs[:max_runs]
 
+    def jobs(self, run_id):
+        return [{"name": "mutants (0)", "conclusion": "success"}]
+
     def artifacts(self, run_id):
         return [{"name": n, "expired": False} for n in self._arts.get(run_id, [])]
 
@@ -177,6 +180,175 @@ class SafetyMapping(unittest.TestCase):
         rows = {r[0]: set(r[5]) for r in vm.ANALYSES}
         self.assertIn(444, rows["Winkler foundation"])
         self.assertIn(445, rows["Constraints (rigid links, diaphragms, EqualDOF, MPC)"])
+
+
+class hidden:
+    """Context manager: make `vm.read` behave as if these repository paths (or directories) were
+    deleted. Every documentary evidence source of the script is read through `vm.read`."""
+
+    def __init__(self, *paths):
+        self.paths = [os.path.normpath(p) for p in paths]
+
+    def __enter__(self):
+        self.orig = vm.read
+
+        def fake(rel):
+            r = os.path.normpath(rel)
+            if any(r == p or r.startswith(p + os.sep) for p in self.paths):
+                return ""
+            return self.orig(rel)
+        vm.read = fake
+        return self
+
+    def __exit__(self, *exc):
+        vm.read = self.orig
+
+
+def maturity_rows():
+    rows = vm.maturity(vm.feature_matrix(), {})
+    return {r["name"]: r for k in rows for r in rows[k]}
+
+
+LINEAR = "Linear static"
+COROT = "Co-rotational (geometric nonlinear)"
+CONNECTOR = "Connector (spring element)"
+FRAME = "Frame, Euler–Bernoulli (2D, 3D)"
+AISC = "AISC 360 steel (`steel_check`)"
+CONN = "Connections, engine (`connection_check`)"
+FOOT = "Spread footings, engine (`foundation_check`)"
+
+
+class EvidenceRemovalDowngrades(unittest.TestCase):
+    """Negative case per evidence source: removing the evidence must lower the level."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.base = maturity_rows()
+
+    def test_baseline_levels(self):
+        b = self.base
+        self.assertEqual(b[LINEAR]["level"], "Certified")
+        self.assertEqual(b[COROT]["level"], "Benchmarked")
+        self.assertEqual(b[CONNECTOR]["level"], "Differential")
+        self.assertEqual(b[FRAME]["level"], "Certified")
+        self.assertEqual(b[AISC]["level"], "Certified")
+        self.assertEqual(b[CONN]["level"], "Benchmarked")
+        self.assertEqual(b[FOOT]["level"], "Differential")
+
+    def test_certify_doc_removed(self):
+        with hidden("docs/verification/CERTIFY.md"):
+            r = maturity_rows()
+        self.assertNotIn("Certified", r[LINEAR]["evidence"])
+        self.assertNotEqual(r[LINEAR]["level"], "Certified")
+        self.assertNotEqual(r[AISC]["level"], "Certified")
+
+    def test_benchmarks_doc_removed(self):
+        with hidden("docs/BENCHMARKS.md"):
+            r = maturity_rows()
+        self.assertEqual(r[COROT]["level"], "Tested")
+        self.assertNotIn("Benchmarked", r[LINEAR]["evidence"])
+
+    def test_one_harness_removed(self):
+        with hidden("tools/differential/codeaster"):
+            r = maturity_rows()
+        self.assertEqual(r[CONNECTOR]["level"], "Tested")
+        self.assertNotIn("Code_Aster", r[LINEAR]["evidence"].get("Differential", ""))
+        self.assertIn("OpenSees", r[LINEAR]["evidence"]["Differential"])
+
+    def test_all_harnesses_removed(self):
+        with hidden("tools/differential", "tools/opensees"):
+            r = maturity_rows()
+        for row in r.values():
+            if "Differential" in row["evidence"]:
+                self.assertIn("TypeScript vs Rust", row["evidence"]["Differential"], row["name"])
+
+    def test_symbolic_doc_removed(self):
+        with hidden("docs/verification/SYMBOLIC.md"):
+            r = maturity_rows()
+        self.assertEqual(r[FRAME]["level"], "Benchmarked")
+
+    def test_worked_examples_removed(self):
+        with hidden("docs/verification/DESIGN_EXAMPLES.md"):
+            r = maturity_rows()
+        self.assertNotEqual(r[CONN]["level"], "Benchmarked")
+
+    def test_ts_differential_removed(self):
+        with hidden("docs/verification/TS_ENGINE_LOGIC.md"):
+            r = maturity_rows()
+            m = vm.ts_metrics(vm.ts_engine_logic())
+        self.assertNotEqual(r[FOOT]["level"], "Differential")
+        for k, v in m.items():
+            self.assertEqual(v["status"], "not_measured", k)
+
+    def test_feature_matrix_removed(self):
+        with hidden("docs/verification/FEATURE_MATRIX.md"):
+            fm = vm.feature_matrix()
+            r = maturity_rows()
+        self.assertNotIn("feature matrix", r[LINEAR]["evidence"].get("Tested", ""))
+        for k, v in vm.fm_metrics(fm).items():
+            self.assertEqual(v["status"], "not_measured", k)
+
+    def test_repo_metrics_measured_when_evidence_present(self):
+        for v in list(vm.fm_metrics(vm.feature_matrix()).values()) + list(vm.ts_metrics(vm.ts_engine_logic()).values()):
+            self.assertEqual(v["status"], "measured", v["label"])
+
+
+class AcceptanceEvidence(unittest.TestCase):
+    def test_absent_then_present(self):
+        orig = vm.ROOT
+        try:
+            vm.ROOT = tempfile.mkdtemp()
+            self.assertIsNone(vm.acceptance())
+            d = os.path.join(vm.ROOT, "engine", "tests", "acceptance", "models")
+            os.makedirs(d)
+            with open(os.path.join(d, "a.json"), "w") as f:
+                json.dump({"analysis": "modal", "references": [{}, {}]}, f)
+            self.assertEqual(vm.acceptance(), {"cases": 1, "references": 2, "by_analysis": {"modal": 1}})
+        finally:
+            vm.ROOT = orig
+
+
+def mutants_dir(caught, missed):
+    return {"caught.txt": "m\n" * caught, "missed.txt": "m\n" * missed, "timeout.txt": "", "unviable.txt": "",
+            "mutants.json": json.dumps([{}] * (caught + missed))}
+
+
+def ci_gh(require_sha=None, caught=9, missed=1):
+    r_verify = dict(run(5), headSha="tagsha")
+    r_diff = dict(run(4), headSha="other")
+    gh = FakeGH({"verify.yml": [r_verify], "differential.yml": [r_diff],
+                 "mutation-ts.yml": [dict(run(3), headSha="tagsha")]},
+                {5: ["mutants-report-0", "fuzz-stats-json_static"], 4: ["differential-pynite"], 3: ["stryker-report"]},
+                {(5, "mutants-report-0"): mutants_dir(caught, missed),
+                 (5, "fuzz-stats-json_static"): {"s.txt": "stat::number_of_executed_units: 1234"},
+                 (4, "differential-pynite"): {"r.json": json.dumps([{"status": "ok"}, {"status": "mismatch"}])},
+                 (3, "stryker-report"): stryker(3, 1)})
+    gh.require_sha = require_sha
+    return gh
+
+
+class CIEvidence(unittest.TestCase):
+    def test_all_ci_metrics_from_artifacts(self):
+        m, _ = vm.ci_metrics(ci_gh(), 10)
+        self.assertEqual(set(m), {"differential_compared", "mutation_rust", "mutation_ts", "fuzz_execs"})
+        self.assertEqual(m["mutation_rust"]["value"], 90.0)
+        self.assertEqual(m["fuzz_execs"]["value"], 1234)
+
+    def test_no_artifacts_no_metrics(self):
+        m, _ = vm.ci_metrics(FakeGH({}, {}), 10)
+        self.assertEqual(m, {})
+
+    def test_release_sha_applies_to_every_ci_reader(self):
+        m, _ = vm.ci_metrics(ci_gh(require_sha="tagsha"), 10)
+        self.assertNotIn("differential_compared", m)  # that run is of another commit
+        self.assertEqual(set(m), {"mutation_rust", "mutation_ts", "fuzz_execs"})
+        m, _ = vm.ci_metrics(ci_gh(require_sha="nothing"), 10)
+        self.assertEqual(m, {})
+
+    def test_undefined_mutation_score_is_not_measured(self):
+        m, _ = vm.ci_metrics(ci_gh(caught=0, missed=0), 10)
+        self.assertNotIn("mutation_rust", m)
+        self.assertNotIn("None", json.dumps(m))
 
 
 if __name__ == "__main__":
