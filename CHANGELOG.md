@@ -41,6 +41,13 @@ members and no longer mirror nodal couples.** Rebase of #274 by @diegokingston o
   compressed along its span is no longer refused as "No compressed elements".
 - The 2D diagram certificate bounds N' by q_x on each interval, so an axial point load's jump
   beside an axial span load is no longer dropped.
+- Corotational truss and cable bars recover the axial span load: N varies along them as in
+  the linear solve instead of being constant.
+- Staged construction applies member loads on truss bars. Before, it dropped all of them:
+  axial span loads, distributed and point loads, and temperature.
+- Moving-load envelopes of N, V and M read the diagram along each member, not only its end
+  values. Under a span load M peaks inside the span, and under a sign-changing axial load so
+  does N, so these envelopes can now be larger than before.
 - 2D models already materialized to PRO keep their old mirrored couples and lumped axial loads.
   There is no migration.
 
