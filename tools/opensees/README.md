@@ -57,8 +57,13 @@ stabileo's refusals and warnings are checked against OpenSees too:
 | `refused` | stabileo refuses the model and OpenSees finds no unique answer either (κ > 1e12, or the converter rejects it for the same reason: a nodal moment on a rotation nothing stiffens, a rotational mechanism) |
 | `false_reject` | stabileo refuses a model whose OpenSees stiffness is regular (κ < 1e10): flagged, exit 1 |
 | `false_warning` | stabileo flags a model ill-conditioned whose OpenSees stiffness is well conditioned (κ < 1e8): flagged, exit 1 |
-| `not_applicable` | buckling with no positive load factor on either side (no member in compression, or none whose compression reaches a free DOF) |
-| `stabileo_failed` | a refusal neither side decides (1e10 ≤ κ ≤ 1e12, or OpenSees failed too) |
+| `not_applicable` | buckling with no load factor on either side (no member in compression, or none whose compression reaches a free DOF); an OpenSees factor above 1e9 comes from axial forces of round-off size and counts as none |
+| `stabileo_failed` | a refusal neither side decides (1e10 ≤ κ ≤ 1e12, or OpenSees failed for a reason other than a singular stiffness) |
+
+The converter used to drop nodal moments silently in truss-only models
+(no rotation DOFs, `ndf` 2 / 3), so both sides compared a model without
+the moment; such a model is now `unsupported` ("nodal moment on a
+rotation-free node"), and a `refused` when stabileo refuses it.
 
 Modal and buckling jobs check the static probe's conditioning before the
 eigen solve, so a mechanism is `ill_conditioned` whatever the eigen solver

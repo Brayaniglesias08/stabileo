@@ -542,7 +542,8 @@ def opensees_2d(d, mode="static", spec=None):
         t, x = ld["type"], ld["data"]
         if t == "nodal":
             f = [x.get("fx", 0.0), _get(x, "fz", "fy"), _get(x, "my", "mz")]
-            if ndf == 3 and abs(f[2]) > 0 and x["nodeId"] in art_rot:
+            # (ndf == 2: a truss-only model has no rotation for it either.)
+            if abs(f[2]) > 0 and (ndf == 2 or x["nodeId"] in art_rot):
                 raise Unsupported("nodal moment on a rotation-free (all-hinged) node")
             add_nodal(x["nodeId"], f[:ndf])
             continue
@@ -896,7 +897,7 @@ def opensees_3d(d, mode="static", spec=None):
         t, x = ld["type"], ld["data"]
         if t == "nodal":
             f = [x.get(k, 0.0) or 0.0 for k in ("fx", "fy", "fz", "mx", "my", "mz")]
-            if x["nodeId"] in art_rot and any(abs(v) > 0 for v in f[3:]):
+            if (ndf == 3 or x["nodeId"] in art_rot) and any(abs(v) > 0 for v in f[3:]):
                 raise Unsupported("nodal moment on a rotation-free node")
             add_nodal(x["nodeId"], f[:ndf])
             continue
@@ -1727,6 +1728,9 @@ def classify_refusal(r, ores):
         if any(t in ores["unsupported"] for t in REFUSED_TOO):
             return dict(r, status="refused", why=r["why"] + [f"opensees: {ores['unsupported']}"])
         return dict(r, why=r["why"] + [f"opensees: unsupported ({ores['unsupported']})"])
+    if "failed" in ores and "singular" in ores["failed"]:
+        # OpenSees' own solve breaks down on the stiffness: no unique answer.
+        return dict(r, status="refused", why=r["why"] + [f"opensees: {ores['failed']}"])
     if "failed" in ores or kappa is None:
         return r
     if kappa > KAPPA_MAX:
@@ -1834,14 +1838,17 @@ def run_ext(name, job, binary, tol, dump_dir=None):
             # A rigid-body mode (a member hanging on hinges, say): the static
             # probe does not load it, the eigenproblem finds it.
             return dict(base, status="ill_conditioned", why=[f"mechanism (OpenSees omega_1 = {v[0]:.1e})"])
-        if kind == "buckling" and "failed" not in ores and not v and \
+        # A load factor above 1e9 is OpenSees' eigensolver on axial forces of
+        # round-off size (1e-12 kN in buckling2d-744187), not a buckling load.
+        if kind == "buckling" and "failed" not in ores and (not v or min(v) > 1e9) and \
                 ("No compressed elements" in str(ex) or "No positive buckling load factors" in str(ex)):
             # Nothing buckles under this load (no member in compression, or
             # none whose compression reaches a free DOF): OpenSees' K + Kg
             # eigenproblem has no positive load factor either.
-            return dict(base, status="not_applicable", why=[str(ex)[:200], "opensees: no positive load factor"])
+            return dict(base, status="not_applicable",
+                        why=[str(ex)[:200], f"opensees: no load factor below 1e9 ({v[:2]})"])
         r = dict(base, status="stabileo_failed", why=[str(ex)[:200]])
-        if kind == "buckling" and v:
+        if kind == "buckling" and v and min(v) <= 1e9:
             r = dict(r, status="false_reject", why=r["why"] + [f"opensees load factors {v[:3]}"])
             if dump_dir:
                 _dump(dump_dir, name, job)
