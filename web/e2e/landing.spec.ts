@@ -82,6 +82,9 @@ test.describe('@landing landing page', () => {
     const blog = page.locator('.landing nav.nav .nav-links a.nav-link');
     await expect(blog).toHaveText('Blog');
     await expect(blog).toHaveAttribute('href', '/es/blog/');
+    // Nav items are written as words, not as the uppercase section eyebrows
+    // ("PRECIOS" used to sit between "Educativo" and "Blog").
+    await expect(page.locator('.landing nav.nav .nav-links button', { hasText: 'Precios' })).toHaveText('Precios');
     await blog.click();
     await expect(page).toHaveURL(/\/es\/blog\/$/);
     await expect(page.locator('.post-card')).not.toHaveCount(0);

@@ -24,7 +24,7 @@
     { id: 'pro', key: 'landing.navPro' },
     { id: 'ai', key: 'landing.navAi' },
     { id: 'education', key: 'landing.navEducation' },
-    { id: 'pricing', key: 'landing.ebPricing' },
+    { id: 'pricing', key: 'landing.navPricing' },
   ];
 
   $effect(() => {

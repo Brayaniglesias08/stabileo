@@ -81,7 +81,7 @@
       <table class="model-table">
         <thead>
           <tr>
-            <th scope="col"><span class="sr-only">{t('landing.ebPricing')}</span></th>
+            <th scope="col"><span class="sr-only">{t('landing.navPricing')}</span></th>
             <th scope="col">{t('landing.colFirms')}</th>
             <th scope="col">{t('landing.colUnis')}</th>
           </tr>
