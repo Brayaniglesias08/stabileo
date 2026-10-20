@@ -1299,7 +1299,11 @@ pub fn solve_corotational_3d(
     // section (internal torque and tangent) but not the shear-centre coupling of
     // a monosymmetric one: refused rather than missing its flexural-torsional
     // instability without a word.
-    if let Some(sec) = input.sections.values().find(|s| {
+    // Only the sections of frame members: the catalogue may hold unused ones, and a truss has
+    // no flexural-torsional coupling to miss.
+    let frame_sections: std::collections::HashSet<usize> =
+        input.elements.values().filter(|e| e.elem_type == "frame").map(|e| e.section_id).collect();
+    if let Some(sec) = input.sections.values().filter(|s| frame_sections.contains(&s.id)).find(|s| {
         s.shear_center_y.is_some_and(|v| v != 0.0) || s.shear_center_z.is_some_and(|v| v != 0.0)
     }) {
         return Err(format!(

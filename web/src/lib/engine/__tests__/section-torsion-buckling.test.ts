@@ -15,6 +15,7 @@ import { uiStore } from '../../store/ui.svelte';
 import '../../store';
 import { initSolver, solveBuckling3D, solvePDelta3D, solve3D } from '../wasm-solver';
 import { validateAndSolve3D } from '../solver-service';
+import { workerPDelta } from '../direct-analysis';
 import { solverProperties } from '../../section/state';
 import { bucklingWarpingInput } from '../buckling-warping';
 import type { SolverInput3D } from '../types-3d';
@@ -207,6 +208,15 @@ describe('no invented torsion constant', () => {
     const i = input();
     expect(i.sections.get(sec)!.torsionGap).toBe('shearCentre');
     expect(() => solveBuckling3D(i, 2)).toThrow(/shear center/);
+  });
+
+  it('P-Delta in a worker refuses the same channel (it used to publish forces without the coupling)', async () => {
+    // The wire object drops `torsionGap`, so the worker could not know (Codex review of #468).
+    forkColumn({ name: 'C declared', shape: 'U', declared: true, a: 32.2e-4, iy: 1910e-8, iz: 148e-8, j: 11.9e-8 } as never, 2, 2);
+    let dispatched = 0;
+    const run = workerPDelta(async () => { dispatched++; return {}; });
+    await expect(run(input(), 20, 1e-4)).rejects.toThrow(/shear center/);
+    expect(dispatched).toBe(0);
   });
 });
 

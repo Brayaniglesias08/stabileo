@@ -699,3 +699,23 @@ fn second_order_member_torques_balance_applied_torque_and_reactions() {
     let amp = mid(&co.results) / mid(&pd.linear_results);
     assert!((amp - 2.0).abs() < 0.02, "co-rotational twist amplification {amp}");
 }
+
+/// The co-rotational solver refuses a shear-centre offset it does not model, but only on the
+/// sections of frame members (Codex review of #468): an unused section in the catalogue, as the
+/// web sends the whole catalogue, does not stop an otherwise supported frame.
+#[test]
+fn corotational_refuses_shear_centre_offset_only_where_a_frame_uses_it() {
+    let load = vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 5, fx: 0.0, fy: 0.0, fz: -1.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None })];
+    let mut input = make_3d_beam(4, 3.0, E, NU, 0.01, 1e-4, 1e-4, 1e-5, vec![true; 6], None, load);
+    let mut offset = input.sections.values().next().unwrap().clone();
+    offset.id = 99;
+    offset.shear_center_y = Some(0.02);
+    input.sections.insert("99".into(), offset);
+    // Only in the catalogue: solved.
+    let free = dedaliano_engine::solver::corotational::solve_corotational_3d(&input, 50, 1e-10, 5, false);
+    assert!(free.is_ok(), "an unused offset section must not refuse the model: {:?}", free.err());
+    // Used by a frame member: refused by name.
+    input.elements.values_mut().next().unwrap().section_id = 99;
+    let err = dedaliano_engine::solver::corotational::solve_corotational_3d(&input, 50, 1e-10, 5, false).unwrap_err();
+    assert!(err.contains("shear-centre offset") && err.contains("99"), "{err}");
+}
