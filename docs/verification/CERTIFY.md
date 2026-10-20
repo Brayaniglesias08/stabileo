@@ -673,6 +673,7 @@ bound by the scaling's rounding), `certify_steel_multi_case_2d/3d`
 | ACI 318-19 (`rc_check`): RC flexure 22.2 (strain compatibility, rectangular singly / doubly, T-beam flange / web), P-M interaction 22.4 at the axial load, axial capacity 22.4.2.1 / 22.4.3.1, φ Table 21.2.2, shear 22.5.5.1 (Av,min switch, λs, √f'c ≤ 8.3, Vs,max) | **certified** |
 | NDS timber (`timber_check`): bending 3.3 (CL with the Table 3.3.3 effective span), compression 3.6 (CP), tension 3.8, shear 3.4, interaction 3.9.1 / 3.9.2 (FcE1 amplification, saturated at 99) | **certified** |
 | AISI S100 (`cfs_check`): compression E2 (weak-axis flexural buckling, local via Ae) / E4 distortional, tension D2, flexure F2.1 LTB / F4 distortional, weak-axis flexure, web shear G2.1 (three ranges), linear interaction H1.2 / H2 | **certified** |
+| CIRSOC 301 (`cirsoc301_check`): tension D.2, compression E.3–E.7, flexure F.2–F.6, shear G.2/G.4, interaction H.1 (see the bullet above) | **certified** |
 | masonry, connections, foundations, serviceability | not certified (f64 only) |
 
 Timber note: past buckling (`fc ≥ FcE1`) the f64 check saturates the 3.9.2 ratio at 99;

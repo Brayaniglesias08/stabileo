@@ -303,7 +303,7 @@ fn solve_multi_case_3d_per_case(input: &MultiCaseInput3D) -> Result<MultiCaseRes
 
     for (idx, lc) in input.load_cases.iter().enumerate() {
         let case_input = SolverInput3D {
-            solver_options: input.solver.solver_options.clone(),
+            solver_options: input.solver.solver_options.clone(), masses: input.solver.masses.clone(),
             nodes: input.solver.nodes.clone(),
             materials: input.solver.materials.clone(),
             sections: input.solver.sections.clone(),
@@ -381,7 +381,7 @@ fn solve_multi_case_2d_per_case(input: &MultiCaseInput) -> Result<MultiCaseResul
 
     for (idx, lc) in input.load_cases.iter().enumerate() {
         let case_input = SolverInput {
-            solver_options: input.solver.solver_options.clone(),
+            solver_options: input.solver.solver_options.clone(), masses: input.solver.masses.clone(),
             nodes: input.solver.nodes.clone(),
             materials: input.solver.materials.clone(),
             sections: input.solver.sections.clone(),

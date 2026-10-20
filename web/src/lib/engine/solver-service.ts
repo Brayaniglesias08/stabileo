@@ -37,7 +37,6 @@ import { expandJoints3D, modelHasJoints3D, EMBED_XZ_DOF_PERMUTATION } from './ex
 import { expandShellOffsets, modelHasShellOffsets } from './shell-offsets';
 import { enrichComboShellStresses, envelopeShellStresses } from './shell-combos';
 import { axialShares, combineShares, giveBackAxialShares } from './axial-shares';
-import { withDiaphragmRotation } from './diaphragm-rotation';
 import { addSettlementCase, addSettlementCase2D, hasSettlement, withoutSettlement, SETTLEMENT_CASE_ID } from './settlement-case';
 import { memberThermalScale, thermalAlphaOf, ENGINE_ALPHA } from './thermal-alpha';
 import { pointToSolver, pointToEnds, PointLoadNeedsCut } from './member-point-loads';
@@ -1842,8 +1841,9 @@ export function buildSolverInput3D(
     // `curved` flag; both keyed by their own id, stresses return in quadStresses).
     quads: model.quads ? new Map(Array.from(model.quads.entries()).filter(([, q]) => !q.curved).map(([id, q]) => [id, { id: q.id, nodes: q.nodes, materialId: q.materialId, thickness: q.thickness }])) : new Map(),
     curvedShells: model.quads ? new Map(Array.from(model.quads.entries()).filter(([, q]) => q.curved).map(([id, q]) => [id, { id: q.id, nodes: q.nodes, materialId: q.materialId, thickness: q.thickness }])) : new Map(),
-    // A rigid diaphragm holds the rotation about its normal as well (`diaphragm-rotation.ts`).
-    constraints: withDiaphragmRotation(model.constraints ?? []),
+    // The engine's diaphragm ties each slave's rotation about the normal too (#342); the
+    // equalDOF this added for it would now tie the same DOF twice.
+    constraints: [...(model.constraints ?? [])],
     connectors: model.connectors,
     leftHand: false, // see buildSolverLoads3D: the analysis is always right-handed
   };

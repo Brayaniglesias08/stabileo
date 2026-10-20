@@ -753,7 +753,7 @@ fn validation_mdist_ext_non_sway_unequal_columns() {
     }
 
     let input = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map, materials: mats_map, sections: secs_map,
         elements: elems_map, supports: sups_map,
         loads: vec![SolverLoad::Distributed(SolverDistributedLoad {
@@ -1074,7 +1074,7 @@ fn validation_mdist_ext_settlement() {
     });
 
     let input = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map,
         materials: mats,
         sections: secs,

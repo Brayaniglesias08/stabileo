@@ -159,6 +159,62 @@ pub struct SolverInput {
     pub connectors: HashMap<String, ConnectorElement>,
     #[serde(default)]
     pub solver_options: Option<SolverOptions>,
+    /// Mass beyond the material densities: lumped masses at nodes and added
+    /// mass along members. Used by every dynamic analysis (modal, spectral,
+    /// time history, harmonic, reduction) and never as a static load.
+    #[serde(default, skip_serializing_if = "MassInput::is_empty")]
+    pub masses: MassInput,
+}
+
+/// Mass beyond the material densities (2D). Units: t (= kN·s²/m) for mass,
+/// t/m for mass per length, t·m² for rotary inertia.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MassInput {
+    #[serde(default)]
+    pub nodal: Vec<NodalMass>,
+    #[serde(default)]
+    pub line: Vec<LineMass>,
+}
+
+impl MassInput {
+    pub fn is_empty(&self) -> bool { self.nodal.is_empty() && self.line.is_empty() }
+}
+
+/// A lumped mass at a 2D node: translational mass (t) in X and Z, and rotary
+/// inertia (t·m²) about the out-of-plane axis.
+///
+/// `mass` applies to both translations; `massX`/`massZ` replace it in their
+/// direction when given (a mass that moves with the floor horizontally but
+/// not vertically, say).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NodalMass {
+    pub node_id: usize,
+    #[serde(default)]
+    pub mass: f64,
+    #[serde(default)]
+    pub mass_x: Option<f64>,
+    #[serde(default, rename = "massZ", alias = "massY")]
+    pub mass_z: Option<f64>,
+    /// Rotary inertia about the out-of-plane axis, t·m².
+    #[serde(default, rename = "iy", alias = "iz")]
+    pub rotary_inertia: f64,
+}
+
+impl NodalMass {
+    pub fn mx(&self) -> f64 { self.mass_x.unwrap_or(self.mass) }
+    pub fn mz(&self) -> f64 { self.mass_z.unwrap_or(self.mass) }
+}
+
+/// Mass added along a member, t/m, distributed as the member's own mass is
+/// (its consistent mass matrix, as if its density were raised by
+/// `massPerLength / A`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LineMass {
+    pub element_id: usize,
+    pub mass_per_length: f64,
 }
 
 // ==================== 3D Input Types ====================
@@ -457,7 +513,78 @@ pub struct SolverInput3D {
     pub connectors: HashMap<String, ConnectorElement>,
     #[serde(default)]
     pub solver_options: Option<SolverOptions>,
+    /// Mass beyond the material densities: lumped masses at nodes, added mass
+    /// along members and over shells. Used by every dynamic analysis and never
+    /// as a static load.
+    #[serde(default, skip_serializing_if = "MassInput3D::is_empty")]
+    pub masses: MassInput3D,
 }
+
+/// Mass beyond the material densities (3D). Units: t (= kN·s²/m) for mass,
+/// t/m for mass per length, t/m² for mass per area, t·m² for rotary inertia.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MassInput3D {
+    #[serde(default)]
+    pub nodal: Vec<NodalMass3D>,
+    #[serde(default)]
+    pub line: Vec<LineMass>,
+    #[serde(default)]
+    pub area: Vec<AreaMass>,
+}
+
+impl MassInput3D {
+    pub fn is_empty(&self) -> bool { self.nodal.is_empty() && self.line.is_empty() && self.area.is_empty() }
+}
+
+/// A lumped mass at a 3D node: translational mass (t) and rotary inertia
+/// (t·m²) about the global axes.
+///
+/// `mass` applies to all three translations; `massX`/`massY`/`massZ` replace
+/// it in their direction when given (a storey mass that is horizontal only:
+/// `mass` 0 with `massX` and `massY`, or `mass` with `massZ: 0`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NodalMass3D {
+    pub node_id: usize,
+    #[serde(default)]
+    pub mass: f64,
+    #[serde(default)]
+    pub mass_x: Option<f64>,
+    #[serde(default)]
+    pub mass_y: Option<f64>,
+    #[serde(default)]
+    pub mass_z: Option<f64>,
+    /// Rotary inertia about global X, Y, Z, t·m². A floor's mass moment of
+    /// inertia about the vertical axis goes in `izz` of its master node.
+    #[serde(default)]
+    pub ixx: f64,
+    #[serde(default)]
+    pub iyy: f64,
+    #[serde(default)]
+    pub izz: f64,
+}
+
+impl NodalMass3D {
+    pub fn translational(&self) -> [f64; 3] {
+        [self.mass_x.unwrap_or(self.mass), self.mass_y.unwrap_or(self.mass), self.mass_z.unwrap_or(self.mass)]
+    }
+}
+
+/// Mass added over a shell (plate, quad, quad9 or curved shell), t/m²,
+/// distributed as the shell's own mass is (its consistent mass matrix, as if
+/// its density were raised by `massPerArea / thickness`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AreaMass {
+    pub element_id: usize,
+    /// Which family the id names: "quad" (default), "plate", "quad9" or "curvedShell".
+    #[serde(default = "default_area_mass_kind")]
+    pub kind: String,
+    pub mass_per_area: f64,
+}
+
+fn default_area_mass_kind() -> String { "quad".into() }
 
 // ==================== Plate / Curved Beam Input Types ====================
 
@@ -1174,7 +1301,8 @@ pub enum Constraint {
     /// Rigid link: slave follows master with rigid-body kinematics.
     #[serde(rename = "rigidLink")]
     RigidLink(RigidLinkConstraint),
-    /// Diaphragm: in-plane rigidity coupling translational DOFs.
+    /// Diaphragm: in-plane rigid body — slaves follow the master's in-plane
+    /// translations and rotation, and their own in-plane rotation equals the master's.
     #[serde(rename = "diaphragm")]
     Diaphragm(DiaphragmConstraint),
     /// General linear MPC: Σ(coeff_i × u_i) = 0

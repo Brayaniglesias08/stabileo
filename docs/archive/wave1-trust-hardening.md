@@ -1,3 +1,5 @@
+> **Archived 2026-10-18, not current.** See [docs/archive/README.md](README.md) for why and what replaces it.
+
 # Wave 1 — Trust & Contract Hardening Agent Prompts
 
 These are self-contained prompts for coding agents. Each can be run independently.

@@ -565,6 +565,7 @@ fn test_full_pipeline_solve_to_steel_check_3d() {
                 AiscElement { kind: AiscElementKind::RolledFlange, b: 0.1015, t: 0.011, count: Some(4.0), kc: None },
                 AiscElement { kind: AiscElementKind::Web, b: 0.161, t: 0.0072, count: None, kc: None },
             ]),
+            lcz: None,
             load_position: None,
         }],
         forces: demands,

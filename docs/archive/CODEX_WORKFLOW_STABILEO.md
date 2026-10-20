@@ -1,3 +1,5 @@
+> **Archived 2026-10-18, not current.** See [docs/archive/README.md](README.md) for why and what replaces it.
+
 # Codex Workflow - Stabileo
 
 This file captures the working collaboration pattern for this project so a reset does not lose it.

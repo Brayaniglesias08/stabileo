@@ -29,7 +29,7 @@ fn empty() -> SolverInput3D {
         nodes: HashMap::new(), materials: HashMap::new(), sections: HashMap::new(), elements: HashMap::new(),
         supports: HashMap::new(), loads: vec![], constraints: vec![], left_hand: None, plates: HashMap::new(),
         quads: HashMap::new(), quad9s: HashMap::new(), solid_shells: HashMap::new(), curved_shells: HashMap::new(),
-        curved_beams: vec![], connectors: HashMap::new(), solver_options: None,
+        curved_beams: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 fn node(s: &mut SolverInput3D, id: usize, x: f64, y: f64, z: f64) {

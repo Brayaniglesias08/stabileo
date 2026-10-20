@@ -89,7 +89,7 @@ fn cantilever_3d(
     });
 
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: secs,

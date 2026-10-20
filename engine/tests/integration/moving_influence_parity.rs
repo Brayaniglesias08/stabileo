@@ -67,7 +67,7 @@ fn make_beam_2d_inclined() -> SolverInput {
 
     SolverInput {
         nodes, materials, sections, elements, supports,
-        loads, constraints: vec![], connectors: HashMap::new(), solver_options: None,
+        loads, constraints: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 
@@ -137,7 +137,7 @@ fn make_beam_3d_inclined() -> SolverInput3D {
         curved_beams: vec![],
         connectors: HashMap::new(),
 
-        solver_options: None,    }
+        solver_options: None, masses: Default::default(),    }
 }
 
 fn train_3axle() -> LoadTrain {
@@ -846,7 +846,7 @@ fn moving_loads_with_constraints_uses_legacy_fallback() {
             })],
             connectors: HashMap::new(),
 
-            solver_options: None,        },
+            solver_options: None, masses: Default::default(),        },
         train,
         path_element_ids: Some(vec![1, 2]),
         step: Some(1.0),

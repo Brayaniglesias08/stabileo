@@ -11,6 +11,70 @@ It should capture what changed, not what should be built next.
 
 ### Changed
 
+#### Design checks against published worked examples, part 2 (2026-10-18)
+
+**BREAKING (results): cold-formed columns, steel columns braced about their weak axis, masonry
+walls and partially grouted masonry shear walls get lower (correct) strengths; cold-formed
+compression without `xo` is reported unevaluated.** Examples, sources and discrepancies in
+`docs/verification/DESIGN_EXAMPLES.md` (D18–D31); tests in `engine/tests/design_worked_examples_2.rs`.
+
+- `cfs_check`: flexural-torsional buckling (AISI S100 E2.2) from the new `xo`, `kx_lx`, `kt_lt`.
+  It was weak-axis flexural buckling only: AISI Design Manual Ex. III-3 gave Pn = 10.4 against
+  6.88 kips (+51 %). Without `xo` a compression demand is unevaluated.
+- `steel_check`: AISC E4-2 torsional buckling of doubly symmetric members (`lcz`, default the
+  longer flexural length); refused when the member can twist over a longer length than it buckles
+  about y and neither J nor Cw is given. Constrained-axis torsion (girts on one flange) is still
+  not covered (D20).
+- `masonry_check`: untied bars no longer count in Pn (`laterally_tied`, +14 % before); shear
+  carries γg (`gamma_g`, default 0.70 when An < b·t, +33 % before).
+- `timber_check`: `le_bending` (Table 3.3.3 row when the loading is known) and `le_b` (column
+  length across b, 0 for sheathing). Defaults unchanged.
+- `foundation_check`: `neglect_size_effect` opts in to ACI 318-19 §13.2.6.2 (λs = 1 for
+  footings). Default unchanged (λs applied).
+
+#### Nodal masses in the engine (2026-10-18)
+
+The engine took mass only from material density. `SolverInput`/`SolverInput3D` now take
+`masses`: lumped **nodal** masses (t per direction, rotary inertia in t·m²), mass per length along
+members (**line**, t/m) and, in 3D, per area over shells (**area**, t/m²). They are assembled into
+every mass matrix (dense and sparse, inclined-support frames, before constraint reduction), so
+modal, mass participation, spectral, time history, harmonic, Guyan/Craig–Bampton and their
+certificates all see them; mass ratios divide by the mass per direction. Models without `masses`
+give the same results as before. (#341)
+
+- Validated against closed forms (SDOF, 2-DOF, torsional SDOF, cantilever with a tip mass),
+  equivalent models (raised density, slave masses through a diaphragm, an MPC in place of an
+  inclined support), the Bathe–Wilson frame and the SAC LA 3-storey case with the acceptance
+  suite's mass stubs replaced by nodal masses: `engine/tests/nodal_masses.rs`.
+- Web: the mass source sends load mass as line and area masses instead of copies of the material
+  with a raised density (same modes to 1e-10, tested), and point masses — with a button for floor
+  masses on the diaphragm masters — from the mass-source panel (en/es/pt).
+
+#### Rigid diaphragm rotates as one body (2026-10-18)
+
+**BREAKING (results): every node of a rigid diaphragm now rotates in plane with its master**
+(θz for an XY diaphragm, θ in 2D). The slave nodes' own in-plane rotation was left free, so the
+columns under a rigid floor twisted against nothing at their tops: storeys were too soft in
+torsion and the column end torques came out zero. SAP2000/ETABS diaphragms and OpenSees
+`rigidDiaphragm` tie it. Engine inputs with a diaphragm get new results (torsional periods,
+column torques and moments, drifts); models without one are unchanged. Web projects are
+unchanged: the web already added an equalDOF on that rotation for every slave, which is removed
+now that the engine ties it. (#342)
+
+- `engine/src/solver/constraints.rs`: both the dependent-DOF list used by validation and the
+  constraint equations tie the slave's in-plane rotation; inclined-support frames go through the
+  same equations.
+- **BREAKING (results): 3D XZ diaphragms** coupled the slave to −θy (the XY lever pattern); they
+  now follow ω × r. **Diaphragms in all-truss models are refused**: with no rotational DOFs the
+  floor's rotation cannot be represented (a 3D one tied uz instead). In 2D, plane "XZ" is the
+  model plane as "XY" is; "YZ" is refused.
+- **BREAKING (results): web 2D solves** sent 3D floor (XY) diaphragms as a rigid body in the
+  frame's plane, making floor beams rigid in vertical bending; a floor now ties ux only, a YZ wall
+  uz only, an XZ diaphragm stays a 2D diaphragm.
+- `engine/tests/diaphragm_rotation.rs`: a storey with a diaphragm matches the same storey with a
+  floor of in-plane-rigid beams (displacements, column end forces, periods to 1e-4); slave θz =
+  master θz in static, modal, 2D and inclined-support cases. On the old code the torsional period
+  of that storey came out 6.9 % long and the column torques were zero.
 #### Solid shell: Poisson thickness locking and in-plane locking removed (2026-10-18, #400)
 
 **BREAKING (results): solid-shell (SHB8) models with ν ≠ 0 deflect more — about 22 % more in

@@ -138,7 +138,7 @@ impl B2 {
                 loads: vec![],
                 constraints: vec![],
                 connectors: HashMap::new(),
-                solver_options: None,
+                solver_options: None, masses: Default::default(),
             },
             moment_nodes,
             lchar,
