@@ -27,7 +27,7 @@
   import { hasLoadCarrying3D } from '../../lib/engine/solver-service';
   import { plasticInput3D } from '../../lib/engine/plastic-moments';
   import {
-    withNotionalLoads, creepSteps, concreteMaterials, stagedLoadsByCase, stagedStagesPayload,
+    withNotionalLoads, notionalLoadsRefusal, creepSteps, concreteMaterials, stagedLoadsByCase, stagedStagesPayload,
     stagedRefusal, plasticForSolve, pushoverNonSteel,
   } from '../../lib/engine/advanced-analyses';
   import { caseSolverLoads3D } from '../../lib/engine/solver-service';
@@ -573,7 +573,11 @@
        * only, so a frame loaded along its members took a fraction of its sway force or none
        * (78 % short on the seven-storey building). The input with them is solved as it stands.
        */
-      const { input: withN, totalH } = withNotionalLoads(buildInput({ caseDisplacements: true }), imperfRatio, imperfDir);
+      const base = buildInput({ caseDisplacements: true });
+      // Loads that would move nothing are refused, not solved and shown as the imperfect structure.
+      const refusal = notionalLoadsRefusal(base, imperfRatio, imperfDir);
+      if (refusal) throw new Error(t(refusal === 'noGravity' ? 'adv.imperfNoGravity' : 'adv.imperfRestrained').replace('{dir}', imperfDir));
+      const { input: withN, totalH } = withNotionalLoads(base, imperfRatio, imperfDir);
       // Shown in this panel only; see `handleStaged` for why it is not published.
       imperfResult = { ...asModel(solve3D(withN)), notionalTotal: totalH };
     } catch (e: any) {

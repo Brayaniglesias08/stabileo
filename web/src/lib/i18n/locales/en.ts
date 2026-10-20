@@ -5360,6 +5360,8 @@ const en: Record<string, string> = {
   'pro.responseNode': "Response node",
   'pro.autoTopNode': "Auto (top)",
   'pro.imperfRatio': "Out-of-plumb ratio",
+  'adv.imperfNoGravity': 'Imperfections: no node carries a downward load, so the notional loads are zero and would change nothing.',
+  'adv.imperfRestrained': 'Imperfections: every node the notional loads act on is held along {dir} (a plane model stands in X–Z and is held out of its plane), so they would move nothing. Choose the other direction.',
   'pro.numCBModes': 'CB modes',
   'pro.reductionHint': 'Enter global DOF indices to retain (e.g. lateral DOFs at each floor).',
   'pro.reduce': 'Reduce',

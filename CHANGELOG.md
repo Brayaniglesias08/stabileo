@@ -101,6 +101,48 @@ structures and modal frequencies shift too). Re-run solid-shell models.
   → ±1 %, Scordelis–Lo, twisted beam, hemisphere). Two benchmark bugs fixed: the Navier reference
   lacked the series' alternating sign (5.7 % high), and the solid-shell hemisphere tests pulled
   both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
+### Fixed
+
+#### Silent errors from the element-derivations review: 2D-in-3D signs, settlements, Winkler, imperfections, constraints (2026-10-18)
+
+**BREAKING (results): a flat 2D model solved by the 3D solver now turns nodal moments and
+prescribed rotations the right way** (#435, AC-15). Standing the plane in X–Z is a reflection:
+the plane's counter-clockwise θ is a rotation about −Y. Both went in unchanged, so the embedded
+solve modelled the mirror image of the load and the support rotation (a nodal couple moved the
+loaded node up instead of down). `buildSolverLoads3D` sends `my = −M` (the hunk is identical to
+#274's) and the support mapping `dry = −θ`. Store-level test of every rotation-carrying input
+against the 2D solve (`embed-2d-rotations-store.test.ts`); member couples are #343/#274.
+
+**BREAKING (results): Winkler member forces include the bed** (AC-7). End forces are
+(K_e + K_f)·u − FEF; they were K_e·u − FEF, so a free end on a bed reported −K_f·u of shear and
+moment, and the shear jumped at every node. The bed reaction −k_f·v(x) is reported with the
+member loads (16 linear pieces) so a diagram closes. Checked against Hetényi's beam on an
+elastic foundation (w₀, M₀ = P/4λ, V = P/2, M(x)) in 2D and in 3D for both beds. The 3D `kz`
+bed uses D·K_f·D (AC-6, the hunk of #330). A bed on a member with a released end is refused. The
+Winkler solves build the prescribed displacements as the linear solve does (the inclined-roller
+projection was missing).
+
+**BREAKING (results): one stored constraint means one thing in the 2D and the 3D solve**
+(AC-3, AC-5). The web sent a floor (XY) diaphragm to the 2D solver as it was, which reads it as
+the in-plane rigid body and so made the beam it spans rigid in bending; it now sends its trace on
+the X–Z plane (XY: equal u_x, YZ: equal u_z, XZ: the rigid body). A rigid link with no DOFs
+listed, a pinned arm in 3D, was a fixed arm in 2D: it is now sent as [u_x, u_z]. A linear MPC
+term on ry keeps its meaning in 2D (θ = −ry: the coefficient turns). The engine's own defaults
+are unchanged and documented in `types/input.rs`.
+
+**New refusals instead of silently ignored input:**
+- **Settlements on a DOF the support leaves free** (AC-10): a 2D `pinned` with `dry`, any
+  settlement on a `spring` support, a roller's off-axis component, a rotation in a truss-only
+  model, a 3D unflagged DOF or one a spring frees, a free rotation at an inclined support.
+  The message names the support, the value and why. (At an inclined support the documented
+  projection of a global settlement on the normal stays.)
+- **Imperfections** (NL-9, NL-10, NL-11): 3D notional loads looked for gravity along Y by default
+  (Z is up) and found none; member loads were not counted as gravity. The gravity axis now
+  defaults to the model's vertical, and member loads on frames are lumped into it. Residual
+  stresses and initial displacements (never applied), a missing node, a lateral direction equal
+  to the gravity axis, shell gravity loads, and notional loads that find no gravity are refused.
+  `NotionalLoadDef.gravity_axis` is now `Option<usize>`. In the app, notional loads along Y on a
+  plane model (held out of its plane) and on a model without downward load are refused.
 
 ## 0.2.0 (2026-10-18)
 

@@ -4099,6 +4099,114 @@ fn plain_rigid_3d(s: &SolverSupport3D) -> bool {
             .all(zero_or_none)
 }
 
+/// A prescribed value that is not zero (an absent or zero field imposes nothing).
+fn imposed(v: Option<f64>) -> Option<f64> {
+    v.filter(|x| x.abs() > 1e-15)
+}
+
+/// A settlement the solve would not impose. Only restrained DOFs carry a prescribed
+/// displacement (`u_r`); a value on a DOF the support leaves free was dropped without a
+/// message: a 2D `pinned` with `dry`, a `spring` support with any settlement, a 3D DOF
+/// that is not flagged or whose flag a spring overrides. docs/solver/assembly-constraints.md,
+/// AC-10. At an inclined support a settlement is the ground's movement in global axes and
+/// only its normal part acts, as documented; that projection is not a refusal.
+fn unimposed_settlement(what: &str, name: &str, v: f64, why: &str) -> String {
+    format!(
+        "{what}: the prescribed {name} = {v} would not be applied, because {why}. \
+         Restrain that direction to impose it, or remove the prescribed value."
+    )
+}
+
+/// AC-10, 2D: refuse a prescribed displacement on a DOF the support leaves free.
+fn reject_unimposed_settlements_2d(input: &SolverInput) -> Result<(), String> {
+    let dpn = DofNumbering::dofs_per_node_2d(input);
+    let mut sups: Vec<&SolverSupport> = input.supports.values().collect();
+    sups.sort_by_key(|s| (s.node_id, s.id));
+    for sup in sups {
+        let what = format!("Support {} (node {}, {})", sup.id, sup.node_id, sup.support_type);
+        if sup.support_type == "spring" {
+            for (name, v) in [("dx", sup.dx), ("dz", sup.dz), ("dry", sup.dry)] {
+                if let Some(v) = imposed(v) {
+                    return Err(unimposed_settlement(&what, name, v,
+                        "a spring support restrains nothing rigidly (its stiffness is added to the structure) and a settlement of the spring's base is not modelled"));
+                }
+            }
+            continue;
+        }
+        if sup.support_type == "inclinedRoller" {
+            // (dx, dz) is the ground's movement in global axes; the roller transmits its normal
+            // part only (`prescribed_displacements_2d` projects it), the rest is the roller
+            // sliding. The rotation is free.
+            if let Some(v) = imposed(sup.dry) {
+                return Err(unimposed_settlement(&what, "dry", v, "an inclined roller leaves the rotation free"));
+            }
+            continue;
+        }
+        for (dof, name, v) in [(0usize, "dx", sup.dx), (1, "dz", sup.dz), (2, "dry", sup.dry)] {
+            let Some(v) = imposed(v) else { continue };
+            if dof >= dpn {
+                return Err(unimposed_settlement(&what, name, v, "a model of truss members only has no rotation DOFs"));
+            }
+            if !super::dof::is_dof_restrained_2d(sup, dof) {
+                return Err(unimposed_settlement(&what, name, v, "this support type leaves that DOF free"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// AC-10, 3D: refuse a prescribed displacement on a DOF the support leaves free
+/// (`DofNumbering::build_3d`: a DOF is restrained when its flag is set and no positive
+/// spring frees it; at an inclined support only the normal translation and the flagged
+/// rotations are).
+fn reject_unimposed_settlements_3d(input: &SolverInput3D) -> Result<(), String> {
+    // Curved beams are expanded into frame members after validation in several entry points
+    // (Winkler, co-rotational, …): counted here as the frames they become, or a curved-beam-only
+    // model would look like a truss model with no rotation DOFs.
+    let dpn = DofNumbering::dofs_per_node_3d(input).max(if input.curved_beams.is_empty() { 0 } else { 6 });
+    let mut sups: Vec<(&String, &SolverSupport3D)> = input.supports.iter().collect();
+    sups.sort_by_key(|(k, s)| (s.node_id, (*k).clone()));
+    for (key, sup) in sups {
+        let what = format!("Support {key} (node {})", sup.node_id);
+        let d = [sup.dx, sup.dy, sup.dz, sup.drx, sup.dry, sup.drz];
+        let names = ["dx", "dy", "dz", "drx", "dry", "drz"];
+        let flags = [sup.rx, sup.ry, sup.rz, sup.rrx, sup.rry, sup.rrz];
+        let springs = [sup.kx, sup.ky, sup.kz, sup.krx, sup.kry, sup.krz];
+        let inclined = sup.is_inclined.unwrap_or(false);
+        if inclined {
+            if let (Some(nx), Some(ny), Some(nz)) = (sup.normal_x, sup.normal_y, sup.normal_z) {
+                let len = (nx * nx + ny * ny + nz * nz).sqrt();
+                if len > 1e-12 {
+                    // (dx, dy, dz) is the ground's movement in global axes; the support transmits
+                    // its normal part (`prescribed_displacements_3d` projects it), the rest is the
+                    // support sliding in its plane. Rotations follow the flags.
+                    for i in 3..6 {
+                        let Some(v) = imposed(d[i]) else { continue };
+                        if !flags[i] || i >= dpn {
+                            return Err(unimposed_settlement(&what, names[i], v, "that rotation is not restrained"));
+                        }
+                    }
+                    continue;
+                }
+            }
+        }
+        for i in 0..6 {
+            let Some(v) = imposed(d[i]) else { continue };
+            if i >= dpn {
+                return Err(unimposed_settlement(&what, names[i], v, "a model of truss or cable members only has no rotation DOFs"));
+            }
+            if !flags[i] {
+                return Err(unimposed_settlement(&what, names[i], v, "that direction is not restrained (its flag is not set)"));
+            }
+            if springs[i].unwrap_or(0.0) > 0.0 {
+                return Err(unimposed_settlement(&what, names[i], v,
+                    "a spring on that direction makes it free (its stiffness is added to the structure) and a settlement of the spring's base is not modelled"));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
     // 0. Non-finite input rejection (NaN/Inf). Note: JSON cannot carry NaN, so
     // this primarily protects native/Rust API callers and internally-built inputs.
@@ -4142,6 +4250,7 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
         }
     }
     reject_ambiguous_shared_supports(input.supports.iter().map(|(k, s)| (s.node_id, k.as_str(), plain_rigid_2d(s))))?;
+    reject_unimposed_settlements_2d(input)?;
     // In 2D the model plane is the only diaphragm plane: the model lies in
     // X–Z, and "XY" is its historical name. Both map to the 2D DOFs (ux, uz,
     // ry) since #397 (constraints::diaphragm_dofs); "YZ" names DOFs that do
@@ -4479,6 +4588,7 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
             }
         }
     }
+    reject_unimposed_settlements_3d(input)?;
     for load in &input.loads {
         let finite = match load {
             SolverLoad3D::Nodal(l) => l.fx.is_finite() && l.fy.is_finite() && l.fz.is_finite()

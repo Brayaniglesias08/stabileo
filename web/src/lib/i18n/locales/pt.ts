@@ -4396,6 +4396,8 @@ const pt: Translations = {
   'pro.ilOrdinates': 'Ordenadas LI',
   'pro.ilValue': 'Valor',
   'pro.imperfRatio': "Desaprumo (relação)",
+  'adv.imperfNoGravity': 'Imperfeições: nenhum nó tem carga para baixo, então as cargas nocionais são nulas e não mudariam nada.',
+  'adv.imperfRestrained': 'Imperfeições: todos os nós onde atuam as cargas nocionais estão fixos em {dir} (um modelo plano fica em X–Z, fixo fora do seu plano), então não moveriam nada. Escolha a outra direção.',
   'pro.imperfType': 'Tipo',
   'pro.imperfectionsTitle': 'Imperfeições Geométricas',
   'pro.influenceLine3dTitle': 'Linhas de Influência (3D)',
