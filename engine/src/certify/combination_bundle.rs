@@ -280,7 +280,9 @@ fn end_force_quantities<const K: usize>(
 
 /// Solve and certify a 2D multi-case model and export its combination bundle.
 pub fn export_combination_bundle_2d(input: &MultiCaseInput) -> Result<CombinationBundle, String> {
+    super::finite::check_input(input)?;
     let results = solve_multi_case_2d(input)?;
+    super::finite::check_results(&results)?;
     let cert = certify_multi_case_results_2d(input, results.clone());
     if !cert.envelope.certified {
         return Err(format!("envelope not certified: {}", cert.envelope.reason.unwrap_or_default()));
@@ -317,12 +319,14 @@ pub fn export_combination_bundle_2d(input: &MultiCaseInput) -> Result<Combinatio
         &bmap(&cert.envelope.force_bounds),
     )?;
     let prov = Provenance::new(input, "MultiCaseInput", &kinds())?;
-    build(&k, &cases, &combos, &env, qn, prov, 2)
+    super::finite::finite_output(build(&k, &cases, &combos, &env, qn, prov, 2))
 }
 
 /// Solve and certify a 3D multi-case model and export its combination bundle.
 pub fn export_combination_bundle_3d(input: &MultiCaseInput3D) -> Result<CombinationBundle, String> {
+    super::finite::check_input(input)?;
     let results = solve_multi_case_3d(input)?;
+    super::finite::check_results(&results)?;
     let cert = certify_multi_case_results_3d(input, results.clone());
     if !cert.envelope.certified {
         return Err(format!("envelope not certified: {}", cert.envelope.reason.unwrap_or_default()));
@@ -359,5 +363,5 @@ pub fn export_combination_bundle_3d(input: &MultiCaseInput3D) -> Result<Combinat
         &bmap(&cert.envelope.force_bounds),
     )?;
     let prov = Provenance::new(input, "MultiCaseInput3D", &kinds())?;
-    build(&k, &cases, &combos, &env, qn, prov, 3)
+    super::finite::finite_output(build(&k, &cases, &combos, &env, qn, prov, 3))
 }

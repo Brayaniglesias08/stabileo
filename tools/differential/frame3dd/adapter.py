@@ -53,6 +53,7 @@ import re
 import subprocess
 import tempfile
 
+from conditioning import frame_kappa
 from model import Unsupported, get, is_3d, lift_2d, lower_static_3d, members, nodalize
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -348,4 +349,13 @@ def run(model, analysis="static", densities=None, n_modes=6, tol=1e-12):
             fd[f"{n}Start"] = -qa[k] if k == 0 else qa[k]
             fd[f"{n}End"] = qb[6 + k] if k == 0 else -qb[6 + k]
         forces[eid] = fd
-    return dict(dim=3, disp=disp, reac=reac, forces=forces, art_rot=[], kappa=None)
+    # Frame3DD does not report a condition number: estimate it from an
+    # independent assembly (common/conditioning.py) of the model stabileo
+    # solves (kappa: the singularity statuses) and of the nodalized model
+    # Frame3DD factors (kappa_solved: its round-off, for the tolerance).
+    # P-Delta factors K + K_G, which K's kappa does not describe: None.
+    kappa = kappa_solved = None
+    if analysis == "static":
+        kappa = frame_kappa(model)
+        kappa_solved = frame_kappa(maps["native"]) if maps["native"] is not model else kappa
+    return dict(dim=3, disp=disp, reac=reac, forces=forces, art_rot=[], kappa=kappa, kappa_solved=kappa_solved)

@@ -37,6 +37,7 @@
    * branch has already fixed twice.
    */
   import { onDestroy } from 'svelte';
+  import { runEngineActionAsync } from '../../lib/store/engine-action';
   import { t } from '../../lib/i18n';
   import { leaveSelfWeightRule, selfWeightRuleEffect } from '../../lib/store/self-weight-migration';
   import SelectionPanel from '../SelectionPanel.svelte';
@@ -192,8 +193,9 @@
   onDestroy(leaveSelfWeightRule);
 
   async function loadProExample(ex: ProExample) {
-    // The example states its own self-weight and combinations (`lib/data/pro-examples.ts`).
-    await ex.load();
+    // The example states its own self-weight and combinations (`lib/data/pro-examples.ts`); the
+    // combinations are the engine's, so an example cannot load without it, and says so.
+    if ((await runEngineActionAsync(async () => { await ex.load(); return true; })) !== true) return;
     // A new project: nothing of the previous one's session state (figures, direct analysis,
     // export records) belongs to it.
     resetProjectProvenance();

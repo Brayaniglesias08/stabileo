@@ -88,6 +88,8 @@ pub enum PDeltaCertificate {
     Uncertified { reason: String },
 }
 
+super::finite::guarded_enum!(PDeltaCertificate);
+
 impl PDeltaCertificate {
     fn uncertified(reason: impl Into<String>) -> Self {
         PDeltaCertificate::Uncertified { reason: reason.into() }
@@ -121,20 +123,34 @@ pub struct CertifiedPDelta3D {
 
 /// Solve 2D P-Delta and certify the returned displacements.
 pub fn certify_pdelta_2d(input: &SolverInput, max_iter: usize, tolerance: f64) -> Result<CertifiedPDelta2D, String> {
+    super::finite::check_input(&(input, tolerance))?;
     let results = solve_pdelta_2d(input, max_iter, tolerance)?;
+    super::finite::check_results(&results)?;
     let certificate = certify_pdelta_results_2d(input, &results.results);
     Ok(CertifiedPDelta2D { results, certificate })
 }
 
 /// Solve 3D P-Delta and certify the returned displacements.
 pub fn certify_pdelta_3d(input: &SolverInput3D, max_iter: usize, tolerance: f64) -> Result<CertifiedPDelta3D, String> {
+    super::finite::check_input(&(input, tolerance))?;
     let results = solve_pdelta_3d(input, max_iter, tolerance)?;
+    super::finite::check_results(&results)?;
     let certificate = certify_pdelta_results_3d(input, &results.results);
     Ok(CertifiedPDelta3D { results, certificate })
 }
 
 /// Certify given P-Delta displacements of `input` (any candidate works).
+/// Uncertified when the input, the results or the bounds are not finite.
 pub fn certify_pdelta_results_2d(input: &SolverInput, results: &AnalysisResults) -> PDeltaCertificate {
+    if let Err(e) = super::finite::check_input(input).and_then(|()| super::finite::check_results(results)) {
+        return PDeltaCertificate::uncertified(e);
+    }
+    let mut c = pdelta_results_2d(input, results);
+    super::finite::guard(&mut c);
+    c
+}
+
+fn pdelta_results_2d(input: &SolverInput, results: &AnalysisResults) -> PDeltaCertificate {
     if !input.constraints.is_empty() {
         return PDeltaCertificate::uncertified("unsupported: constraints");
     }
@@ -152,7 +168,17 @@ pub fn certify_pdelta_results_2d(input: &SolverInput, results: &AnalysisResults)
 }
 
 /// Certify given 3D P-Delta displacements of `input`.
+/// Uncertified when the input, the results or the bounds are not finite.
 pub fn certify_pdelta_results_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> PDeltaCertificate {
+    if let Err(e) = super::finite::check_input(input).and_then(|()| super::finite::check_results(results)) {
+        return PDeltaCertificate::uncertified(e);
+    }
+    let mut c = pdelta_results_3d(input, results);
+    super::finite::guard(&mut c);
+    c
+}
+
+fn pdelta_results_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> PDeltaCertificate {
     let input = &expand_curved_beams_3d(input);
     if !input.constraints.is_empty() {
         return PDeltaCertificate::uncertified("unsupported: constraints");

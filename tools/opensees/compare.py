@@ -275,10 +275,15 @@ def opensees_2d(d, mode="static", spec=None):
     for nid, (x, z) in sorted(nodes.items()):
         ops.node(nid, x, z)
 
-    # Supports: the highest support id per node wins (DofNumbering::build_2d).
-    sup_by_node = {}
+    # Supports (DofNumbering::build_2d): the rigid restraints of all supports
+    # of a node are OR-ed (a fixed and a pinned support on one node is fixed).
+    # Springs, settlements and inclined rollers sharing a node with another
+    # support are rejected by the engine, so the spring and settlement values
+    # come from the node's single support (the highest id, if several).
+    sup_by_node, sups_of = {}, {}
     for s in sorted(d["supports"].values(), key=lambda s: s["id"]):
         sup_by_node[s["nodeId"]] = s
+        sups_of.setdefault(s["nodeId"], []).append(s)
 
     def restrained(s, dof):
         t = s["type"]
@@ -310,7 +315,7 @@ def opensees_2d(d, mode="static", spec=None):
     springs = []  # (node, dof, k) or (node, 'rot2', kx, ky, angle)
     for nid, s in sup_by_node.items():
         for dof in range(ndf):
-            if restrained(s, dof):
+            if any(restrained(t, dof) for t in sups_of[nid]):
                 fixed[nid][dof] = True
                 v = [s.get("dx"), _get(s, "dz", "dy", default=None), _get(s, "dry", "drz", default=None)][dof]
                 if v is not None and abs(v) > 1e-15:

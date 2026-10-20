@@ -142,6 +142,7 @@ const c301Pt: Record<string, string> = {
   'c301.refuse.angleData': 'faltam as abas ou a espessura da cantoneira (ou são inválidas)',
   'c301.refuse.e5Condition': '§E.5: falta como a cantoneira é carregada nas extremidades (centrada, E.5(a) ou E.5(b))',
   'c301.refuse.e5ConditionUnknown': '§E.5: condição de extremidade «{cond}» desconhecida',
+  'c301.refuse.loadPositionUnknown': '§F.2: posição de carga «{pos}» desconhecida (aceito: topFlange, web)',
   'c301.refuse.e5Ratio': '§E.5: cantoneira ligada pela aba curta com bl/bs = {ratio} ≥ 1,7 — aplica-se o Capítulo H, não implementado',
   'c301.refuse.e6Spacing': '§E.6.2.1: falta o espaçamento a das ligações intermediárias da dupla cantoneira',
   'c301.refuse.e6Connector': '§E.6.2.1: falta o tipo de ligação intermediária (parafusos sem protensão ou solda)',

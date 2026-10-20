@@ -202,7 +202,7 @@ fn uncertified(element_id: usize, reason: String, demand_count: usize) -> Certif
 
 /// Per member, the enclosure of the utilization maximized over every demand
 /// set given for it. `enclose` returns one enclosure per check name.
-fn certify_members<M, D>(
+fn certify_members<M: Serialize, D: Serialize>(
     members: &[M],
     member_id: impl Fn(&M) -> usize,
     demands: &[D],
@@ -222,9 +222,17 @@ fn certify_members<M, D>(
             if demands.is_empty() {
                 return uncertified(eid, "no demands for this member".into(), 0);
             }
+            // Nothing is certified from non-finite member data or demands;
+            // a non-finite ratio would vanish in the f64::max below.
+            if let Err(e) = super::finite::check_input(&(m, demands)) {
+                return uncertified(eid, e, demands.len());
+            }
             let mut acc = vec![Interval::ZERO; names.len()];
             for d in demands {
                 match enclose(m, d) {
+                    Ok(r) if r.iter().any(|x| !x.is_finite()) => {
+                        return uncertified(eid, "non-finite ratio enclosure".into(), demands.len())
+                    }
                     Ok(r) if r.len() == names.len() => {
                         for (a, r) in acc.iter_mut().zip(&r) {
                             // max over demand sets: componentwise max of endpoints
@@ -2349,3 +2357,34 @@ mod tests {
         }
     }
 }
+
+// ==================== Isolated footings (CIRSOC 201) ====================
+
+const FOOTING_CHECK_NAMES: [&str; 3] = ["Bearing", "One-way shear", "Punching"];
+
+/// Certified CIRSOC 201 isolated footings (`postprocess::isolated_footing`): per footing, the
+/// enclosure of the bearing, one-way shear and punching utilizations, evaluated through the same
+/// generic formulas as the ordinary check. A footing the check refuses (uplift, a significant or
+/// unformed unbalanced moment, not isolated) is not certified.
+pub fn certify_isolated_footings(
+    input: &crate::postprocess::isolated_footing::IsolatedFootingInput,
+) -> Vec<CertifiedMemberResult> {
+    use crate::postprocess::isolated_footing::footing_ratio_enclosures;
+    certify_members(
+        &input.footings,
+        |f| f.footing_id,
+        &input.footings,
+        |f| f.footing_id,
+        &FOOTING_CHECK_NAMES,
+        |f, _| {
+            let r = footing_ratio_enclosures::<Interval>(f)?;
+            for (e, name) in r.iter().zip(FOOTING_CHECK_NAMES) {
+                if !e.is_finite() {
+                    return Err(format!("{name}: enclosure not finite"));
+                }
+            }
+            Ok(r.to_vec())
+        },
+    )
+}
+

@@ -34,6 +34,46 @@ now estimates the second one, and never presents it as certified (docs/verificat
 - Found, not fixed: the SHB8 solid-shell is ≈ 18 % too stiff in thin-plate bending (Poisson
   thickness locking; centre deflection 0.82 of Kirchhoff on a t/a = 0.01 plate under refinement).
 
+#### Solid shell: Poisson thickness locking and in-plane locking removed (2026-10-18, #400)
+
+**BREAKING (results): solid-shell (SHB8) models with ν ≠ 0 deflect more — about 22 % more in
+thin-plate bending at ν = 0.3 — and solid shells bent in their own plane deflect up to ~10×
+more.** The old values were too stiff (unconservative for deflections; moments in indeterminate
+structures and modal frequencies shift too). Re-run solid-shell models.
+
+- Root cause: the trilinear element's thickness strain is constant through the thickness, so
+  bending with ν ≠ 0 carried a spurious σ_zz and used the constrained modulus
+  E(1 − ν)/((1 + ν)(1 − 2ν)) instead of E/(1 − ν²): 1.225× too stiff at ν = 0.3 on every mesh
+  (simply supported plate centre deflection 0.80–0.82 of Navier under refinement). Separately,
+  in-plane bending locked through parasitic in-plane shear (MacNeal–Harder in-plane cantilever
+  0.09).
+- Fix (`engine/src/element/solid_shell.rs`): five condensed enhanced assumed strains, Simo–Rifai
+  mapped so the patch test holds — the thickness mode E_ζζ ∝ ζ (Büchter–Ramm–Roehl) and the
+  membrane EAS-4 set (Andelfinger–Ramm) — on top of the existing covariant ANS. Stress recovery
+  uses the same ANS + EAS strains.
+- Now: thin plate (t/a = 0.01, 0.001) → Kirchhoff at observed order 2.0 (32×32: 1.0000); thick
+  plate → Mindlin with κ = 1 (the single-layer limit, 0.8 % / 2.9 % stiffer than κ = 5/6 at
+  t/a = 0.1 / 0.2); pure bending with ν exact; Scordelis–Lo 0.997 (16×16); pinched cylinder 0.988
+  (32×32); hemisphere 0.98–1.00; MacNeal–Harder straight cantilever out-of-plane 0.96–0.98,
+  in-plane 0.98 regular / 0.62 parallelogram / 0.05 trapezoidal (trapezoidal locking, inherent).
+- Tests: `engine/tests/solid_shell_locking.rs`; solid-shell benchmarks tightened (Navier 0.5–2.0×
+  → ±1 %, Scordelis–Lo, twisted beam, hemisphere). Two benchmark bugs fixed: the Navier reference
+  lacked the series' alternating sign (5.7 % high), and the solid-shell hemisphere tests pulled
+  both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
+
+## 0.2.0 (2026-10-18)
+
+**Results change: re-run your projects.** Release notes for users, in English, Spanish and
+Portuguese: [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md) ·
+[es](docs/releases/v0.2.0.es.md) · [pt](docs/releases/v0.2.0.pt.md). They list every change
+that affects results (defaults, loads and combinations, CIRSOC 201/301, ACI, EC3, AISC, AISI,
+analyses), the new refusals, the sanity review and the corrected example models. This is the
+first tagged release: everything below was already deployed to stabileo.com as it was merged.
+The app now shows its version in the status bar and, once, a notice that results may have
+changed with a link to the notes.
+
+### Changed
+
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
 **BREAKING (results): steel members bent about both axes without axial force are now checked by
@@ -49,7 +89,6 @@ unchanged: the engine agrees with the previous checker to 1e-9 on 4 000 random m
   the E.5 end condition or the E.6 connectors. Angles in flexure (F.9, F.10) are refused by name.
 - Steel results screen: every check per member, ratio, governing check, status with the reason,
   proven-bound badge, the calculation with clause references, in en/es/pt.
-||||||| 333cbc54
 #### Solid shells meshed with frames or shells; spectral analysis checked (2026-10-17)
 
 **BREAKING (results): 3D models that mix solid shells (or trusses) with frames or shells now
@@ -299,7 +338,6 @@ test there.
   modal and harmonic certificates check the expanded model.
 - **The parallel sparse 3D load vector left quad and MITC9 self-weight in local axes.** Only
   builds with the `parallel` feature were affected (the sequential and dense paths transform it).
-||||||| 46ab0e7f
 #### Tension members: end connections in the model (2026-10-17)
 
 - **CIRSOC 301 tension rupture (Ae = An·U) can now be evaluated in the app.** Each member end
@@ -798,6 +836,15 @@ each with a regression test.
   `isInclined: true` with a missing or zero normal fell back to the support's restraint
   flags. It is now rejected; the web app always sends the normal. Found while triaging
   surviving mutants of the DOF numbering. `tests/solver_mutation_kills.rs`.
+- **An unknown 2D support type restrained nothing, silently.** A type the engine did not
+  know (a typo, or `"pin"`/`"roller"`) left the node free. Every 2D analysis now rejects it,
+  naming the accepted types (`"free"` stays as an explicit no-restraint type). Five engine
+  tests had used `"pin"`/`"roller"` and so ran unsupported models; they now use
+  `"pinned"`/`"rollerX"`, except the stayed-deck cable test, which keeps the cantilevered
+  deck it always ran (`"free"`): with a real end roller the 2D cable iteration does not
+  converge (a stay alternates between slack and taut) and says so. The 2D and 3D cable
+  solvers also skipped input validation entirely; they now validate like every other
+  analysis. `tests/solver_mutation_kills.rs`.
 - **Harmonic certificates reported NaN enclosures for a zero response.** When the target DOF
   was not excited (or the reported value equalled the candidate), the outward-rounded sum of
   squares had a lower end of −5e−324 and its interval square root was NaN, so a *certified*

@@ -1,4 +1,5 @@
 import { getRcSectionKernel } from './rc-section-kernel';
+import { EngineUnavailableError } from '../../engine-unavailable';
 /**
  * One section engine, for every case the workbook solves.
  *
@@ -248,9 +249,22 @@ export interface PreparedSection {
   curve(theta: number, nPoints?: number): SectionPoint[];
   free(): void;
 }
+/*
+ * The section's strain-compatibility points come from the engine (`rc_section_kernel.rs`). Without
+ * it `prepareSection` throws `EngineUnavailableError`: it used to integrate the section in
+ * TypeScript (`sectionPoint`) instead, without a word. `sectionPoint` stays as the independent
+ * statement the tests compare the kernel with, and a test that wants it as the evaluator asks for
+ * it by name with `useTypeScriptReferenceForTests`. No app module calls that
+ * (`__tests__/no-silent-fallback.test.ts` checks).
+ */
+let typeScriptReference = false;
+/** TEST ONLY. Evaluate with `sectionPoint` when the kernel is not registered. */
+export function useTypeScriptReferenceForTests(on: boolean): void { typeScriptReference = on; }
+
 export function prepareSection(outline: Outline, bars: readonly Bar[], mat: Materials): PreparedSection {
   const { outer, holes } = outlineRings(outline);
   const Constructor = getRcSectionKernel();
+  if (!Constructor && !typeScriptReference) throw new EngineUnavailableError('the section capacity (P–M interaction)');
   const rings = [outer, ...holes];
   const offsets = new Uint32Array(rings.length + 1);
   for (let i = 0; i < rings.length; i++) offsets[i + 1] = offsets[i] + rings[i].length;

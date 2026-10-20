@@ -85,6 +85,8 @@ pub enum ModalCertificate {
     Uncertified { reason: String },
 }
 
+super::finite::guarded_enum!(ModalCertificate);
+
 impl ModalCertificate {
     fn uncertified(reason: impl Into<String>) -> Self {
         ModalCertificate::Uncertified { reason: reason.into() }
@@ -115,7 +117,9 @@ pub fn certify_modal_2d(
     densities: &HashMap<String, f64>,
     num_modes: usize,
 ) -> Result<CertifiedModal2D, String> {
+    super::finite::check_input(&(input, densities))?;
     let results = solve_modal_2d(input, densities, num_modes)?;
+    super::finite::check_results(&results)?;
     let dof_num = DofNumbering::build_2d(input);
     let nf = dof_num.n_free;
     // K and M in the inclined-roller frames; the published modes (global
@@ -151,6 +155,8 @@ pub fn certify_modal_2d(
             }
         }
     };
+    let mut certificate = certificate;
+    super::finite::guard(&mut certificate);
     Ok(CertifiedModal2D { results, certificate })
 }
 
@@ -160,7 +166,9 @@ pub fn certify_modal_3d(
     densities: &HashMap<String, f64>,
     num_modes: usize,
 ) -> Result<CertifiedModal3D, String> {
+    super::finite::check_input(&(input, densities))?;
     let results = solve_modal_3d(input, densities, num_modes)?;
+    super::finite::check_results(&results)?;
     // The model the solver analyzed, curved beams expanded.
     let input = &crate::solver::linear::expand_curved_beams_3d(input);
     let dof_num = DofNumbering::build_3d(input);
@@ -197,6 +205,8 @@ pub fn certify_modal_3d(
             }
         }
     };
+    let mut certificate = certificate;
+    super::finite::guard(&mut certificate);
     Ok(CertifiedModal3D { results, certificate })
 }
 

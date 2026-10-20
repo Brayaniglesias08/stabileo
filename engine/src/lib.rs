@@ -8,6 +8,7 @@ pub mod linalg;
 pub mod element;
 pub mod solver;
 pub mod postprocess;
+pub mod loads;
 pub mod section;
 pub mod certify;
 pub mod sanity;
@@ -808,6 +809,7 @@ pub fn compute_diagram_value_at(json: &str) -> Result<f64, JsValue> {
     }
     let d: Input = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    postprocess::diagrams::check_diagram_kind_2d(&d.kind).map_err(|e| JsValue::from_str(&e))?;
     Ok(postprocess::diagrams::compute_diagram_value_at(&d.kind, d.t, &d.element_forces))
 }
 
@@ -823,6 +825,7 @@ pub fn compute_diagram_value_at_3d(json: &str) -> Result<f64, JsValue> {
     }
     let d: Input = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    postprocess::diagrams_3d::check_diagram_kind_3d(&d.kind).map_err(|e| JsValue::from_str(&e))?;
     Ok(postprocess::diagrams_3d::evaluate_diagram_3d_at(&d.element_forces, &d.kind, d.t))
 }
 
@@ -1578,6 +1581,38 @@ pub fn check_cfs_members(json: &str) -> Result<String, JsValue> {
     let input: postprocess::cfs_check::CfsCheckInput = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
     let results = postprocess::cfs_check::check_cfs_members(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Load generation (CIRSOC 101 combinations, INPRES-CIRSOC 103 seismic). JSON `LoadsRequest`
+/// (tagged by `op`) in → JSON answer.
+#[wasm_bindgen]
+pub fn loads_request(json: &str) -> Result<String, JsValue> {
+    let req: loads::LoadsRequest = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let v = loads::answer(req).map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&v).map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// CIRSOC 201-2025 isolated footings: service bearing with biaxial eccentricity, factored
+/// one-way shear, punching and column-face flexure. JSON `IsolatedFootingInput` in → JSON results.
+#[wasm_bindgen]
+pub fn check_isolated_footings(json: &str) -> Result<String, JsValue> {
+    let input: postprocess::isolated_footing::IsolatedFootingInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = postprocess::isolated_footing::check_isolated_footings(&input);
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Certified isolated-footing utilizations: the same formulas in outward-rounded interval
+/// arithmetic. JSON `IsolatedFootingInput` in → JSON `CertifiedMemberResult` per footing.
+#[wasm_bindgen]
+pub fn certify_isolated_footings(json: &str) -> Result<String, JsValue> {
+    let input: postprocess::isolated_footing::IsolatedFootingInput = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
+    let results = certify::design::certify_isolated_footings(&input);
     serde_json::to_string(&results)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
 }

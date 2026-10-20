@@ -85,10 +85,31 @@ pub struct SectionStressInput {
     pub y_fiber: Option<f64>,
 }
 
+/// Section shapes the stress routines accept: the web app's `SectionShape`.
+/// "C" and "Z" (and, in 3D, "T", "invL" and "L" for shear) have no closed
+/// form of their own here and use the rectangular approximation; anything
+/// else is refused when the input is parsed, never silently treated as a
+/// rectangle.
+pub const SECTION_SHAPES: [&str; 12] = ["rect", "generic", "I", "H", "U", "L", "RHS", "CHS", "T", "invL", "C", "Z"];
+
+/// Refuse an unknown shape at parse time.
+pub fn deserialize_section_shape<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let s = String::deserialize(d)?;
+    if SECTION_SHAPES.contains(&s.as_str()) {
+        Ok(s)
+    } else {
+        Err(serde::de::Error::custom(format!(
+            "unknown section shape '{s}'; accepted: {}",
+            SECTION_SHAPES.join(", ")
+        )))
+    }
+}
+
 /// Pre-resolved section geometry (all numeric, no profile DB lookup).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SectionGeometry {
+    #[serde(deserialize_with = "deserialize_section_shape")]
     pub shape: String,
     pub a: f64,
     pub iy: f64,

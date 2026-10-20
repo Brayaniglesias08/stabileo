@@ -664,7 +664,7 @@ fn pcg_parity_prescribed_displacement_2d() {
 }
 
 #[test]
-fn invalid_method_string_warns_and_falls_back_to_auto() {
+fn invalid_method_string_is_refused() {
     // Small model (nf < sparse threshold): auto resolves to dense
     let mut nodes = HashMap::new();
     for i in 0..=4 {
@@ -707,19 +707,10 @@ fn invalid_method_string_warns_and_falls_back_to_auto() {
     };
     set_opts_2d(&mut input, serde_json::json!({"method": "conjgate"}));
 
-    let r = linear::solve_2d(&input).unwrap();
-    assert_eq!(solver_path_2d(&r), "dense_lu");
-    // Validation runs at prepare time, so the warning reaches the structured
-    // channel even on the dense path (which never consults solver options).
-    assert!(
-        r.structured_diagnostics
-            .iter()
-            .any(|d| d.code == DiagnosticCode::UnknownSolverOption
-                && d.severity == Severity::Warning
-                && d.message.contains("conjgate")),
-        "expected unknown-method warning, got {:?}",
-        r.structured_diagnostics
-    );
+    // An unknown method used to be a warning with a fallback to 'auto'; it
+    // is now refused with the accepted values (no silent fallback).
+    let e = linear::solve_2d(&input).unwrap_err();
+    assert!(e.contains("conjgate") && e.contains("\"auto\"") && e.contains("\"pcg\""), "{e}");
 }
 
 #[test]
