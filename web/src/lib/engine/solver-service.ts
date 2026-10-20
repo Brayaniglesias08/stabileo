@@ -23,7 +23,7 @@ import { computeLocalAxes3D, memberRoll } from './local-axes-3d';
 import { distributedGlobalEnds, globalDistributedToSolver, transverseToNodes, memberFrame3D, takesNoBending as memberTakesNoBending, type MemberRef } from './member-loads';
 import { selfWeightFor, selfWeightSolverLoads } from './self-weight';
 import type { SelfWeightLoad } from './analysis-settings';
-import type { SolverInput3D, SolverLoad3D, AnalysisResults3D, FullEnvelope3D, Constraint3D, NonlinearReport } from './types-3d';
+import type { SolverInput3D, SolverSection3D, SolverLoad3D, AnalysisResults3D, FullEnvelope3D, Constraint3D, NonlinearReport } from './types-3d';
 import { analyzeKinematics, type KinematicResult } from './kinematic-2d';
 import {
   convertSurfaceLoad, convertThermalQuadLoad,
@@ -1574,6 +1574,46 @@ export function hasLoadCarrying3D(model: ModelData): boolean {
     || (model.connectors?.size ?? 0) > 0;
 }
 
+/**
+ * A section's torsional data for the engine: J, the shear-centre offset, and — for the buckling
+ * analysis only — Cw (#439).
+ *
+ * `J` comes from `solverProperties`: a tabulated or declared value, the exact one of a circle or
+ * tube, or Saint-Venant solved on the section's mesh. It used to fall back to `0.001·Iy` when
+ * none existed. That number was invented, and once the geometric stiffness carried the Wagner
+ * term (#434) it set a torsional buckling load GJ/r0² out of nothing — spurious low torsional
+ * modes, P-Δ instabilities. Now a section with no J is sent with `j: 0`, which the engine refuses
+ * on any member not released in torsion, and `torsionGap: 'j'` makes the web's own analyses say
+ * so by section and member first (`torsionGapRefusal` in `wasm-solver.ts`, `jRefusal3D`).
+ *
+ * Releasing those members in torsion instead, so the static solve could run, was tried and is
+ * wrong: a twist that only the unknown J resisted becomes a rotation nothing resists, the
+ * vanishing spring of `orphan-rotations-3d.ts` holds it, and a real mechanism (a roof truss free
+ * to roll about its chord) solved as a structure. Every 3D frame analysis depends on J.
+ *
+ * The shear centre (`shearCenterY/Z`, from the centroid, local y across the width and z up the
+ * depth — the frame `iy`/`iz` are in, and the section's rotation is the member's roll as for
+ * them) is read only by the geometric stiffness. A tee, channel or angle whose shear centre
+ * nothing placed gets `torsionGap: 'shearCentre'`.
+ *
+ * `Cw` is NOT sent as `cw`: the engine would number a warping DOF at every node of the model and
+ * tie the warping of every member meeting at a joint, in the static solve and modal analysis
+ * too. It rides along as the web-only `bucklingCw`, which `buckling-warping.ts` turns into `cw`
+ * for the buckling analysis alone.
+ */
+function torsionOf(props: ReturnType<typeof solverProperties>): Pick<SolverSection3D, 'j' | 'shearCenterY' | 'shearCenterZ' | 'bucklingCw' | 'torsionGap'> {
+  const sc = props.shearCentre;
+  const out: Pick<SolverSection3D, 'j' | 'shearCenterY' | 'shearCenterZ' | 'bucklingCw' | 'torsionGap'> = {
+    j: props.j != null && Number.isFinite(props.j) && props.j > 0 ? props.j : 0,
+  };
+  if (sc && sc[0] !== 0) out.shearCenterY = sc[0];
+  if (sc && sc[1] !== 0) out.shearCenterZ = sc[1];
+  if (props.cw != null && Number.isFinite(props.cw) && props.cw > 0) out.bucklingCw = props.cw;
+  if (!(out.j > 0)) out.torsionGap = 'j';
+  else if (!sc) out.torsionGap = 'shearCentre';
+  return out;
+}
+
 /** A section's shear areas for the engine, when it has them. */
 function shearOf(s: Section): { asY?: number; asZ?: number } {
   const sa = sectionShearAreas(s);
@@ -1639,20 +1679,7 @@ export function buildSolverInput3D(
           id: s.id, name: s.name, a: props.a,
           iy: inPlaneIy,
           iz: props.source === 'canonical' ? props.iz : outOfPlaneIz,
-          // `J` is NEVER taken from the polygon engine: it computes Routh's
-          // approximation, which is exact only for a circle or ellipse and
-          // measured 56.9 % low on a rectangle and 37.0 % high on an
-          // I-section. `solverProperties` returns an exact analytical value
-          // for circle/CHS, otherwise the authoritative or legacy one, and
-          // `null` when none exists. The `* 0.001` placeholder below is the
-          // pre-existing fabrication, retained only so 3D models without any
-          // J keep solving; it is tagged `unavailable` in the provenance so
-          // it is visible rather than silent, and Checkpoint 2C replaces it
-          // with a validated Saint-Venant constant. (No `?? s.j` here:
-          // solverProperties already returns a valid declared j, so the term
-          // would only fire for an INVALID one — null, NaN or negative — and
-          // passing that through would be worse than the placeholder.)
-          j: props.j ?? outOfPlaneIz * 0.001,
+          ...torsionOf(props),
           ...(model.analysis?.shearDeformation === 'none' ? {} : shearOf(s)),
         }];
       }
@@ -1668,9 +1695,7 @@ export function buildSolverInput3D(
         id: s.id, name: s.name, a: props.a,
         iy: aboutY,   // solver iy = Iy (about Y horizontal) → controls Z-displacement bending (w, θy)
         iz: aboutZ,   // solver iz = Iz (about Z vertical) → controls Y-displacement bending (v, θz)
-        // See the note on the projected branch above: J never comes from the
-        // polygon engine's Routh approximation.
-        j: props.j ?? aboutY * 0.001,
+        ...torsionOf(props),
         ...(model.analysis?.shearDeformation === 'none' ? {} : shearOf(s)),
       }];
     })),
@@ -1983,7 +2008,31 @@ function prepareSolve3D(model: ModelData, includeSelfWeight = false, leftHand = 
   const input = buildSolveInput3D(model, includeSelfWeight, leftHand);
   if (!input) return t('svc.emptyModel');
   if (typeof input === 'string') return input;
-  return unheldMomentRefusal3D(input) ?? input;
+  return unheldMomentRefusal3D(input) ?? jRefusal3D(input) ?? input;
+}
+
+/**
+ * A frame member carrying torsion whose section has no torsion constant (`torsionOf`), refused
+ * with the section and members named. The engine refuses `j: 0` too, in its own words; this says
+ * what to do about it. A member released in torsion at an end needs no J and is not counted.
+ */
+export function jRefusal3D(input: SolverInput3D): string | null {
+  const bySection = new Map<number, number[]>();
+  for (const e of input.elements.values()) {
+    if (e.type !== 'frame' || e.releaseTStart || e.releaseTEnd) continue;
+    const s = input.sections.get(e.sectionId);
+    if (s?.torsionGap !== 'j') continue;
+    bySection.set(s.id, [...(bySection.get(s.id) ?? []), e.id]);
+  }
+  const first = bySection.entries().next();
+  if (first.done) return null;
+  const [sid, members] = first.value;
+  const name = input.sections.get(sid)?.name;
+  members.sort((a, b) => a - b);
+  return tp('svc.noTorsionConstant', {
+    section: name ? `${sid} (${name})` : String(sid),
+    members: members.slice(0, 8).join(', ') + (members.length > 8 ? ', …' : ''),
+  });
 }
 
 /**
@@ -2038,7 +2087,7 @@ export function advancedRefusal3D(input: SolverInput3D): string | null {
   addConstraintAdjacency(adj, input.constraints);
   const disconnected = connectivityRefusal(input.nodes.keys(), connected, adj, () => nodesOnMembersHint(input));
   if (disconnected) return disconnected;
-  const moment = unheldMomentRefusal3D(input);
+  const moment = unheldMomentRefusal3D(input) ?? jRefusal3D(input);
   if (moment) return moment;
   const solved = guardSolve3D(input);
   return 'error' in solved

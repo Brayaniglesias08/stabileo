@@ -184,6 +184,49 @@ members and no longer mirror nodal couples.** Rebase of #274 by @diegokingston o
   does N, so these envelopes can now be larger than before.
 - 2D models already materialized to PRO keep their old mirrored couples and lumped axial loads.
   There is no migration.
+#### Web: real torsion constant, shear centre and warping constant for 3D sections (#439)
+
+**BREAKING (results): 3D sections reach the engine with their real J and shear centre, and
+3D buckling with their warping constant.** With the Wagner term in the geometric stiffness
+(#404) these decide torsional and flexural-torsional buckling, and the web sent none of them
+properly.
+- **J is never invented.** A section with no torsion constant used to get J = 0.001·Iy, which
+  with the Wagner term set a torsional buckling load out of nothing (spurious low modes, P-Delta
+  instabilities). J is now the tabulated or declared value, the exact one of a circle or tube,
+  or Saint-Venant solved on the section's mesh (IPE 300: 20.1 cm⁴, table 20.12). A section with
+  none is sent with J = 0 and its members released in torsion (they carry no torque in the
+  static solve), and buckling, P-Delta, co-rotational and imperfection analyses refuse those
+  members by name. The sections table shows "—" for an unknown J instead of the made-up value.
+- **Shear centre.** Solved on the section's mesh and sent as `shearCenterY/Z`, so channels,
+  tees and angles get their flexural-torsional coupling (UPN 200, 2 m: the coupled
+  twist mode at 1642 kN). A tee, channel or angle stated by its properties only has no shear
+  centre: the same analyses refuse it rather than take the centroid. A section stated by its
+  properties with no shape is taken as symmetric, as before. The co-rotational solver does not
+  model the offset and refuses these sections (#434), where it ran without the coupling.
+- **Warping constant in buckling only.** Cw is solved on the mesh (IPE 300: 125.9·10³ cm⁶ to
+  0.1 %; UPN 200: 8990 cm⁶, table 9070) and given to the buckling analysis alone, on straight
+  runs of compressed members with no end releases, most compressed first, so that no node ties
+  the warping of members at an angle (the engine's warping DOF is one per node; sharing it
+  across a beam-column joint would restrain the column's warping, the unconservative side).
+  Supports leave warping free (effective torsional length factor 1). Every other member keeps
+  Saint-Venant torsion, whose G·J/r0² is a lower bound. The static solve, modal, spectral and
+  P-Delta analyses get no Cw, so their results do not depend on it; P-Delta's torsional limit
+  stays the conservative G·J/r0². IPE 300 column, 2 m, fork supports: buckling is the
+  weak-axis Euler load 2981 kN, with the torsional mode at (GJ + π²ECw/L²)/r0² ≈ 4660 kN;
+  without Cw torsion governed at 928 kN.
+- Results that move: 3D buckling of open sections (higher torsional loads where Cw now counts,
+  lower flexural-torsional loads for channels, tees and angles), 3D static torsion of members
+  whose section had no J (now zero torque), and analyses refused for sections with no J or a
+  missing shear centre. Checked end to end through the model store
+  (`web/src/lib/engine/__tests__/section-torsion-buckling.test.ts`).
+- Torsional modes between twist restraints now appear even in members left as one element:
+  without warping the element's twist is linear, so a member whose two ends are held in twist
+  had no torsional freedom and its torsional buckling was never found (a king-post truss of IPN
+  300 beams, held out of plane at every node: torsional modes at λ = 11.6 behind the in-plane
+  51.7, which the space model now shows). The twist inside one warping element is a cubic, like
+  the deflection, so one element between twist restraints overestimates the Cw term (only) as it
+  overestimates the Euler load (up to 21.6 % for fork ends); two elements bring it under 1 %.
+
 #### Torsional buckling and response-spectrum combination fixed (2026-10-18)
 
 **BREAKING (results): 3D linear buckling and P-Delta now include the torsional terms of the
