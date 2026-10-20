@@ -1022,6 +1022,53 @@ export function certifiableMultiCaseOf(
   return { input: found, cases, combos, envelope };
 }
 
+/**
+ * The single-solve input of an "all loads" result summed from the cases of one multi-case solve
+ * at `factors` (live-calc, linear models only): those cases' loads, scaled, on the same
+ * structure. Null unless every case summed is still that solve's own result.
+ */
+export function allLoadsInputOf(
+  perCase: Map<number, object>,
+  factors: ReadonlyArray<{ caseId: number; factor: number }>,
+): CertifiableInput | null {
+  let input: CertifiableMultiCase | null = null;
+  for (const f of factors) {
+    const r = perCase.get(f.caseId);
+    const tag = r ? certifiableMulti.get(r) : undefined;
+    if (!tag || tag.id !== f.caseId || !tag.input.caseNames.has(f.caseId) || (input && tag.input !== input)) return null;
+    input = tag.input;
+  }
+  if (!input || input.dim !== '3d') return null;
+  const found: CertifiableMultiCase = input;
+  return {
+    dim: '3d',
+    wire: () => {
+      const w = found.wire();
+      const byName = new Map<string, SolverLoad3D[]>(w.loadCases.map((c: { name: string; loads: SolverLoad3D[] }) => [c.name, c.loads]));
+      const loads = factors.flatMap((f) => (byName.get(found.caseNames.get(f.caseId)!) ?? []).map((l) => scaleSolverLoad(l, f.factor)));
+      return { ...w.solver, loads };
+    },
+  };
+}
+
+/*
+ * Inputs the discretization estimate may read but the certificate may not: the certificate
+ * bounds the solve it re-runs, and a sum of other solves is not that solve; the estimate is about
+ * the mesh, which they share.
+ */
+const estimableOnly = new WeakMap<object, CertifiableInput>();
+
+/** Tag a published "all loads" sum with the single solve it stands for (see `allLoadsInputOf`). */
+export function markAllLoads(result: object, perCase: Map<number, object>, factors: ReadonlyArray<{ caseId: number; factor: number }>): void {
+  const input = allLoadsInputOf(perCase, factors);
+  if (input) estimableOnly.set(result, input);
+}
+
+/** The input the discretization estimate of a published 3D result reads, or null. */
+export function estimableInputOf(results: object): CertifiableInput | null {
+  return certifiableInputOf(results) ?? estimableOnly.get(results) ?? null;
+}
+
 export function validateAndSolve2D(
   model: ModelData,
   includeSelfWeight = false,

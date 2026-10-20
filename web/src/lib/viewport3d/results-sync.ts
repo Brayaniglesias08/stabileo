@@ -698,30 +698,33 @@ function showOriginalMeshes(group: THREE.Group, visible: boolean): void {
 
 /** Reset shell meshes to default teal */
 function resetShellColors(ctx: ResultsSyncContext): void {
-  for (const [, group] of ctx.shellGroups) {
-    // Clear any contour vertex-colour, then restore the per-material base
-    // colour stored on the group at creation (CP1).
-    group.traverse((child) => {
-      // Only the shell FACE mesh carries a contour colour + its own material.
-      // Restrict the mutation to it so a non-owning child (were one ever added)
-      // can't have its material altered.
-      if (child instanceof THREE.Mesh && child.userData.shellFace) {
-        const geo = child.geometry;
-        if (geo.hasAttribute('color')) geo.deleteAttribute('color');
-        displaceShellFace(child, null, 0, false);
-        const mat = child.material as THREE.MeshStandardMaterial;
-        mat.vertexColors = false;
-        // Restore the mode's base look (contour may have forced it opaque).
-        if (child.userData.baseOpacity !== undefined) {
-          mat.opacity = child.userData.baseOpacity;
-          mat.transparent = child.userData.baseTransparent;
-          mat.depthWrite = child.userData.baseDepthWrite;
-        }
-        mat.needsUpdate = true;
+  for (const [, group] of ctx.shellGroups) resetShellGroup(group);
+}
+
+/** One shell back to its base look: no contour colours, undisplaced, base opacity and colour. */
+function resetShellGroup(group: THREE.Group): void {
+  // Clear any contour vertex-colour, then restore the per-material base
+  // colour stored on the group at creation (CP1).
+  group.traverse((child) => {
+    // Only the shell FACE mesh carries a contour colour + its own material.
+    // Restrict the mutation to it so a non-owning child (were one ever added)
+    // can't have its material altered.
+    if (child instanceof THREE.Mesh && child.userData.shellFace) {
+      const geo = child.geometry;
+      if (geo.hasAttribute('color')) geo.deleteAttribute('color');
+      displaceShellFace(child, null, 0, false);
+      const mat = child.material as THREE.MeshStandardMaterial;
+      mat.vertexColors = false;
+      // Restore the mode's base look (contour may have forced it opaque).
+      if (child.userData.baseOpacity !== undefined) {
+        mat.opacity = child.userData.baseOpacity;
+        mat.transparent = child.userData.baseTransparent;
+        mat.depthWrite = child.userData.baseDepthWrite;
       }
-    });
-    restoreShellColor(group);
-  }
+      mat.needsUpdate = true;
+    }
+  });
+  restoreShellColor(group);
 }
 
 /** Build section props for an element */
@@ -932,14 +935,16 @@ function applyShellContour(
 
 /**
  * Paint each plate and quad by its estimated discretization error (one colour per element, on
- * the scale of the global percentage; `mapRange` is also the scale of the panel's legend). Shells without an indicator keep their colour.
+ * the scale of the global percentage; `mapRange` is also the scale of the panel's legend). Shells
+ * without an indicator get their base colour back.
  */
 function applyDiscretizationMap(ctx: ResultsSyncContext): void {
   const values = discretizationStore.elementMap();
   const range = discretizationStore.mapRange();
   for (const [key, group] of ctx.shellGroups) {
     const v = values.get(key);
-    if (v === undefined) { restoreShellColor(group); continue; }
+    // A stress contour left on it (on the deformed shape, maybe) would read as an error value.
+    if (v === undefined) { resetShellGroup(group); continue; }
     const isQuad = key.startsWith('q');
     group.traverse((child) => {
       if (child instanceof THREE.Mesh && child.userData?.shellFace) {

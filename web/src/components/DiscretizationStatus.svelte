@@ -9,7 +9,10 @@
   import { uiStore, modelStore } from '../lib/store';
   import { isVariableMember } from '../lib/engine/variable-members';
   import { certificateStore, formatBound } from '../lib/store/certificate.svelte';
-  import { discretizationStore, discretizationClaims, isInconclusive, type QuantityConvergence } from '../lib/store/discretization.svelte';
+  import {
+    discretizationStore, discretizationClaims, isInconclusive, approxPercent, percentText, thresholdTick, studyUnit, type QuantityConvergence,
+  } from '../lib/store/discretization.svelte';
+  import { localizeEngineText } from '../lib/i18n/engine-text';
   import { shellContourColor } from '../lib/three/stress-heatmap';
 
   const is3D = $derived(uiStore.is3DWorkspace);
@@ -25,12 +28,6 @@
     return t('discretization.algebraicNotCertified');
   });
 
-  function pct(x: number | null | undefined): string {
-    if (x === null || x === undefined || !Number.isFinite(x)) return '—';
-    const p = 100 * x;
-    return p < 0.1 ? p.toFixed(2) : p < 10 ? p.toFixed(1) : p.toFixed(0);
-  }
-
   function num(x: number | null | undefined): string {
     if (x === null || x === undefined || !Number.isFinite(x)) return '—';
     return Math.abs(x) >= 1e4 || (Math.abs(x) < 1e-2 && x !== 0) ? x.toExponential(3) : x.toPrecision(4);
@@ -38,7 +35,19 @@
 
   function quantityLabel(q: QuantityConvergence): string {
     const base = t(`discretization.q.${q.quantity}`);
-    return q.nodeId !== undefined ? base.replace('{node}', String(q.nodeId)) : base;
+    const label = q.nodeId !== undefined ? base.replace('{node}', String(q.nodeId)) : base;
+    return `${label} [${studyUnit(q.quantity, uiStore.unitSystem).unit}]`;
+  }
+
+  /** A study value (SI) in the reader's units. */
+  function value(q: QuantityConvergence, v: number | null | undefined): string {
+    return num(v == null ? v : v * studyUnit(q.quantity, uiStore.unitSystem).factor);
+  }
+
+  /** A refusal the panel can name, else the generic line; the engine's own words stay as detail. */
+  function studyFailure(reason: string): string {
+    const key = `discretization.refuse.${reason}`;
+    return t('discretization.studyFailed').replace('{reason}', t(key) === key ? t('discretization.refuse.other') : t(key));
   }
 
   const discretization = $derived(est.status === 'done' ? est.estimate : null);
@@ -52,7 +61,8 @@
   const warn = $derived(
     (discretization?.exceedsThreshold ?? false) || (study.status === 'done' && study.study.exceedsThreshold),
   );
-  const threshold = $derived(discretization ? pct(discretization.threshold) : '5');
+  const thresholdPct = $derived(discretization ? 100 * discretization.threshold : 5);
+  const threshold = $derived(discretization ? percentText(discretization.threshold) : '5');
 
   const legend = $derived.by(() => {
     const r = discretizationStore.mapRange();
@@ -61,7 +71,7 @@
       const v = r.min + (i / 10) * (r.max - r.min);
       stops.push('#' + shellContourColor(v, r.min, r.max).toString(16).padStart(6, '0'));
     }
-    return { max: r.max, gradient: `linear-gradient(to right, ${stops.join(', ')})` };
+    return { max: r.max, tick: thresholdTick(thresholdPct, r.max), gradient: `linear-gradient(to right, ${stops.join(', ')})` };
   });
 </script>
 
@@ -73,9 +83,9 @@
       {#if est.status === 'pending'}
         <span>{t('discretization.pending')}</span>
       {:else if est.status === 'failed'}
-        <span>{t('discretization.failed').replace('{reason}', est.reason)}</span>
+        <span data-testid="discretization-failed" title={localizeEngineText(est.reason)}>{t('discretization.failed')}</span>
       {:else if claims && claims.percent !== null}
-        <span data-testid="discretization-estimate">{t('discretization.estimated').replace('{pct}', pct(claims.percent))}</span>
+        <span data-testid="discretization-estimate">{t('discretization.estimated').replace('{pct}', approxPercent(claims.percent))}</span>
       {:else if claims?.unestimable}
         <span data-testid="discretization-unestimable">{t(`discretization.unestimable.${claims.unestimable}`)}</span>
       {/if}
@@ -110,8 +120,14 @@
       </label>
       {#if discretizationStore.showMap}
         <div class="legend">
-          <div class="bar" style:background={legend.gradient}></div>
-          <div class="ticks"><span>0 %</span><span>{threshold} %</span><span>{legend.max.toFixed(0)} %</span></div>
+          <div class="bar" style:background={legend.gradient}>
+            <span class="mark" style:left="{legend.tick.at}%"></span>
+          </div>
+          <div class="ticks">
+            <span>0 %</span>
+            {#if legend.tick.label}<span class="thr" style:left="{legend.tick.at}%" data-testid="discretization-legend-threshold">{threshold} %</span>{/if}
+            <span>{legend.max.toFixed(0)} %</span>
+          </div>
           <div class="note">{t('discretization.mapExplain')}</div>
         </div>
       {/if}
@@ -120,13 +136,15 @@
     <div class="study">
       {#if study.status === 'running'}
         <span>{t('discretization.studyRunning')}</span>
+      {:else if discretizationStore.studyFinishing}
+        <span data-testid="discretization-study-finishing">{t('discretization.studyFinishing')}</span>
       {:else}
         <button class="link" disabled={!discretizationStore.canRunStudy()} onclick={() => discretizationStore.runStudy()} data-testid="discretization-run-study">
           {t('discretization.runStudy')}
         </button>
       {/if}
       {#if study.status === 'failed'}
-        <div class="note">{t('discretization.studyFailed').replace('{reason}', t(`discretization.refuse.${study.reason}`) === `discretization.refuse.${study.reason}` ? study.reason : t(`discretization.refuse.${study.reason}`))}</div>
+        <div class="note" title={localizeEngineText(study.reason)}>{studyFailure(study.reason)}</div>
       {:else if study.status === 'done'}
         <table data-testid="discretization-study">
           <thead>
@@ -142,11 +160,11 @@
             {#each study.study.quantities as q}
               <tr class:bad={isInconclusive(q.status) || (q.estimatedError ?? q.relativeChange) > study.study.threshold}>
                 <td>{quantityLabel(q)}</td>
-                {#each q.values as v}<td>{num(v)}</td>{/each}
-                <td>{num(q.extrapolated)}</td>
+                {#each q.values as v}<td>{value(q, v)}</td>{/each}
+                <td>{value(q, q.extrapolated)}</td>
                 <td>{q.observedOrder == null ? '—' : q.observedOrder.toFixed(2)}</td>
                 <td title={t(`discretization.status.${q.status}`)}>
-                  {q.estimatedError != null ? `~${pct(q.estimatedError)} %` : t(`discretization.status.${q.status}`)}
+                  {q.estimatedError != null ? approxPercent(q.estimatedError) : t(`discretization.status.${q.status}`)}
                 </td>
               </tr>
             {/each}
@@ -154,7 +172,7 @@
         </table>
         <div class="note">{t('discretization.studyNote').replace('{n}', study.study.levels.map((l) => l.nodes).join(' → '))}</div>
         {#each study.study.caveats as c}
-          <div class="note">{t(`discretization.caveat.${c}`)}</div>
+          <div class="note">{t(`discretization.caveat.${c}`).replace('{n}', String(study.study.supportsInferred ?? ''))}</div>
         {/each}
       {/if}
     </div>
@@ -170,8 +188,11 @@
   .note { margin-top: 2px; opacity: 0.8; }
   .toggle { display: flex; gap: 4px; align-items: center; margin-top: 3px; cursor: pointer; }
   .legend { margin-top: 3px; }
-  .bar { height: 8px; border-radius: 2px; }
-  .ticks { display: flex; justify-content: space-between; font-size: 0.6rem; }
+  .bar { position: relative; height: 8px; border-radius: 2px; }
+  .mark { position: absolute; top: -1px; bottom: -1px; width: 1px; background: var(--st-text-2); }
+  /* 0 and the maximum at the ends; the threshold where its colour is (`thresholdTick`). */
+  .ticks { position: relative; display: flex; justify-content: space-between; font-size: 0.6rem; }
+  .thr { position: absolute; top: 0; transform: translateX(-50%); }
   .study { margin-top: 3px; }
   .link { padding: 0; border: none; background: none; color: var(--st-accent); font: inherit; text-decoration: underline; cursor: pointer; }
   .link:disabled { opacity: 0.5; cursor: default; }

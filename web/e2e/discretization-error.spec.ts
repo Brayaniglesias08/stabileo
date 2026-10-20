@@ -5,7 +5,8 @@
  *
  * Both run through the worker pool in a real browser: the estimate exports once failed there
  * ("Worker certificate … not available") while every unit test, which runs on the main thread,
- * passed.
+ * passed. The model has load combinations, so the base result on screen is the "all loads" sum
+ * of its cases, which no single solve returned: the estimate once stayed idle on it.
  */
 import { test, expect, loadModel, solveModel } from './fixtures';
 

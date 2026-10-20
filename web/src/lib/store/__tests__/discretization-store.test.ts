@@ -18,9 +18,9 @@ const runCertify = vi.fn(async () => estimate);
 let wire: Record<string, unknown> = {};
 
 vi.mock('../../engine/certify-jobs', () => ({ runCertify: (...a: unknown[]) => runCertify(...(a as [])), hasCertify: () => true }));
-vi.mock('../../engine/solver-service', () => ({ certifiableInputOf: () => ({ dim: '3d', wire: () => wire }) }));
+vi.mock('../../engine/solver-service', () => ({ estimableInputOf: () => ({ dim: '3d', wire: () => wire }) }));
 
-const { discretizationStore, discretizationClaims, isInconclusive, viewportShellKey } = await import('../discretization.svelte');
+const { discretizationStore, discretizationClaims, isInconclusive, viewportShellKey, approxPercent, percentText, thresholdTick, studyUnit } = await import('../discretization.svelte');
 const { resultsStore } = await import('../results.svelte');
 
 async function settle() {
@@ -147,5 +147,72 @@ describe('discretization store', () => {
     // No web element: nothing to paint, rather than a key that matches nothing.
     expect(viewportShellKey('quad9', 7)).toBeNull();
     expect(viewportShellKey('solidShell', 7)).toBeNull();
+  });
+
+  it('keeps one convergence check at a time: a superseded one still running holds the button', async () => {
+    wire = { quads: { 3: {} } };
+    const base = { displacements: [], reactions: [], elementForces: [] } as never;
+    discretizationStore.track(base, '3d');
+    resultsStore.setResults3D(base);
+    await settle();
+    let finish!: (v: unknown) => void;
+    runCertify.mockImplementationOnce(() => new Promise((r) => { finish = r; }) as never);
+    const running = discretizationStore.runStudy();
+    expect(discretizationStore.study.status).toBe('running');
+
+    // A re-solve supersedes it: its result will be discarded, but the worker job runs on.
+    const next = { displacements: [], reactions: [], elementForces: [] } as never;
+    discretizationStore.track(next, '3d');
+    resultsStore.setResults3D(next);
+    await settle();
+    expect(discretizationStore.study.status).toBe('idle');
+    expect(discretizationStore.studyFinishing).toBe(true);
+    expect(discretizationStore.canRunStudy()).toBe(false);
+    const calls = runCertify.mock.calls.length;
+    await discretizationStore.runStudy();
+    expect(runCertify.mock.calls.length).toBe(calls);
+
+    finish({ certified: false, levels: [], quantities: [], threshold: 0.05, exceedsThreshold: false, caveats: [] });
+    await running;
+    expect(discretizationStore.study.status).toBe('idle');
+    expect(discretizationStore.studyFinishing).toBe(false);
+    expect(discretizationStore.canRunStudy()).toBe(true);
+  });
+
+  it('prints a percentage below 0.01 % as such, never as ~0.00 %', () => {
+    expect(approxPercent(1e-7)).toBe('< 0.01 %');
+    expect(approxPercent(0.00009)).toBe('< 0.01 %');
+    expect(approxPercent(0.0005)).toBe('~0.05 %');
+    expect(approxPercent(0.0123)).toBe('~1.2 %');
+    expect(approxPercent(0.25)).toBe('~25 %');
+    expect(approxPercent(0)).toBe('0 %');
+    expect(approxPercent(null)).toBe('—');
+    expect(percentText(0.05)).toBe('5.0');
+  });
+
+  it('puts the threshold label where its colour is on the legend bar', () => {
+    // Threshold 5 % on a 0–14 % bar: at 5/14 of it, not in the middle.
+    expect(thresholdTick(5, 14).at).toBeCloseTo(100 * 5 / 14);
+    expect(thresholdTick(5, 14).label).toBe(true);
+    expect(thresholdTick(5, 10).at).toBe(50);
+    // Too close to an end label to be read: the mark stays, its text does not.
+    expect(thresholdTick(5, 200)).toEqual({ at: 2.5, label: false });
+    expect(thresholdTick(5, 5.2).label).toBe(false);
+    expect(thresholdTick(5, 4).at).toBe(100);
+    expect(thresholdTick(5, 0)).toEqual({ at: 0, label: false });
+  });
+
+  it('shows the study quantities in the reader\'s units', () => {
+    expect(studyUnit('maxDisplacement', 'SI')).toEqual({ factor: 1, unit: 'm' });
+    expect(studyUnit('maxDisplacement', 'SImm')).toEqual({ factor: 1000, unit: 'mm' });
+    expect(studyUnit('maxMoment', 'SI')).toEqual({ factor: 1, unit: 'kN·m/m' });
+    const imp = studyUnit('maxMoment', 'Imperial');
+    expect(imp.unit).toBe('kip·ft/ft');
+    expect(imp.factor).toBeCloseTo(0.224809);
+    expect(studyUnit('maxMoment', 'MKS').unit).toBe('tf·m/m');
+    expect(studyUnit('maxStress', 'SI')).toEqual({ factor: 1, unit: 'kN/m²' });
+    expect(studyUnit('maxStress', 'Imperial').unit).toBe('psf');
+    expect(studyUnit('reaction', 'MKS').unit).toBe('tf');
+    expect(studyUnit('maxFrameMoment', 'Imperial').unit).toBe('kip·ft');
   });
 });

@@ -9,9 +9,10 @@
  *   · `study`: the convergence check (uniform refinement, Richardson extrapolation), run on demand
  *     because it re-solves the model on meshes 4× and 16× its size.
  */
-import { certifiableInputOf, type CertifiableInput } from '../engine/solver-service';
+import { estimableInputOf, type CertifiableInput } from '../engine/solver-service';
 import { runCertify, hasCertify } from '../engine/certify-jobs';
 import { errorText } from '../utils/error-text';
+import { toDisplay, unitLabel, type Quantity, type UnitSystem } from '../utils/units';
 import { resultsStore } from './results.svelte';
 
 export interface ElementErrorIndicator {
@@ -29,7 +30,7 @@ export interface DiscretizationEstimate {
   method: string;
   relativeError?: number | null;
   /** `unloaded` or `noStrainEnergy` when the shells' error could not be estimated (never 0 %). */
-  unestimableReason?: 'unloaded' | 'noStrainEnergy' | 'tooCoarse' | null;
+  unestimableReason?: 'unloaded' | 'noStrainEnergy' | 'tooCoarse' | 'nonFinite' | null;
   errorNorm: number;
   solutionNorm: number;
   threshold: number;
@@ -64,6 +65,8 @@ export interface ConvergenceStudy {
   threshold: number;
   exceedsThreshold: boolean;
   caveats: string[];
+  /** Supports refinement put on nodes the model does not have (caveat `supportsInferred`). */
+  supportsInferred?: number;
 }
 
 /**
@@ -74,7 +77,7 @@ export interface ConvergenceStudy {
  */
 export interface DiscretizationClaims {
   percent: number | null;
-  unestimable: 'unloaded' | 'noStrainEnergy' | 'tooCoarse' | null;
+  unestimable: 'unloaded' | 'noStrainEnergy' | 'tooCoarse' | 'nonFinite' | null;
   /** The i18n key of the warning for an estimate that could not be made, if it warrants one. */
   warnUnestimable: string | null;
   framesExact: boolean;
@@ -98,6 +101,48 @@ export function discretizationClaims(e: DiscretizationEstimate, variableMembers:
     curvedBeams: e.notes.includes('curvedBeamsSegmented'),
     isolatedElements: e.isolatedElements?.length ?? 0,
   };
+}
+
+/** A fraction as a percentage, without the sign: 2 decimals below 0.1 %, 1 below 10 %, else none. */
+export function percentText(x: number): string {
+  const p = 100 * x;
+  return p < 0.1 ? p.toFixed(2) : p < 10 ? p.toFixed(1) : p.toFixed(0);
+}
+
+/** An estimated fraction as the panel prints it: «~1.2 %», and «< 0.01 %» where «~0.00 %» would read as none. */
+export function approxPercent(x: number | null | undefined): string {
+  if (x === null || x === undefined || !Number.isFinite(x)) return '—';
+  if (x === 0) return '0 %';
+  return 100 * Math.abs(x) < 0.01 ? '< 0.01 %' : `~${percentText(x)} %`;
+}
+
+/**
+ * Where the legend puts the threshold (% of the bar, whose ends are 0 and `max`), and whether its
+ * label fits there without running into the end labels: the mark is drawn either way.
+ */
+export function thresholdTick(thr: number, max: number): { at: number; label: boolean } {
+  if (!(max > 0) || !Number.isFinite(thr)) return { at: 0, label: false };
+  const at = Math.min(100, Math.max(0, (100 * thr) / max));
+  return { at, label: at >= 15 && at <= 85 };
+}
+
+/**
+ * The study table's unit for a quantity in the reader's system: the SI value times `factor`, in
+ * `unit`. A shell moment is per unit width, so it scales as a force and is labelled as the
+ * system's moment per its length (kN·m/m, tf·m/m, kip·ft/ft).
+ */
+export function studyUnit(q: QuantityConvergence['quantity'], us: UnitSystem): { factor: number; unit: string } {
+  const of = (k: Quantity) => ({ factor: toDisplay(1, k, us), unit: unitLabel(k, us) });
+  switch (q) {
+    case 'maxDisplacement': return of('displacement');
+    case 'maxStress': return of('areaLoad');
+    case 'reaction': return of('force');
+    case 'maxFrameMoment': return of('moment');
+    case 'maxMoment': {
+      const m = unitLabel('moment', us);
+      return { factor: toDisplay(1, 'force', us), unit: `${m}/${m.slice(m.lastIndexOf('·') + 1)}` };
+    }
+  }
 }
 
 type Estimate =
@@ -159,6 +204,11 @@ function createDiscretizationStore() {
    * base solve — is not what was estimated.
    */
   let estimated = $state.raw<object | null>(null);
+  /*
+   * A convergence check in flight, its result wanted or not: a re-solve discards it, but the
+   * worker job cannot be stopped, and each is a 16× re-solve. One at a time.
+   */
+  let studyInFlight = $state(false);
   let generation = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -184,6 +234,8 @@ function createDiscretizationStore() {
     get study() { return study; },
     get showMap() { return showMap; },
     get idleReason() { return idleWhy; },
+    /** A superseded convergence check still running: no new one until it ends. */
+    get studyFinishing() { return studyInFlight && study.status !== 'running'; },
     /** Whether the error map may take over the viewport: switched on, and an estimate to draw. */
     mapActive(): boolean { return showMap && mapDrawable(estimate) && this.applies(); },
     set showMap(v: boolean) { showMap = v; },
@@ -200,7 +252,7 @@ function createDiscretizationStore() {
       queueMicrotask(() => { if (pub === generation) estimated = resultsStore.results3D; });
       const idle = (why: string) => { estimate = { status: 'idle' }; showMap = false; idleWhy = why; };
       if (dim !== SPACE) return idle('2d');
-      const found = results ? certifiableInputOf(results) : null;
+      const found = results ? estimableInputOf(results) : null;
       if (!found) return idle(results ? 'notCertifiable' : 'cleared');
       if (found.dim !== SPACE) return idle('2d');
       if (!hasCertify(ESTIMATE_EXPORT)) return idle('noExport');
@@ -221,19 +273,22 @@ function createDiscretizationStore() {
     },
 
     canRunStudy(): boolean {
-      return input !== null && this.applies() && hasCertify(STUDY_EXPORT) && study.status !== 'running';
+      return input !== null && this.applies() && hasCertify(STUDY_EXPORT) && !studyInFlight;
     },
 
     /** Run the convergence check on the base solve (re-solves on refined meshes). */
     async runStudy(geometry: 'smooth' | 'faceted' = 'smooth'): Promise<void> {
-      if (!input || !this.applies()) return;
+      if (!input || !this.applies() || studyInFlight) return;
       const gen = generation;
       study = { status: 'running' };
+      studyInFlight = true;
       let next: Study;
       try {
         next = { status: 'done', study: await runCertify(STUDY_EXPORT, [input.wire(), { geometry }]) };
       } catch (e) {
         next = { status: 'failed', reason: errorText(e, 'error') };
+      } finally {
+        studyInFlight = false;
       }
       if (gen === generation) study = next;
     },

@@ -23,6 +23,7 @@ import { initSolver, isWasmReady, combineResults3D } from './wasm-solver';
 import { computeGoverning2D, computeGoverning3D } from './governing-case';
 import { hasNonlinearBehaviour } from './member-behaviour';
 import { allLoadsResult3D } from './shell-combos';
+import { markAllLoads } from './solver-service';
 import { singleSolveFactors } from './case-effects';
 import { reportSolverDiagnostics, reportModelDiagnostics } from './solve-diagnostics';
 import { solveForEdu } from '../../components/edu/edu-solver';
@@ -323,6 +324,8 @@ async function globalSolve3D(isStale: () => boolean): Promise<void> {
       const only = factors.length === 1 && factors[0]!.factor === 1 ? comboResult.perCase.get(factors[0]!.caseId) : null;
       const combined = only ? null : combineResults3D(factors, comboResult.perCase);
       firstCaseResult = only ?? (combined ? allLoadsResult3D(combined, comboResult.perCase, modelStore.plates, factors) : null);
+      // No single solve returned this sum: the discretization estimate reads the one it stands for.
+      if (firstCaseResult) markAllLoads(firstCaseResult, comboResult.perCase, factors);
     }
     if (!firstCaseResult) return t('results.emptyModelError');
 
