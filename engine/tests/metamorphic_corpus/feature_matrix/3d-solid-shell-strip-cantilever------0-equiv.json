@@ -304,7 +304,9 @@
       "iy": 0.0006749999999999999,
       "iz": 0.0006749999999999999,
       "j": 0.0011407499999999998,
-      "name": null
+      "name": null,
+      "shearCenterY": null,
+      "shearCenterZ": null
     },
     "5": {
       "a": 0.06,
@@ -315,7 +317,9 @@
       "iy": 0.000050000000000000016,
       "iz": 0.0018000000000000002,
       "j": 0.00020000000000000006,
-      "name": null
+      "name": null,
+      "shearCenterY": null,
+      "shearCenterZ": null
     },
     "6": {
       "a": 0.27,
@@ -326,7 +330,9 @@
       "iy": 0.002025,
       "iz": 0.018225,
       "j": 0.006400749999999999,
-      "name": null
+      "name": null,
+      "shearCenterY": null,
+      "shearCenterZ": null
     }
   },
   "solidShells": {},

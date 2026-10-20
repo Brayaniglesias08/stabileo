@@ -1322,12 +1322,24 @@ fn moving_reference_2d(ana: &str, c: &Case2) -> Result<Out, String> {
             let mut s = m.s.clone();
             s.loads.push(SolverLoad::PointOnElement(SolverPointLoadOnElement { element_id: path[k], a: (pos - acc).clamp(0.0, lens[k]), p: -50.0, px: None, my: None }));
             let r = linear::solve_2d(&s)?;
+            // Along the member, as the envelope reads it since #437: the ends and every
+            // station the diagram samples (the point load among them).
+            let range = |ef: &ElementForces, kind: &str, a0: f64, a1: f64| -> (f64, f64) {
+                let (mut lo, mut hi) = (a0.min(a1), a0.max(a1));
+                for t in dedaliano_engine::postprocess::diagrams::diagram_positions_2d(ef, kind) {
+                    let v = dedaliano_engine::postprocess::diagrams::compute_diagram_value_at(kind, t.clamp(0.0, 1.0), ef);
+                    if v.is_finite() { lo = lo.min(v); hi = hi.max(v); }
+                }
+                (lo, hi)
+            };
             for ef in &r.element_forces {
                 if let Some(e) = env.get_mut(&ef.element_id) {
-                    e[0] = e[0].max(ef.m_start.max(ef.m_end));
-                    e[1] = e[1].min(ef.m_start.min(ef.m_end));
-                    e[2] = e[2].max(ef.v_start.max(ef.v_end));
-                    e[3] = e[3].min(ef.v_start.min(ef.v_end));
+                    let (m_lo, m_hi) = range(ef, "moment", ef.m_start, ef.m_end);
+                    let (v_lo, v_hi) = range(ef, "shear", ef.v_start, ef.v_end);
+                    e[0] = e[0].max(m_hi);
+                    e[1] = e[1].min(m_lo);
+                    e[2] = e[2].max(v_hi);
+                    e[3] = e[3].min(v_lo);
                 }
             }
             pos += 0.5;

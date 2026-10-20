@@ -42,13 +42,14 @@ pub enum CombinationRule {
 }
 
 impl CombinationRule {
-    /// `None` is CQC. Anything other than SRSS or CQC (any case) is refused: an
-    /// unknown rule used to fall through to CQC silently.
+    /// `None` is CQC. Anything other than exactly "SRSS" or "CQC" is refused (an unknown
+    /// rule used to fall through to CQC silently), as for every enum string of the input:
+    /// no trimming or case folding (tests/unknown_enum_strings.rs).
     pub fn parse(rule: Option<&str>) -> Result<Self, String> {
-        match rule.map(|r| r.trim().to_ascii_uppercase()).as_deref() {
+        match rule {
             None | Some("CQC") => Ok(CombinationRule::Cqc),
             Some("SRSS") => Ok(CombinationRule::Srss),
-            Some(other) => Err(format!("unknown modal combination rule '{other}' (expected SRSS or CQC)")),
+            Some(other) => Err(format!("Spectral analysis: unknown combination rule '{other}'; expected \"SRSS\" or \"CQC\"")),
         }
     }
 

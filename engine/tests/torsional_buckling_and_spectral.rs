@@ -609,7 +609,10 @@ fn spectral_rule_is_validated() {
     };
     let err = spectral::solve_spectral_2d(&si).unwrap_err();
     assert!(err.contains("combination rule"), "{err}");
+    // Exact strings only, as every enum of the input (tests/unknown_enum_strings.rs).
     si.rule = Some("srss".into());
+    assert!(spectral::solve_spectral_2d(&si).unwrap_err().contains("combination rule"));
+    si.rule = Some("SRSS".into());
     assert_eq!(spectral::solve_spectral_2d(&si).unwrap().rule, "SRSS");
 }
 
