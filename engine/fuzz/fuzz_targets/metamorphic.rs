@@ -37,7 +37,12 @@ fuzz_target!(|data: &[u8]| {
             0 => {
                 let iso = if sel & 4 != 0 { Iso3::random(&mut rng) } else { Iso3::axis_permutation(sel as usize) }.translated([rng.range(-20.0, 20.0), 0.0, 1.0]);
                 let Ok(t) = transform_3d(&s, &iso) else { return };
-                let Ok(r) = linear::solve_3d(&t) else { panic!("rotated model refused") };
+                let r = linear::solve_3d(&t).unwrap_or_else(|e| panic!("rotated model refused: {e}"));
+                // The translation can move a small model far from the origin:
+                // the tolerance is the worse conditioning of the two models.
+                let Ok(ct) = conditioning::of_3d(&t) else { return };
+                let c = c.worst(&ct);
+                let rel = c.rel();
                 check("rotation", compare(&flat_3d(&r, Parts::ALL), &flat_3d(&map_results_3d(&base, &iso), Parts::ALL), c.lchar, rel), rel);
             }
             1 => {
@@ -60,8 +65,14 @@ fuzz_target!(|data: &[u8]| {
         match sel % 3 {
             0 => {
                 let iso = if sel & 4 != 0 { Iso2::mirror_line(rng.range(0.0, 3.1)) } else { Iso2::rotation(rng.range(0.0, 6.2)) }.translated(rng.range(-20.0, 20.0), 3.0);
+                // transform_2d refuses what a rigid motion cannot represent
+                // (axis-bound supports, ...); a representable copy that then
+                // fails to solve is a violation, as in 3D.
                 let Ok(t) = transform_2d(&s, &iso) else { return };
-                let Ok(r) = linear::solve_2d(&t) else { return };
+                let r = linear::solve_2d(&t).unwrap_or_else(|e| panic!("rigidly moved model refused: {e}"));
+                let Ok(ct) = conditioning::of_2d(&t) else { return };
+                let c = c.worst(&ct);
+                let rel = c.rel();
                 check("rigid motion", compare(&flat_2d(&r, Parts::ALL), &flat_2d(&map_results_2d(&base, &iso), Parts::ALL), c.lchar, rel), rel);
             }
             1 => {
