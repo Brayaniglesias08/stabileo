@@ -430,14 +430,15 @@ fn energy(a: &Ana3, c: &Case3, cond: &Conditioning, rng: &mut Rng) -> Verdict {
     }
     for sp in s.supports.values() {
         let d = u(sp.node_id);
-        let fl = [sp.rx, sp.ry, sp.rz, sp.rrx, sp.rry, sp.rrz];
+        // Every spring counts, restraint flag or not: a positive spring frees
+        // its DOF even when the flag is set (DofNumbering::build_3d), and on a
+        // DOF that stays fixed d = 0 adds nothing. Skipping flagged DOFs left
+        // out the energy of a spring the engine applies.
         let ks = [sp.kx, sp.ky, sp.kz, sp.krx, sp.kry, sp.krz];
         for k in 0..6 {
-            if !fl[k] {
-                let t = ks[k].unwrap_or(0.0) * d[k] * d[k];
-                e2 += t;
-                eabs += t.abs();
-            }
+            let t = ks[k].unwrap_or(0.0) * d[k] * d[k];
+            e2 += t;
+            eabs += t.abs();
         }
     }
     let rel = rel_for(a.name, a.iter_tol, cond) * 4.0;
