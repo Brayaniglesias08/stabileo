@@ -12,6 +12,7 @@ pub mod loads;
 pub mod section;
 pub mod certify;
 pub mod sanity;
+pub mod metamorphic;
 #[cfg(kani)]
 mod kani_proofs;
 

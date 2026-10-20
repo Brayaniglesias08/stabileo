@@ -676,6 +676,10 @@ def translate(d):
             liais.append(_liaison(row))
     for row in mpcs:
         liais.append(_liaison([(f"N{n}", k, c) for n, k, c in row]))
+    if not ddl and not liais:
+        # Nothing restrains the model (Code_Aster rejects an empty
+        # AFFE_CHAR_MECA): a free body, singular by its rigid-body motions.
+        raise Unsupported("free body: no support or constraint")
     w("BC = AFFE_CHAR_MECA(MODELE=MO,")
     if ddl:
         w("    DDL_IMPO=(" + "".join(f"\n        {s}," for s in ddl) + "\n    ),")
