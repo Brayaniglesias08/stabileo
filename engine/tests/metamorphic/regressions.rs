@@ -338,11 +338,24 @@ fn staged_one_stage_3d(s: &SolverInput3D) -> AnalysisResults3D {
 
 /// A one-stage 3D staged analysis reports what the linear solver does:
 /// member end forces with fixed-end forces and the engine's sign convention,
-/// reactions, and the left-handed axes the model asks for.
+/// reactions; both refuse left-handed axes.
 #[test]
 fn staged_3d_matches_linear() {
     for lh in [false, true] {
         let s = cantilever_3d(lh);
+        if lh {
+            // Left-handed axes are refused (they would change the element
+            // stiffness), by both paths alike.
+            assert!(linear::solve_3d(&s).unwrap_err().contains("leftHand"));
+            let v = json!({
+                "nodes": s.nodes, "materials": s.materials, "sections": s.sections, "elements": s.elements,
+                "supports": s.supports, "loads": s.loads, "leftHand": true,
+                "stages": [{"name": "all", "elementsAdded": [1], "loadIndices": [0], "supportsAdded": [1]}]
+            });
+            let refused = staged::parse_staged_3d(&v.to_string()).and_then(|i| staged::solve_staged_3d(&i).map(|_| ()));
+            assert!(refused.unwrap_err().contains("leftHand"));
+            continue;
+        }
         let lin = linear::solve_3d(&s).unwrap();
         let st = staged_one_stage_3d(&s);
         let (a, b) = (&lin.element_forces[0], &st.element_forces[0]);

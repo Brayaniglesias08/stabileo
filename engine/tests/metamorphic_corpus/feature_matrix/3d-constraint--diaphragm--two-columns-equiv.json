@@ -50,7 +50,7 @@
       "nodeJ": 4,
       "releaseMyEnd": true,
       "releaseMyStart": true,
-      "releaseMzEnd": true,
+      "releaseMzEnd": false,
       "releaseMzStart": false,
       "releaseTEnd": false,
       "releaseTStart": true,
