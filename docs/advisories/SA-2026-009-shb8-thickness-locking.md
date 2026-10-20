@@ -1,4 +1,4 @@
-# SA-2026-009: Solid shell (SHB8-ANS) about 18 % too stiff in thin-plate bending
+# SA-2026-009: Solid shell (SHB8-ANS) about 22 % too stiff in thin-plate bending (deflections about 18 % low)
 
 | | |
 |---|---|

@@ -44,7 +44,7 @@ export const safetyAdvisories: Post = {
             ['SA-2026-006', 'Modelo plano resuelto en 3D: momentos nodales y giros impuestos invertidos', 'Alta', 'Corrección en revisión'],
             ['SA-2026-005', 'Barras inclinadas 2D: esfuerzo axil sin la componente de la carga a lo largo de la barra', 'Alta', 'Corrección en revisión'],
             ['SA-2026-010', 'Certificado espectral aprobado con resultados no finitos', 'Media', 'Corregido el 19/10/2026'],
-            ['SA-2026-009', 'Sólido-lámina SHB8 un 18 % demasiado rígido en flexión de placas delgadas', 'Media', 'Corregido el 19/10/2026'],
+            ['SA-2026-009', 'Sólido-lámina SHB8 un 22 % demasiado rígido en flexión de placas delgadas (flechas un 18 % bajas)', 'Media (mayor en estructuras hiperestáticas)', 'Corregido el 19/10/2026'],
             ['SA-2026-004', 'Análisis que ignoraban parte del modelo (dinámica, pandeo, colapso plástico)', 'Crítica', 'Corregido en 0.2.0'],
             ['SA-2026-003', 'Verificaciones de acero, perfiles conformados y uniones con capacidad sobrestimada', 'Crítica', 'Corregido en 0.2.0'],
             ['SA-2026-002', 'Verificaciones de hormigón (CIRSOC 201, ACI 318) con capacidad sobrestimada', 'Crítica', 'Corregido en 0.2.0'],
@@ -114,7 +114,7 @@ export const safetyAdvisories: Post = {
         { k: 'ext', href: `${REPO}/SA-2026-006-mirrored-moments-2d-in-3d.md`, label: 'SA-2026-006 completo', t: 'El aviso, con los tres casos de prueba:' },
 
         { k: 'h', t: 'SA-2026-005: esfuerzo axil en barras inclinadas 2D' },
-        { k: 'p', t: 'El armado de cargas 2D pasaba a los nodos extremos la componente de la carga a lo largo de una barra inclinada. Reacciones y desplazamientos eran correctos, pero la barra no veía esa carga en el tramo, así que su esfuerzo axil quedaba constante, igual al promedio de los valores reales en sus extremos: en la base de un cabio, un 36 % bajo. El diagrama, el inspector, la memoria, la exportación a Excel y el dimensionado usaban ese valor. Además, un par aplicado sobre una barra se perdía cuando un modelo plano se resolvía en 3D.' },
+        { k: 'p', t: 'El armado de cargas 2D pasaba a los nodos extremos la componente de la carga a lo largo de una barra inclinada. Reacciones y desplazamientos eran correctos, pero la barra no veía esa carga en el tramo, así que su esfuerzo axil quedaba constante, igual al promedio de los valores reales en sus extremos: en la base de un cabio, un 26 % bajo. El diagrama, el inspector, la memoria, la exportación a Excel y el dimensionado usaban ese valor. Además, un par aplicado sobre una barra se perdía cuando un modelo plano se resolvía en 3D.' },
         {
           k: 'ul',
           items: [
@@ -129,7 +129,7 @@ export const safetyAdvisories: Post = {
         {
           k: 'ul',
           items: [
-            'SA-2026-009: el elemento sólido-lámina SHB8 era un 18 % demasiado rígido en flexión de placas delgadas (bloqueo de Poisson en el espesor), así que subestimaba las flechas. Revisá las conclusiones de flecha y vibración de modelos con placas de sólido-lámina resueltos antes de esa fecha; MITC4, MITC9, DKT y la lámina curva no estaban afectados.',
+            'SA-2026-009: el elemento sólido-lámina SHB8 era un 22 % demasiado rígido en flexión de placas delgadas (bloqueo de Poisson en el espesor), así que subestimaba las flechas en alrededor de un 18 %. Revisá las conclusiones de flecha y vibración de modelos con placas de sólido-lámina resueltos antes de esa fecha; MITC4, MITC9, DKT y la lámina curva no estaban afectados.',
             'SA-2026-010: el certificado del análisis espectral podía aprobar resultados no finitos (NaN). Los números eran visiblemente inválidos; lo equivocado era la afirmación de verificación. No hace falta revisar nada salvo un resultado entregado que mostrara valores no finitos.',
           ],
         },
@@ -170,7 +170,7 @@ export const safetyAdvisories: Post = {
             ['SA-2026-006', 'Plane model solved in 3D: nodal moments and imposed rotations reversed', 'High', 'Fix in review'],
             ['SA-2026-005', '2D inclined members: axial force without the along-member load component', 'High', 'Fix in review'],
             ['SA-2026-010', 'Spectral certificate passed non-finite results', 'Medium', 'Fixed 2026-10-19'],
-            ['SA-2026-009', 'SHB8 solid shell 18 % too stiff in thin-plate bending', 'Medium', 'Fixed 2026-10-19'],
+            ['SA-2026-009', 'SHB8 solid shell 22 % too stiff in thin-plate bending (deflections 18 % low)', 'Medium (higher in indeterminate structures)', 'Fixed 2026-10-19'],
             ['SA-2026-004', 'Analyses that ignored part of the model (dynamics, buckling, plastic collapse)', 'Critical', 'Fixed in 0.2.0'],
             ['SA-2026-003', 'Steel, cold-formed and connection checks overstated capacity', 'Critical', 'Fixed in 0.2.0'],
             ['SA-2026-002', 'Concrete checks (CIRSOC 201, ACI 318) overstated capacity', 'Critical', 'Fixed in 0.2.0'],
@@ -240,7 +240,7 @@ export const safetyAdvisories: Post = {
         { k: 'ext', href: `${REPO}/SA-2026-006-mirrored-moments-2d-in-3d.md`, label: 'Full SA-2026-006', t: 'The advisory, with the three test cases:' },
 
         { k: 'h', t: 'SA-2026-005: axial force in 2D inclined members' },
-        { k: 'p', t: 'The 2D load builder moved the along-member component of a load on an inclined member to its end nodes. Reactions and displacements were right, but the member did not see that load in its span, so its axial force stayed constant at the mean of its true end values: 36 % low at the base of a rafter. The diagram, the inspector, the report, the Excel export and the design all used that value. A couple applied on a member was also dropped when a plane model was solved in 3D.' },
+        { k: 'p', t: 'The 2D load builder moved the along-member component of a load on an inclined member to its end nodes. Reactions and displacements were right, but the member did not see that load in its span, so its axial force stayed constant at the mean of its true end values: 26 % low at the base of a rafter. The diagram, the inspector, the report, the Excel export and the design all used that value. A couple applied on a member was also dropped when a plane model was solved in 3D.' },
         {
           k: 'ul',
           items: [
@@ -255,7 +255,7 @@ export const safetyAdvisories: Post = {
         {
           k: 'ul',
           items: [
-            'SA-2026-009: the SHB8 solid-shell element was 18 % too stiff in thin-plate bending (Poisson thickness locking), so it underestimated deflections. Re-check deflection and vibration conclusions for models with solid-shell plates solved before that date; MITC4, MITC9, DKT and the curved shell were not affected.',
+            'SA-2026-009: the SHB8 solid-shell element was 22 % too stiff in thin-plate bending (Poisson thickness locking), so it underestimated deflections by about 18 %. Re-check deflection and vibration conclusions for models with solid-shell plates solved before that date; MITC4, MITC9, DKT and the curved shell were not affected.',
             'SA-2026-010: the spectral analysis certificate could pass non-finite results (NaN). The numbers were visibly invalid; what was wrong was the verification claim. Nothing needs re-checking unless a delivered result showed non-finite values.',
           ],
         },
@@ -296,7 +296,7 @@ export const safetyAdvisories: Post = {
             ['SA-2026-006', 'Modelo plano resolvido em 3D: momentos nodais e rotações impostas invertidos', 'Alta', 'Correção em revisão'],
             ['SA-2026-005', 'Barras inclinadas 2D: esforço normal sem a componente da carga ao longo da barra', 'Alta', 'Correção em revisão'],
             ['SA-2026-010', 'Certificado espectral aprovado com resultados não finitos', 'Média', 'Corrigido em 19/10/2026'],
-            ['SA-2026-009', 'Sólido-casca SHB8 18 % rígido demais na flexão de placas finas', 'Média', 'Corrigido em 19/10/2026'],
+            ['SA-2026-009', 'Sólido-casca SHB8 22 % rígido demais na flexão de placas finas (flechas 18 % baixas)', 'Média (maior em estruturas hiperestáticas)', 'Corrigido em 19/10/2026'],
             ['SA-2026-004', 'Análises que ignoravam parte do modelo (dinâmica, flambagem, colapso plástico)', 'Crítica', 'Corrigido na 0.2.0'],
             ['SA-2026-003', 'Verificações de aço, perfis formados a frio e ligações com capacidade superestimada', 'Crítica', 'Corrigido na 0.2.0'],
             ['SA-2026-002', 'Verificações de concreto (CIRSOC 201, ACI 318) com capacidade superestimada', 'Crítica', 'Corrigido na 0.2.0'],
@@ -366,7 +366,7 @@ export const safetyAdvisories: Post = {
         { k: 'ext', href: `${REPO}/SA-2026-006-mirrored-moments-2d-in-3d.md`, label: 'SA-2026-006 completo', t: 'O aviso, com os três casos de teste:' },
 
         { k: 'h', t: 'SA-2026-005: esforço normal em barras inclinadas 2D' },
-        { k: 'p', t: 'A montagem de cargas 2D passava aos nós extremos a componente da carga ao longo de uma barra inclinada. Reações e deslocamentos estavam certos, mas a barra não via essa carga no vão, então seu esforço normal ficava constante, igual à média dos valores reais nas extremidades: na base de um caibro, 36 % baixo. O diagrama, o inspetor, o memorial, a exportação para Excel e o dimensionamento usavam esse valor. Além disso, um binário aplicado numa barra se perdia quando um modelo plano era resolvido em 3D.' },
+        { k: 'p', t: 'A montagem de cargas 2D passava aos nós extremos a componente da carga ao longo de uma barra inclinada. Reações e deslocamentos estavam certos, mas a barra não via essa carga no vão, então seu esforço normal ficava constante, igual à média dos valores reais nas extremidades: na base de um caibro, 26 % baixo. O diagrama, o inspetor, o memorial, a exportação para Excel e o dimensionamento usavam esse valor. Além disso, um binário aplicado numa barra se perdia quando um modelo plano era resolvido em 3D.' },
         {
           k: 'ul',
           items: [
@@ -381,7 +381,7 @@ export const safetyAdvisories: Post = {
         {
           k: 'ul',
           items: [
-            'SA-2026-009: o elemento sólido-casca SHB8 era 18 % rígido demais na flexão de placas finas (travamento de Poisson na espessura), então subestimava as flechas. Revise as conclusões de flecha e vibração de modelos com placas de sólido-casca resolvidos antes dessa data; MITC4, MITC9, DKT e a casca curva não eram afetados.',
+            'SA-2026-009: o elemento sólido-casca SHB8 era 22 % rígido demais na flexão de placas finas (travamento de Poisson na espessura), então subestimava as flechas em cerca de 18 %. Revise as conclusões de flecha e vibração de modelos com placas de sólido-casca resolvidos antes dessa data; MITC4, MITC9, DKT e a casca curva não eram afetados.',
             'SA-2026-010: o certificado da análise espectral podia aprovar resultados não finitos (NaN). Os números eram visivelmente inválidos; o errado era a afirmação de verificação. Não é preciso revisar nada, a menos que um resultado entregue mostrasse valores não finitos.',
           ],
         },
