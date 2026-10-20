@@ -19,8 +19,9 @@ released.
 | [SA-2026-006](SA-2026-006-mirrored-moments-2d-in-3d.md) | 2D model solved in 3D: nodal moments and imposed rotations mirrored | High | [#435](https://github.com/lambdaclass/stabileo/issues/435) | #436 | — | Draft |
 | [SA-2026-007](SA-2026-007-torsional-buckling.md) | 3D buckling missed torsional / flexural-torsional modes (up to 96 % high) | High | [#404](https://github.com/lambdaclass/stabileo/issues/404) | #434 | — | Draft |
 | [SA-2026-008](SA-2026-008-spectral-combination.md) | Spectral base shear SRSS under CQC; participation omitted support-coupled mass | High | [#405](https://github.com/lambdaclass/stabileo/issues/405) | #434 | — | Draft |
-| [SA-2026-009](SA-2026-009-shb8-thickness-locking.md) | Solid shell (SHB8) ~18 % too stiff in thin-plate bending | Medium | [#400](https://github.com/lambdaclass/stabileo/issues/400) | #401 | — | Draft |
-| [SA-2026-010](SA-2026-010-spectral-certificate-nonfinite.md) | Spectral certificate passed on non-finite results | Medium | [#335](https://github.com/lambdaclass/stabileo/issues/335) | #398 | — | Draft |
+| [SA-2026-009](SA-2026-009-shb8-thickness-locking.md) | Solid shell (SHB8) ~22 % too stiff in thin-plate bending (deflections ~18 % low) | Medium | [#400](https://github.com/lambdaclass/stabileo/issues/400) | #401 | `main`, deployed 2026-10-19 (next release) | Draft |
+| [SA-2026-010](SA-2026-010-spectral-certificate-nonfinite.md) | Spectral certificate passed on non-finite results | Medium | [#335](https://github.com/lambdaclass/stabileo/issues/335) | #398 | `main`, deployed 2026-10-19 (next release) | Draft |
+| [SA-2026-011](SA-2026-011-springs-on-fixed-supports.md) | 3D support switched from spring to fixed or pinned was solved as elastic | High | [#488](https://github.com/lambdaclass/stabileo/issues/488) | #491 | — | Draft |
 
 Other open `safety` issues (the derivation-review findings #406–#433, #338, #439) get an advisory
 or a recorded "no advisory needed" when they are triaged; the list is on the

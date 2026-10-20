@@ -20,7 +20,7 @@ a member.
 - The 2D load builder moved the along-member component of a load to the end nodes. Reactions and
   displacements were right, but the member saw no span load, so its **axial force N was constant**
   at the mean of its true end values. A gable rafter under 10 kN/m vertical read −41.67 kN at both
-  ends where the closed form runs from −56.67 kN at the base to −26.67 kN at the apex (**36 % low
+  ends where the closed form runs from −56.67 kN at the base to −26.67 kN at the apex (**26 % low
   at the base**); a 3-4-5 member under 10 kN/m read 0 / 0 instead of −15 / +15 kN. The diagram,
   inspector, report, Excel export and design all used that N.
 - A couple applied on a member was dropped when a 2D model was solved by the 3D solver: a beam

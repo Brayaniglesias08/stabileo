@@ -3,9 +3,9 @@
 | | |
 |---|---|
 | Severity | Medium (a verification claim was wrong; the numbers themselves were visibly non-finite) |
-| Status | Draft (fix not merged) |
+| Status | Draft (fixed on `main`, deployed to stabileo.com 2026-10-19; untagged, next release) |
 | Issue | [#335](https://github.com/lambdaclass/stabileo/issues/335) |
-| Fix | PR [#398](https://github.com/lambdaclass/stabileo/pull/398) (open) |
+| Fix | PR [#398](https://github.com/lambdaclass/stabileo/pull/398) (merged 2026-10-19) |
 | Affected versions | every version with `certify_spectral_3d`, up to 0.2.0 and `main` until the fix |
 | Re-check registry | not needed if no saved project is affected (to confirm with the fix) |
 
@@ -29,7 +29,7 @@ after about 3.3 million executions.
 
 ## Fixed in
 
-Not yet fixed (PR #398: certificates never pass on non-finite results).
+`main` (#398, merged and deployed to stabileo.com on 2026-10-19); it will ship in the next tagged release.
 
 ## Workaround
 

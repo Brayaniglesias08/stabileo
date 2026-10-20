@@ -284,6 +284,15 @@
   font-weight: 500;
 }
 
+.landing.blog .post-table td.post-cell-text {
+  white-space: normal;
+  text-align: left;
+  font-family: var(--lp-sans);
+  font-size: 0.85rem;
+  min-width: 13rem;
+  line-height: 1.4;
+}
+
 .landing.blog .post-table tbody tr:last-child th,
 .landing.blog .post-table tbody tr:last-child td {
   border-bottom: 0;

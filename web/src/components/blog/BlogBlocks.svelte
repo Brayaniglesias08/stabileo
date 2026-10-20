@@ -41,6 +41,11 @@
         <PublicLink to={`/blog/${target.slug}`} class="link-arrow">{target.i18n[publicI18n.locale].title}</PublicLink>
       </aside>
     {/if}
+  {:else if block.k === 'ext'}
+    <aside class="post-link">
+      <span class="post-link-lead">{block.t}</span>
+      <a href={block.href} class="link-arrow" rel="noopener" target="_blank">{block.label}</a>
+    </aside>
   {:else if block.k === 'embed'}
     <PostEmbed query={block.query} mode={block.mode} label={block.label} />
   {:else if block.k === 'table'}
@@ -56,7 +61,10 @@
             {#each block.rows as row}
               <tr>
                 {#each row as cell, i}
-                  {#if i === 0}<th scope="row">{cell}</th>{:else}<td>{cell}</td>{/if}
+                  <!-- Tables are set for numbers (monospace, right-aligned, one
+                       line). A sentence in a cell wraps and reads as prose,
+                       or a phone shows only its first words. -->
+                  {#if i === 0}<th scope="row">{cell}</th>{:else}<td class:post-cell-text={cell.length > 24}>{cell}</td>{/if}
                 {/each}
               </tr>
             {/each}

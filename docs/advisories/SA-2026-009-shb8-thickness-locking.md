@@ -1,11 +1,11 @@
-# SA-2026-009: Solid shell (SHB8-ANS) about 18 % too stiff in thin-plate bending
+# SA-2026-009: Solid shell (SHB8-ANS) about 22 % too stiff in thin-plate bending (deflections about 18 % low)
 
 | | |
 |---|---|
 | Severity | Medium (serviceability; higher where solid-shell plates carry load in indeterminate systems) |
-| Status | Draft (fix not merged) |
+| Status | Draft (fixed on `main`, deployed to stabileo.com 2026-10-19; untagged, next release) |
 | Issue | [#400](https://github.com/lambdaclass/stabileo/issues/400) |
-| Fix | PR [#401](https://github.com/lambdaclass/stabileo/pull/401) (open) |
+| Fix | PR [#401](https://github.com/lambdaclass/stabileo/pull/401) (merged 2026-10-19) |
 | Affected versions | every version with the SHB8-ANS solid shell, up to 0.2.0 and `main` until the fix |
 | Re-check registry | to add with the fix |
 
@@ -31,7 +31,7 @@ curved shell are not affected by this defect.
 
 ## Fixed in
 
-Not yet fixed (PR #401: enhanced assumed strain on the thickness mode).
+`main` (#401, merged and deployed to stabileo.com on 2026-10-19); it will ship in the next tagged release.
 
 ## Workaround
 
