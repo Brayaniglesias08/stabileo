@@ -251,8 +251,8 @@ pub fn cable_natural_frequency(
 
 /// Irvine parameter λ² for cable dynamics.
 ///
-/// λ² = (wL/H)² * (L_e / L) * (EA·L / H·L_e)
-/// Simplified for flat cable: λ² = (wL)²·L / (H³·L_e/(EA))
+/// λ² = (wL/H)² · L / (H·L_e/(EA))   (Irvine 1981, dimensionless)
+/// with L_e ≈ L·(1 + 8(f/L)²) for a level cable of sag f = wL²/(8H).
 ///
 /// Controls in-plane symmetric mode behavior.
 /// λ² < 4π² → antisymmetric mode governs
@@ -264,7 +264,9 @@ pub fn irvine_parameter(w: f64, l: f64, h_thrust: f64, e: f64, a: f64) -> f64 {
     let wl_h = w * l / h_thrust;
     // Effective length ratio (≈1 for flat cables)
     let le_ratio = 1.0 + 8.0 * (cable_sag(w, l, h_thrust) / l).powi(2);
-    wl_h * wl_h * e * a * l / (h_thrust * le_ratio)
+    // λ² = (wL/H)²·L/(H·L_e/EA) = (wL/H)²·EA/(H·L_e/L): dimensionless. It
+    // carried an extra factor L (SP-9).
+    wl_h * wl_h * e * a / (h_thrust * le_ratio)
 }
 
 #[cfg(test)]

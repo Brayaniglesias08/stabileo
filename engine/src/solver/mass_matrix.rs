@@ -505,7 +505,13 @@ pub fn assemble_mass_matrix_3d(
         ];
 
         // density is in kg/m³, divide by 1000 to get tonnes/m³ (consistent with kN units)
-        let m_local = crate::element::quad::quad_consistent_mass(&coords, rho_t, quad.thickness);
+        // Local mass to global: the translational blocks are isotropic, but the rotary
+        // block diag(ρt³/12, ρt³/12, 0) is about the LOCAL axes and must be rotated with
+        // the element. Scattered as local, a wall got inertia about its own normal (the
+        // drilling rotation) and none about one in-plane axis (SH-4, docs/solver/shells.md).
+        let m_local = transform_stiffness(
+            &crate::element::quad::quad_consistent_mass(&coords, rho_t, quad.thickness),
+            &crate::element::quad::quad_transform_3d(&coords), 24);
 
         let quad_dofs = dof_num.quad_element_dofs(&quad.nodes);
         for i in 0..24 {
@@ -529,7 +535,10 @@ pub fn assemble_mass_matrix_3d(
             coords[i] = [nd.x, nd.y, nd.z];
         }
 
-        let m_local = crate::element::quad9::quad9_consistent_mass(&coords, rho_t, quad9.thickness);
+        // Rotated to global, see the quad above (SH-4).
+        let m_local = transform_stiffness(
+            &crate::element::quad9::quad9_consistent_mass(&coords, rho_t, quad9.thickness),
+            &crate::element::quad9::quad9_transform_3d(&coords), 54);
 
         let q9_dofs = dof_num.quad9_element_dofs(&quad9.nodes);
         for i in 0..54 {
@@ -800,7 +809,13 @@ fn assemble_mass_matrix_3d_sparse_impl(
             [n3.x, n3.y, n3.z],
         ];
 
-        let m_local = crate::element::quad::quad_consistent_mass(&coords, rho_t, quad.thickness);
+        // Local mass to global: the translational blocks are isotropic, but the rotary
+        // block diag(ρt³/12, ρt³/12, 0) is about the LOCAL axes and must be rotated with
+        // the element. Scattered as local, a wall got inertia about its own normal (the
+        // drilling rotation) and none about one in-plane axis (SH-4, docs/solver/shells.md).
+        let m_local = transform_stiffness(
+            &crate::element::quad::quad_consistent_mass(&coords, rho_t, quad.thickness),
+            &crate::element::quad::quad_transform_3d(&coords), 24);
 
         let quad_dofs = dof_num.quad_element_dofs(&quad.nodes);
         for i in 0..24 {
@@ -821,7 +836,10 @@ fn assemble_mass_matrix_3d_sparse_impl(
             coords[i] = [nd.x, nd.y, nd.z];
         }
 
-        let m_local = crate::element::quad9::quad9_consistent_mass(&coords, rho_t, quad9.thickness);
+        // Rotated to global, see the quad above (SH-4).
+        let m_local = transform_stiffness(
+            &crate::element::quad9::quad9_consistent_mass(&coords, rho_t, quad9.thickness),
+            &crate::element::quad9::quad9_transform_3d(&coords), 54);
 
         let q9_dofs = dof_num.quad9_element_dofs(&quad9.nodes);
         for i in 0..54 {

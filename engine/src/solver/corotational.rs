@@ -617,10 +617,13 @@ fn assemble_frame_corotational(
 
     let beta = alpha_n - alpha_0;
 
-    // Natural deformations
+    // Natural deformations. The deformational rotations are wrapped to
+    // (−π, π] (`wrap_angle`): β is a difference of two atan2 values and jumps
+    // by 2π where the chord crosses the branch cut, and the nodal rotations
+    // are total angles that may exceed π.
     let d_axial = elong;
-    let theta_i = u_elem[2] - beta;
-    let theta_j = u_elem[5] - beta;
+    let theta_i = wrap_angle(u_elem[2] - beta);
+    let theta_j = wrap_angle(u_elem[5] - beta);
 
     // B matrix (3x6): derivative of natural deformations w.r.t. global DOFs
     // Row 0: d(d_axial)/d(u) = [-c, -s, 0, c, s, 0]
@@ -739,6 +742,21 @@ fn assemble_frame_corotational(
             scatter(elem_dofs[i], elem_dofs[j], k_mat[i][j] + k_geo[i][j]);
         }
     }
+}
+
+/// An angle reduced to (−π, π]: the deformational end rotation θ − β of a
+/// 2D co-rotational member (Crisfield vol. 1 §7.3 takes it as atan2 of its
+/// sine and cosine for the same reason).
+///
+/// θ − β was used as is. β = atan2(chord) − atan2(initial chord) jumps by 2π
+/// when the chord crosses the negative x axis, so a member drawn right to left
+/// (α0 = π) whose chord turned counterclockwise by any amount got 2π of
+/// "bending": a cantilever fixed at its right end and loaded downward did not
+/// converge, and a member turned rigidly by more than π carried forces.
+fn wrap_angle(a: f64) -> f64 {
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let r = a - two_pi * (a / two_pi).round();
+    if r <= -std::f64::consts::PI { r + two_pi } else { r }
 }
 
 /// Subtract fixed-end forces (FEF) from element loads in local coordinates.
@@ -1094,8 +1112,8 @@ pub fn compute_corotational_forces(
 
             let beta = alpha_n - alpha_0;
             let d_axial = elong;
-            let theta_i_local = u_elem[2] - beta;
-            let theta_j_local = u_elem[5] - beta;
+            let theta_i_local = wrap_angle(u_elem[2] - beta);
+            let theta_j_local = wrap_angle(u_elem[5] - beta);
 
             // Co-rotational local deformation: node i at origin, node j displaced axially
             let d_local = [0.0, 0.0, theta_i_local, d_axial, 0.0, theta_j_local];

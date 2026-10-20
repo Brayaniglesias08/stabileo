@@ -41,7 +41,10 @@ fn sign_convention_2d() -> SignConvention2D {
         local_x: "node_i to node_j".into(),
         axial: "positive = tension".into(),
         shear: "positive = clockwise rotation of left segment".into(),
-        moment: "positive = sagging (tension on bottom fiber); solver uses f = K*u - FEF".into(),
+        // The values are the end forces f = K·u − FEF read on the start side of
+        // the cut: a simply supported beam along +X under gravity has M(L/2) = −qL²/8.
+        // This string said "sagging" until docs/solver/frames.md (FR-2).
+        moment: "positive = hogging (tension on the local +y fibre); M(x) = M_start − V_start·x − …; solver uses f = K*u - FEF".into(),
         station_x: "metres from node_i along member axis".into(),
     }
 }
@@ -51,11 +54,14 @@ fn sign_convention_3d() -> SignConvention3D {
         local_x: "node_i to node_j".into(),
         local_yz: "per element orientation node or default rule".into(),
         axial: "positive = tension".into(),
-        shear_y: "positive = shear in local +y".into(),
-        shear_z: "positive = shear in local +z".into(),
-        moment_z: "positive = sagging in x-y plane (bending about local z)".into(),
-        moment_y: "positive = sagging in x-z plane (bending about local y)".into(),
-        torsion: "positive = right-hand rule about local x".into(),
+        // Vy, Vz, Mx, My, Mz are the components along the local axes of the
+        // resultant on the negative (−x) face of the cut: the start-side end
+        // forces of f = K·u − FEF. docs/solver/frames.md §7 (FR-2).
+        shear_y: "positive = force along local +y on the negative (-x) face of the cut".into(),
+        shear_z: "positive = force along local +z on the negative (-x) face of the cut".into(),
+        moment_z: "positive = tension on the local +y fibre (moment vector along +z on the negative face)".into(),
+        moment_y: "positive = tension on the local -z fibre, i.e. sagging for the default axes with local z up (moment vector along +y on the negative face)".into(),
+        torsion: "positive = moment vector along +x on the negative (-x) face; a tip torque +T about local x on a cantilever gives Mx = -T".into(),
         station_x: "metres from node_i along member axis".into(),
     }
 }

@@ -389,9 +389,20 @@ fn add_foundation_3d(
         }
     }
 
-    // Z-direction springs: affects vz and θy
+    // Z-direction springs: affects vz and θy. Bending about local y has
+    // θy = −dw/dx (the frame's sign −1 block), so the matrix of
+    // `winkler_foundation_matrix` (written for θ = +dv/dx) is taken as
+    // D·K·D with D = diag(1, −1, 1, −1): the translation–rotation couplings
+    // change sign. Using it unchanged made the z foundation a different (and
+    // wrong) interpolation of w than the beam's own.
     if let Some(kz) = spring.kz {
-        let kf_4x4 = winkler_foundation_matrix(kz, l);
+        let mut kf_4x4 = winkler_foundation_matrix(kz, l);
+        let d = [1.0, -1.0, 1.0, -1.0];
+        for i in 0..4 {
+            for j in 0..4 {
+                kf_4x4[i * 4 + j] *= d[i] * d[j];
+            }
+        }
         // vz1=2, θy1=4, vz2=dpn+2, θy2=dpn+4
         let local_map = [2usize, 4, dpn + 2, dpn + 4];
         for (i, &li) in local_map.iter().enumerate() {

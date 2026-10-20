@@ -3833,13 +3833,23 @@ pub(crate) fn build_reactions_2d_inclined(
 ) -> Vec<Reaction> {
     let mut reactions = build_reactions_2d(input, dof_num, reactions_vec, f_r, nf, u_full);
 
-    // Back-transform inclined support reactions from rotated to global frame
+    // Back-transform inclined support reactions from rotated to global frame.
+    // `build_reactions_2d` leaves the rotated slots of an inclined roller as
+    // (0, R_n): the tangent is free and its spring force is skipped there.
+    // A spring on the roller (kx, ky) is assembled in GLOBAL axes before the
+    // rotation, so its force −k·u is added here in global axes (it used to be
+    // dropped, and the reactions did not balance the loads).
     for it in inclined_transforms {
         if let Some(r) = reactions.iter_mut().find(|r| r.node_id == it.node_id) {
             let rotated = [r.rx, r.rz];
             // r_global = R^T * r_rotated
             r.rx = it.r[0][0] * rotated[0] + it.r[1][0] * rotated[1];
             r.rz = it.r[0][1] * rotated[0] + it.r[1][1] * rotated[1];
+            for sup in input.supports.values().filter(|s| s.node_id == it.node_id && s.support_type == "inclinedRoller") {
+                let (ux, uz) = (u_full[it.dofs[0]], u_full[it.dofs[1]]);
+                r.rx -= sup.kx.unwrap_or(0.0).max(0.0) * ux;
+                r.rz -= sup.ky.unwrap_or(0.0).max(0.0) * uz;
+            }
         }
     }
 
@@ -3938,14 +3948,27 @@ pub(crate) fn build_reactions_3d_inclined(
 ) -> Vec<Reaction3D> {
     let mut reactions = build_reactions_3d(input, dof_num, reactions_vec, f_r, nf, u_full);
 
-    // Back-transform inclined support reactions from rotated to global frame
+    // Back-transform inclined support reactions from rotated to global frame.
+    // Only the normal slot (0) is restrained: its reaction R_n is in the
+    // rotated frame. The tangential slots are free; `build_reactions_3d` put
+    // −k·u of the GLOBAL springs ky, kz there (u is already global) and
+    // dropped kx (slot 0 is restrained). The springs are assembled in global
+    // axes before the rotation, so the reaction is Rᵀ[R_n, 0, 0] − k·u with
+    // k·u in global components. Rotating the spring forces together with
+    // R_n broke global equilibrium.
     for it in inclined_transforms {
         if let Some(r) = reactions.iter_mut().find(|r| r.node_id == it.node_id) {
-            let rotated = [r.fx, r.fy, r.fz];
-            // r_global = R^T * r_rotated
-            r.fx = it.r[0][0] * rotated[0] + it.r[1][0] * rotated[1] + it.r[2][0] * rotated[2];
-            r.fy = it.r[0][1] * rotated[0] + it.r[1][1] * rotated[1] + it.r[2][1] * rotated[2];
-            r.fz = it.r[0][2] * rotated[0] + it.r[1][2] * rotated[1] + it.r[2][2] * rotated[2];
+            let rn = r.fx;
+            let mut f = [it.r[0][0] * rn, it.r[0][1] * rn, it.r[0][2] * rn];
+            if let Some(sup) = input.supports.values().find(|s| s.node_id == it.node_id && s.is_inclined.unwrap_or(false)) {
+                let k = [sup.kx, sup.ky, sup.kz].map(|v| v.unwrap_or(0.0).max(0.0));
+                for c in 0..3 {
+                    f[c] -= k[c] * u_full[it.dofs[c]];
+                }
+            }
+            r.fx = f[0];
+            r.fy = f[1];
+            r.fz = f[2];
         }
     }
 
@@ -4078,6 +4101,11 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
     for s in input.sections.values() {
         if !s.a.is_finite() || !s.iz.is_finite() || s.as_y.is_some_and(|v| !v.is_finite()) {
             return Err(format!("Section {}: properties must be finite", s.id));
+        }
+        // A shear area enters as φ = 12EI/(G·As·L²): 0 gave φ = ∞ (NaN stiffness) and a
+        // negative area a negative φ, silently. Omit it for Euler–Bernoulli.
+        if s.as_y.is_some_and(|v| v <= 0.0) {
+            return Err(format!("Section {}: shear area asY must be positive (omit it for no shear deformation)", s.id));
         }
     }
     for sup in input.supports.values() {
@@ -4369,6 +4397,19 @@ fn moment_lost_2d(node: usize, why: &str) -> String {
 }
 
 pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
+    // Left-handed member axes are refused. `compute_local_axes_3d` reverses ey,
+    // which makes the triad (ex, ey, ez) improper, but the element kernels assume
+    // the right-hand kinematics θz = v', θy = −w': the v–θz and w–θy coupling
+    // terms of Tᵀ·k·T then carry the wrong sign, so the stiffness changes with
+    // the labelling of an axis (a skew cantilever's tip twist flipped sign and
+    // its deflection moved 2%). No product path sends `leftHand: true` (the web
+    // applies a user's left-handed convention to load entry only). See
+    // docs/solver/frames.md, FR-1; test `left_handed_axes_are_refused`.
+    if input.left_hand == Some(true) {
+        return Err("leftHand: true is not supported: left-handed member axes would change the element stiffness. \
+                    Use right-handed axes (leftHand false or omitted) and flip the sign of local-y loads and results instead."
+            .to_string());
+    }
     // 0. Non-finite input rejection (NaN/Inf) — core structural fields.
     for n in input.nodes.values() {
         if !n.x.is_finite() || !n.y.is_finite() || !n.z.is_finite() {
@@ -4384,6 +4425,11 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
         let opts_finite = [s.cw, s.as_y, s.as_z].into_iter().flatten().all(|v| v.is_finite());
         if !s.a.is_finite() || !s.iy.is_finite() || !s.iz.is_finite() || !s.j.is_finite() || !opts_finite {
             return Err(format!("Section {}: properties must be finite", s.id));
+        }
+        // φ = 12EI/(G·As·L²): a zero shear area gave φ = ∞ (NaN stiffness), a negative one a
+        // negative φ, silently. Omit it for Euler–Bernoulli.
+        if [s.as_y, s.as_z].into_iter().flatten().any(|v| v <= 0.0) {
+            return Err(format!("Section {}: shear areas asY/asZ must be positive (omit them for no shear deformation)", s.id));
         }
     }
     for sup in input.supports.values() {
@@ -4992,12 +5038,7 @@ pub fn compute_internal_forces_2d_with_loads(
             let t = crate::element::frame_transform_2d(cos, sin);
             let u_local = transform_displacement(&u_global, &t, 6);
 
-            let phi = if let Some(as_y) = sec.as_y {
-                let g = e / (2.0 * (1.0 + mat.nu));
-                12.0 * e * sec.iz / (g * as_y * l * l)
-            } else {
-                0.0
-            };
+            let phi = crate::element::timoshenko_phi_2d(sec, e, mat.nu, l);
             let k_local = crate::element::frame_local_stiffness_2d(
                 e, sec.a, sec.iz, l, elem.hinge_start, elem.hinge_end, phi,
             );
@@ -5219,14 +5260,7 @@ pub fn compute_internal_forces_3d_with_loads(
         );
 
         // Compute Timoshenko shear parameters for each bending plane
-        let (phi_y, phi_z) = if sec.as_y.is_some() || sec.as_z.is_some() {
-            let l2 = l * l;
-            let py = sec.as_y.map(|ay| 12.0 * e * sec.iy / (g * ay * l2)).unwrap_or(0.0);
-            let pz = sec.as_z.map(|az| 12.0 * e * sec.iz / (g * az * l2)).unwrap_or(0.0);
-            (py, pz)
-        } else {
-            (0.0, 0.0)
-        };
+        let (phi_y, phi_z) = crate::element::timoshenko_phi_3d(sec, e, g, l);
 
         // Determine element size and compute f_local
         let (f_local, ndof_elem) = if has_cw && dof_num.dofs_per_node >= 7 {
@@ -5567,8 +5601,12 @@ pub(crate) fn compute_plate_stresses(
         std::collections::HashMap::new();
     for load in loads_ref {
         if let SolverLoad3D::PlateThermal(tl) = load {
+            // Summed as free strains, (1, Σα·ΔTu, Σα·ΔTg): the load vector sums every
+            // thermal load on an element, and an insert kept only the last (SH-11).
             let alpha = tl.alpha.unwrap_or(1.2e-5);
-            thermal_by_elem.insert(tl.element_id, (alpha, tl.dt_uniform, tl.dt_gradient));
+            let e = thermal_by_elem.entry(tl.element_id).or_insert((1.0, 0.0, 0.0));
+            e.1 += alpha * tl.dt_uniform;
+            e.2 += alpha * tl.dt_gradient;
         }
     }
 
@@ -5599,7 +5637,8 @@ pub(crate) fn compute_plate_stresses(
         let s = crate::element::plate_stress_recovery(&coords, e, nu, plate.thickness, &u_local, alpha, dt_uniform, dt_gradient);
 
         // Also recover nodal stresses for stress smoothing
-        let nodal = crate::element::plate_stress_at_nodes(&coords, e, nu, plate.thickness, &u_local);
+        // Thermal strain subtracted at the nodes as at the centroid (SH-10).
+        let nodal = crate::element::plate_stress_at_nodes_thermal(&coords, e, nu, plate.thickness, &u_local, alpha, dt_uniform, dt_gradient);
         let nodal_vm: Vec<f64> = nodal.iter().map(|ns| ns.von_mises).collect();
 
         stresses.push(PlateStress {
@@ -5642,17 +5681,20 @@ pub(crate) fn compute_quad_stresses(
     // Callers that solve a per-case load set (multi-case, staged) pass those
     // loads explicitly; the default is the model's own load list.
     let loads_ref = loads.unwrap_or(&input.loads);
-    let mut thermal_by_elem: std::collections::HashMap<usize, (f64, f64, f64)> =
+    let mut thermal_by_elem: std::collections::HashMap<(bool, usize), (f64, f64, f64)> =
         std::collections::HashMap::new();
     for load in loads_ref {
         match load {
-            SolverLoad3D::QuadThermal(tl) => {
+            // Summed as free strains, (1, Σα·ΔTu, Σα·ΔTg): an insert kept only the last
+            // thermal load on an element while the load vector sums them all (SH-11).
+            // Keyed by (is_quad9, id): quad and quad9 ids are family-local, so a quad
+            // and a quad9 with the same id must not share (and double) their loads.
+            SolverLoad3D::QuadThermal(tl) | SolverLoad3D::Quad9Thermal(tl) => {
                 let alpha = tl.alpha.unwrap_or(1.2e-5);
-                thermal_by_elem.insert(tl.element_id, (alpha, tl.dt_uniform, tl.dt_gradient));
-            }
-            SolverLoad3D::Quad9Thermal(tl) => {
-                let alpha = tl.alpha.unwrap_or(1.2e-5);
-                thermal_by_elem.insert(tl.element_id, (alpha, tl.dt_uniform, tl.dt_gradient));
+                let key = (matches!(load, SolverLoad3D::Quad9Thermal(_)), tl.element_id);
+                let e = thermal_by_elem.entry(key).or_insert((1.0, 0.0, 0.0));
+                e.1 += alpha * tl.dt_uniform;
+                e.2 += alpha * tl.dt_gradient;
             }
             _ => {}
         }
@@ -5682,7 +5724,7 @@ pub(crate) fn compute_quad_stresses(
         let mut u_local = [0.0; 24];
         u_local.copy_from_slice(&u_local_vec);
 
-        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&quad.id).copied().unwrap_or((0.0, 0.0, 0.0));
+        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&(false, quad.id)).copied().unwrap_or((0.0, 0.0, 0.0));
         let s = crate::element::quad::quad_stresses(&coords, &u_local, e, nu, quad.thickness, alpha, dt_uniform, dt_gradient);
 
         // Nodal stresses at 4 Gauss-extrapolated points
@@ -5718,7 +5760,7 @@ pub(crate) fn compute_quad_stresses(
         let u_global: Vec<f64> = q9_dofs.iter().map(|&d| u[d]).collect();
         let t_q9 = crate::element::quad9::quad9_transform_3d(&coords);
         let u_local_vec = crate::linalg::transform_displacement(&u_global, &t_q9, 54);
-        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&q9.id).copied().unwrap_or((0.0, 0.0, 0.0));
+        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&(true, q9.id)).copied().unwrap_or((0.0, 0.0, 0.0));
         let s = crate::element::quad9::quad9_stresses(&coords, &u_local_vec, e, nu, q9.thickness, alpha, dt_uniform, dt_gradient);
         let nodal_vm = crate::element::quad9::quad9_nodal_von_mises(&coords, &u_local_vec, e, nu, q9.thickness, alpha, dt_uniform);
         stresses.push(QuadStress {
@@ -5816,17 +5858,20 @@ pub(crate) fn compute_quad_nodal_stresses(
     // Index thermal loads by element id so stress recovery can subtract the
     // thermal strain from the total strain (σ = C·ε_mech, not C·ε_total).
     let loads_ref = loads.unwrap_or(&input.loads);
-    let mut thermal_by_elem: std::collections::HashMap<usize, (f64, f64, f64)> =
+    let mut thermal_by_elem: std::collections::HashMap<(bool, usize), (f64, f64, f64)> =
         std::collections::HashMap::new();
     for load in loads_ref {
         match load {
-            SolverLoad3D::QuadThermal(tl) => {
+            // Summed as free strains, (1, Σα·ΔTu, Σα·ΔTg): an insert kept only the last
+            // thermal load on an element while the load vector sums them all (SH-11).
+            // Keyed by (is_quad9, id): quad and quad9 ids are family-local, so a quad
+            // and a quad9 with the same id must not share (and double) their loads.
+            SolverLoad3D::QuadThermal(tl) | SolverLoad3D::Quad9Thermal(tl) => {
                 let alpha = tl.alpha.unwrap_or(1.2e-5);
-                thermal_by_elem.insert(tl.element_id, (alpha, tl.dt_uniform, tl.dt_gradient));
-            }
-            SolverLoad3D::Quad9Thermal(tl) => {
-                let alpha = tl.alpha.unwrap_or(1.2e-5);
-                thermal_by_elem.insert(tl.element_id, (alpha, tl.dt_uniform, tl.dt_gradient));
+                let key = (matches!(load, SolverLoad3D::Quad9Thermal(_)), tl.element_id);
+                let e = thermal_by_elem.entry(key).or_insert((1.0, 0.0, 0.0));
+                e.1 += alpha * tl.dt_uniform;
+                e.2 += alpha * tl.dt_gradient;
             }
             _ => {}
         }
@@ -5856,7 +5901,7 @@ pub(crate) fn compute_quad_nodal_stresses(
         let mut u_local = [0.0; 24];
         u_local.copy_from_slice(&u_local_vec);
 
-        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&quad.id).copied().unwrap_or((0.0, 0.0, 0.0));
+        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&(false, quad.id)).copied().unwrap_or((0.0, 0.0, 0.0));
         let nodal = crate::element::quad::quad_stress_at_nodes(&coords, &u_local, e, nu, quad.thickness, alpha, dt_uniform, dt_gradient);
         for mut ns in nodal {
             ns.node_index = quad.nodes[ns.node_index];
@@ -5878,7 +5923,7 @@ pub(crate) fn compute_quad_nodal_stresses(
         let u_global: Vec<f64> = q9_dofs.iter().map(|&d| u[d]).collect();
         let t_q9 = crate::element::quad9::quad9_transform_3d(&coords);
         let u_local_vec = crate::linalg::transform_displacement(&u_global, &t_q9, 54);
-        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&q9.id).copied().unwrap_or((0.0, 0.0, 0.0));
+        let (alpha, dt_uniform, dt_gradient) = thermal_by_elem.get(&(true, q9.id)).copied().unwrap_or((0.0, 0.0, 0.0));
         let nodal = crate::element::quad9::quad9_stress_at_nodes(&coords, &u_local_vec, e, nu, q9.thickness, alpha, dt_uniform, dt_gradient);
         for mut ns in nodal {
             ns.node_index = q9.nodes[ns.node_index];
