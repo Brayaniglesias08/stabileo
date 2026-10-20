@@ -79,7 +79,7 @@
    "materialId": 1,
    "nodeI": 9,
    "nodeJ": 5,
-   "releaseMyStart": true,
+   "releaseMyStart": false,
    "rollAngle": 81.77588260374051,
    "sectionId": 1,
    "type": "frame"

@@ -22,7 +22,7 @@
    "materialId": 1,
    "nodeI": 3,
    "nodeJ": 2,
-   "releaseMyStart": true,
+   "releaseMyStart": false,
    "sectionId": 1,
    "type": "frame"
   },
@@ -43,7 +43,7 @@
    "nodeI": 8,
    "nodeJ": 2,
    "releaseMyEnd": true,
-   "releaseMzStart": true,
+   "releaseMzStart": false,
    "sectionId": 3,
    "type": "frame"
   },
@@ -55,7 +55,7 @@
    "materialId": 2,
    "nodeI": 5,
    "nodeJ": 4,
-   "releaseMyStart": true,
+   "releaseMyStart": false,
    "sectionId": 2,
    "type": "frame"
   },

@@ -8,7 +8,7 @@
    "materialId": 1,
    "nodeI": 2,
    "nodeJ": 1,
-   "releaseMyEnd": true,
+   "releaseMyEnd": false,
    "sectionId": 3,
    "type": "frame"
   },
@@ -45,7 +45,7 @@
    "materialId": 1,
    "nodeI": 5,
    "nodeJ": 6,
-   "releaseMyEnd": true,
+   "releaseMyEnd": false,
    "rollAngle": -65.95200516118422,
    "sectionId": 3,
    "type": "frame"
@@ -55,8 +55,8 @@
    "materialId": 1,
    "nodeI": 5,
    "nodeJ": 7,
-   "releaseMyStart": true,
-   "releaseMzEnd": true,
+   "releaseMyStart": false,
+   "releaseMzEnd": false,
    "sectionId": 2,
    "type": "frame"
   },
