@@ -5,7 +5,7 @@
 | Severity | High |
 | Status | Draft (fix in review) |
 | Issue | [#488](https://github.com/lambdaclass/stabileo/issues/488) |
-| Fix | branch `fix/stale-support-springs` |
+| Fix | PR [#491](https://github.com/lambdaclass/stabileo/pull/491) (in review) |
 | Affected versions | every version with 3D supports and per-DOF springs, up to 0.2.0 and `main` until the fix; introduction not yet bisected |
 | Re-check registry | to add with the fix |
 
@@ -39,7 +39,7 @@ restrained.
 
 ## Fixed in
 
-Not yet fixed (#488). The fix solves every restrained DOF as restrained, including in projects
+Not yet fixed (PR #491). The fix solves every restrained DOF as restrained, including in projects
 saved before the fix, and drops the spring when a DOF becomes restrained.
 
 ## Workaround

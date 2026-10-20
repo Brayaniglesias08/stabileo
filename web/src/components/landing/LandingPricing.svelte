@@ -72,7 +72,7 @@
 
 <section class="sec sec--ink pricing reveal" data-section="pricing" id="pricing" aria-labelledby="pricing-title">
   <div class="wrap">
-    <Eyebrow n="06" label={t('landing.ebPricing')} />
+    <Eyebrow n="07" label={t('landing.ebPricing')} />
 
     <h2 id="pricing-title" class="display">{t('landing.pricingH')}</h2>
     <p class="lead">{t('landing.pricingP')}</p>

@@ -48,6 +48,7 @@ const SECTIONS = [
   'pro-calc',
   'pro-design',
   'ai',
+  'verification',
   'education',
   'pricing',
   'blog',
@@ -901,7 +902,7 @@ test.describe('@landing every language gets the whole deck', () => {
   const FREE = { es: 'Gratis', en: 'Free', pt: 'Grátis' } as const;
 
   for (const locale of ['es', 'en', 'pt'] as const) {
-    test(`${locale}: eight sections, no raw keys, and a priced table`, async ({ page }) => {
+    test(`${locale}: nine sections, no raw keys, and a priced table`, async ({ page }) => {
       await bootLanding(page, { locale });
 
       const order = await page
