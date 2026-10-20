@@ -382,7 +382,9 @@ $(o_x,o_y,o_z)$ in place of $r$ (2D: $(o_x,o_y)$ with $o_y$ vertical), all DOFs 
 flagged in `releases`.
 
 **Diaphragm** (`diaphragm`, plane `XY`/`XZ`/`YZ`, any other name refused): for each slave, the
-in-plane rigid-body motion about the master, out-of-plane DOFs independent (`diaphragm_rows`):
+in-plane rigid-body motion about the master, including the slave's in-plane rotation
+($\theta_s = \theta_m$ about the plane's normal); out-of-plane DOFs independent (`diaphragm_dofs`,
+`diaphragm_lever`):
 
 | Model, plane | Equations |
 |---|---|
@@ -391,14 +393,14 @@ in-plane rigid-body motion about the master, out-of-plane DOFs independent (`dia
 | 3D XZ | $u_X = u_{X,m} + \Delta Z\,\theta_{Y,m}$, $u_Z = u_{Z,m} - \Delta X\,\theta_{Y,m}$ |
 | 2D XZ (the model plane) | $u_X = u_{X,m} - \Delta Z\,\theta_m$, $u_Z = u_{Z,m} + \Delta X\,\theta_m$ |
 | 2D XY (default, legacy) | same as 2D XZ (AC-5, OPEN) |
-| 2D YZ | $u_Z = u_{Z,m}$ |
+| 2D YZ | refused: not the plane of a 2D model |
 
 All three 3D rows are the in-plane part of $\theta\times r$; (X, Y) and (Y, Z) are cyclic pairs,
 (X, Z) is not, which is why its signs differ. The engine used the XY pattern for XZ, flipping both
-signs (AC-14, FIXED). The slave's own rotation is not tied (it is not part of the in-plane rigid
-body for a node that may bend out of plane). Before this change the 2D XZ case tied the slot
-mapping (0, 2, 4): $u_X$ and $\theta$ equal, master DOF 4 nonexistent; 2D YZ tied $\theta$ as
-well (AC-2, FIXED).
+signs (AC-14, FIXED). The slave's in-plane rotation is tied to the master's, as SAP2000/ETABS and
+OpenSees `rigidDiaphragm` do (#342; it used to be left free); a model of trusses alone, which has
+no rotation DOFs, is refused. Before this change the 2D XZ case tied the slot mapping (0, 2, 4):
+$u_X$ and $\theta$ equal, master DOF 4 nonexistent; 2D YZ tied $\theta$ as well (AC-2, FIXED).
 
 **Equal DOF** (`equalDOF`): $u_{s,i} = u_{m,i}$ for each listed $i$.
 
@@ -583,7 +585,7 @@ Tests are in `engine/tests/derivation_assembly_constraints.rs`.
 | ID | Description | Status | Test |
 |---|---|---|---|
 | AC-1 | **Rigid link, eccentric connection and diaphragm in a 3D model without rotation DOFs** (trusses/cables only, 3 DOFs per node) took the 2D branch (`dofs_per_node <= 3`) and read DOF 2 ($u_Z$) as the master rotation: $u_{X,s}=u_{X,m}-\Delta Y\,u_{Z,m}$. Now the branch follows the model's dimension; with no rotation DOFs the link is equal translations. | FIXED | `rigid_link_in_translation_only_3d_model` |
-| AC-2 | **2D diaphragm planes "XZ" and "YZ"** mapped to 3D slot numbers in a 3-DOF model: XZ tied $u_X$ and $\theta$ (master DOF 4 nonexistent), YZ tied $u_Z$ and $\theta$. XZ is the 2D model plane: it is now the in-plane rigid body; YZ's trace on XZ is $u_{Z,s}=u_{Z,m}$. Unknown plane names, which used to fall back to XY silently, are refused. | FIXED | `diaphragm_xz_in_2d_is_the_in_plane_rigid_body`, `diaphragm_yz_in_2d_ties_uz_only` |
+| AC-2 | **2D diaphragm planes "XZ" and "YZ"** mapped to 3D slot numbers in a 3-DOF model: XZ tied $u_X$ and $\theta$ (master DOF 4 nonexistent), YZ tied $u_Z$ and $\theta$. XZ is the 2D model plane: it is now the in-plane rigid body; YZ names DOFs a 2D model does not have and is refused. Unknown plane names, which used to fall back to XY silently, are refused. | FIXED | `diaphragm_xz_in_2d_is_the_in_plane_rigid_body`, `diaphragm_yz_in_2d_is_refused` |
 | AC-3 | **Default rigid-link DOFs differ between 2D and 3D.** `dofs: []` means $0..\min(n_\text{dpn},3)$: (ux, uz, θ) in 2D — rotation tied, a fixed arm — but (ux, uy, uz) in 3D — slave rotation free, a pinned arm. `types/input.rs` documents "Empty = all translational", which matches 3D. The web (`constraint-2d-remap.ts`) keeps the empty list when sending a stored 3D link to the 2D solver, so the 2D and 3D analyses of one model differ (in the test, column-top drift 2.24 mm vs 4.50 mm). Changing either default changes existing results; needs a decision. | OPEN | `rigid_link_default_dofs_agree_2d_3d` (ignored) |
 | AC-4 | **Reactions at an inclined support that also has a translational spring.** K holds the spring in global axes; 3D reporting rotated the global spring forces together with the normal reaction, 2D dropped them; ΣR ≠ −ΣF (3D: ΣRx = −13.19 for Fx = 10). Now $R = R^{\mathsf T}[R_n,0,0] - K_\text{spr}u$. | FIXED | `inclined_support_with_spring_reactions_balance_3d`, `_2d` |
 | AC-5 | **2D "XY" diaphragm is an in-plane rigid body; 3D "XY" is a floor.** In Z-up, an XY diaphragm is horizontal: it ties ux, uy, θz and leaves vertical bending free. In 2D the default "XY" ties (ux, uz, θ), making the floor beam rigid in the model plane. The web passes 3D floor diaphragms to the 2D solver verbatim. The consistent trace of a 3D XY diaphragm on the XZ plane is $u_{X,s}=u_{X,m}$ only. Changing the 2D default changes existing results. | OPEN | `floor_diaphragm_agrees_2d_3d` (ignored) |

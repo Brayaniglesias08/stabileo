@@ -340,24 +340,27 @@ fn same_disp_2d(what: &str, a: &AnalysisResults, b: &AnalysisResults) {
 /// AC-2 (FIXED): a 2D model lives in the XZ plane. A 3D "XZ" diaphragm is the
 /// in-plane rigid body (ux, uz, θ); in 2D it used to map to DOFs (0, 2, 4):
 /// ux and the rotation slot tied, the master "rotation" DOF 4 nonexistent.
-/// It now equals the 2D in-plane diaphragm (the legacy "XY" behaviour).
+/// It now equals the 2D in-plane diaphragm, which since #397 moves the slave
+/// as a rigid body including its rotation (constraints::diaphragm_dofs).
 #[test]
 fn diaphragm_xz_in_2d_is_the_in_plane_rigid_body() {
     let xz = solve_2d(&portal_2d(json!([{"type": "diaphragm", "masterNode": 2, "slaveNodes": [3], "plane": "XZ"}]))).unwrap();
     // Reference: the in-plane rigid body written out as a rigid link with the
-    // rotation tied.
-    let rl = solve_2d(&portal_2d(json!([{"type": "rigidLink", "masterNode": 2, "slaveNode": 3, "dofs": [0, 1]}]))).unwrap();
-    same_disp_2d("XZ diaphragm vs rigid link (ux, uz)", &xz, &rl);
+    // rotation tied. (Rigid top on two fixed columns: the sway is
+    // F·h³/(24·EI) = 10·4³/(24·2e4) ≈ 1.333e-3, plus the columns' axial
+    // shortening.)
+    let rl = solve_2d(&portal_2d(json!([{"type": "rigidLink", "masterNode": 2, "slaveNode": 3, "dofs": [0, 1, 2]}]))).unwrap();
+    same_disp_2d("XZ diaphragm vs rigid link (ux, uz, θ)", &xz, &rl);
+    let ux = d2(&xz, 2).ux;
+    assert!((ux - 10.0 * 64.0 / (24.0 * 2e4)).abs() < 0.01 * ux, "sway {ux}");
 }
 
-/// AC-2 (FIXED): a 3D "YZ" diaphragm ties uy, uz and θx; its trace on the XZ
-/// plane (all Δy = 0) is u_z,slave = u_z,master alone. It used to tie the 2D
-/// rotation too.
+/// AC-2 (FIXED): "YZ" names DOFs a 2D model does not have. It used to tie the
+/// 2D rotation; it is now refused by name rather than reinterpreted.
 #[test]
-fn diaphragm_yz_in_2d_ties_uz_only() {
-    let yz = solve_2d(&portal_2d(json!([{"type": "diaphragm", "masterNode": 2, "slaveNodes": [3], "plane": "YZ"}]))).unwrap();
-    let eq = solve_2d(&portal_2d(json!([{"type": "equalDOF", "masterNode": 2, "slaveNode": 3, "dofs": [1]}]))).unwrap();
-    same_disp_2d("YZ diaphragm vs equalDOF uz", &yz, &eq);
+fn diaphragm_yz_in_2d_is_refused() {
+    let err = solve_2d(&portal_2d(json!([{"type": "diaphragm", "masterNode": 2, "slaveNodes": [3], "plane": "YZ"}]))).unwrap_err();
+    assert!(err.contains("YZ") && err.contains("not the plane of a 2D model"), "{err}");
 }
 
 /// Column 1–2 fixed at 1, rigid arm 2→3, beam 3–4 on a roller at 4, UDL on
@@ -669,3 +672,4 @@ fn diaphragm_xz_3d_kinematics_hold_in_results() {
     assert!((s.ux - (m.ux + m.ry * dz)).abs() < 1e-10 * scale, "ux: {} vs {}", s.ux, m.ux + m.ry * dz);
     assert!((s.uz - (m.uz - m.ry * dx)).abs() < 1e-10 * scale, "uz: {} vs {}", s.uz, m.uz - m.ry * dx);
 }
+

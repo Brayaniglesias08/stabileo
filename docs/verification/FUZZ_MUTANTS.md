@@ -21,6 +21,7 @@ never weaken a property to make a finding go away.
 | `json_dynamics` | same | modal, buckling, spectral, time history, harmonic, each with its certificate (2D/3D) |
 | `json_plastic` | same | incremental plastic collapse and the exact collapse certificate (2D/3D) |
 | `model_certify` | `arbitrary`-built model | linear solve, linear, buckling and modal certificates on small 2D/3D frames that always parse |
+| `metamorphic` | selector byte + model JSON | any model the linear solver accepts gives the same physical answer after a rigid motion, a renumbering and a unit change (`engine/src/metamorphic`, [METAMORPHIC.md](METAMORPHIC.md)) |
 
 The JSON targets go through the same `serde_json` deserialization as `engine/src/lib.rs`,
 so a malformed or hostile model file reaches the code exactly as it would from the web

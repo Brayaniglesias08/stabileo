@@ -195,6 +195,8 @@ fn legacy_build_path_2d(solver_input: &SolverInput, path_element_ids: Option<&[u
             length: l,
             cos,
             sin,
+            // These parity models draw every deck member along the travel.
+            reversed: false,
         });
         cum_pos += l;
     }
@@ -287,6 +289,7 @@ fn legacy_build_path_3d(solver_input: &SolverInput3D, path_element_ids: Option<&
             dir_x: dx / l,
             dir_y: dy / l,
             dir_z: dz / l,
+            reversed: false,
         });
         cum_pos += l;
     }

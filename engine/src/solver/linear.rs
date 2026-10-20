@@ -702,6 +702,13 @@ pub(crate) fn prescribed_displacements_2d(input: &SolverInput, dof_num: &DofNumb
 }
 
 fn prepare_static_2d_impl(input: &SolverInput, force_dense: bool) -> Result<PreparedStatic2D<'_>, String> {
+    // The prepared (factor-once) path assembles no constraints. Every caller
+    // routes constrained models elsewhere today; refusing here keeps a new
+    // caller from silently solving the model without them (the dense
+    // reference did: found by the metamorphic relabel check).
+    if !input.constraints.is_empty() {
+        return Err("prepared static solve does not support constraints: solve the model with solve_2d (constrained solver)".into());
+    }
     let dof_num = DofNumbering::build_2d(input);
     let mut pre_solve_diags = super::pre_solve_gates::run_pre_solve_gates_2d(input);
     validate_solver_options(&input.solver_options, &mut pre_solve_diags);
@@ -2124,6 +2131,13 @@ pub(crate) fn prescribed_displacements_3d(input: &SolverInput3D, dof_num: &DofNu
 }
 
 pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, String> {
+    // The prepared (factor-once) path assembles no constraints. Every caller
+    // routes constrained models elsewhere today; refusing here keeps a new
+    // caller from silently solving the model without them (the dense
+    // reference did: found by the metamorphic relabel check).
+    if !input.constraints.is_empty() {
+        return Err("prepared static solve does not support constraints: solve the model with solve_3d (constrained solver)".into());
+    }
     // Expand curved beams into frame elements before solving
     let input = expand_curved_beams_3d(input);
     let n_nodes = input.nodes.len();
@@ -4364,11 +4378,23 @@ pub(crate) fn refuse_moments_without_rotation_2d(input: &SolverInput, loads: &[S
     }
     for c in &input.constraints {
         match c {
-            Constraint::RigidLink(r) => carried.extend([r.master_node, r.slave_node]),
+            // Only a constraint that involves the rotation (DOF 2) carries it: one
+            // tying translations alone left the slave's moment on the artificial
+            // spring, and the constrained path returned a rotation of ~1e5 rad
+            // (found by the metamorphic energy check, docs/verification/METAMORPHIC.md).
+            Constraint::RigidLink(r) => {
+                carried.insert(r.master_node);
+                if r.dofs.contains(&2) { carried.insert(r.slave_node); }
+            }
             Constraint::Diaphragm(d) => { carried.insert(d.master_node); carried.extend(&d.slave_nodes); }
-            Constraint::LinearMPC(m) => carried.extend(m.terms.iter().map(|t| t.node_id)),
-            Constraint::EqualDOF(e) => carried.extend([e.master_node, e.slave_node]),
-            Constraint::EccentricConnection(e) => carried.extend([e.master_node, e.slave_node]),
+            Constraint::LinearMPC(m) => carried.extend(m.terms.iter().filter(|t| t.dof == 2).map(|t| t.node_id)),
+            Constraint::EqualDOF(e) => {
+                if e.dofs.contains(&2) { carried.extend([e.master_node, e.slave_node]); }
+            }
+            Constraint::EccentricConnection(e) => {
+                carried.insert(e.master_node);
+                if !e.releases.get(2).copied().unwrap_or(false) { carried.insert(e.slave_node); }
+            }
         }
     }
     for s in input.supports.values() {
