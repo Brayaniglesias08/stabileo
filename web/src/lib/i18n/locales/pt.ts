@@ -85,7 +85,7 @@ const pt: Translations = {
   'landing.aiP': 'Trabalha sobre o mesmo modelo estruturado e o mesmo solver que você usa. A IA propõe; o solver decide. Nunca o contrário.',
   'landing.ebVerif': 'VERIFICAÇÃO',
   'landing.verifH': 'Como verificamos os resultados, e onde as verificações terminam.',
-  'landing.verifP': 'O solver roda no seu computador e calcula os resultados de análise e projeto. Nós o comparamos com sete programas de elementos finitos e com resultados publicados, e testamos que respeite os invariantes físicos. Para os resultados que o admitem, o solver tenta também em segundo plano um certificado: um limite do erro numérico cuja matemática central, na análise linear, na modal e no colapso plástico, está demonstrada em Lean. Um limite limita o erro de resolver o sistema montado: não prova que o modelo seja o correto, e quando encontramos um defeito o publicamos como aviso.',
+  'landing.verifP': 'O solver roda no seu computador e calcula os resultados da análise estrutural. Nós o comparamos com sete programas de elementos finitos e com resultados publicados, e testamos que respeite os invariantes físicos. Para os resultados que o admitem, o solver tenta também em segundo plano um certificado: um limite do erro numérico cuja matemática central, na análise linear, na modal e no colapso plástico, está demonstrada em Lean. Um limite limita o erro de resolver o sistema montado: não prova que o modelo seja o correto. Cada defeito que encontramos é avaliado e, se pode ter afetado resultados já usados, é publicado como aviso.',
   'landing.verifHow': 'Como verificamos, e os limites',
   'landing.verifAdvisories': 'Avisos de segurança',
   'landing.ebEdu': 'EDUCACIONAL',

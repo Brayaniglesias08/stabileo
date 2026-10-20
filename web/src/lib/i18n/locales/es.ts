@@ -87,7 +87,7 @@ const es: Record<string, string> = {
   'landing.aiP': 'Trabaja sobre el mismo modelo estructurado y el mismo solver que usás vos. La IA propone; el solver decide. Nunca al revés.',
   'landing.ebVerif': 'VERIFICACIÓN',
   'landing.verifH': 'Cómo verificamos los resultados, y dónde terminan las verificaciones.',
-  'landing.verifP': 'El solver corre en tu computadora y calcula los resultados de análisis y diseño. Lo comparamos con siete programas de elementos finitos y con resultados publicados, y probamos que respete los invariantes físicos. Para los resultados que lo admiten, el solver intenta además en segundo plano un certificado: una cota del error numérico cuya matemática central, en el análisis lineal, el modal y el colapso plástico, está demostrada en Lean. Una cota acota el error de resolver el sistema armado: no prueba que el modelo sea el correcto, y cuando encontramos un error lo publicamos como aviso.',
+  'landing.verifP': 'El solver corre en tu computadora y calcula los resultados del análisis estructural. Lo comparamos con siete programas de elementos finitos y con resultados publicados, y probamos que respete los invariantes físicos. Para los resultados que lo admiten, el solver intenta además en segundo plano un certificado: una cota del error numérico cuya matemática central, en el análisis lineal, el modal y el colapso plástico, está demostrada en Lean. Una cota acota el error de resolver el sistema armado: no prueba que el modelo sea el correcto. Cada error que encontramos se evalúa y, si pudo afectar resultados ya usados, se publica como aviso.',
   'landing.verifHow': 'Cómo verificamos, y los límites',
   'landing.verifAdvisories': 'Avisos de seguridad',
   'landing.ebEdu': 'EDUCATIVO',

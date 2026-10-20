@@ -87,7 +87,7 @@ const en: Record<string, string> = {
   'landing.aiP': 'It works on the same structured model and the same solver you use. The AI proposes; the solver decides. Never the other way round.',
   'landing.ebVerif': 'VERIFICATION',
   'landing.verifH': 'How we check the results, and where the checks stop.',
-  'landing.verifP': 'The solver runs on your computer and computes the analysis and design results. We compare it with seven finite-element programs and with published results, and test that it respects physical invariants. For results that support it, the solver also attempts a certificate in the background: a bound on the numerical error whose core mathematics, for linear, modal and plastic-collapse analysis, is proved in Lean. A bound limits the error of solving the assembled system: it does not prove the model is the right one, and when we find a defect we publish it as an advisory.',
+  'landing.verifP': 'The solver runs on your computer and computes the structural analysis results. We compare it with seven finite-element programs and with published results, and test that it respects physical invariants. For results that support it, the solver also attempts a certificate in the background: a bound on the numerical error whose core mathematics, for linear, modal and plastic-collapse analysis, is proved in Lean. A bound limits the error of solving the assembled system: it does not prove the model is the right one. Every defect we find is triaged and, if it may have affected results already in use, published as an advisory.',
   'landing.verifHow': 'How we check, and the limits',
   'landing.verifAdvisories': 'Safety advisories',
   'landing.ebEdu': 'EDUCATION',

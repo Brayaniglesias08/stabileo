@@ -32,7 +32,7 @@ export const howStabileoChecksItsResults: Post = {
       excerpt:
         'El solver, la verificación formal y la IA: cómo buscamos errores en los números que da Stabileo, qué prueban los certificados y qué no puede garantizar ninguna verificación.',
       blocks: [
-        { k: 'p', t: 'Un programa de cálculo estructural puede dar un número equivocado sin ninguna señal visible. En las últimas semanas pusimos a prueba cada parte de Stabileo de varias maneras independientes, encontramos decenas de errores reales, muchos del lado inseguro, y corregimos la mayoría; los abiertos que pueden afectar resultados ya usados están publicados como avisos, con qué hacer mientras tanto. Este artículo cuenta cómo buscamos esos errores, qué demuestran los certificados que acompañan a los resultados y, con la misma claridad, qué queda fuera de toda verificación.' },
+        { k: 'p', t: 'Un programa de cálculo estructural puede dar un número equivocado sin ninguna señal visible. En las últimas semanas pusimos a prueba cada parte de Stabileo de varias maneras independientes, encontramos decenas de errores reales, muchos del lado inseguro, y corregimos la mayoría. Cada uno se evalúa y, si pudo afectar resultados ya usados, se publica como aviso, con qué hacer mientras tanto; algunos siguen en evaluación. Este artículo cuenta cómo buscamos esos errores, qué demuestran los certificados que acompañan a los resultados y, con la misma claridad, qué queda fuera de toda verificación.' },
 
         { k: 'h', t: 'Un solo motor de cálculo' },
         { k: 'p', t: 'El solver está escrito en Rust y se compila a WebAssembly: corre en la computadora de quien lo usa, sin instalación y sin enviar el modelo a ningún servidor. Es el mismo código que se prueba en la integración continua. En octubre de 2026 quitamos los cálculos paralelos en TypeScript que reemplazaban en silencio al motor cuando éste no estaba disponible: ahora la aplicación lo dice, en lugar de calcular con una copia no verificada.' },
@@ -71,20 +71,21 @@ export const howStabileoChecksItsResults: Post = {
           items: [
             'Un certificado acota el error de resolver el sistema tal como se armó. No prueba que ese sistema represente el modelo: el armado de la matriz de rigidez y de las cargas está probado de las formas de arriba, pero no certificado. Cuando faltaba el pandeo torsional (SA-2026-007), el certificado certificaba el problema equivocado. Los certificados de extremo a extremo, que vuelven a armar el sistema de forma independiente, están en desarrollo.',
             'Lean demuestra la matemática; que el código Rust implemente exactamente ese algoritmo no está demostrado, salvo en los verificadores que son código de Lean.',
-            'Las verificaciones certificadas de las normas evalúan sus fórmulas con aritmética de intervalos, pero las fórmulas en sí no están formalizadas: se comparan con ejemplos publicados. Mampostería, uniones, fundaciones y servicio no están certificadas.',
+            'Las verificaciones certificadas de las normas evalúan sus fórmulas con aritmética de intervalos, pero las fórmulas en sí no están formalizadas: se comparan con ejemplos resueltos publicados donde los hay, y la cobertura de cada norma (qué cláusulas, qué ejemplos) está en la matriz de madurez. Mampostería, uniones, fundaciones y servicio no están certificadas.',
             'Ninguna verificación del programa verifica el modelo. Las cargas, los apoyos y la idealización son decisiones del ingeniero; la revisión del modelo avisa de errores comunes, pero no reemplaza el criterio.',
             'Todavía no hubo una revisión independiente por un ingeniero estructural matriculado. Los resultados de CIRSOC 301 siguen marcados como experimentales.',
           ],
         },
 
         { k: 'h', t: 'La IA redacta y revisa; no calcula' },
-        { k: 'p', t: 'El asistente de IA arma borradores de modelos a partir de una descripción y revisa modelos existentes, pero no calcula resultados: los números del análisis y del diseño los calcula el solver. Sus explicaciones son texto de un modelo de lenguaje y pueden equivocarse; los valores que valen son los de los resultados. Antes de aplicar un cambio se muestra qué va a modificar, y se puede deshacer en un paso. Las funciones de IA envían la descripción y el modelo a un servidor que consulta un modelo de lenguaje; el solver, los resultados y las verificaciones no lo necesitan y funcionan sin conexión.' },
+        { k: 'p', t: 'El asistente de IA arma borradores de modelos a partir de una descripción y revisa modelos existentes, pero no calcula resultados: los números los calculan el solver y los módulos de verificación de la aplicación. Sus explicaciones son texto de un modelo de lenguaje y pueden equivocarse; los valores que valen son los de los resultados. Antes de aplicar un cambio se muestra qué va a modificar, y se puede deshacer en un paso. Las funciones de IA envían la descripción y el modelo a un servidor que consulta un modelo de lenguaje; el solver, los resultados y las verificaciones no lo necesitan y funcionan sin conexión.' },
         { k: 'link', slug: 'the-determinism-boundary', t: 'Por qué un agente de IA no debe calcular, con un caso resuelto:' },
 
         { k: 'h', t: 'Cuando algo falla' },
         { k: 'p', t: 'Los errores que pueden haber afectado resultados ya usados los publicamos como avisos de seguridad, con cómo reconocer un modelo afectado y qué hacer mientras tanto; otros defectos de seguridad están en evaluación y se agregan cuando corresponde. Los avisos abiertos se cierran cuando la corrección está publicada en stabileo.com.' },
         { k: 'link', slug: 'safety-advisories', t: 'Los avisos publicados, con su estado:' },
         { k: 'ext', href: `${REPO}/docs/verification/TRUSTED_BASE.md`, label: 'Base de confianza de los certificados', t: 'Qué está demostrado, qué está probado y qué se confía, componente por componente:' },
+        { k: 'ext', href: `${REPO}/docs/verification/MATURITY.md`, label: 'Matriz de madurez de la verificación', t: 'Para cada análisis, elemento y norma, el nivel de verificación que alcanzó y la evidencia:' },
       ],
     },
     en: {
@@ -92,7 +93,7 @@ export const howStabileoChecksItsResults: Post = {
       excerpt:
         'The solver, formal verification and AI: how we look for errors in the numbers Stabileo gives, what the certificates prove and what no verification can guarantee.',
       blocks: [
-        { k: 'p', t: 'A structural analysis program can give a wrong number with no visible sign. Over the last weeks we tested every part of Stabileo in several independent ways, found dozens of real defects, many of them unconservative, and fixed most of them; the open ones that may affect results already in use are published as advisories, with what to do in the meantime. This post explains how we look for those defects, what the certificates that come with the results prove and, just as plainly, what lies outside any verification.' },
+        { k: 'p', t: 'A structural analysis program can give a wrong number with no visible sign. Over the last weeks we tested every part of Stabileo in several independent ways, found dozens of real defects, many of them unconservative, and fixed most of them. Each one is triaged and, if it may have affected results already in use, published as an advisory with what to do in the meantime; some are still being triaged. This post explains how we look for those defects, what the certificates that come with the results prove and, just as plainly, what lies outside any verification.' },
 
         { k: 'h', t: 'One engine' },
         { k: 'p', t: 'The solver is written in Rust and compiled to WebAssembly: it runs on the user’s own computer, with no installation and without sending the model to any server. It is the same code that runs in continuous integration. In October 2026 we removed the parallel TypeScript calculations that silently replaced the engine when it was unavailable: the application now says so, instead of computing with an unverified copy.' },
@@ -131,20 +132,21 @@ export const howStabileoChecksItsResults: Post = {
           items: [
             'A certificate bounds the error of solving the system as it was assembled. It does not prove that the system represents the model: the assembly of the stiffness matrix and the loads is tested in the ways above, but not certified. When torsional buckling was missing (SA-2026-007), the certificate certified the wrong problem. End-to-end certificates, which re-assemble the system independently, are in progress.',
             'Lean proves the mathematics; that the Rust code implements exactly that algorithm is not proved, except for the checkers that are Lean code.',
-            'The certified design checks evaluate their formulas in interval arithmetic, but the formulas themselves are not formalized: they are compared with published examples. Masonry, connections, foundations and serviceability are not certified.',
+            'The certified design checks evaluate their formulas in interval arithmetic, but the formulas themselves are not formalized: they are compared with published worked examples where those exist, and each code’s coverage (which clauses, which examples) is in the maturity matrix. Masonry, connections, foundations and serviceability are not certified.',
             'No verification of the program verifies the model. Loads, supports and idealisation are the engineer’s decisions; the model review warns about common mistakes, but it does not replace judgement.',
             'There has not yet been an independent review by a licensed structural engineer. CIRSOC 301 results are still labelled experimental.',
           ],
         },
 
         { k: 'h', t: 'AI drafts and reviews; it does not calculate' },
-        { k: 'p', t: 'The AI assistant drafts models from a description and reviews existing ones, but it does not compute results: the analysis and design numbers come from the solver. Its explanations are language-model text and can be wrong; the values that count are the ones in the results. Before a change is applied it shows what it will modify, and it can be undone in one step. The AI features send the description and the model to a server that queries a language model; the solver, the results and the checks do not need it and work offline.' },
+        { k: 'p', t: 'The AI assistant drafts models from a description and reviews existing ones, but it does not compute results: the numbers come from the solver and the application’s design-check modules. Its explanations are language-model text and can be wrong; the values that count are the ones in the results. Before a change is applied it shows what it will modify, and it can be undone in one step. The AI features send the description and the model to a server that queries a language model; the solver, the results and the checks do not need it and work offline.' },
         { k: 'link', slug: 'the-determinism-boundary', t: 'Why an AI agent should not calculate, with a worked case:' },
 
         { k: 'h', t: 'When something fails' },
         { k: 'p', t: 'Defects that may have affected results already in use are published as safety advisories, with how to recognise an affected model and what to do in the meantime; other safety defects are being triaged and are added when they warrant one. Open advisories are closed when the fix is live on stabileo.com.' },
         { k: 'link', slug: 'safety-advisories', t: 'The published advisories and their status:' },
         { k: 'ext', href: `${REPO}/docs/verification/TRUSTED_BASE.md`, label: 'Trusted base of the certificates', t: 'What is proved, what is tested and what is trusted, component by component:' },
+        { k: 'ext', href: `${REPO}/docs/verification/MATURITY.md`, label: 'Verification maturity matrix', t: 'For every analysis, element and design code, the verification level it has reached and the evidence:' },
       ],
     },
     pt: {
@@ -152,7 +154,7 @@ export const howStabileoChecksItsResults: Post = {
       excerpt:
         'O solver, a verificação formal e a IA: como procuramos erros nos números que o Stabileo dá, o que os certificados provam e o que nenhuma verificação pode garantir.',
       blocks: [
-        { k: 'p', t: 'Um programa de cálculo estrutural pode dar um número errado sem nenhum sinal visível. Nas últimas semanas testamos cada parte do Stabileo de várias maneiras independentes, encontramos dezenas de defeitos reais, muitos contra a segurança, e corrigimos a maioria; os abertos que podem afetar resultados já usados estão publicados como avisos, com o que fazer enquanto isso. Este texto conta como procuramos esses defeitos, o que provam os certificados que acompanham os resultados e, com a mesma clareza, o que fica fora de qualquer verificação.' },
+        { k: 'p', t: 'Um programa de cálculo estrutural pode dar um número errado sem nenhum sinal visível. Nas últimas semanas testamos cada parte do Stabileo de várias maneiras independentes, encontramos dezenas de defeitos reais, muitos contra a segurança, e corrigimos a maioria. Cada um é avaliado e, se pode ter afetado resultados já usados, é publicado como aviso, com o que fazer enquanto isso; alguns ainda estão em avaliação. Este texto conta como procuramos esses defeitos, o que provam os certificados que acompanham os resultados e, com a mesma clareza, o que fica fora de qualquer verificação.' },
 
         { k: 'h', t: 'Um só motor de cálculo' },
         { k: 'p', t: 'O solver é escrito em Rust e compilado para WebAssembly: roda no computador de quem o usa, sem instalação e sem enviar o modelo a nenhum servidor. É o mesmo código testado na integração contínua. Em outubro de 2026 removemos os cálculos paralelos em TypeScript que substituíam o motor em silêncio quando ele não estava disponível: agora a aplicação avisa, em vez de calcular com uma cópia não verificada.' },
@@ -191,20 +193,21 @@ export const howStabileoChecksItsResults: Post = {
           items: [
             'Um certificado limita o erro de resolver o sistema tal como foi montado. Não prova que esse sistema represente o modelo: a montagem da matriz de rigidez e das cargas é testada das formas acima, mas não certificada. Quando faltava a flambagem torcional (SA-2026-007), o certificado certificava o problema errado. Os certificados de ponta a ponta, que remontam o sistema de forma independente, estão em desenvolvimento.',
             'Lean demonstra a matemática; que o código Rust implemente exatamente esse algoritmo não está demonstrado, exceto nos verificadores que são código Lean.',
-            'As verificações certificadas das normas avaliam suas fórmulas com aritmética de intervalos, mas as fórmulas em si não estão formalizadas: são comparadas com exemplos publicados. Alvenaria, ligações, fundações e serviço não são certificadas.',
+            'As verificações certificadas das normas avaliam suas fórmulas com aritmética de intervalos, mas as fórmulas em si não estão formalizadas: são comparadas com exemplos resolvidos publicados onde existem, e a cobertura de cada norma (quais cláusulas, quais exemplos) está na matriz de maturidade. Alvenaria, ligações, fundações e serviço não são certificadas.',
             'Nenhuma verificação do programa verifica o modelo. As cargas, os apoios e a idealização são decisões do engenheiro; a revisão do modelo avisa de erros comuns, mas não substitui o critério.',
             'Ainda não houve uma revisão independente por um engenheiro estrutural habilitado. Os resultados de CIRSOC 301 continuam marcados como experimentais.',
           ],
         },
 
         { k: 'h', t: 'A IA redige e revisa; não calcula' },
-        { k: 'p', t: 'O assistente de IA monta rascunhos de modelos a partir de uma descrição e revisa modelos existentes, mas não calcula resultados: os números da análise e do projeto vêm do solver. Suas explicações são texto de um modelo de linguagem e podem errar; os valores que valem são os dos resultados. Antes de aplicar uma mudança, ele mostra o que vai modificar, e ela pode ser desfeita num passo. As funções de IA enviam a descrição e o modelo a um servidor que consulta um modelo de linguagem; o solver, os resultados e as verificações não precisam dele e funcionam sem conexão.' },
+        { k: 'p', t: 'O assistente de IA monta rascunhos de modelos a partir de uma descrição e revisa modelos existentes, mas não calcula resultados: os números vêm do solver e dos módulos de verificação da aplicação. Suas explicações são texto de um modelo de linguagem e podem errar; os valores que valem são os dos resultados. Antes de aplicar uma mudança, ele mostra o que vai modificar, e ela pode ser desfeita num passo. As funções de IA enviam a descrição e o modelo a um servidor que consulta um modelo de linguagem; o solver, os resultados e as verificações não precisam dele e funcionam sem conexão.' },
         { k: 'link', slug: 'the-determinism-boundary', t: 'Por que um agente de IA não deve calcular, com um caso resolvido:' },
 
         { k: 'h', t: 'Quando algo falha' },
         { k: 'p', t: 'Os defeitos que podem ter afetado resultados já usados são publicados como avisos de segurança, com como reconhecer um modelo afetado e o que fazer enquanto isso; outros defeitos de segurança estão em avaliação e são acrescentados quando cabe. Os avisos abertos são fechados quando a correção está publicada em stabileo.com.' },
         { k: 'link', slug: 'safety-advisories', t: 'Os avisos publicados e sua situação:' },
         { k: 'ext', href: `${REPO}/docs/verification/TRUSTED_BASE.md`, label: 'Base de confiança dos certificados', t: 'O que está demonstrado, o que está testado e o que é confiado, componente por componente:' },
+        { k: 'ext', href: `${REPO}/docs/verification/MATURITY.md`, label: 'Matriz de maturidade da verificação', t: 'Para cada análise, elemento e norma, o nível de verificação alcançado e a evidência:' },
       ],
     },
   },
