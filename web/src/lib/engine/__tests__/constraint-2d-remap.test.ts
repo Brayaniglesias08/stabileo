@@ -22,13 +22,27 @@ describe('constraintsTo2D mapping', () => {
     ]);
   });
 
-  it('drops constraints left with no in-plane DOF; diaphragms pass through (Rust is dimension-aware)', () => {
+  it('drops constraints left with no in-plane DOF', () => {
     const out = constraintsTo2D([
       { type: 'equalDOF', masterNode: 1, slaveNode: 2, dofs: [1, 3, 5] },
-      { type: 'diaphragm', masterNode: 1, slaveNodes: [2, 3] },
     ]);
-    expect(out).toEqual([
-      { type: 'diaphragm', masterNode: 1, slaveNodes: [2, 3] },
+    expect(out).toEqual([]);
+  });
+
+  it('keeps of a diaphragm what its plane ties in the X–Z frame', () => {
+    // A floor (XY, the default) meets the frame along X: ux only. Passed through
+    // verbatim, the engine read it as a rigid body in the frame's plane and the
+    // floor beams became rigid in vertical bending.
+    expect(constraintsTo2D([{ type: 'diaphragm', masterNode: 1, slaveNodes: [2, 3] }])).toEqual([
+      { type: 'equalDOF', masterNode: 1, slaveNode: 2, dofs: [0] },
+      { type: 'equalDOF', masterNode: 1, slaveNode: 3, dofs: [0] },
+    ]);
+    expect(constraintsTo2D([{ type: 'diaphragm', masterNode: 1, slaveNodes: [2], plane: 'YZ' }])).toEqual([
+      { type: 'equalDOF', masterNode: 1, slaveNode: 2, dofs: [1] },
+    ]);
+    // In the frame's own plane it is the 2D diaphragm: a rigid body in X–Z.
+    expect(constraintsTo2D([{ type: 'diaphragm', masterNode: 1, slaveNodes: [2], plane: 'XZ' }])).toEqual([
+      { type: 'diaphragm', masterNode: 1, slaveNodes: [2], plane: 'XZ' },
     ]);
   });
 

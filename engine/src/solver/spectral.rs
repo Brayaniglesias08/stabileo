@@ -116,6 +116,8 @@ fn check_finite_output(disps: &[f64], forces: &[f64], base_shear: f64, per_mode:
 /// Solve 2D spectral analysis using pre-computed modal data.
 pub fn solve_spectral_2d(input: &SpectralInput) -> Result<SpectralResult, String> {
     super::linear::validate_input_2d(&input.solver)?;
+    // The certificate re-assembles M from these masses.
+    super::dynamic_validation::validate_mass_input_2d(&input.solver)?;
     if input.modes.is_empty() {
         return Err("Spectral analysis requires at least one mode (run modal analysis first)".to_string());
     }
@@ -357,6 +359,8 @@ pub struct SpectralElementForce3D {
 /// Solve 3D spectral analysis using pre-computed modal data.
 pub fn solve_spectral_3d(input: &SpectralInput3D) -> Result<SpectralResult3D, String> {
     super::linear::validate_input_3d(&input.solver)?;
+    // The certificate re-assembles M from these masses.
+    super::dynamic_validation::validate_mass_input_3d(&input.solver)?;
     if input.modes.is_empty() {
         return Err("Spectral analysis requires at least one mode (run modal analysis first)".to_string());
     }

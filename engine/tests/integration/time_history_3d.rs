@@ -53,7 +53,7 @@ fn make_3d_cantilever() -> TimeHistoryInput3D {
     });
 
     let solver = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials, sections, elements, supports,
         loads: vec![],
         constraints: vec![], left_hand: None,

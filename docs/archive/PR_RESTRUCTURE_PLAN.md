@@ -1,3 +1,5 @@
+> **Archived 2026-10-18, not current.** See [docs/archive/README.md](README.md) for why and what replaces it.
+
 # Stabileo — PR Stack Structure
 
 ## Active PR Stack

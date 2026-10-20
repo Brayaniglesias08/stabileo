@@ -157,7 +157,7 @@ fn make_3d_continuous_beam(
     let _ = total_nodes;
 
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map,
         materials: mats_map,
         sections: secs_map,
@@ -500,7 +500,7 @@ fn validation_3d_continuous_elastic_support() {
         .collect();
 
     let input_spring = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map,
         materials: mats_map,
         sections: secs_map,
@@ -754,7 +754,7 @@ fn validation_3d_continuous_moment_ei_proportionality() {
         .collect();
 
     let input_2ei = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map,
         materials: mats_map,
         sections: secs_map,

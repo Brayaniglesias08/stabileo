@@ -196,7 +196,7 @@ impl M2 {
                 loads: vec![],
                 constraints: vec![],
                 connectors: HashMap::new(),
-                solver_options: None,
+                solver_options: None, masses: Default::default(),
             },
             rects: HashMap::new(),
         };
@@ -1751,7 +1751,7 @@ impl M3 {
                 nodes: HashMap::new(), materials: HashMap::new(), sections: HashMap::new(), elements: HashMap::new(),
                 supports: HashMap::new(), loads: vec![], constraints: vec![], left_hand: None, plates: HashMap::new(),
                 quads: HashMap::new(), quad9s: HashMap::new(), solid_shells: HashMap::new(), curved_shells: HashMap::new(),
-                curved_beams: vec![], connectors: HashMap::new(), solver_options: None,
+                curved_beams: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
             },
             rects: HashMap::new(),
         };
@@ -2352,9 +2352,10 @@ fn cases_3d() -> Vec<Case3> {
             if stiff {
                 m.elem(3, "frame", 2, 4, RIGID_MAT, 4);
                 let e = m.elem_mut(3);
-                // The diaphragm ties the slave's in-plane translations to the
-                // master's rigid motion; it leaves the slave's rotation free.
-                (e.release_my_start, e.release_my_end, e.release_t_start, e.release_mz_end) = (true, true, true, true);
+                // The diaphragm makes the two tops one rigid body in plane
+                // (translations and in-plane rotation, #342); out of plane
+                // each top bends and twists on its own.
+                (e.release_my_start, e.release_my_end, e.release_t_start) = (true, true, true);
             }
             // Only column 1–2 carries gravity: tied, the other column braces it.
             // Equal x pushes leave the stand-in member without axial force,

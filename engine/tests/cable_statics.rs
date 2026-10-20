@@ -90,7 +90,7 @@ fn tripod(tie_down: bool) -> SolverInput3D {
     if tie_down { elements.insert("4".into(), cable(4, 5, 4)); }
     let supports = [1, 2, 3, 5].into_iter().map(|n| (n.to_string(), pin(n))).collect();
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: HashMap::from([("1".into(), SolverMaterial { id: 1, e: 160_000.0, nu: 0.3 })]),
         sections: HashMap::from([("1".into(), SolverSection3D { id: 1, name: None, a: 1e-3, iy: 1e-10, iz: 1e-10, j: 1e-10, cw: None, as_y: None, as_z: None })]),

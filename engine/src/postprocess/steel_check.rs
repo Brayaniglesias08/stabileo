@@ -77,6 +77,10 @@ pub struct SteelMemberData {
     /// Shear modulus (default E / 2.6)
     #[serde(default)]
     pub g: Option<f64>,
+    /// Effective length for torsional buckling Lcz (E4). Absent: the longer
+    /// of the two flexural effective lengths. 0: twisting braced.
+    #[serde(default)]
+    pub lcz: Option<f64>,
     /// Depth of section (for LTB calculation)
     #[serde(default)]
     pub depth: Option<f64>,
@@ -391,24 +395,61 @@ pub(crate) fn shear_capacity<T: Real>(m: &SteelMemberData) -> T {
     }
 }
 
-/// E3 critical stress Fcr (flexural buckling, about the weaker axis).
+/// E3/E4 critical stress Fcr: flexural buckling about the weaker axis (E3)
+/// and torsional buckling of a doubly symmetric member (E4-2),
+///   Fe = (π²·E·Cw/Lcz² + G·J)/(Ix + Iy),
+/// whichever Fe is lower, through E3-2/E3-3. Lcz is `lcz`, or the longer of
+/// the two flexural lengths. Torsional buckling was not checked at all: with
+/// the weak axis braced more closely than the member twists, E3 alone
+/// overstated Pn. NaN — refused — when the member could twist over a longer
+/// length than it buckles about its weak axis and neither J nor Cw is given.
+/// Flexural-torsional buckling of singly symmetric and unsymmetric sections
+/// (E4-3, E4-4) and constrained-axis torsional buckling are not covered.
 fn compression_fcr<T: Real>(m: &SteelMemberData) -> T {
     let ky = m.ky.unwrap_or(1.0);
     let kz = m.kz.unwrap_or(1.0);
     let zero = T::exact(0.0);
+    let (fy, e) = (T::exact(m.fy), T::exact(m.e));
+    let pi2e = T::pi() * T::pi() * e;
 
     // Slenderness ratio about each axis
     let kl_r_y = if m.ry > 0.0 { (T::exact(ky) * T::exact(m.lby)).dv(T::exact(m.ry)) } else { zero };
     let kl_r_z = if m.rz > 0.0 { (T::exact(kz) * T::exact(m.lbz)).dv(T::exact(m.rz)) } else { zero };
     let kl_r = kl_r_y.max(kl_r_z);
-    let (fy, e) = (T::exact(m.fy), T::exact(m.e));
+
+    // E4-2, doubly symmetric torsional buckling.
+    let lcz = m.lcz.unwrap_or((ky * m.lby).max(kz * m.lbz));
+    let cw = m.cw.unwrap_or(0.0);
+    let torsion_known = m.j > 0.0 || cw > 0.0;
+    if !torsion_known && lcz > kz * m.lbz * (1.0 + 1e-12) {
+        return T::exact(f64::NAN);
+    }
+    let fez: Option<T> = if torsion_known && lcz > 0.0 && m.iy + m.iz > 0.0 {
+        let g = m.g.map_or_else(|| e.dv(T::lit(2.6)), T::exact);
+        let lz = T::exact(lcz);
+        Some(((pi2e * T::exact(cw)).dv(lz.sq()) + g * T::exact(m.j)).dv(T::exact(m.iy) + T::exact(m.iz)))
+    } else {
+        None
+    };
+
+    // The governing elastic stress as an equivalent slenderness π·√(E/Fe),
+    // so E3's 4.71 limit reads Fy/Fe <= 2.25 for either mode, and the
+    // flexural case is the slenderness itself.
+    let kl_r = match fez {
+        Some(fez) => branch(
+            kl_r.le(zero),
+            || T::pi() * e.dv(fez).sqrt(),
+            || kl_r.max(T::pi() * e.dv(fez).sqrt()),
+        ),
+        None => kl_r,
+    };
 
     branch(
         kl_r.le(zero),
         || fy,
         || {
             // Euler buckling stress
-            let fe = (T::pi() * T::pi() * e).dv(kl_r.sq());
+            let fe = pi2e.dv(kl_r.sq());
             // Critical stress (AISC E3-2, E3-3)
             branch(
                 (kl_r * fy.dv(e).sqrt()).le(T::lit(4.71)),

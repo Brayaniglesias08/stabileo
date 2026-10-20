@@ -111,7 +111,7 @@ fn make_plate_3d(nx: usize, ny: usize) -> SolverInput3D {
         .collect();
 
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -226,7 +226,7 @@ fn make_plate_3d_with_grid(nx: usize, ny: usize) -> (SolverInput3D, Vec<Vec<usiz
         .collect();
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -327,7 +327,7 @@ fn make_compressed_plate(nx: usize, ny: usize) -> SolverInput3D {
     }
 
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),

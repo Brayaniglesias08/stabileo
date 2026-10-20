@@ -3958,7 +3958,7 @@ pub(crate) fn build_reactions_3d_inclined(
 /// fall back silently): solver options (method, preconditioner, and invalid
 /// PCG tolerance / iteration cap) and diaphragm planes. `planes` are the
 /// planes accepted in this dimension.
-fn reject_unknown_options(opts: &Option<SolverOptions>, constraints: &[Constraint], planes: &[&str]) -> Result<(), String> {
+fn reject_unknown_options(opts: &Option<SolverOptions>, constraints: &[Constraint], planes: &[&str], is_3d: bool) -> Result<(), String> {
     let quoted = |v: &[&str]| v.iter().map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(", ");
     if let Some(o) = opts {
         const METHODS: [&str; 3] = ["auto", "direct", "pcg"];
@@ -3982,12 +3982,21 @@ fn reject_unknown_options(opts: &Option<SolverOptions>, constraints: &[Constrain
     for c in constraints {
         if let Constraint::Diaphragm(d) = c {
             if !planes.contains(&d.plane.as_str()) {
-                return Err(format!(
-                    "Diaphragm (master node {}): unknown plane '{}'; expected {}",
-                    d.master_node,
-                    d.plane,
-                    quoted(planes)
-                ));
+                return Err(if is_3d {
+                    format!(
+                        "Diaphragm (master node {}): unknown plane '{}'; expected {}",
+                        d.master_node,
+                        d.plane,
+                        quoted(planes)
+                    )
+                } else {
+                    format!(
+                        "Diaphragm (master node {}): plane '{}' is not the plane of a 2D model; expected {}",
+                        d.master_node,
+                        d.plane,
+                        quoted(planes)
+                    )
+                });
             }
         }
     }
@@ -4091,9 +4100,11 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
         }
     }
     reject_ambiguous_shared_supports(input.supports.iter().map(|(k, s)| (s.node_id, k.as_str(), plain_rigid_2d(s))))?;
-    // In 2D the model plane is the only diaphragm plane (XZ / YZ named DOFs
-    // that do not exist in 2D).
-    reject_unknown_options(&input.solver_options, &input.constraints, &["XY"])?;
+    // In 2D the model plane is the only diaphragm plane: the model lies in
+    // X–Z, and "XY" is its historical name. Both map to the 2D DOFs (ux, uz,
+    // ry) since #397 (constraints::diaphragm_dofs); "YZ" names DOFs that do
+    // not exist in 2D.
+    reject_unknown_options(&input.solver_options, &input.constraints, &["XY", "XZ"], false)?;
     for load in &input.loads {
         let finite = match load {
             SolverLoad::Nodal(l) => l.fx.is_finite() && l.fz.is_finite() && l.my.is_finite(),
@@ -4302,7 +4313,7 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
         }
     }
     reject_ambiguous_shared_supports(input.supports.iter().map(|(k, s)| (s.node_id, k.as_str(), plain_rigid_3d(s))))?;
-    reject_unknown_options(&input.solver_options, &input.constraints, &["XY", "XZ", "YZ"])?;
+    reject_unknown_options(&input.solver_options, &input.constraints, &["XY", "XZ", "YZ"], true)?;
     // An inclined support needs its direction: without a non-zero normal it
     // used to solve silently as an ordinary support with its flags.
     for s in input.supports.values() {

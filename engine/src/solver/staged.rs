@@ -229,7 +229,7 @@ pub fn solve_staged_2d(input: &StagedInput) -> Result<StagedAnalysisResults, Str
         if max_diag < 1e-30 {
             // No stiffness at this stage — skip
             let cumulative_solver_input = SolverInput {
-                solver_options: None,
+                solver_options: None, masses: Default::default(),
                 loads: cumulative_loads.clone(),
                 ..stage_solver_input.clone()
             };
@@ -307,7 +307,7 @@ pub fn solve_staged_2d(input: &StagedInput) -> Result<StagedAnalysisResults, Str
 
         // Build cumulative input for correct FEF subtraction in internal force recovery.
         let cumulative_solver_input = SolverInput {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             loads: cumulative_loads.clone(),
             ..stage_solver_input.clone()
         };
@@ -364,7 +364,7 @@ pub fn solve_staged_2d(input: &StagedInput) -> Result<StagedAnalysisResults, Str
 /// Convert StagedInput to a full SolverInput (all elements active) for DOF numbering.
 fn staged_to_full_solver_input(input: &StagedInput) -> SolverInput {
     SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: input.nodes.clone(),
         materials: input.materials.clone(),
         sections: input.sections.clone(),
@@ -398,7 +398,7 @@ fn build_stage_solver_input(
         .collect();
 
     SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: input.nodes.clone(),
         materials: input.materials.clone(),
         sections: input.sections.clone(),
@@ -1498,7 +1498,7 @@ pub fn solve_staged_3d(input: &StagedInput3D) -> Result<StagedAnalysisResults3D,
 /// Convert StagedInput3D to a full SolverInput3D (all elements active) for DOF numbering.
 fn staged_to_full_solver_input_3d(input: &StagedInput3D) -> SolverInput3D {
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: input.nodes.clone(),
         materials: input.materials.clone(),
         sections: input.sections.clone(),
@@ -1574,7 +1574,7 @@ fn build_stage_solver_input_3d(
         .collect();
 
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: input.nodes.clone(),
         materials: input.materials.clone(),
         sections: input.sections.clone(),

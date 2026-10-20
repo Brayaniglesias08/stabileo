@@ -201,7 +201,7 @@ fn build_2d(m: &Model) -> Option<SolverInput> {
         loads,
         constraints: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     })
 }
 
@@ -346,7 +346,7 @@ fn build_3d(m: &Model) -> Option<SolverInput3D> {
         curved_shells: HashMap::new(),
         curved_beams: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     })
 }
 

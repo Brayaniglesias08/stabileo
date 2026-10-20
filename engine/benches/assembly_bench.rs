@@ -70,7 +70,7 @@ fn make_input(
         constraints: vec![],
         connectors: HashMap::new(),
 
-        solver_options: None,    }
+        solver_options: None, masses: Default::default(),    }
 }
 
 /// Simply-supported beam with n_elem frame elements and UDL.
@@ -379,7 +379,7 @@ fn make_mixed_frame_slab_3d(n_stories: usize, nx: usize, ny: usize) -> SolverInp
         constraints: vec![], left_hand: None,
         plates: HashMap::new(), quads, quad9s: HashMap::new(),
         solid_shells: HashMap::new(), curved_shells: HashMap::new(),
-        curved_beams: vec![], connectors: HashMap::new(), solver_options: None,
+        curved_beams: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 
@@ -469,7 +469,7 @@ fn make_flat_plate_3d(nx: usize, ny: usize) -> SolverInput3D {
         constraints: vec![], left_hand: None,
         plates: HashMap::new(), quads, quad9s: HashMap::new(),
         solid_shells: HashMap::new(), curved_shells: HashMap::new(),
-        curved_beams: vec![], connectors: HashMap::new(), solver_options: None,
+        curved_beams: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 
@@ -717,7 +717,7 @@ fn make_flat_plate_quad9(nx: usize, ny: usize) -> SolverInput3D {
         constraints: vec![], left_hand: None,
         plates: HashMap::new(), quads: HashMap::new(), quad9s,
         solid_shells: HashMap::new(), curved_shells: HashMap::new(),
-        curved_beams: vec![], connectors: HashMap::new(), solver_options: None,
+        curved_beams: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 
@@ -853,7 +853,7 @@ fn make_hemisphere_curved_shell(n: usize) -> SolverInput3D {
         constraints: vec![], left_hand: None,
         plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(),
         solid_shells: HashMap::new(), curved_shells,
-        curved_beams: vec![], connectors: HashMap::new(), solver_options: None,
+        curved_beams: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 
