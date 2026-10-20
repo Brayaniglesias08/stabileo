@@ -3,6 +3,7 @@
   import LocaleSelect from '../LocaleSelect.svelte';
   import { REPO_URL, enterApp, scrollToId, fetchGithubStars, switchPublicLocale } from './landing-utils';
   import BrandMark from './BrandMark.svelte';
+  import PublicLink from './PublicLink.svelte';
 
   let stars = $state<number | null>(null);
   let open = $state(false);
@@ -13,6 +14,10 @@
    * Five stops, one per section of the deck. `codes` and `status` went with
    * the sections they pointed at; `ai` is new. A nav item that scrolls to
    * nothing is worse than one that is missing.
+   *
+   * The blog is a page, not a section: its item is a real link to /blog
+   * below. It used to scroll to the blog teaser at the foot of the landing,
+   * which is not what anyone clicking "Blog" expects.
    */
   const links = [
     { id: 'basic', key: 'landing.navBasic' },
@@ -20,7 +25,6 @@
     { id: 'ai', key: 'landing.navAi' },
     { id: 'education', key: 'landing.navEducation' },
     { id: 'pricing', key: 'landing.ebPricing' },
-    { id: 'blog', key: 'landing.navBlog' },
   ];
 
   $effect(() => {
@@ -48,6 +52,7 @@
       {#each links as l}
         <button onclick={() => go(l.id)}>{t(l.key)}</button>
       {/each}
+      <PublicLink to="/blog" class="nav-link">{t('landing.navBlog')}</PublicLink>
     </div>
 
     <div class="nav-actions">
