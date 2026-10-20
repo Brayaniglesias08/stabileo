@@ -17,6 +17,7 @@ import {
   type Footing, type FootingMatPreferences,
 } from '../model/footing';
 import { DEFAULT_COVER } from '../engine/design/member-context';
+import { DOF_SPRING, dofRestraintsOfType3D, is3DSupportType, type SpringKey } from '../model/support-3d';
 import {
   emptyGeotechnical, migrateGeotechnical, newSoilProfile,
   type ProjectGeotechnical, type SoilProfile,
@@ -3507,14 +3508,24 @@ function createModelStore() {
           }
         }
       }
+      // A 3D support keeps springs only on the DOFs it leaves free: switching
+      // a spring support to fixed (or ticking a DOF) used to keep the spring,
+      // and the engine then solved the "fixed" DOF as elastic (#488).
+      const nextType = data.type ? normalize2DSupportType(data.type) : sup.type;
+      const nextDofs = data.dofRestraints ?? sup.dofRestraints;
+      const restrained = nextDofs ?? (is3DSupportType(nextType) ? dofRestraintsOfType3D(nextType) : undefined);
+      const spring = (key: SpringKey, value: number | undefined) => {
+        const dof = DOF_SPRING.find(([, k]) => k === key)![0];
+        return restrained?.[dof] ? undefined : value;
+      };
       // Replace entire object to guarantee Svelte 5 reactivity
       model.supports.set(id, {
         id: sup.id,
         nodeId: data.nodeId ?? sup.nodeId,
         type: data.type ? normalize2DSupportType(data.type) : sup.type,
-        kx: data.kx ?? sup.kx,
-        ky: data.ky ?? sup.ky,
-        kz: data.kz ?? sup.kz,
+        kx: spring('kx', data.kx ?? sup.kx),
+        ky: spring('ky', data.ky ?? sup.ky),
+        kz: spring('kz', data.kz ?? sup.kz),
         dx: data.dx ?? sup.dx,
         dz: data.dz ?? data.dy ?? sup.dz ?? sup.dy,
         dry: data.dry ?? data.drz ?? sup.dry ?? sup.drz,
@@ -3522,9 +3533,9 @@ function createModelStore() {
         isGlobal: 'isGlobal' in data ? data.isGlobal : sup.isGlobal,
         // 3D fields
         drx: data.drx ?? sup.drx,
-        krx: data.krx ?? sup.krx,
-        kry: data.kry ?? sup.kry,
-        krz: data.krz ?? sup.krz,
+        krx: spring('krx', data.krx ?? sup.krx),
+        kry: spring('kry', data.kry ?? sup.kry),
+        krz: spring('krz', data.krz ?? sup.krz),
         // Per-DOF 3D configuration
         dofRestraints: data.dofRestraints ?? sup.dofRestraints,
         dofFrame: data.dofFrame ?? sup.dofFrame,

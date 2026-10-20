@@ -1662,6 +1662,26 @@ function shearOf(s: Section): { asY?: number; asZ?: number } {
   return sa ? { asY: sa.asY, asZ: sa.asZ } : {};
 }
 
+/**
+ * A 3D solver support without springs on the DOFs it restrains rigidly.
+ *
+ * The engine frees a DOF that has a positive spring even when its restraint
+ * flag is set (`DofNumbering::build_3d`). A support switched from spring to
+ * fixed kept its spring constants in the store, so the support drawn as fixed
+ * was solved as elastic (#488: 14 mm at a "fixed" end). What is drawn and
+ * checked as restrained is solved as restrained; this also repairs projects
+ * saved with such leftovers. Inclined supports restrain along their normal
+ * whatever the flags say, so they are left as they are.
+ */
+export function withoutSpringsOnRestrained<T extends Record<string, unknown>>(sup: T): T {
+  if (sup.isInclined) return sup;
+  const out: Record<string, unknown> = { ...sup };
+  for (const [flag, key] of [['rx', 'kx'], ['ry', 'ky'], ['rz', 'kz'], ['rrx', 'krx'], ['rry', 'kry'], ['rrz', 'krz']] as const) {
+    if (out[flag] === true) delete out[key];
+  }
+  return out as T;
+}
+
 export function buildSolverInput3D(
   model: ModelData,
   /** A boolean for a solve of every load; a case's own self-weight loads for a case. */
@@ -1801,7 +1821,7 @@ export function buildSolverInput3D(
          * a raft on soil springs floated (7·10¹⁰ m, mat-foundation).
          */
         const plane = !s.dofRestraints && is2DSupportType(s.type);
-        return [s.nodeId, {
+        return [s.nodeId, withoutSpringsOnRestrained({
           nodeId: s.nodeId,
           ...dofs,
           kx: s.kx,
@@ -1818,7 +1838,7 @@ export function buildSolverInput3D(
           drz: embedded2D ? undefined : s.drz,
           normalX: s.normalX, normalY: s.normalY, normalZ: s.normalZ,
           isInclined: s.isInclined,
-        }] as [number, any];
+        })] as [number, any];
       }));
       // For embedded 2D models, restrain out-of-plane DOFs (uy, rx, rz) at ALL nodes.
       // Without this, hinges and trusses create out-of-plane mechanisms because the
