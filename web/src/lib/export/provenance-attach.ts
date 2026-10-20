@@ -18,6 +18,7 @@ import { uiStore } from '../store/ui.svelte';
 import { downloadText } from '../store/file';
 import {
   captureProvenanceToken, provenanceForExport, provenanceLabels, ExportChangedError,
+  analysisProvenanceForExport,
 } from '../store/result-provenance';
 import { provenanceBlockHtml, provenanceTextLines, type ResultProvenance } from '../provenance/result-provenance';
 
@@ -148,10 +149,11 @@ export function provenanceFromPng(png: Uint8Array): string | null {
 /**
  * `downloadText` for a file of results: the record attached in the file's own format (by its
  * extension: .csv, .html, .dxf, .svg), or nothing written when the project moved meanwhile.
- * Call it in the same tick as the content is built.
+ * Call it in the same tick as the content is built. An independent analysis must supply the
+ * record captured with its own inputs and results, rather than borrowing the viewport's record.
  */
-export async function downloadResultText(content: string, filename: string, mime: string): Promise<boolean> {
-  const p = await prepareExportProvenance();
+export async function downloadResultText(content: string, filename: string, mime: string, record?: ResultProvenance): Promise<boolean> {
+  const p = record ? analysisProvenanceForExport(record) : await prepareExportProvenance();
   if (!p) return false;
   const ext = filename.toLowerCase().split('.').pop();
   const out = ext === 'csv' ? csvWithProvenance(content, p)

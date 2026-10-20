@@ -89,6 +89,10 @@ export interface ResultProvenance {
   resultsHash: string | null;
   /** The base solve's hash (equal to `resultsHash` when the base solve is what is shown). */
   baseResultsHash: string | null;
+  /** How the base result was computed: floating-point summation is part of the recipe. */
+  baseSolveMethod?: 'direct' | 'case-superposition';
+  /** Inputs of an independent analysis (for example, a moving-load sweep). */
+  analysisInputHash?: string;
   /**
    * The engine's hashes of the base linear solve: its canonical input and its raw result, as
    * `cargo run --example reproduce` recomputes them from the exported solver input. null when the
@@ -129,6 +133,8 @@ export interface ProvenanceInputs {
   scopeRef?: ScopeRef;
   results: unknown;
   baseResults?: unknown;
+  baseSolveMethod?: ResultProvenance['baseSolveMethod'];
+  analysisInputHash?: string;
   certificates?: CertificateRecord[];
   stale: boolean;
   stamp: SolveStamp | null;
@@ -157,6 +163,8 @@ export function buildResultProvenance(i: ProvenanceInputs): ResultProvenance {
     ...(i.scopeRef ? { scopeRef: i.scopeRef } : {}),
     resultsHash: shown,
     baseResultsHash: base,
+    ...(i.baseSolveMethod ? { baseSolveMethod: i.baseSolveMethod } : {}),
+    ...(i.analysisInputHash ? { analysisInputHash: i.analysisInputHash } : {}),
     engineInputSha256: i.engine?.input ?? null,
     engineResultsSha256: i.engine?.results ?? null,
     certificates: i.certificates ?? [],
@@ -324,7 +332,7 @@ export function provenanceTextLines(p: ResultProvenance, l: ProvenanceLabels): A
     [l.wasm, p.wasmHash],
     [l.resultsVersion, `${p.resultsVersion} (schema ${p.resultsSchemaVersion})`],
     [l.model, p.modelHash],
-    [l.settings, `${p.settingsHash} — ${s.analysisMode}, self-weight ${s.includeSelfWeight ? 'on' : 'off'}${s.selfWeightCaseId !== null ? ` (case ${s.selfWeightCaseId})` : ''}, ${s.axisConvention3D}${s.drawPlane2D ? `, plane ${s.drawPlane2D}` : ''}`],
+    [l.settings, `${p.settingsHash} — ${s.analysisMode}, self-weight ${s.includeSelfWeight ? 'on' : 'off'}${s.selfWeightCaseId !== null ? ` (case ${s.selfWeightCaseId})` : ''}, ${s.axisConvention3D}${s.drawPlane2D ? `, plane ${s.drawPlane2D}` : ''}${p.analysisInputHash ? ` · input ${p.analysisInputHash}` : ''}`],
     [l.scope, p.scope],
     [l.results, p.resultsHash ?? l.none],
     [l.engineSolve, p.engineInputSha256 ? `input ${p.engineInputSha256} · results ${p.engineResultsSha256}` : l.none],

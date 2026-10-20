@@ -15,7 +15,11 @@ import '../../store/index';
 import { initSolver } from '../../engine/wasm-solver';
 import { serializeProject, deserializeProject } from '../../store/file';
 import { recheckStore } from '../../store/recheck.svelte';
-import { currentResultProvenance } from '../../store/result-provenance';
+import { currentResultProvenance, captureAnalysisProvenance, provenanceLabels, engineHashRunCount } from '../../store/result-provenance';
+import { resultsHash, modelHash } from '../../provenance/result-provenance';
+import { exactHash } from '../../provenance/exact-hash';
+import { reproduceFrom } from '../../actions/reproduce';
+import { buildPath3D, movingLoadBase3D, sweepTrains3D } from '../../engine/moving-loads-3d';
 import { buildExcelWorkbook, loadXlsxModule } from '../excel';
 import {
   csvWithProvenance, htmlWithProvenance, dxfWithProvenance, svgWithProvenance, pngWithProvenance,
@@ -97,6 +101,75 @@ describe('result files downloaded as text', () => {
     modelStore.addNode(7, 7, 7);
     expect(await pending).toBe(false);
     expect(texts).toHaveLength(0);
+  });
+});
+
+describe('independent moving-load exports', () => {
+  function sweepInput(weight: number) {
+    const base = movingLoadBase3D(modelStore.model as never, false)!;
+    return {
+      base, path: buildPath3D(base, [...modelStore.elements.keys()])!,
+      trains: [{ name: 'axle', axles: [{ offset: 0, weight }] }],
+      step: 1, path2: null,
+    };
+  }
+
+  it('hashes the sweep and its inputs, without borrowing static results or certificates', async () => {
+    frame();
+    solve();
+    const staticRecord = currentResultProvenance();
+    const runs = engineHashRunCount();
+    const records = [];
+    for (const weight of [10, 20]) {
+      const input = sweepInput(weight);
+      const finish = captureAnalysisProvenance('moving-load envelope', input);
+      const result = await sweepTrains3D(input.base, input.path, input.trains, input);
+      const p = finish(result);
+      records.push(p);
+      expect(p.resultsHash).toBe(resultsHash(result));
+      expect(p.resultsHash).not.toBe(staticRecord.resultsHash);
+      expect(p.analysisInputHash).toBe(exactHash(input));
+      expect(p.scopeRef).toEqual({ kind: 'other', label: 'moving-load envelope' });
+      expect(p.baseResultsHash).toBeNull();
+      expect(p.engineInputSha256).toBeNull();
+      expect(p.engineResultsSha256).toBeNull();
+      expect(p.certificates).toEqual([]);
+      expect(p.solvedWith).toBeNull();
+      const values = [...result.elements].map(([id, env]) => `${id},${env.my.max.value},${env.my.min.value}`);
+      expect(await downloadResultText(`Element,My max,My min\n${values.join('\n')}`,
+        'moving-load-envelope.csv', 'text/csv', p)).toBe(true);
+      const csv = texts.at(-1)!.content;
+      expect(csv).toContain(`# ${provenanceLabels().results}: ${p.resultsHash}`);
+      expect(csv).toContain(p.analysisInputHash);
+      expect(csv).toContain('other (moving-load envelope)');
+    }
+    expect(records[0]!.resultsHash).not.toBe(records[1]!.resultsHash);
+    expect(records[0]!.analysisInputHash).not.toBe(records[1]!.analysisInputHash);
+    expect(engineHashRunCount()).toBe(runs);
+    const out = await reproduceFrom(records[0]!);
+    expect(out.ok && out.verdict.status).toBe('incomplete');
+  });
+
+  it('retains the solved model/settings after edits during the sweep and marks the export stale', async () => {
+    frame();
+    const input = sweepInput(10);
+    const originalModelHash = modelHash(modelStore.snapshot());
+    const originalAxis = uiStore.axisConvention3D;
+    const finish = captureAnalysisProvenance('moving-load envelope', input);
+    const pending = sweepTrains3D(input.base, input.path, input.trains, input);
+    modelStore.addNode(9, 9, 9);
+    uiStore.axisConvention3D = originalAxis === 'leftHand' ? 'rightHand' : 'leftHand';
+    try {
+      const p = finish(await pending);
+      expect(p.modelHash).toBe(originalModelHash);
+      expect(p.settings.axisConvention3D).toBe(originalAxis);
+      expect(await downloadResultText('Element,My', 'moving-load-envelope.csv', 'text/csv', p)).toBe(true);
+      expect(texts[0]!.content).toMatch(/^# .*STALE/);
+      expect(texts[0]!.content).toContain(originalModelHash);
+      expect(texts[0]!.content).not.toContain(modelHash(modelStore.snapshot()));
+    } finally {
+      uiStore.axisConvention3D = originalAxis;
+    }
   });
 });
 

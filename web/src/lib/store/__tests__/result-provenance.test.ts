@@ -23,7 +23,8 @@ import { publishCombinations3D } from '../active-results';
 import { compareWithResultsOnHand } from '../../actions/reproduce';
 import { generateReportHtml, type ReportData } from '../../engine/pro-report';
 import { exportResultsCSV, prepareResultsCSV } from '../file';
-import { runGlobalSolve } from '../../engine/live-calc';
+import { runGlobalSolve, runLiveCalc } from '../../engine/live-calc';
+import { ensureResults } from '../../actions/solve';
 import { reproduceFrom } from '../../actions/reproduce';
 import { currentWorkbookSheets } from '../project-workbook';
 import type { ResultProvenance } from '../../provenance/result-provenance';
@@ -488,6 +489,7 @@ describe('a PRO model with combinations, solved as Calcular solves it', () => {
     expect(input?.dim).toBe('3d');
     expect(() => JSON.parse(input!.json)).not.toThrow();
     const p = await provenanceForExport(captureProvenanceToken());
+    expect(p.baseSolveMethod).toBe('case-superposition');
     expect(p.engineInputSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(p.engineResultsSha256).toMatch(/^[0-9a-f]{64}$/);
     const out = await reproduceFrom(p);
@@ -499,6 +501,31 @@ describe('a PRO model with combinations, solved as Calcular solves it', () => {
     const csv = await prepareResultsCSV();
     expect(csv).toMatch(/input [0-9a-f]{64} · results [0-9a-f]{64}/);
   });
+});
+
+describe('reproducing a direct 3D solve with combinations', () => {
+  for (const mode of ['3d', 'pro'] as const) {
+    it.each(['manual', 'live'] as const)(`${mode}: preserves the %s solve's arithmetic`, async (entry) => {
+      uiStore.analysisMode = mode;
+      buildFrame();
+      const top = [...modelStore.nodes.keys()].at(-1)!;
+      modelStore.addNodalLoad3D(top, 0, 7.5, -12, 0, 0, 0, 2);
+      modelStore.addCombination('1.2D+1.6L', [{ caseId: 1, factor: 1.2 }, { caseId: 2, factor: 1.6 }]);
+      if (entry === 'live') await runLiveCalc(mode, 'rightHand');
+      else expect((await ensureResults()).ok).toBe(true);
+      const p = await provenanceForExport(captureProvenanceToken());
+      expect(p.baseSolveMethod).toBe('direct');
+      expect(p.baseResultsHash).not.toBeNull();
+      const out = await reproduceFrom(p);
+      expect(out.ok && out.verdict.status).toBe('reproduced');
+
+      // Keeping the computation method must not conceal a real change in the model.
+      modelStore.addNodalLoad3D(top, 0, 0, -1, 0, 0, 0);
+      const changed = await reproduceFrom(p);
+      expect(changed.ok && changed.verdict.model).toBe('differs');
+      expect(changed.ok && changed.verdict.results).toBe('differs');
+    });
+  }
 });
 
 describe('the basic CSV as the first export after a solve', () => {

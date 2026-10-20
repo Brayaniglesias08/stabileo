@@ -19,7 +19,7 @@ import { RESULTS_VERSION } from '../provenance/registry';
 import { RESULTS_SCHEMA_VERSION } from '../provenance/solve-stamp';
 import { exactHash } from '../provenance/exact-hash';
 import {
-  buildResultProvenance, modelHash, type ScopeRef, type AnalysisSettings, type CertificateRecord, type ProvenanceLabels, type ResultProvenance,
+  buildResultProvenance, modelHash, resultsHash, type ScopeRef, type AnalysisSettings, type CertificateRecord, type ProvenanceLabels, type ResultProvenance,
 } from '../provenance/result-provenance';
 import { t } from '../i18n';
 import { certifiableInputOf, type CertifiableInput } from '../engine/solver-service';
@@ -30,6 +30,7 @@ import { runCertify, hasCertify } from '../engine/certify-jobs';
  * Set by the static-publish hook in `store/index.ts`, from the raw result before it is drawn.
  */
 let baseInput: CertifiableInput | null = null;
+let baseSolveMethod: ResultProvenance['baseSolveMethod'];
 /** The engine's hashes of `baseInput`, once computed (`ensureEngineHashes`). */
 let engineHashCache: { input: CertifiableInput; hashes: { input: string; results: string } | null } | null = null;
 let engineHashPending: { input: CertifiableInput; promise: Promise<{ input: string; results: string } | null> } | null = null;
@@ -37,6 +38,7 @@ let engineHashRuns = 0;
 
 export function noteBaseSolve(results: object | null): void {
   baseInput = results ? certifiableInputOf(results) : null;
+  baseSolveMethod = baseInput ? 'direct' : undefined;
 }
 
 /**
@@ -44,8 +46,9 @@ export function noteBaseSolve(results: object | null): void {
  * it has no engine input of its own, so the provenance names the engine input of a direct single
  * solve of the same model (`modelStore.singleSolveInput3D`). Called right after that publish.
  */
-export function noteBaseSolveInput(input: CertifiableInput | null): void {
-  if (!baseInput) baseInput = input;
+export function noteBaseSolveInput(input: CertifiableInput | null, method: ResultProvenance['baseSolveMethod']): void {
+  baseInput = input;
+  baseSolveMethod = method;
 }
 
 /** The solver input of the base solve, as JSON, for the CLI reproduce (`examples/reproduce.rs`). */
@@ -248,6 +251,36 @@ export function provenanceForScope(ref: ScopeRef, now?: Date): ResultProvenance 
   return resultProvenanceFor(ref, resultForScope(ref), now);
 }
 
+/**
+ * Capture an independent analysis's inputs before it starts. Finish with its own result, even
+ * if the model or viewport changed while it ran. No static result, certificate or solve stamp
+ * belongs to this record. Exports can mark it stale without relabelling it as the current model.
+ */
+export function captureAnalysisProvenance(label: string, inputs: unknown): (results: unknown) => ResultProvenance {
+  // Hash now: snapshot entries can still share mutable values with the model.
+  const captured = buildResultProvenance({
+    build: buildIdentity(),
+    snapshot: modelStore.snapshot(),
+    settings: currentAnalysisSettings(),
+    analysisInputHash: exactHash(inputs),
+    resultsVersion: RESULTS_VERSION,
+    resultsSchemaVersion: RESULTS_SCHEMA_VERSION,
+    scope: `other (${label})`,
+    scopeRef: { kind: 'other', label },
+    results: null, baseResults: null, stale: false, stamp: null,
+  });
+  return (results) => ({ ...captured, resultsHash: resultsHash(results), generatedAt: new Date().toISOString() });
+}
+
+/** Keep a saved independent result's identity, marking it stale after project/settings edits. */
+export function analysisProvenanceForExport(record: ResultProvenance): ResultProvenance {
+  return {
+    ...record,
+    stale: record.stale || record.modelHash !== modelHash(modelStore.snapshot())
+      || record.settingsHash !== exactHash(currentAnalysisSettings()),
+  };
+}
+
 function resultProvenanceFor(ref: ScopeRef, results: object | null, now?: Date): ResultProvenance {
   const is3D = uiStore.is3DWorkspace;
   const base = is3D ? resultsStore.singleResults3D : resultsStore.singleResults;
@@ -261,6 +294,7 @@ function resultProvenanceFor(ref: ScopeRef, results: object | null, now?: Date):
     scopeRef: ref,
     results,
     baseResults: base ?? null,
+    baseSolveMethod,
     certificates: certificates(ref),
     stale: recheckStore.stale,
     stamp: recheckStore.stamp,

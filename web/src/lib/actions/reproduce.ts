@@ -20,7 +20,7 @@ export type ReproduceOutcome =
 export async function reproduceFrom(claimed: ResultProvenance): Promise<ReproduceOutcome> {
   resultsStore.clear();
   try {
-    await runGlobalSolve();
+    await runGlobalSolve({ directBase: claimed.baseSolveMethod === 'direct' });
   } catch (e) {
     return { ok: false, error: errorText(e, 'error') };
   }

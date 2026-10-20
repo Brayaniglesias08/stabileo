@@ -70,6 +70,8 @@ CSV export:
 | `modelHash` | SHA-256 of the exact canonical JSON of the model, without what cannot move a number (name, title block, notes, views, grid, export record, stamps, revision counters, detailing drawings) |
 | `settings`, `settingsHash` | workspace, self-weight and its case, axis convention, drawing plane |
 | `scope`, `resultsHash`, `baseResultsHash` | the result shown and the base solve, timings excluded |
+| `baseSolveMethod` | `direct` for an all-loads solve, `case-superposition` for a base result assembled from case solves; reproduction preserves this arithmetic |
+| `analysisInputHash` | independent analysis inputs, where present; a moving-load sweep includes its unloaded solver model, paths, trains and position step |
 | `engineInputSha256`, `engineResultsSha256` | the engine's own hashes of the base linear solve (`engine/src/reproduce.rs`), computed as a worker job once per base solve and cached (`ensureEngineHashes`); building a record never solves, exports await the job. With combinations, live calc puts the base result together from the case solves; the engine hashes are then of a direct single solve of the same model (`linearSolveInput3D`), which is what the CLI reproduces |
 | `certificates` | status and hash of the certificate of the result the record names (base solve, case, combination or envelope: `certificateStore.forScope`), where certified |
 | `stale`, `solvedWith` | see above |
@@ -83,6 +85,12 @@ stamp) and checks it again after the engine hashes are awaited (`provenanceForEx
 project moved meanwhile (an edit, another project, another solve or view), nothing is exported
 and the reader is told to export again: a report never carries one state's numbers under
 another state's provenance.
+
+The moving-load panel captures its model and settings before the sweep, then hashes the resulting
+envelope. Its CSV uses that record, with `scopeRef: { kind: "other", label: "moving-load envelope" }`,
+no static base-result hash, engine hashes, certificates or solve stamp. A project or settings edit
+marks the export STALE while preserving the model and settings actually used. Static reproduction
+cannot replay a sweep and reports an incomplete comparison.
 
 The HTML reports embed the record as `<script type="application/json" id="stabileo-provenance">`.
 
@@ -103,6 +111,9 @@ The HTML reports embed the record as `<script type="application/json" id="stabil
   counts as missing), and any other `…Hash` / `…Sha256` field, so a field added later cannot be
   silently ignored. Only `wasmHash` names the build rather than the answer: a different build is
   reported beside the verdict, not counted as a difference.
+  For records carrying `baseSolveMethod`, the re-run uses the original direct or case-summed
+  computation. This matters even for linear models: the two paths can differ in their last bits
+  and result diagnostics. Older records without that field retain the global solve's default.
 
 Every export opens its provenance with a status line (`provenanceTextLines`): STALE when the
 project's results predate registered changes, else current. The calc and PRO reports (HTML, and
