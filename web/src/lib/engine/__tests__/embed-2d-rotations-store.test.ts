@@ -143,7 +143,7 @@ describe('flat plane model through the space solver: rotations and moments', () 
   // A couple on a member (`pointOnElement.my`) is dropped by the space mapping on main and its
   // sign is that of the nodal one: #343 / #274 fix both in `buildSolverLoads3D`. Kept as a known
   // failure here so it cannot pass unnoticed; when #274 lands, `it.fails` turns red and becomes `it`.
-  it.fails('a couple on a member (#343, fixed by #274)', () => {
+  it('a couple on a member (#343, fixed by #274)', () => {
     const [n1, , n3] = beam();
     modelStore.addSupport(n1, 'fixed');
     modelStore.addSupport(n3, 'fixed');

@@ -60,7 +60,7 @@ describe('constraints: the plane solve and the space solve of one model agree', 
   // The space solver's XZ diaphragm has both signs of its rotation terms flipped on main
   // (u_X = u_X,m − Δz·θy where the rigid body is +Δz·θy: XZ is not a cyclic pair), fixed by #330
   // (AC-14). The plane side here is the exact rigid body. When #330 lands this turns red: make it `it`.
-  it.fails('a diaphragm in plane XZ (needs #330, AC-14)', () => {
+  it('a diaphragm in plane XZ (needs #330, AC-14)', () => {
     const { b, c } = portal();
     modelStore.addConstraint({ type: 'diaphragm', masterNode: b, slaveNodes: [c], plane: 'XZ' } as Constraint3D);
     agree('diaphragm XZ');
