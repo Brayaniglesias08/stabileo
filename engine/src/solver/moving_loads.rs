@@ -32,6 +32,31 @@ pub struct PathSegment {
     pub length: f64,
     pub cos: f64,
     pub sin: f64,
+    /// The train crosses this member from node_j to node_i (the member was
+    /// drawn against the direction of travel).
+    #[serde(default)]
+    pub reversed: bool,
+}
+
+/// Direction of travel over each member of a path, from connectivity: the
+/// first member is entered at the end it does not share with the second,
+/// each later member at the node the previous one was left by. A member
+/// with no neighbour on the path keeps its own node order.
+pub(crate) fn travel_reversed(ends: &[(usize, usize)]) -> Vec<bool> {
+    let mut rev = vec![false; ends.len()];
+    if ends.len() >= 2 {
+        let (i0, j0) = ends[0];
+        let (i1, j1) = ends[1];
+        // Entered at node_j when node_i is the joint with the next member.
+        rev[0] = (i0 == i1 || i0 == j1) && !(j0 == i1 || j0 == j1);
+        let mut exit = if rev[0] { i0 } else { j0 };
+        for k in 1..ends.len() {
+            let (i, j) = ends[k];
+            rev[k] = if i == exit { false } else if j == exit { true } else { false };
+            exit = if rev[k] { i } else { j };
+        }
+    }
+    rev
 }
 
 /// Most train positions one moving-load run may solve. The step and the axle
@@ -174,37 +199,20 @@ pub fn moving_loads_at_position_2d(
 
         // Find which segment this axle is on
         if let Some((seg, local_pos)) = find_segment(path, axle_pos) {
-            // Decompose weight into perpendicular component (point on element)
-            // and axial component (nodal load in element direction)
-            let perp_force = -axle.weight; // Downward force
-
-            // Add as point load on element in local Y direction
+            // The axle weight acts straight down (−Z). In member axes (local
+            // x = (c, s) from node_i to node_j, local y = (−s, c)) that is
+            // p = −W·c transverse and px = −W·s axial — for any orientation.
+            // The former branch for near-horizontal members used −W·|c|,
+            // which pushed the train UP on a member drawn right-to-left
+            // (found by the metamorphic mirror check).
+            let a = if seg.reversed { seg.length - local_pos } else { local_pos };
             loads.push(SolverLoad::PointOnElement(SolverPointLoadOnElement {
                 element_id: seg.element_id,
-                a: local_pos,
-                p: perp_force * seg.cos.powi(2).max(0.0).sqrt().copysign(1.0),
-                px: None,
+                a,
+                p: -axle.weight * seg.cos,
+                px: if seg.sin != 0.0 { Some(-axle.weight * seg.sin) } else { None },
                 my: None,
             }));
-
-            // For vertical loads on non-horizontal members, add axial component as well
-            // Simplified: project downward force onto element axes
-            if seg.sin.abs() > 1e-6 {
-                // Perpendicular component (transverse to element)
-                let p_perp = -axle.weight * seg.cos;
-                // Axial component
-                let p_axial = -axle.weight * seg.sin;
-
-                // Replace the simple load with proper decomposition
-                loads.pop(); // Remove the one we just added
-                loads.push(SolverLoad::PointOnElement(SolverPointLoadOnElement {
-                    element_id: seg.element_id,
-                    a: local_pos,
-                    p: p_perp,
-                    px: Some(p_axial),
-                    my: None,
-                }));
-            }
         }
     }
 
@@ -229,7 +237,13 @@ pub fn build_load_path(
         auto_detect_path(input)?
     };
 
+    let mut ends = Vec::with_capacity(elem_ids.len());
     for eid in &elem_ids {
+        let elem = elem_by_id.get(eid).ok_or_else(|| format!("Element {} not found", eid))?;
+        ends.push((elem.node_i, elem.node_j));
+    }
+    let reversed = travel_reversed(&ends);
+    for (k, eid) in elem_ids.iter().enumerate() {
         let elem = elem_by_id.get(eid)
             .ok_or_else(|| format!("Element {} not found", eid))?;
         let ni = node_by_id[&elem.node_i];
@@ -247,6 +261,7 @@ pub fn build_load_path(
             length: l,
             cos,
             sin,
+            reversed: reversed[k],
         });
         cum_pos += l;
     }
@@ -325,6 +340,9 @@ pub struct PathSegment3D {
     pub dir_x: f64,
     pub dir_y: f64,
     pub dir_z: f64,
+    /// Crossed from node_j to node_i (see `PathSegment::reversed`).
+    #[serde(default)]
+    pub reversed: bool,
 }
 
 /// Solve 3D moving loads analysis (envelope computation).
@@ -521,7 +539,7 @@ pub fn moving_loads_at_position_3d_with_maps(
                 // Apply as point-on-element load (proper FEF treatment)
                 loads.push(SolverLoad3D::PointOnElement(SolverPointLoad3D {
                     element_id: seg.element_id,
-                    a: local_pos,
+                    a: if seg.reversed { seg.length - local_pos } else { local_pos },
                     py,
                     pz,
                 }));
@@ -549,7 +567,13 @@ pub fn build_load_path_3d(
         auto_detect_path_3d(input)?
     };
 
+    let mut ends = Vec::with_capacity(elem_ids.len());
     for eid in &elem_ids {
+        let elem = elem_by_id.get(eid).ok_or_else(|| format!("Element {} not found", eid))?;
+        ends.push((elem.node_i, elem.node_j));
+    }
+    let reversed = travel_reversed(&ends);
+    for (k, eid) in elem_ids.iter().enumerate() {
         let elem = elem_by_id.get(eid)
             .ok_or_else(|| format!("Element {} not found", eid))?;
         let ni = node_by_id[&elem.node_i];
@@ -567,6 +591,7 @@ pub fn build_load_path_3d(
             dir_x: dx / l,
             dir_y: dy / l,
             dir_z: dz / l,
+            reversed: reversed[k],
         });
         cum_pos += l;
     }

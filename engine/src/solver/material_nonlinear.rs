@@ -83,29 +83,11 @@ pub fn solve_nonlinear_material_2d(
     let f_total = asm.f.clone();
     let art = assembly::artificial_stiffness_entries(&asm);
 
-    // Build prescribed displacement vector u_r for restrained DOFs.
-    let mut u_r = vec![0.0; nr];
-    for sup in solver.supports.values() {
-        if sup.support_type == "spring" {
-            continue;
-        }
-        let prescribed: [(usize, Option<f64>); 3] = [
-            (0, sup.dx),
-            (1, sup.dz),
-            (2, sup.dry),
-        ];
-        for &(local_dof, val) in &prescribed {
-            if let Some(v) = val {
-                if v.abs() > 1e-15 {
-                    if let Some(&d) = dof_num.map.get(&(sup.node_id, local_dof)) {
-                        if d >= nf {
-                            u_r[d - nf] = v;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Prescribed displacements, in the inclined-support frames the restrained
+    // DOFs are numbered in (one definition with the linear solver: this
+    // hand-rolled copy assigned a rotated roller's raw global dz to its
+    // normal DOF — found by the metamorphic rotation check).
+    let u_r = super::linear::prescribed_displacements_2d(solver, &dof_num);
 
     // Pre-build lookup maps for O(1) access by ID.
     let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> =
@@ -915,25 +897,11 @@ pub fn solve_nonlinear_material_3d(
     // Build constraint system (if constraints present)
     let cs = FreeConstraintSystem::build_3d(&solver, &dof_num)?;
 
-    // Prescribed displacements (from settlement supports).
-    let mut u_r = vec![0.0; nr];
-    for sup in solver.supports.values() {
-        let prescribed: [(usize, Option<f64>); 6] = [
-            (0, sup.dx), (1, sup.dy), (2, sup.dz),
-            (3, sup.drx), (4, sup.dry), (5, sup.drz),
-        ];
-        for &(local_dof, val) in &prescribed {
-            if let Some(v) = val {
-                if v.abs() > 1e-15 {
-                    if let Some(&d) = dof_num.map.get(&(sup.node_id, local_dof)) {
-                        if d >= nf {
-                            u_r[d - nf] = v;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Prescribed displacements, in the inclined-support frames the restrained
+    // DOFs are numbered in (one definition with the linear solver: this
+    // hand-rolled copy assigned a rotated roller's raw global dz to its
+    // normal DOF — found by the metamorphic rotation check).
+    let u_r = super::linear::prescribed_displacements_3d(&solver, &dof_num);
 
     // Pre-build lookup map for O(1) access by ID.
     let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> =

@@ -545,19 +545,30 @@ pub(crate) fn build_kg_from_forces_3d_keep(
     kg
 }
 
-/// (α, ΔT_uniform, ΔT_gradient) of the thermal loads on a quad, summed.
-fn quad_thermal(input: &SolverInput3D, quad_id: usize) -> (f64, f64, f64) {
-    let (mut alpha, mut dtu, mut dtg) = (12e-6, 0.0, 0.0);
+/// Which shell family a thermal load belongs to (element ids are per family).
+#[derive(Clone, Copy, PartialEq)]
+enum ShellFamily { Plate, Quad, Quad9, Curved }
+
+/// The thermal loads on one shell, summed as free strains: returns (1, Σα·ΔT_uniform,
+/// Σα·ΔT_gradient), the (α, ΔTu, ΔTg) triple every recovery routine multiplies out.
+/// Summing ΔT with one α (the previous quad-only version) was exact only for equal α.
+fn shell_thermal(input: &SolverInput3D, family: ShellFamily, id: usize) -> (f64, f64, f64) {
+    let (mut eu, mut eg) = (0.0, 0.0);
     for l in &input.loads {
-        if let SolverLoad3D::QuadThermal(t) = l {
-            if t.element_id == quad_id {
-                alpha = t.alpha.unwrap_or(12e-6);
-                dtu += t.dt_uniform;
-                dtg += t.dt_gradient;
-            }
+        let t = match (l, family) {
+            (SolverLoad3D::PlateThermal(t), ShellFamily::Plate)
+            | (SolverLoad3D::QuadThermal(t), ShellFamily::Quad)
+            | (SolverLoad3D::Quad9Thermal(t), ShellFamily::Quad9)
+            | (SolverLoad3D::CurvedShellThermal(t), ShellFamily::Curved) => t,
+            _ => continue,
+        };
+        if t.element_id == id {
+            let alpha = t.alpha.unwrap_or(12e-6);
+            eu += alpha * t.dt_uniform;
+            eg += alpha * t.dt_gradient;
         }
     }
-    (alpha, dtu, dtg)
+    (1.0, eu, eg)
 }
 
 /// Add quad geometric stiffness to a pre-built Kg matrix, given displacements.
@@ -599,7 +610,7 @@ pub fn add_quad_geometric_stiffness_3d(
         // the mechanical strain: a free thermal expansion is stress-free and
         // carries no geometric stiffness. Taken as total strain, a heated,
         // unrestrained slab was stiffened in P-Delta by its own expansion.
-        let (alpha, dtu, dtg) = quad_thermal(input, quad.id);
+        let (alpha, dtu, dtg) = shell_thermal(input, ShellFamily::Quad, quad.id);
         let s = crate::element::quad::quad_stresses(&coords, &u_local, e, nu, quad.thickness, alpha, dtu, dtg);
         let nxx = s.sigma_xx * quad.thickness;
         let nyy = s.sigma_yy * quad.thickness;
@@ -649,9 +660,11 @@ pub fn add_plate_geometric_stiffness_3d(
         let t_plate = crate::element::plate_transform_3d(&coords);
         let u_local_vec = transform_displacement(&u_global, &t_plate, 18);
 
-        // Compute membrane stress resultants via plate stress recovery
-        // No thermal correction here: geometric stiffness uses the total stress state.
-        let s = crate::element::plate_stress_recovery(&coords, e, nu, plate.thickness, &u_local_vec, 0.0, 0.0, 0.0);
+        // Membrane resultants from the MECHANICAL strain, as for the quad: a free thermal
+        // expansion is stress-free and carries no geometric stiffness. From the total
+        // strain a heated, unrestrained slab was stiffened by its own expansion (SH-5).
+        let (alpha, dtu, dtg) = shell_thermal(input, ShellFamily::Plate, plate.id);
+        let s = crate::element::plate_stress_recovery(&coords, e, nu, plate.thickness, &u_local_vec, alpha, dtu, dtg);
         let nxx = s.sigma_xx * plate.thickness;
         let nyy = s.sigma_yy * plate.thickness;
         let nxy = s.tau_xy * plate.thickness;
@@ -698,9 +711,9 @@ pub fn add_quad9_geometric_stiffness_3d(
         let mut u_local = [0.0; 54];
         u_local.copy_from_slice(&u_local_vec);
 
-        // Compute membrane stress resultants (force/length = stress × thickness)
-        // No thermal correction here: geometric stiffness uses the total stress state.
-        let s = crate::element::quad9::quad9_stresses(&coords, &u_local, e, nu, quad9.thickness, 0.0, 0.0, 0.0);
+        // Membrane resultants from the mechanical strain (SH-5), see the plate above.
+        let (alpha, dtu, dtg) = shell_thermal(input, ShellFamily::Quad9, quad9.id);
+        let s = crate::element::quad9::quad9_stresses(&coords, &u_local, e, nu, quad9.thickness, alpha, dtu, dtg);
         let nxx = s.sigma_xx * quad9.thickness;
         let nyy = s.sigma_yy * quad9.thickness;
         let nxy = s.tau_xy * quad9.thickness;
@@ -785,8 +798,14 @@ pub fn add_curved_shell_geometric_stiffness_3d(
         u_arr.copy_from_slice(&u_elem);
 
         let s = crate::element::curved_shell::curved_shell_stresses(&coords, &dirs, &u_arr, e, nu, cs.thickness);
-        let nxx = s.sigma_xx * cs.thickness;
-        let nyy = s.sigma_yy * cs.thickness;
+        // Mechanical membrane strain at the mid-surface (SH-5): the free thermal strain
+        // α·ΔT_uniform is isotropic in the tangent plane, so it removes
+        // E·α·ΔT/(1−ν) from σ11 and σ22 and nothing from σ12. The gradient has no
+        // mid-surface part.
+        let (_, eps_th, _) = shell_thermal(input, ShellFamily::Curved, cs.id);
+        let s_th = e / (1.0 - nu) * eps_th;
+        let nxx = (s.sigma_xx - s_th) * cs.thickness;
+        let nyy = (s.sigma_yy - s_th) * cs.thickness;
         let nxy = s.tau_xy * cs.thickness;
 
         let kg_elem = crate::element::curved_shell::curved_shell_geometric_stiffness(&coords, &dirs, cs.thickness, nxx, nyy, nxy);

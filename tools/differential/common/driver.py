@@ -12,7 +12,9 @@ An adapter (tools/differential/<program>/adapter.py) provides:
   write_native(model, analysis, path) (optional): the native input file,
     written next to mismatch dumps.
 
-Statuses: ok, mismatch, unsupported, stabileo_failed, ill_conditioned,
+Statuses: ok, mismatch, unsupported, stabileo_failed, refused (stabileo
+refused a static model whose reference stiffness is singular too, kappa >
+1e12: a correct refusal), ill_conditioned,
 unstable (P-Delta beyond the first buckling load: no unique answer),
 reference_failed, unloaded, and three that point at stabileo's own
 singularity checks (dumped like mismatches):
@@ -92,6 +94,10 @@ def run_case(adapter, model, analysis, tol, n_modes=6, mode_tol=None):
         r = dict(status="stabileo_failed", why=[str(ex)[:200]])
         if analysis == "static":
             _cross_check(adapter, clean, dens, r, KAPPA_REGULAR, "false_reject")
+            if r["status"] == "stabileo_failed" and (r.get("kappa") or 0.0) > 1e12:
+                # The reference finds no unique answer either: a correct refusal.
+                r["status"] = "refused"
+                r["why"] = r["why"] + [f"reference kappa={r['kappa']:.1e}"]
         return r
     if analysis != "modal":
         ill = sorted(set(sres["diags"]) & M.ILL_CONDITIONED)
@@ -328,7 +334,7 @@ def summarize(results, verbose=False, out=print):
     if g:
         out("max normalized error over compared models: " + json.dumps({k: f"{v:.2e}" for k, v in sorted(g.items())}))
     for st in ("known", "silent_singular", "false_reject", "false_warning", "unsupported", "reference_failed",
-               "stabileo_failed", "ill_conditioned", "unstable"):
+               "refused", "stabileo_failed", "ill_conditioned", "unstable"):
         reasons = Counter(w[:120] for r in results if r["status"] == st
                           for w in ([r["known"]] if st == "known" else r["why"]))
         if reasons:

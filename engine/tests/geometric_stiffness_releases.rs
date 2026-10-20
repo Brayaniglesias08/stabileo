@@ -208,7 +208,8 @@ fn plane_member_released_at_one_end_buckles_as_the_pinned_column() {
     assert!((by_release - euler).abs() < 5e-3 * euler, "release-pinned λ {by_release}, Euler {euler}, node-pinned {by_node}");
 }
 
-/// NOT FIXED — reproduction. The 3D co-rotational solver does not converge on the leaning-column
+/// Regression (was ignored as a reproduction; passes since the co-rotational rework, found while
+/// writing docs/solver/nonlinear.md, NL-7). The 3D co-rotational solver did not converge on the leaning-column
 /// frame even at a vanishing load (B2 ≈ 376 after 50 iterations at P = 1e-6·k·h), and at
 /// P = 0.2·k·h it converges to B2 = 0.83, less sway than the linear solve (P-Delta: 1.25). Its
 /// tangent also uses the fixed-fixed Kg whatever the releases (`frame_geo_stiffness_3d_local`),
@@ -216,7 +217,6 @@ fn plane_member_released_at_one_end_buckles_as_the_pinned_column() {
 /// in how the co-rotational element treats released ends, not in the geometric stiffness kernel.
 /// Found while checking the Kg kernels symbolically (docs/verification/SYMBOLIC.md).
 #[test]
-#[ignore = "co-rotational 3D with pin-ended members: wrong equilibrium / no convergence"]
 fn corotational_3d_leaning_column_matches_pdelta() {
     use dedaliano_engine::solver::corotational;
     for frac in [1e-6, 0.2] {
