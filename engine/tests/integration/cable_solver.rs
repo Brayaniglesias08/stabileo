@@ -281,6 +281,8 @@ fn cable_3d_simple() {
         id: 1, name: None,
         a: 0.001, iy: 1e-8, iz: 1e-8, j: 1e-8,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();

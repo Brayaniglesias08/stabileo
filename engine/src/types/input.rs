@@ -271,6 +271,15 @@ pub struct SolverSection3D {
     #[serde(default)]
     /// m², shear area paired with `iz` (bending about local z, shear along local y).
     pub as_z: Option<f64>,
+    /// Shear-centre coordinate along local y, measured from the centroid (m).
+    /// Only the geometric stiffness reads it (flexural-torsional buckling of
+    /// monosymmetric and asymmetric sections, e.g. channels, tees, angles).
+    /// `None` = 0 (doubly symmetric, or point-symmetric like a Z or cruciform).
+    #[serde(default)]
+    pub shear_center_y: Option<f64>,
+    /// Shear-centre coordinate along local z, measured from the centroid (m).
+    #[serde(default)]
+    pub shear_center_z: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

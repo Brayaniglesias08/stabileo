@@ -67,6 +67,19 @@ fn lumped_nodal_forces_2d(input: &SolverInput) -> BTreeMap<usize, [f64; 2]> {
                     add(j, [f[0] * t, f[1] * t]);
                 }
             }
+            SolverLoad::AxialDistributed(dl) => {
+                // Along the member, local x = (cos, sin); lumped as the transverse load above.
+                let Some((i, j, l, c, s)) = axes(dl.element_id) else { continue };
+                let (a, b) = (dl.a.unwrap_or(0.0), dl.b.unwrap_or(l));
+                let span = b - a;
+                if span <= 0.0 { continue; }
+                for (r, x) in [(dl.q_i * span, a + span / 2.0), ((dl.q_j - dl.q_i) * span / 2.0, a + 2.0 * span / 3.0)] {
+                    let t = (x / l).clamp(0.0, 1.0);
+                    let f = [c * r, s * r];
+                    add(i, [f[0] * (1.0 - t), f[1] * (1.0 - t)]);
+                    add(j, [f[0] * t, f[1] * t]);
+                }
+            }
             SolverLoad::PointOnElement(pl) => {
                 let Some((i, j, l, c, s)) = axes(pl.element_id) else { continue };
                 let px = pl.px.unwrap_or(0.0);

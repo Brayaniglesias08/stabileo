@@ -184,6 +184,44 @@ members and no longer mirror nodal couples.** Rebase of #274 by @diegokingston o
   does N, so these envelopes can now be larger than before.
 - 2D models already materialized to PRO keep their old mirrored couples and lumped axial loads.
   There is no migration.
+#### Torsional buckling and response-spectrum combination fixed (2026-10-18)
+
+**BREAKING (results): 3D linear buckling and P-Delta now include the torsional terms of the
+frame geometric stiffness** (#404). The Wagner term P·r0²·θ'² (r0² = (Iy + Iz)/A + y0² + z0²
+about the shear centre) and the shear-centre coupling were missing, so torsional and
+flexural-torsional buckling were never found and the flexural load was reported instead
+(unconservative: a 200×10 mm cruciform, L = 1.5 m, reported 5860 kN for a governing 2993 kN,
++96%). Load factors drop for cruciforms, angles, tees, channels and short open sections.
+- New optional section fields `shearCenterY`, `shearCenterZ` (m, from the centroid, local
+  axes) for monosymmetric and asymmetric sections; absent = 0.
+- Sections without `cw` have no warping stiffness in the model, so their torsional buckling
+  load is GJ/r0²: conservative for I-sections, and for short I columns it can now govern.
+  Declare `cw` (warping DOFs) for open sections whose torsional load matters.
+- One Kg for every path: buckling, P-Delta tangent and second-order forces, the buckling
+  and P-Delta certificates, `build_kg_from_forces_3d`, 12-DOF (linear twist) and 14-DOF
+  warping (cubic twist) members, releases (a torsion release removes the terms). The
+  co-rotational solver adds the Wagner torque to its residual and tangent and refuses
+  sections with a shear-centre offset.
+- Checked against Euler, P_T = (GJ + π²ECw/L²)/r0², the flexural-torsional cubic for
+  channels, tees and an asymmetric section, the P-Delta twist amplification 1/(1 − P/P_T),
+  and unchanged I-section loads where flexure governs
+  (`engine/tests/torsional_buckling_and_spectral.rs`).
+
+**BREAKING (results): response spectrum** (#405).
+- The base shear is combined with the requested rule. It was always SRSS, also under CQC
+  (unconservative for closely spaced modes: ×1/1.23 at ω₂ = 1.1ω₁).
+- Member forces combine each end's signed per-mode value and take the envelope of the two
+  ends afterwards. They combined the per-mode max(|start|, |end|), which made every CQC cross
+  term non-negative (conservative, up to 2.7× for opposite-sign modes). Lower forces are
+  possible where modes contribute with opposite signs.
+- An unknown combination rule is refused (it ran CQC silently); SRSS/CQC are case-insensitive.
+
+**BREAKING (results): modal participation includes the support-coupled mass** (#405).
+Γ and the effective masses used M_ff·r_f; with a consistent mass the ground-motion load is
+(M·r)_f = M_ff·r_f + M_fr·r_r, as time history already applied. Participation factors,
+effective masses and mass ratios rise (a one-element cantilever: Σ M_eff from 37% to 75%
+of the mass, the rest moving rigidly with the support), and the spectral displacements and
+forces now have the exact static limit. The spectral certificate uses the same load.
 
 ## 0.2.0 (2026-10-18)
 

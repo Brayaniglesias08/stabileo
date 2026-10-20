@@ -487,6 +487,8 @@ fn embed(input: &SolverInput, rot_sign: f64) -> SolverInput3D {
         .map(|s| {
             (s.id.to_string(), SolverSection3D {
                 id: s.id, name: None, a: s.a, iy: s.iz, iz: s.iz, j: s.iz, cw: None, as_y: s.as_y, as_z: s.as_y,
+                shear_center_y: None,
+                shear_center_z: None,
             })
         })
         .collect();
@@ -1180,7 +1182,7 @@ fn model_3d_from(
     // section with `cw` turns on the seventh DOF for the whole model.
     for (id, a, i, cw) in [(1, 0.01, 1e-4, None), (2, 0.01, 1e-4, Some(1e-7)), (3, 10.0, 1.0, None)] {
         if id == 1 || elems.iter().any(|e| e.4 == id) {
-            sections.insert(id.to_string(), SolverSection3D { id, name: None, a, iy: i, iz: 2.0 * i, j: 0.5 * i, cw, as_y: None, as_z: None });
+            sections.insert(id.to_string(), SolverSection3D { id, name: None, a, iy: i, iz: 2.0 * i, j: 0.5 * i, cw, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None });
         }
     }
     SolverInput3D {

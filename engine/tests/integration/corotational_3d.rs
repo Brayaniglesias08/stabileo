@@ -31,6 +31,8 @@ fn cantilever_3d(
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a, iy, iz, j,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();
@@ -110,6 +112,8 @@ fn corotational_3d_axial_truss() {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.01, iy: 0.0, iz: 0.0, j: 0.0,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();
@@ -180,6 +184,8 @@ fn corotational_3d_l_frame() {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 1e-4,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();
@@ -279,6 +285,8 @@ fn corotational_3d_no_free_dofs_error() {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 1e-4,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();

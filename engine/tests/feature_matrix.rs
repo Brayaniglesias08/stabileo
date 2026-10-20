@@ -1775,7 +1775,7 @@ impl M3 {
         let j = a * b.powi(3) * (1.0 / 3.0 - 0.21 * b / a * (1.0 - b.powi(4) / (12.0 * a.powi(4))));
         self.s.sections.insert(
             id.to_string(),
-            SolverSection3D { id, name: None, a: bz * hy, iy: hy * bz.powi(3) / 12.0, iz: bz * hy.powi(3) / 12.0, j, cw: None, as_y: None, as_z: None },
+            SolverSection3D { id, name: None, a: bz * hy, iy: hy * bz.powi(3) / 12.0, iz: bz * hy.powi(3) / 12.0, j, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None },
         );
         self.rects.insert(id, (bz, hy));
         self

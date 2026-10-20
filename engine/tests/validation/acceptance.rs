@@ -355,6 +355,8 @@ fn acceptance_3e_mixed_frame_shell() {
     let mut sections = HashMap::new();
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: col_a, iy, iz: iz_val, j: j_val, cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     // 4 column elements
@@ -682,6 +684,8 @@ fn acceptance_4b_frame_quad_slab() {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: col_a, iy, iz: iz_val, j: j_val,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     // 4 column elements
@@ -1412,6 +1416,8 @@ fn acceptance_4h_mixed_frame_shell_diaphragm() {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: col_a, iy, iz: iz_val, j: j_val,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     // 4 column elements
@@ -2956,6 +2962,8 @@ fn acceptance_6b_mixed_beam_q9_slab() {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: col_a, iy, iz: iz_val, j: j_val,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     // 4 column elements

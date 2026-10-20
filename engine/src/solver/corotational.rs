@@ -1295,6 +1295,19 @@ pub fn solve_corotational_3d(
         return Err("Corotational 3D solver does not support shell elements. \
             Use the linear solver for models with plates, quads, or shells.".into());
     }
+    // The co-rotational element carries the Wagner term of a doubly symmetric
+    // section (internal torque and tangent) but not the shear-centre coupling of
+    // a monosymmetric one: refused rather than missing its flexural-torsional
+    // instability without a word.
+    if let Some(sec) = input.sections.values().find(|s| {
+        s.shear_center_y.is_some_and(|v| v != 0.0) || s.shear_center_z.is_some_and(|v| v != 0.0)
+    }) {
+        return Err(format!(
+            "Corotational 3D solver does not model a shear-centre offset (section {}): \
+             flexural-torsional coupling is not included. Use linear buckling or P-Delta.",
+            sec.id
+        ));
+    }
 
     // Expand curved beams before DOF numbering and assembly.
     // As in 2D: no prescribed-displacement term, and
@@ -1838,6 +1851,11 @@ fn assemble_frame_corotational_3d(
     }
     current_length_shears(&mut f_local, l0, l_n);
 
+    // Wagner torque (see `add_wagner_torque`); the tangent below carries the same term.
+    let kg_sec = wagner_section(a, iy, iz);
+    let axial_p = -f_local[0]; // Tension positive
+    add_wagner_torque(&mut f_local, &d_nat, elem, &kg_sec, l_n);
+
     // Corotated transformation matrix
     let t_n = frame_transform_3d(&ex_n, &ey_n, &ez_n);
 
@@ -1862,11 +1880,10 @@ fn assemble_frame_corotational_3d(
     // Tangent stiffness: T_n^T * K_local * T_n
     let k_glob = transform_stiffness(&k_local, &t_n, 12);
 
-    // Geometric stiffness (Przemieniecki formula)
-    let axial_p = -f_local[0]; // Tension positive
+    // Geometric stiffness (Przemieniecki formula, plus the Wagner term above)
     // Condensed for the end releases: a released end rotation belongs to no
     // one, and the uncondensed matrix put −4·P·L/30 on it.
-    let k_geo_local = super::geometric_stiffness::frame_kg_local_3d(axial_p, l_n, &Hinge3D::from_elem(elem));
+    let k_geo_local = super::geometric_stiffness::frame_kg_local_3d(axial_p, l_n, &Hinge3D::from_elem(elem), &kg_sec);
     let k_geo_global = transform_stiffness(&k_geo_local, &t_n, 12);
 
     // Scatter to global
@@ -2182,6 +2199,34 @@ fn compute_corotational_forces_3d(
         .collect()
 }
 
+/// The section data of the co-rotational Wagner term: doubly symmetric,
+/// r0² = (Iy + Iz)/A (shear-centre offsets are refused by `solve_corotational_3d`).
+fn wagner_section(a: f64, iy: f64, iz: f64) -> super::geometric_stiffness::KgSection {
+    super::geometric_stiffness::KgSection { r0_sq: if a > 0.0 { (iy + iz) / a } else { 0.0 }, y0: 0.0, z0: 0.0 }
+}
+
+/// Adds the Wagner torque P·r0²·θ' to the local end forces `f_local` (12, local axes,
+/// the axial force read from f_local[0] = −N): the axial stress on fibres helixed by
+/// the twist, which makes a compressed member lose torsional stiffness. Applied in the
+/// residual (`assemble_frame_corotational_3d`) and in the force recovery
+/// (`elastic_corotational_forces_3d`) alike, so the reported torques are the ones in
+/// equilibrium. A torsion release removes it, as it removes GJ.
+fn add_wagner_torque(
+    f_local: &mut [f64; 12],
+    d_nat: &[f64; 12],
+    elem: &SolverElement3D,
+    sec: &super::geometric_stiffness::KgSection,
+    l_n: f64,
+) {
+    if elem.release_t_start || elem.release_t_end {
+        return;
+    }
+    let axial_p = -f_local[0]; // Tension positive
+    let tw = axial_p * sec.r0_sq / l_n * (d_nat[9] - d_nat[3]);
+    f_local[3] -= tw;
+    f_local[9] += tw;
+}
+
 /// The co-rotational elastic part of the member end forces, K·d_nat (3D).
 fn elastic_corotational_forces_3d(
     input: &SolverInput3D,
@@ -2354,6 +2399,9 @@ fn elastic_corotational_forces_3d(
             }
         }
         current_length_shears(&mut f_local, l0, l_n);
+        // The same Wagner torque the residual carries, so the reported member
+        // torques balance the applied torques and the reactions.
+        add_wagner_torque(&mut f_local, &d_nat, elem, &wagner_section(sec.a, sec.iy, sec.iz), l_n);
 
         // Sign convention: match linear solver output
         forces.push(ElementForces3D {

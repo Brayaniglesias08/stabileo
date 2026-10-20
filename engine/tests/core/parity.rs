@@ -478,6 +478,8 @@ fn test_parity_3d_envelope_json_roundtrip() {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.01, iy: 0.0001, iz: 0.0001, j: 0.0002, cw: None,
         as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();
@@ -544,6 +546,8 @@ fn test_parity_3d_combination_superposition() {
         sections.insert("1".to_string(), SolverSection3D {
             id: 1, name: None, a: 0.01, iy: 0.0001, iz: 0.0001, j: 0.0002, cw: None,
         as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
         let mut elements = HashMap::new();

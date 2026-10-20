@@ -1443,7 +1443,7 @@ mod tests {
         let mut sections = Map::new();
         sections.insert("1".to_string(), SolverSection3D {
             id: 1, name: None, a: 0.08, iy: 0.2 * 0.4f64.powi(3) / 12.0, iz: 0.4 * 0.2f64.powi(3) / 12.0, j: 1e-4,
-            cw: None, as_y: Some(0.0667), as_z: Some(0.0667),
+            cw: None, as_y: Some(0.0667), as_z: Some(0.0667), shear_center_y: None, shear_center_z: None,
         });
         let mut elements = Map::new();
         elements.insert("1".to_string(), SolverElement3D {

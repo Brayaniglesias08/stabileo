@@ -93,7 +93,7 @@ fn tripod(tie_down: bool) -> SolverInput3D {
         solver_options: None, masses: Default::default(),
         nodes,
         materials: HashMap::from([("1".into(), SolverMaterial { id: 1, e: 160_000.0, nu: 0.3 })]),
-        sections: HashMap::from([("1".into(), SolverSection3D { id: 1, name: None, a: 1e-3, iy: 1e-10, iz: 1e-10, j: 1e-10, cw: None, as_y: None, as_z: None })]),
+        sections: HashMap::from([("1".into(), SolverSection3D { id: 1, name: None, a: 1e-3, iy: 1e-10, iz: 1e-10, j: 1e-10, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None })]),
         elements, supports,
         loads: vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 4, fx: 0.0, fy: 0.0, fz: -120.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None })],
         constraints: vec![], left_hand: None,

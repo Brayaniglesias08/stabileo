@@ -1044,6 +1044,7 @@ fn load_moment_scale_2d(input: &SolverInput) -> f64 {
         SolverLoad::Nodal(n) => n.fx.abs() + n.fz.abs() + n.my.abs() / l,
         SolverLoad::Distributed(d) => d.q_i.abs().max(d.q_j.abs()) * len(d.element_id),
         SolverLoad::PointOnElement(p) => p.p.abs() + p.px.unwrap_or(0.0).abs() + p.my.unwrap_or(0.0).abs() / l,
+        SolverLoad::AxialDistributed(d) => d.q_i.abs().max(d.q_j.abs()) * len(d.element_id),
         SolverLoad::Thermal(_) => 0.0,
     }).sum();
     f * l

@@ -143,6 +143,8 @@ fn reaction_balance(kind: Kind) -> (f64, f64) {
     input.sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.08, iy: 0.2 * 0.4f64.powi(3) / 12.0, iz: 0.2 * 0.4f64.powi(3) / 12.0, j: 1e-3,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
     for i in 0..NX {
         input.elements.insert((i + 1).to_string(), SolverElement3D {
