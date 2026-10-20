@@ -21,7 +21,7 @@ released.
 | [SA-2026-008](SA-2026-008-spectral-combination.md) | Spectral base shear SRSS under CQC; participation omitted support-coupled mass | High | [#405](https://github.com/lambdaclass/stabileo/issues/405) | #434 | — | Draft |
 | [SA-2026-009](SA-2026-009-shb8-thickness-locking.md) | Solid shell (SHB8) ~22 % too stiff in thin-plate bending (deflections ~18 % low) | Medium | [#400](https://github.com/lambdaclass/stabileo/issues/400) | #401 | `main`, deployed 2026-10-19 (next release) | Draft |
 | [SA-2026-010](SA-2026-010-spectral-certificate-nonfinite.md) | Spectral certificate passed on non-finite results | Medium | [#335](https://github.com/lambdaclass/stabileo/issues/335) | #398 | `main`, deployed 2026-10-19 (next release) | Draft |
-| [SA-2026-011](SA-2026-011-springs-on-fixed-supports.md) | 3D support switched from spring to fixed or pinned was solved as elastic | High | [#488](https://github.com/lambdaclass/stabileo/issues/488) | #491 | — | Draft |
+| [SA-2026-011](SA-2026-011-springs-on-fixed-supports.md) | 3D support switched from spring to fixed or pinned was solved as elastic | High | [#488](https://github.com/lambdaclass/stabileo/issues/488) | #491 | `main`, deployed 2026-10-20 (next release) | Draft |
 
 Other open `safety` issues (the derivation-review findings #406–#433, #338, #439) get an advisory
 or a recorded "no advisory needed" when they are triaged; the list is on the

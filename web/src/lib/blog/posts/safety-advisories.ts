@@ -38,7 +38,7 @@ export const safetyAdvisories: Post = {
           caption: 'Avisos publicados. Severidad: crítica cuando la capacidad o la demanda podían quedar muy del lado inseguro sin señal visible.',
           head: ['Aviso', 'Qué', 'Severidad', 'Estado'],
           rows: [
-            ['SA-2026-011', 'Apoyo 3D cambiado de resorte a empotrado o articulado, calculado como resorte', 'Alta', 'Corrección en revisión'],
+            ['SA-2026-011', 'Apoyo 3D cambiado de resorte a empotrado o articulado, calculado como resorte', 'Alta', 'Corregido el 20/10/2026'],
             ['SA-2026-008', 'Espectro de respuesta: corte basal SRSS con CQC; participación sin la masa acoplada a los apoyos', 'Alta', 'Corrección en revisión'],
             ['SA-2026-007', 'Pandeo 3D sin modos torsionales ni flexotorsionales', 'Alta', 'Corrección en revisión'],
             ['SA-2026-006', 'Modelo plano resuelto en 3D: momentos nodales y giros impuestos invertidos', 'Alta', 'Corrección en revisión'],
@@ -71,8 +71,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'Cómo saber si te afecta: algún apoyo fue primero un resorte (o tuvo constantes de resorte) y después se cambió a empotrado, articulado o rodillo, o se le tildó un grado de libertad como restringido. En los resultados, ese apoyo muestra un desplazamiento o un giro distinto de cero.',
-            'Qué hacer hoy: verificá que los apoyos restringidos tengan desplazamiento nulo. Si alguno no lo tiene, borralo y volvé a crearlo con el tipo que corresponde; un apoyo nuevo no lleva resortes.',
-            'Estado: corrección en revisión. Con la corrección, todo grado de libertad restringido se resuelve como restringido, también en los proyectos guardados antes.',
+            'Qué hacer: volvé a resolver en stabileo.com los modelos 3D con apoyos editados de resorte a rígido y compará los resultados cerca de esos apoyos con los que ya usaste.',
+            'Estado: corregido en stabileo.com el 20 de octubre de 2026. Todo grado de libertad restringido se resuelve como restringido, también en los proyectos guardados antes.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'SA-2026-011 completo', t: 'El aviso con la reproducción y el modelo de prueba:' },
@@ -164,7 +164,7 @@ export const safetyAdvisories: Post = {
           caption: 'Published advisories. Severity: critical when capacity or demand could be far on the unsafe side with no visible sign.',
           head: ['Advisory', 'What', 'Severity', 'Status'],
           rows: [
-            ['SA-2026-011', '3D support switched from spring to fixed or pinned, solved as a spring', 'High', 'Fix in review'],
+            ['SA-2026-011', '3D support switched from spring to fixed or pinned, solved as a spring', 'High', 'Fixed 2026-10-20'],
             ['SA-2026-008', 'Response spectrum: base shear SRSS under CQC; participation without support-coupled mass', 'High', 'Fix in review'],
             ['SA-2026-007', '3D buckling without torsional or flexural-torsional modes', 'High', 'Fix in review'],
             ['SA-2026-006', 'Plane model solved in 3D: nodal moments and imposed rotations reversed', 'High', 'Fix in review'],
@@ -197,8 +197,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'How to tell if you are affected: a support was first a spring (or had spring constants) and was then changed to fixed, pinned or a roller, or had a degree of freedom ticked as restrained. In the results, that support shows a non-zero displacement or rotation.',
-            'What to do today: check that restrained supports have zero displacement. Where one does not, delete it and create it again with the type you want; a new support carries no springs.',
-            'Status: fix in review. With it, every restrained degree of freedom is solved as restrained, including in projects saved before.',
+            'What to do: re-solve on stabileo.com the 3D models whose supports were edited from springs to rigid, and compare the results near those supports with the ones you already used.',
+            'Status: fixed on stabileo.com on 20 October 2026. Every restrained degree of freedom is solved as restrained, including in projects saved before.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'Full SA-2026-011', t: 'The advisory with the reproduction and the test model:' },
@@ -290,7 +290,7 @@ export const safetyAdvisories: Post = {
           caption: 'Avisos publicados. Severidade: crítica quando a capacidade ou a solicitação podiam ficar muito contra a segurança sem sinal visível.',
           head: ['Aviso', 'O quê', 'Severidade', 'Situação'],
           rows: [
-            ['SA-2026-011', 'Apoio 3D trocado de mola para engaste ou rótula, calculado como mola', 'Alta', 'Correção em revisão'],
+            ['SA-2026-011', 'Apoio 3D trocado de mola para engaste ou rótula, calculado como mola', 'Alta', 'Corrigido em 20/10/2026'],
             ['SA-2026-008', 'Espectro de resposta: cortante basal SRSS com CQC; participação sem a massa acoplada aos apoios', 'Alta', 'Correção em revisão'],
             ['SA-2026-007', 'Flambagem 3D sem modos torcionais nem flexo-torcionais', 'Alta', 'Correção em revisão'],
             ['SA-2026-006', 'Modelo plano resolvido em 3D: momentos nodais e rotações impostas invertidos', 'Alta', 'Correção em revisão'],
@@ -323,8 +323,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'Como saber se você foi afetado: algum apoio foi primeiro uma mola (ou teve constantes de mola) e depois foi trocado para engaste, rótula ou rolete, ou teve um grau de liberdade marcado como restringido. Nos resultados, esse apoio mostra deslocamento ou rotação diferente de zero.',
-            'O que fazer hoje: confira que os apoios restringidos têm deslocamento nulo. Se algum não tiver, apague-o e crie-o de novo com o tipo desejado; um apoio novo não leva molas.',
-            'Situação: correção em revisão. Com ela, todo grau de liberdade restringido é resolvido como restringido, inclusive em projetos salvos antes.',
+            'O que fazer: resolva de novo em stabileo.com os modelos 3D com apoios editados de mola para rígido e compare os resultados perto desses apoios com os que você já usou.',
+            'Situação: corrigido em stabileo.com em 20 de outubro de 2026. Todo grau de liberdade restringido é resolvido como restringido, inclusive em projetos salvos antes.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'SA-2026-011 completo', t: 'O aviso com a reprodução e o modelo de teste:' },
