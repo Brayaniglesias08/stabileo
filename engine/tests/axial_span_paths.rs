@@ -164,3 +164,33 @@ fn moving_loads_keep_the_axial_span_load_and_see_interior_peaks() {
     close(e.n_max_pos, 20.0 / 3.0, 1e-6, "envelope N+");
     close(e.n_max_neg, -10.0 / 3.0, 1e-6, "envelope N− (interior)");
 }
+
+/// A permanent point load on a member is in every moving-load envelope (Codex review of
+/// #437): the permanent loads used to be filtered by kind, which dropped member point loads
+/// as if they were the train's, and with them the axial part of an inclined load.
+#[test]
+fn moving_loads_keep_permanent_member_point_loads() {
+    let (l, a, p, px) = (4.0, 1.0, -12.0, 8.0);
+    let solver = make_input(
+        vec![(1, 0.0, 0.0), (2, l, 0.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, 0.01, 1e-4)],
+        vec![(1, "frame", 1, 2, 1, 1, false, false)],
+        vec![(1, 1, "pinned"), (2, 2, "rollerX")],
+        vec![SolverLoad::PointOnElement(SolverPointLoadOnElement { element_id: 1, a, p, px: Some(px), my: None })],
+    );
+    let env = solve_moving_loads_2d(&MovingLoadInput {
+        solver,
+        train: LoadTrain { name: "tiny".into(), axles: vec![Axle { offset: 0.0, weight: 1e-9 }] },
+        step: Some(1.0),
+        path_element_ids: Some(vec![1]),
+    })
+    .unwrap();
+    let e = &env.elements["1"];
+    // Simply supported: |M| peaks under the load, |P|·a·(L − a)/L = 9. The roller takes no
+    // axial force, so the pin carries all of px: |N| = |px| = 8 between the pin and the load,
+    // 0 past it.
+    let m_peak = p.abs() * a * (l - a) / l;
+    assert!((e.m_max_pos.abs().max(e.m_max_neg.abs()) - m_peak).abs() < 1e-6, "M envelope {} / {} vs {m_peak}", e.m_max_pos, e.m_max_neg);
+    assert!((e.n_max_pos.abs().max(e.n_max_neg.abs()) - px.abs()).abs() < 1e-6, "N envelope {} / {} vs {px}", e.n_max_pos, e.n_max_neg);
+}

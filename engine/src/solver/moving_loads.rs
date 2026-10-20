@@ -324,11 +324,12 @@ fn diagram_range_2d(ef: &ElementForces, kind: &str, start: f64, end: f64) -> (f6
     (lo, hi)
 }
 
+/// The permanent loads, all of them: every load in the input is permanent (the train's axle
+/// loads are generated per position, never read from it). Point loads on members used to be
+/// filtered out as if they were the train's, so a permanent point load on a member, and since
+/// #437 the axial part of an inclined one, was missing from every envelope.
 fn base_loads(input: &SolverInput) -> Vec<SolverLoad> {
-    // Keep existing permanent loads (nodal and distributed, but not moving point loads)
-    input.loads.iter().filter(|l| {
-        matches!(l, SolverLoad::Nodal(_) | SolverLoad::Distributed(_) | SolverLoad::Thermal(_) | SolverLoad::AxialDistributed(_))
-    }).cloned().collect()
+    input.loads.clone()
 }
 
 // ==================== 3D Moving Loads ====================
@@ -651,8 +652,8 @@ fn find_segment_3d<'a>(path: &'a [PathSegment3D], global_pos: f64) -> Option<(&'
     None
 }
 
+/// As `base_loads`: every input load is permanent (point loads on members, bimoments and
+/// shell loads used to be dropped).
 fn base_loads_3d(input: &SolverInput3D) -> Vec<SolverLoad3D> {
-    input.loads.iter().filter(|l| {
-        matches!(l, SolverLoad3D::Nodal(_) | SolverLoad3D::Distributed(_) | SolverLoad3D::Thermal(_))
-    }).cloned().collect()
+    input.loads.clone()
 }
