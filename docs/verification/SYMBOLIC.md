@@ -151,8 +151,9 @@ Each one has a regression test, and each fix is in the CHANGELOG.
    fork-supported I-beam's first torsional frequency came out 10.6% low. Warping members now get
    the consistent 14×14 mass of their cubic twist. Test:
    `validation_warping_fork_beam_torsional_frequency`.
-5. **The 3D co-rotational solver fails on pin-ended members** (not fixed; reproduced by the ignored
-   test `corotational_3d_leaning_column_matches_pdelta`).
+5. **The 3D co-rotational solver failed on pin-ended members** (no longer reproduces: the test
+   `corotational_3d_leaning_column_matches_pdelta` now passes and is no longer ignored; see
+   [nonlinear.md](../solver/nonlinear.md), NL-7). As first found:
    - At vanishing load it does not converge on the leaning-column frame.
    - At P = 0.2·k·h it converges to *less* sway than the linear solve.
    - Its tangent also uses the fixed-fixed Kg whatever the releases. Swapping in the condensed

@@ -114,6 +114,83 @@ The app now shows its version in the status bar and, once, a notice that results
 changed with a link to the notes.
 
 ### Changed
+#### Element formulations documented for independent review (2026-10-18)
+
+`docs/solver/` documents each element and solver family's derivation, assumptions, conventions
+and tests (roadmap "Solver and proof depth" item 10). Findings while writing the frame family:
+
+- **3D `leftHand: true` is now refused.** It reversed local y and made the member triad
+  improper, so the element stiffness changed with the labelling of an axis (tip twist of a skew
+  cantilever changed sign). No product path sent it. Test: `derivation_frames.rs`.
+- The beam-station output's declared sign convention now matches its values (2D moments are
+  hogging-positive; 3D components are the resultant on the negative face). Values are unchanged.
+- The 2D/3D shear-area pairing (`as_y` goes with `iz` in 2D, with `iy` in 3D) is spelled out in
+  the input docs.
+
+Shells (`docs/solver/shells.md`, tests in `derivation_shells.rs`). **BREAKING (results)** for
+curved shells, walls in dynamics and heated shells:
+
+- Curved shell: transverse-shear ANS transform corrected on non-rectangular elements (it was up
+  to 1.75× too stiff in shear on a 60° parallelogram). Drilling penalty is now an area integral
+  as in MITC4 (it was h × that and unit-dependent). Self-weight was 1000× too large (kg/m³ not
+  converted to kN).
+- Shell rotary inertia is now about the element's in-plane axes. A vertical wall used to get
+  inertia about its normal (drilling) and none about one in-plane axis. Horizontal elements are
+  unchanged.
+- Geometric stiffness of DKT, MITC9 and curved shells uses the mechanical strain, so free thermal
+  expansion no longer creates membrane force (or a spurious buckling load).
+- DKT nodal stresses subtract the thermal strain, and several thermal loads on one shell are
+  summed in stress recovery (only the last was used).
+- Follow-ups from review:
+  - The summed thermal loads are keyed by (family, id), so a quad and a quad9 sharing an id
+    no longer double each other's correction.
+  - The curved-shell rotary mass is built from the nodal directors, so a spin about the
+    director is massless.
+  - The time-history initial acceleration handles mass nullspaces that are not coordinate DOFs
+    (an oblique shell's drilling rotation). It had fallen back to diagonal lumping, giving a
+    25% error on a 45°-rotated quad.
+
+Assembly, supports and constraints (`docs/solver/assembly-constraints.md`, tests in
+`derivation_assembly_constraints.rs`). **BREAKING (results)** for the cases listed:
+
+- Rigid links, eccentric connections and diaphragms in 3D truss/cable-only models (3 DOFs per
+  node) read the master's vertical displacement as its rotation. They now branch on the model's
+  dimension.
+- 2D diaphragm planes: "XZ" (the 2D plane) is now the in-plane rigid body, "YZ" ties vertical
+  displacement only, and unknown plane names are refused (they fell back to XY). The 3D "XZ"
+  diaphragm had both rigid-body signs flipped.
+- Reactions at an inclined support that also carries a spring now balance the loads. 3D rotated
+  the spring force with the normal reaction, and 2D dropped it.
+- 3D Winkler `kz` foundation: the translation–rotation coupling signs were not flipped, so a
+  symmetric beam deflected half as much under z as under y.
+- API RP 2A sand p-y: the C1, C2, C3 coefficients now follow the Reese–Cox–Koop formulas. Ultimate
+  resistance was 5× too low near the surface and 16× too low at depth.
+
+Fiber beams and cables (`docs/solver/special-elements.md`, tests in
+`derivation_special_elements.rs`). **BREAKING (results)** for fiber analyses:
+
+- Fiber beam, 2D and 3D: the sign of the bending curvature mirrored the strain field. Results
+  change for any section not symmetric about its bending axis (asymmetric reinforcement,
+  T-sections, eccentric fibers).
+- Fiber member forces are now the fiber section resultants. They were elastic-stiffness forces,
+  off by orders of magnitude after yield.
+  The elastic forces removed use the same Timoshenko shear parameters as the linear recovery.
+- Non-positive shear areas (`asY`/`asZ` ≤ 0) are refused. Zero gave a NaN stiffness and a
+  negative value a negative shear parameter, silently.
+- Fiber material history is committed only at convergence, so results no longer depend on the
+  load stepping.
+- Steel `hardening_ratio` is now the true post-yield slope over E (it gave αE/(1+α)).
+- 6 and 7 integration points really use 6 and 7 points. Counts outside 3–7 are refused (2 gave a
+  wrong elastic stiffness).
+- `irvine_parameter`: removed a spurious factor L (unused by the solvers).
+
+Nonlinear (`docs/solver/nonlinear.md`, tests in `derivation_nonlinear.rs`):
+
+- Co-rotational 2D (also arc-length and displacement control): member-end deformational rotations
+  are now reduced to (−π, π]. Members drawn right to left, or rotating past ±π, no longer get a
+  spurious 2π of bending. A cantilever fixed at its right end used to fail to converge.
+- The 3D co-rotational leaning-column reproduction (SYMBOLIC.md item 5) now passes and is a
+  regular regression test.
 
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 

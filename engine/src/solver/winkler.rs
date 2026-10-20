@@ -74,23 +74,11 @@ pub fn solve_winkler_2d(input: &WinklerInput) -> Result<AnalysisResults, String>
         add_foundation_2d(&mut asm.k, n, spring, &node_by_id, &elem_by_id, &dof_num)?;
     }
 
-    // Prescribed displacements
-    let mut u_r = vec![0.0; nr];
-    for sup in input.solver.supports.values() {
-        if sup.support_type == "spring" { continue; }
-        let prescribed: [(usize, Option<f64>); 3] = [
-            (0, sup.dx), (1, sup.dz), (2, sup.dry),
-        ];
-        for &(local_dof, val) in &prescribed {
-            if let Some(v) = val {
-                if v.abs() > 1e-15 {
-                    if let Some(&d) = dof_num.map.get(&(sup.node_id, local_dof)) {
-                        if d >= nf { u_r[d - nf] = v; }
-                    }
-                }
-            }
-        }
-    }
+    // Prescribed displacements, in the inclined-support frames the restrained
+    // DOFs are numbered in (one definition with the linear solver: this
+    // hand-rolled copy assigned a rotated roller's raw global dz to its
+    // normal DOF — found by the metamorphic rotation check).
+    let u_r = super::linear::prescribed_displacements_2d(&input.solver, &dof_num);
 
     let free_idx: Vec<usize> = (0..nf).collect();
     let rest_idx: Vec<usize> = (nf..n).collect();
@@ -199,23 +187,11 @@ pub fn solve_winkler_3d(input: &WinklerInput3D) -> Result<AnalysisResults3D, Str
         add_foundation_3d(&mut asm.k, n, spring, input_solver, &node_by_id, &elem_by_id, &dof_num)?;
     }
 
-    // Prescribed displacements
-    let mut u_r = vec![0.0; nr];
-    for sup in input_solver.supports.values() {
-        let prescribed: [(usize, Option<f64>); 6] = [
-            (0, sup.dx), (1, sup.dy), (2, sup.dz),
-            (3, sup.drx), (4, sup.dry), (5, sup.drz),
-        ];
-        for &(local_dof, val) in &prescribed {
-            if let Some(v) = val {
-                if v.abs() > 1e-15 {
-                    if let Some(&d) = dof_num.map.get(&(sup.node_id, local_dof)) {
-                        if d >= nf { u_r[d - nf] = v; }
-                    }
-                }
-            }
-        }
-    }
+    // Prescribed displacements, in the inclined-support frames the restrained
+    // DOFs are numbered in (one definition with the linear solver: this
+    // hand-rolled copy assigned a rotated roller's raw global dz to its
+    // normal DOF — found by the metamorphic rotation check).
+    let u_r = super::linear::prescribed_displacements_3d(input_solver, &dof_num);
 
     let free_idx: Vec<usize> = (0..nf).collect();
     let rest_idx: Vec<usize> = (nf..n).collect();
@@ -389,9 +365,20 @@ fn add_foundation_3d(
         }
     }
 
-    // Z-direction springs: affects vz and θy
+    // Z-direction springs: affects vz and θy. Bending about local y has
+    // θy = −dw/dx (the frame's sign −1 block), so the matrix of
+    // `winkler_foundation_matrix` (written for θ = +dv/dx) is taken as
+    // D·K·D with D = diag(1, −1, 1, −1): the translation–rotation couplings
+    // change sign. Using it unchanged made the z foundation a different (and
+    // wrong) interpolation of w than the beam's own.
     if let Some(kz) = spring.kz {
-        let kf_4x4 = winkler_foundation_matrix(kz, l);
+        let mut kf_4x4 = winkler_foundation_matrix(kz, l);
+        let d = [1.0, -1.0, 1.0, -1.0];
+        for i in 0..4 {
+            for j in 0..4 {
+                kf_4x4[i * 4 + j] *= d[i] * d[j];
+            }
+        }
         // vz1=2, θy1=4, vz2=dpn+2, θy2=dpn+4
         let local_map = [2usize, 4, dpn + 2, dpn + 4];
         for (i, &li) in local_map.iter().enumerate() {

@@ -263,9 +263,10 @@ pub fn assemble_2d_sparse(input: &SolverInput, dof_num: &DofNumbering) -> Triple
         }
         let mut rot_restrained: std::collections::HashSet<usize> = std::collections::HashSet::new();
         for sup in input.supports.values() {
-            if sup.support_type == "fixed" || sup.support_type == "guidedX" || sup.support_type == "guidedY" { rot_restrained.insert(sup.node_id); }
+            if matches!(sup.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ") { rot_restrained.insert(sup.node_id); }
             if sup.support_type == "spring" && sup.kz.unwrap_or(0.0) > 0.0 { rot_restrained.insert(sup.node_id); }
         }
+        rot_restrained.extend(super::assembly::rotation_tied_nodes_2d(input));
         for (&node_id, &hinges) in &node_hinge_count {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {
@@ -504,13 +505,14 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
         // Nodes with rotational restraint from supports
         let mut rot_restrained: std::collections::HashSet<usize> = std::collections::HashSet::new();
         for sup in input.supports.values() {
-            if sup.support_type == "fixed" || sup.support_type == "guidedX" || sup.support_type == "guidedY" {
+            if matches!(sup.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ") {
                 rot_restrained.insert(sup.node_id);
             }
             if sup.support_type == "spring" && sup.kz.unwrap_or(0.0) > 0.0 {
                 rot_restrained.insert(sup.node_id);
             }
         }
+        rot_restrained.extend(super::assembly::rotation_tied_nodes_2d(input));
 
         for (&node_id, &hinges) in &node_hinge_count {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
@@ -577,27 +579,25 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
     // node in plastic analysis — leaving the DOF bare and the solve garbage.)
     if dof_num.dofs_per_node >= 3 {
         let artificial_k = if max_diag > 0.0 { max_diag * 1e-10 } else { 1e-6 };
-        let orphan_tol = if max_diag > 0.0 { max_diag * 1e-12 } else { 1e-14 };
         let already: std::collections::HashSet<usize> = artificial_dofs.iter().copied().collect();
+        let tied = super::assembly::rotation_tied_nodes_2d(input);
         let mut idx_to_local: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-        for (&(_, ld), &idx) in &dof_num.map {
-            if idx < nf {
+        for (&(node, ld), &idx) in &dof_num.map {
+            if idx < nf && !tied.contains(&node) {
                 idx_to_local.insert(idx, ld);
             }
         }
         // Max |entry| per free DOF over the summed full K (lower-tri CSC:
         // each stored entry touches both endpoints' row+col).
-        let mut row_max = vec![0.0f64; nf];
-        for j in 0..n {
-            for p in k_full.col_ptr[j]..k_full.col_ptr[j + 1] {
-                let i = k_full.row_idx[p];
-                let v = k_full.values[p].abs();
-                if i < nf { row_max[i] = row_max[i].max(v); }
-                if j < nf && i != j { row_max[j] = row_max[j].max(v); }
-            }
-        }
+        // Summed diagonal per DOF; a zero diagonal of the positive
+        // semi-definite K is a zero row. Measured against the largest
+        // rotational diagonal (same units), as in the dense assembler.
+        let diag = k_full.diagonal();
+        let max_rot = dof_num.map.iter().filter(|(&(_, ld), _)| ld == 2).fold(0.0f64, |m, (_, &d)| m.max(diag[d].abs()));
+        let orphan_tol = if max_rot > 0.0 { max_rot * 1e-12 } else { 1e-14 };
         let mut added = false;
-        for (i, &mx) in row_max.iter().enumerate() {
+        for i in 0..nf {
+            let mx = diag[i].abs();
             if already.contains(&i) { continue; }
             if idx_to_local.get(&i).copied() != Some(2) { continue; }
             if mx <= orphan_tol {
@@ -865,9 +865,10 @@ pub fn assemble_elements_parallel_2d(input: &SolverInput, dof_num: &DofNumbering
         }
         let mut rot_restrained: std::collections::HashSet<usize> = std::collections::HashSet::new();
         for sup in input.supports.values() {
-            if sup.support_type == "fixed" || sup.support_type == "guidedX" || sup.support_type == "guidedY" { rot_restrained.insert(sup.node_id); }
+            if matches!(sup.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ") { rot_restrained.insert(sup.node_id); }
             if sup.support_type == "spring" && sup.kz.unwrap_or(0.0) > 0.0 { rot_restrained.insert(sup.node_id); }
         }
+        rot_restrained.extend(super::assembly::rotation_tied_nodes_2d(input));
         for (&node_id, &hinges) in &node_hinge_count {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {

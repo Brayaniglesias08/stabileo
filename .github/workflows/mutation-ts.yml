@@ -10,13 +10,17 @@ on:
     - cron: '17 3 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   stryker:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    # The first full run reached 3300 of 3322 mutants at 300 min (concurrency 3).
+    timeout-minutes: 345
     steps:
       - uses: actions/checkout@v7
 
@@ -24,8 +28,13 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      # Pinned release, checksum-verified by install-action (as in ci.yml). This
+      # step used to run .github/scripts/install-wasm-pack.sh, which is not in
+      # the repository: the first scheduled run failed here.
       - name: Install wasm-pack
-        run: bash .github/scripts/install-wasm-pack.sh
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: wasm-pack@0.13.1
         timeout-minutes: 5
 
       - uses: Swatinem/rust-cache@v2

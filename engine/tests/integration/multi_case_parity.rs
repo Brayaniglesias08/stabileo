@@ -168,15 +168,28 @@ fn reference_2d(input: &MultiCaseInput) -> (Vec<AnalysisResults>, Vec<(String, A
         cases.push(solve_2d(&case_input).expect("reference solve_2d failed"));
         case_map.insert(lc.name.clone(), idx);
     }
+    // The model's prescribed displacements are in every case's solution; a
+    // combination counts them once: R_0 (settlement only) with 1 − Σ f.
+    let settles = input.solver.supports.values().any(|x| [x.dx, x.dz, x.dry].iter().any(|d| d.is_some_and(|v| v != 0.0)));
+    let settlement_only = settles.then(|| {
+        let mut s = input.solver.clone();
+        s.loads = vec![];
+        solve_2d(&s).expect("reference settlement-only solve failed")
+    });
     let mut combos = Vec::new();
     for combo in &input.combinations {
-        let factors: Vec<CombinationFactor> = combo.factors.iter()
+        let mut factors: Vec<CombinationFactor> = combo.factors.iter()
             .filter_map(|(name, &factor)| case_map.get(name)
                 .map(|&idx| CombinationFactor { case_id: idx, factor }))
             .collect();
-        let cases: Vec<CaseEntry> = cases.iter().enumerate()
+        let mut cases: Vec<CaseEntry> = cases.iter().enumerate()
             .map(|(idx, r)| CaseEntry { case_id: idx, results: r.clone() })
             .collect();
+        if let Some(r0) = &settlement_only {
+            let sum: f64 = factors.iter().map(|f| f.factor).sum();
+            factors.push(CombinationFactor { case_id: cases.len(), factor: 1.0 - sum });
+            cases.push(CaseEntry { case_id: cases.len(), results: r0.clone() });
+        }
         let combined = combine_results(&CombinationInput { factors, cases }).unwrap();
         combos.push((combo.name.clone(), combined));
     }
@@ -207,15 +220,28 @@ fn reference_3d(input: &MultiCaseInput3D) -> (Vec<AnalysisResults3D>, Vec<(Strin
         cases.push(solve_3d(&case_input).expect("reference solve_3d failed"));
         case_map.insert(lc.name.clone(), idx);
     }
+    // The model's prescribed displacements are in every case's solution; a
+    // combination counts them once: R_0 (settlement only) with 1 − Σ f.
+    let settles = input.solver.supports.values().any(|x| [x.dx, x.dy, x.dz, x.drx, x.dry, x.drz].iter().any(|d| d.is_some_and(|v| v != 0.0)));
+    let settlement_only = settles.then(|| {
+        let mut s = input.solver.clone();
+        s.loads = vec![];
+        solve_3d(&s).expect("reference settlement-only solve failed")
+    });
     let mut combos = Vec::new();
     for combo in &input.combinations {
-        let factors: Vec<CombinationFactor> = combo.factors.iter()
+        let mut factors: Vec<CombinationFactor> = combo.factors.iter()
             .filter_map(|(name, &factor)| case_map.get(name)
                 .map(|&idx| CombinationFactor { case_id: idx, factor }))
             .collect();
-        let cases: Vec<CaseEntry3D> = cases.iter().enumerate()
+        let mut cases: Vec<CaseEntry3D> = cases.iter().enumerate()
             .map(|(idx, r)| CaseEntry3D { case_id: idx, results: r.clone() })
             .collect();
+        if let Some(r0) = &settlement_only {
+            let sum: f64 = factors.iter().map(|f| f.factor).sum();
+            factors.push(CombinationFactor { case_id: cases.len(), factor: 1.0 - sum });
+            cases.push(CaseEntry3D { case_id: cases.len(), results: r0.clone() });
+        }
         let combined = combine_results_3d(&CombinationInput3D { factors, cases }).unwrap();
         combos.push((combo.name.clone(), combined));
     }

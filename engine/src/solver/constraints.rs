@@ -412,6 +412,13 @@ pub fn validate_constraint_refs(
                 if !node_ids.contains(&dia.master_node) {
                     return Err(format!("Constraint {}: Diaphragm master node {} does not exist", i, dia.master_node));
                 }
+                // Any other name used to fall back to "XY" silently.
+                // Same names `diaphragm_dofs` accepts (case-insensitive; empty = XY).
+                if !matches!(dia.plane.to_ascii_uppercase().as_str(), "XY" | "XZ" | "YZ" | "") {
+                    return Err(format!(
+                        "Constraint {}: Diaphragm plane '{}' is not one of XY, XZ, YZ", i, dia.plane
+                    ));
+                }
                 for &slave in &dia.slave_nodes {
                     if !node_ids.contains(&slave) {
                         return Err(format!("Constraint {}: Diaphragm slave node {} does not exist", i, slave));
@@ -695,8 +702,9 @@ fn collect_dependent_dofs(
                     if let Some(&m) = dof_num.map.get(&(rl.master_node, dof)) {
                         masters.push(m);
                     }
-                    // Rotation coupling DOFs
-                    if dof_num.dofs_per_node <= 3 {
+                    // Rotation coupling DOFs (2D: θ = DOF 2; 3D: DOFs 3..5,
+                    // absent in a translation-only model)
+                    if nodes_2d.is_some() {
                         if let Some(&rz) = dof_num.map.get(&(rl.master_node, 2)) {
                             masters.push(rz);
                         }
@@ -752,7 +760,8 @@ fn collect_dependent_dofs(
         }
         Constraint::EccentricConnection(ec) => {
             let dpn = dof_num.dofs_per_node;
-            let all_dofs: Vec<usize> = (0..dpn.min(if dpn <= 3 { 3 } else { 6 })).collect();
+            let is_2d = nodes_2d.is_some();
+            let all_dofs: Vec<usize> = (0..dpn.min(if is_2d { 3 } else { 6 })).collect();
             for &dof in &all_dofs {
                 if ec.releases.get(dof).copied().unwrap_or(false) { continue; }
                 if let Some(&slave_global) = dof_num.map.get(&(ec.slave_node, dof)) {
@@ -760,7 +769,7 @@ fn collect_dependent_dofs(
                     if let Some(&m) = dof_num.map.get(&(ec.master_node, dof)) {
                         masters.push(m);
                     }
-                    if dpn > 3 {
+                    if !is_2d {
                         for rot_dof in 3..6 {
                             if let Some(&rd) = dof_num.map.get(&(ec.master_node, rot_dof)) {
                                 masters.push(rd);
@@ -841,7 +850,11 @@ pub fn build_constraint_transform(
                         // 3D: u_slave = u_master + ω_master × r
                         let mut terms = Vec::new();
 
-                        if dof_num.dofs_per_node <= 3 {
+                        // Branch on the model's dimension, not on DOFs per
+                        // node: a 3D model of trusses alone has 3 DOFs per
+                        // node, and the 2D branch read its DOF 2 (uz) as the
+                        // master rotation.
+                        if node_by_id_2d.is_some() {
                             // 2D rigid link
                             if let Some(&master_dof) = dof_num.map.get(&(rl.master_node, dof)) {
                                 terms.push((master_dof, 1.0));
@@ -987,8 +1000,9 @@ pub fn build_constraint_transform(
                 // Like RigidLink but with explicit offset and optional releases
                 let (dx, dy, dz) = (ec.offset_x, ec.offset_y, ec.offset_z);
                 let dpn = dof_num.dofs_per_node;
+                let is_2d = node_by_id_2d.is_some();
 
-                let all_dofs: Vec<usize> = (0..dpn.min(if dpn <= 3 { 3 } else { 6 })).collect();
+                let all_dofs: Vec<usize> = (0..dpn.min(if is_2d { 3 } else { 6 })).collect();
                 for &dof in &all_dofs {
                     // Check if this DOF is released
                     let released = ec.releases.get(dof).copied().unwrap_or(false);
@@ -997,7 +1011,7 @@ pub fn build_constraint_transform(
                     if let Some(&slave_global) = dof_num.map.get(&(ec.slave_node, dof)) {
                         let mut terms = Vec::new();
 
-                        if dpn <= 3 {
+                        if is_2d {
                             // 2D eccentric connection
                             if let Some(&master_dof) = dof_num.map.get(&(ec.master_node, dof)) {
                                 terms.push((master_dof, 1.0));
