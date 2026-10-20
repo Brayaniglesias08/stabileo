@@ -75,6 +75,18 @@ async function bootLanding(page: Page, opts: { locale?: string; manual?: boolean
 }
 
 test.describe('@landing landing page', () => {
+  test('the nav\'s Blog item opens the blog, not the teaser at the foot of the page', async ({ page }) => {
+    // It used to be a button scrolling to the #blog section. Now a real link:
+    // crawlable, middle-clickable, in the reader's language.
+    await bootLanding(page, { locale: 'es' });
+    const blog = page.locator('.landing nav.nav .nav-links a.nav-link');
+    await expect(blog).toHaveText('Blog');
+    await expect(blog).toHaveAttribute('href', '/es/blog/');
+    await blog.click();
+    await expect(page).toHaveURL(/\/es\/blog\/$/);
+    await expect(page.locator('.post-card')).not.toHaveCount(0);
+  });
+
   test('renders the landing overlay at /', async ({ page }) => {
     await bootLanding(page);
 
