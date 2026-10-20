@@ -300,10 +300,12 @@ fn navier(d: f64) -> (f64, f64) {
     (w_energy, wc)
 }
 
-/// Richardson limit of a sequence on meshes h, h/2, h/4.
+/// Richardson limit of a sequence on meshes h, h/2, h/4, which must be converging: never the
+/// finest value standing in for an extrapolation.
 fn extrapolate(v: &[f64]) -> (f64, Option<f64>) {
-    let (p, ext, _, _) = richardson(v);
-    (ext.unwrap_or(*v.last().unwrap()), p)
+    let (p, ext, _, status) = richardson(v);
+    assert_eq!(status, "converging", "{v:?}: no extrapolation");
+    (ext.unwrap(), p)
 }
 
 /// Kirchhoff moments of the simply supported unit square plate under unit load (Navier series),
@@ -451,9 +453,9 @@ fn morley(fam: Fam, n: usize) -> (Model, f64) {
 /// elements (MITC4, MITC9, curved shell) converge to the Mindlin solution, whose soft simple
 /// support has a twisting-moment boundary layer of width ~t the Kirchhoff moments lack: once the
 /// discretization error falls to that model difference (MITC9 on fine meshes) θ drops, rightly
-/// (the estimator measures the mesh, not the theory). The solid-shell's centre deflection is
-/// ~18 % low (its 3D constitutive law stiffens bending by 1/(1 − ν²)·(1 − ν)/((1 + ν)(1 − 2ν))
-/// in thin plates): a model error no recovery can see, so its θ is reported, not asserted.
+/// (the estimator measures the mesh, not the theory). The solid-shell (SHB8, ANS + EAS since
+/// #401) converges to Kirchhoff here too (w_c/ref 0.972, 0.995, 1.000) and its estimate
+/// over-states the error like DKT's (θ 1.34, 1.23, 1.12).
 #[test]
 fn zz_effectivity_navier_plate() {
     let d = plate_rigidity();
@@ -471,6 +473,9 @@ fn zz_effectivity_navier_plate() {
             let theta = est.error_norm / true_err;
             let wc = mid_disp(&r, m.grid[n / 2][n / 2])[2].abs();
             println!("{fam:?} n={n:2}: w_c/ref={:.4} ‖e‖/‖u‖={:.4} η/‖u‖={:.4} θ={theta:.3}", wc / wc_exact, true_err / norm, est.error_norm / norm);
+            if fam == Fam::Solid && n == 16 {
+                assert!((wc / wc_exact - 1.0).abs() < 0.01, "solid-shell w_c/ref {:.4}", wc / wc_exact);
+            }
             table.push((fam, n, theta));
             assert!(est.error_norm < prev_eta, "{fam:?}: the estimate falls under refinement");
             prev_eta = est.error_norm;
@@ -483,6 +488,9 @@ fn zz_effectivity_navier_plate() {
             (Fam::Dkt, 16) => Some((0.9, 1.2)),
             (Fam::Dkt, 8) => Some((0.9, 1.35)),
             (Fam::Mitc9, 4) => Some((0.85, 1.15)),
+            (Fam::Solid, 16) => Some((0.9, 1.2)),
+            (Fam::Solid, 8) => Some((0.9, 1.35)),
+            (Fam::Solid, 4) => Some((0.9, 1.45)),
             _ => None,
         };
         if let Some((lo, hi)) = band {
@@ -527,7 +535,8 @@ fn richardson_of(m: &SolverInput3D, levels: usize, read: &dyn Fn(&AnalysisResult
 }
 
 /// Scordelis–Lo from a 4 × 4 mesh refined three times (smooth geometry): the extrapolated
-/// midspan free-edge deflection against 0.3024, and the effectivity of the curved shell, whose
+/// midspan free-edge deflection against 0.3024 (MITC9 is not converging from this mesh, and the
+/// check must say so), and the effectivity of the curved shell, whose
 /// refinement keeps the energy identity (MITC4 facets change the geometry from mesh to mesh, so
 /// ‖u‖²_E − ‖u_h‖²_E is not the error there).
 #[test]
@@ -538,9 +547,17 @@ fn convergence_scordelis_lo() {
         let seq = sequence(&base.input, 3);
         let uz: Vec<f64> = seq.iter().map(|(_, r)| disp(r, target)[2].abs()).collect();
         let (p, ext, _, status) = richardson(&uz[1..]);
-        let ext = ext.unwrap_or(uz[3]);
-        println!("{fam:?} Scordelis–Lo uz: {uz:?} → {ext:.5} (p={p:?}, {status}), ref 0.3024");
-        assert!((ext / 0.3024 - 1.0).abs() < tol, "{fam:?}: extrapolated {ext:.5} vs 0.3024");
+        println!("{fam:?} Scordelis–Lo uz: {uz:?} → {ext:?} (p={p:?}, {status}), ref 0.3024");
+        if fam == Fam::Mitc9 {
+            // Drifts up ≈ 0.5 % per refinement from this mesh: the check says so instead of
+            // extrapolating. The finest mesh is still close.
+            assert_eq!(status, "notConverging");
+            assert!((uz[3] / 0.3024 - 1.0).abs() < tol, "MITC9: finest {:.5} vs 0.3024", uz[3]);
+        } else {
+            assert_eq!(status, "converging", "{fam:?}");
+            let ext = ext.unwrap();
+            assert!((ext / 0.3024 - 1.0).abs() < tol, "{fam:?}: extrapolated {ext:.5} vs 0.3024");
+        }
         if fam == Fam::Curved {
             let w: Vec<f64> = seq.iter().map(|(m, r)| energy_norm_sq(m, r)).collect();
             let (w_ext, _) = extrapolate(&w[1..]);
@@ -593,7 +610,7 @@ fn convergence_plates() {
     let v: Vec<f64> = sequence(&m.input, 3).iter().map(|(_, r)| disp(r, id)[2].abs() / wref).collect();
     let (_, _, _, status) = richardson(&v[1..]);
     println!("MITC4 Morley: {v:?} ({status})");
-    assert_ne!(status, "converging", "MITC4 on Morley is not asymptotic at these meshes and must say so");
+    assert_eq!(status, "oscillating", "MITC4 on Morley is not asymptotic at these meshes and must say so");
 
     for fam in [Fam::Mitc4, Fam::Dkt, Fam::Mitc9] {
         for clamped in [false, true] {
@@ -601,6 +618,16 @@ fn convergence_plates() {
             let id = m.grid[2][2].0;
             // Timoshenko & Woinowsky-Krieger: 0.00406 (simply supported), 0.00126 (clamped).
             let wref = if clamped { 0.00126 } else { 0.00406 } / plate_rigidity();
+            if fam == Fam::Mitc9 && !clamped {
+                // Not in the asymptotic range on these meshes (it dips, then rises towards the
+                // Mindlin solution): reported, not extrapolated. The finest mesh is close.
+                let v: Vec<f64> = sequence(&m.input, 3).iter().map(|(_, r)| disp(r, id)[2].abs() / wref).collect();
+                let status = richardson(&v[1..]).3;
+                println!("{fam:?} square plate clamped={clamped}: {v:?} ({status})");
+                assert_eq!(status, "notConverging");
+                assert!((v[3] - 1.0).abs() < 0.012, "{fam:?} clamped={clamped}: finest {:.4}", v[3]);
+                continue;
+            }
             let (v, ext, p) = richardson_of(&m.input, 3, &|r| disp(r, id)[2].abs() / wref);
             println!("{fam:?} square plate clamped={clamped}: {v:?} → {ext:.4} (p={p:?})");
             assert!((ext - 1.0).abs() < 0.012, "{fam:?} clamped={clamped}: {ext:.4}");
@@ -708,12 +735,15 @@ fn curved_shell_self_weight_matches_quads() {
 fn refinement_keeps_line_supports_of_a_one_element_plate() {
     for fam in [Fam::Mitc4, Fam::Dkt] {
         let m = square_plate(fam, 1, false);
-        let rf = refine_uniform(&m.input, GeometryMode::Faceted).unwrap().input;
+        let refined = refine_uniform(&m.input, GeometryMode::Faceted).unwrap();
+        let rf = &refined.input;
         let supported: std::collections::HashSet<usize> = rf.supports.values().filter(|s| s.rz).map(|s| s.node_id).collect();
         for n in rf.nodes.values() {
             let on_edge = n.x.abs() < 1e-9 || n.y.abs() < 1e-9 || (n.x - 1.0).abs() < 1e-9 || (n.y - 1.0).abs() < 1e-9;
             assert_eq!(supported.contains(&n.id), on_edge, "{fam:?}: node at ({}, {})", n.x, n.y);
         }
+        // Supports the model did not have are said to be inferred.
+        assert!(refined.caveats.iter().any(|c| c == "supportsInferred"), "{fam:?}: {:?}", refined.caveats);
         // And the sequence converges to the simply supported plate, not a corner-supported one.
         let seq = sequence(&m.input, 3);
         let (fine_in, fine_r) = seq.last().unwrap();
@@ -885,7 +915,7 @@ fn oscillating_sequences_are_inconclusive_and_flagged() {
     assert_eq!(q.status, "notConverging");
     assert!(is_inconclusive(&q.status));
     // Implausible order: the error is never smaller than the changes seen.
-    let q = quantity_convergence("maxMoment", None, vec![1.0, 1.2, 1.2000001]);
+    let q = quantity_convergence("maxMoment", None, vec![1.0, 1.2, 1.2001]);
     assert_eq!(q.status, "irregularOrder");
     assert!(q.estimated_error.unwrap() >= q.relative_change);
     // A converging one is not.
@@ -1006,4 +1036,98 @@ fn split_exact_member_raises_no_frame_warning() {
     assert!(!is_inconclusive(&q.status), "{}", q.status);
     assert!(q.relative_change < 1e-3, "an exact member moved {}", q.relative_change);
     assert!(q.estimated_error.unwrap_or(q.relative_change) < 1e-3);
+}
+
+// ==================== Refinement: supports and malformed models ====================
+
+/// A flat slab on a column grid, one MITC4 per bay, pinned columns at every node. Interior edges
+/// run between columns, not along a supported line: refinement keeps the interior columns as
+/// points, so the refined slab deflects between them and the study reads a real change, not a
+/// slab pinned everywhere (`zero`). The perimeter edges are exterior and are taken as line
+/// supports (that rule cannot tell columns from a coarse supported edge), and the study says so.
+#[test]
+fn refinement_keeps_interior_column_supports_as_points() {
+    let map = |u: f64, v: f64| ([3.0 * u, 3.0 * v, 0.0], [0.0, 0.0, 1.0]);
+    let bc = |_i: usize, _j: usize, _mx: usize, _my: usize| Some([true, true, true, false, false, false]);
+    let m = surface(Fam::Mitc4, 3, 3, 0.2, 30_000.0, 0.2, &map, &bc, Load::Pressure(-10.0));
+    let refined = refine_uniform(&m.input, GeometryMode::Faceted).unwrap();
+    let rf = &refined.input;
+    let supported: std::collections::HashSet<usize> = rf.supports.values().map(|s| s.node_id).collect();
+    for n in rf.nodes.values() {
+        let column = (n.x - n.x.round()).abs() < 1e-9 && (n.y - n.y.round()).abs() < 1e-9;
+        let perimeter = n.x.abs() < 1e-9 || n.y.abs() < 1e-9 || (n.x - 3.0).abs() < 1e-9 || (n.y - 3.0).abs() < 1e-9;
+        assert_eq!(supported.contains(&n.id), column || perimeter, "node at ({}, {})", n.x, n.y);
+    }
+    assert!(refined.caveats.iter().any(|c| c == "supportsInferred"), "{:?}", refined.caveats);
+    let wmax = solve(rf).displacements.iter().map(|d| d.uz.abs()).fold(0.0, f64::max);
+    assert!(wmax > 0.0, "the refined slab must deflect between its columns");
+
+    let s = convergence_study_3d(&m.input, &ConvergenceOptions::default()).unwrap();
+    let q = s.quantities.iter().find(|q| q.quantity == "maxDisplacement").unwrap();
+    println!("column grid: maxDisplacement {:?} {}", q.values, q.status);
+    assert_ne!(q.status, "zero");
+    assert!(s.exceeds_threshold, "a slab drawn without any free node is not converged");
+    // 12 perimeter edges, then 24: the new nodes the finest mesh supports.
+    assert!(s.caveats.iter().any(|c| c == "supportsInferred"), "{:?}", s.caveats);
+    assert_eq!(s.supports_inferred, 12 + 24);
+}
+
+/// Supports are inferred only where the model has an exterior edge between supported nodes: a
+/// plate on its four corners gets none, and no caveat.
+#[test]
+fn no_supports_inferred_no_caveat() {
+    let map = |u: f64, v: f64| ([u, v, 0.0], [0.0, 0.0, 1.0]);
+    let bc = |i: usize, j: usize, mx: usize, my: usize| ((i == 0 || i == mx) && (j == 0 || j == my)).then_some([true; 6]);
+    let m = surface(Fam::Mitc4, 2, 2, 0.1, 30_000.0, 0.2, &map, &bc, Load::Pressure(-1.0));
+    let refined = refine_uniform(&m.input, GeometryMode::Faceted).unwrap();
+    assert_eq!(refined.input.supports.len(), 4);
+    assert!(!refined.caveats.iter().any(|c| c == "supportsInferred"));
+}
+
+/// An element naming a missing node is an error from the convergence study, never a panic (a
+/// trap in WASM): refinement indexes the node coordinates before the solver's own validation.
+#[test]
+fn convergence_study_errs_on_a_missing_node() {
+    for fam in [Fam::Mitc4, Fam::Dkt, Fam::Mitc9, Fam::Curved, Fam::Solid] {
+        let mut m = square_plate(fam, 2, false);
+        match fam {
+            Fam::Mitc4 => m.input.quads.get_mut("1").unwrap().nodes[2] = 999,
+            Fam::Dkt => m.input.plates.get_mut("1").unwrap().nodes[2] = 999,
+            Fam::Mitc9 => m.input.quad9s.get_mut("1").unwrap().nodes[8] = 999,
+            Fam::Curved => m.input.curved_shells.get_mut("1").unwrap().nodes[2] = 999,
+            Fam::Solid => m.input.solid_shells.get_mut("1").unwrap().nodes[6] = 999,
+        }
+        let r = std::panic::catch_unwind(|| convergence_study_3d(&m.input, &ConvergenceOptions::default()));
+        let err = r.unwrap_or_else(|_| panic!("{fam:?}: convergence study panicked on a missing node")).unwrap_err();
+        assert!(err.contains("999"), "{fam:?}: {err}");
+    }
+}
+
+/// A non-finite stress field is no estimate: never a NaN percentage (which compares false
+/// against the threshold and would read as "small"), never a NaN element indicator.
+#[test]
+fn non_finite_estimate_is_unestimable() {
+    let m = square_plate(Fam::Mitc4, 2, false);
+    let mut r = solve(&m.input);
+    let centre = m.grid[1][1].0;
+    for d in r.displacements.iter_mut().filter(|d| d.node_id == centre) {
+        d.rx = f64::NAN;
+    }
+    let e = estimate(&m.input, &r);
+    assert_eq!(e.relative_error, None, "NaN reported as an estimate of {:?}", e.relative_error);
+    assert_eq!(e.unestimable_reason.as_deref(), Some("nonFinite"));
+    assert!(e.exceeds_threshold, "a non-finite estimate is flagged");
+    assert!(e.elements.iter().all(|x| x.local_percent.is_none()));
+}
+
+/// A sequence that has converged and then moves by round-off is converged at the last level,
+/// not oscillating.
+#[test]
+fn richardson_roundoff_after_convergence_is_converged() {
+    let (p, ext, err, status) = richardson(&[1.0, 1.001, 1.001 - 1e-13]);
+    assert_eq!(status, "converged");
+    assert_eq!((p, ext), (None, Some(1.001 - 1e-13)));
+    assert!((err.unwrap() - 0.001 / 1.001).abs() < 1e-9);
+    // A real reversal is still oscillating.
+    assert_eq!(richardson(&[1.0, 1.001, 1.0005]).3, "oscillating");
 }

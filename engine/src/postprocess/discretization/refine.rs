@@ -16,11 +16,14 @@
 //! * Frame members along a split edge are split at the same node (exact: a member split in two
 //!   has the same stiffness and, with its loads split, the same fixed-end forces). Releases stay
 //!   at the outer ends.
-//! * Supports: a new node on an edge between supported nodes gets the restraints they share,
-//!   and prescribed displacements interpolated: always on an exterior edge; on an interior edge
-//!   unless it is a chord across a fully supported element that no supported line runs along (the diagonal of a corner triangle
-//!   whose three nodes sit on two different supported edges is not a line support); a centre
-//!   node only inside a supported region (its edges qualify and one is interior). Springs are not copied (caveat).
+//! * Supports: a new node on an exterior edge (one element on it) between supported nodes gets
+//!   the restraints they share, and prescribed displacements interpolated: a plate simply
+//!   supported on its edges, however coarse, stays supported along them. Nodes on interior edges
+//!   and element centres stay free: between two columns of a slab meshed one element per bay
+//!   there is no supported line, and a wall under a slab drawn as a row of supported nodes is
+//!   refined as that row of points. Supports added this way are counted (caveat
+//!   `supportsInferred`): the rule cannot tell columns on a free edge from a coarse supported
+//!   edge. Springs are not copied (caveat).
 //! * Loads: element pressures, temperatures and self-weight go to every child; edge loads to the
 //!   children on that edge; nodal loads stay on their nodes.
 //!
@@ -48,11 +51,14 @@ pub enum GeometryMode {
 #[derive(Debug, Clone)]
 pub struct Refined {
     pub input: SolverInput3D,
-    /// Codes: `springsNotDistributed`, `inclinedSupportsDropped`.
+    /// Codes: `springsNotDistributed`, `inclinedSupportsDropped`, `supportsInferred`.
     pub caveats: Vec<String>,
+    /// New nodes given a support (exterior edges between supported nodes).
+    pub supports_inferred: usize,
 }
 
-/// Why a model cannot be refined automatically, or Ok.
+/// Why a model cannot be refined automatically, or Ok. Node references are checked here:
+/// refinement indexes node coordinates before any solver validation runs.
 pub fn check_refinable(input: &SolverInput3D) -> Result<(), String> {
     if !input.constraints.is_empty() {
         return Err("constraints".into());
@@ -68,6 +74,19 @@ pub fn check_refinable(input: &SolverInput3D) -> Result<(), String> {
     if shells == 0 {
         return Err("noShellElements".into());
     }
+    let nodes: HashSet<usize> = input.nodes.values().map(|n| n.id).collect();
+    let check = |kind: &str, id: usize, ns: &[usize]| -> Result<(), String> {
+        match ns.iter().find(|n| !nodes.contains(n)) {
+            Some(n) => Err(format!("node {n} not found ({kind} {id})")),
+            None => Ok(()),
+        }
+    };
+    input.plates.values().try_for_each(|e| check("plate", e.id, &e.nodes))?;
+    input.quads.values().try_for_each(|e| check("quad", e.id, &e.nodes))?;
+    input.quad9s.values().try_for_each(|e| check("quad9", e.id, &e.nodes))?;
+    input.curved_shells.values().try_for_each(|e| check("curvedShell", e.id, &e.nodes))?;
+    input.solid_shells.values().try_for_each(|e| check("solidShell", e.id, &e.nodes))?;
+    input.elements.values().try_for_each(|e| check("element", e.id, &[e.node_i, e.node_j]))?;
     Ok(())
 }
 
@@ -488,6 +507,7 @@ pub fn refine_uniform(input: &SolverInput3D, mode: GeometryMode) -> Result<Refin
     }
 
     // Loads.
+    let frames_by_id: HashMap<usize, &SolverElement3D> = input.elements.values().map(|e| (e.id, e)).collect();
     let mut loads = Vec::with_capacity(input.loads.len());
     let fam_of = |l: &SolverLoad3D| -> Option<(&'static str, usize)> {
         Some(match l {
@@ -538,13 +558,13 @@ pub fn refine_uniform(input: &SolverInput3D, mode: GeometryMode) -> Result<Refin
             }
             SolverLoad3D::Distributed(dl) if frame_halves.contains_key(&dl.element_id) => {
                 let (c1, c2, r) = frame_halves[&dl.element_id];
-                let f = &input.elements[&dl.element_id.to_string()];
+                let f = frames_by_id[&dl.element_id];
                 let l = norm3(&sub(&b.c(f.node_j), &b.c(f.node_i)));
                 loads.extend(split_distributed(dl, l, r, c1, c2, &b, f));
             }
             SolverLoad3D::PointOnElement(pl) if frame_halves.contains_key(&pl.element_id) => {
                 let (c1, c2, r) = frame_halves[&pl.element_id];
-                let f = &input.elements[&pl.element_id.to_string()];
+                let f = frames_by_id[&pl.element_id];
                 let l = norm3(&sub(&b.c(f.node_j), &b.c(f.node_i)));
                 let (l1, l2) = half_lengths(&b, f);
                 let s = pl.a / l;
@@ -570,52 +590,33 @@ pub fn refine_uniform(input: &SolverInput3D, mode: GeometryMode) -> Result<Refin
     let mut caveats = Vec::new();
     let sup_by_node: HashMap<usize, &SolverSupport3D> = input.supports.values().map(|s| (s.node_id, s)).collect();
     let mut next_sup = input.supports.keys().filter_map(|k| k.parse::<usize>().ok()).max().unwrap_or(0) + 1;
-    let mut nbrs: HashMap<usize, Vec<usize>> = HashMap::new();
-    for &(p, q) in b.edge_facets.keys() {
-        nbrs.entry(p).or_default().push(q);
-        nbrs.entry(q).or_default().push(p);
-    }
-    let supported = |n: usize| sup_by_node.contains_key(&n);
-    // Whether the edge p–q (both ends supported) carries a line support.
-    let line_edge = |p: usize, q: usize| -> bool {
-        let Some(fs) = b.edge_facets.get(&key(p, q)) else { return true };
-        // An exterior edge between supported nodes is a supported boundary (a plate simply
-        // supported on its edges, however coarse); only interior chords need a closer look.
-        if fs.len() == 1 {
-            return true;
+    // Element boundary segments and how many elements share each: one is an exterior edge.
+    let mut seg_count: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut ring = |ns: &[usize]| {
+        for k in 0..ns.len() {
+            *seg_count.entry(key(ns[k], ns[(k + 1) % ns.len()])).or_default() += 1;
         }
-        if fs.iter().all(|&f| b.facets[f].0.iter().any(|&n| !supported(n))) {
-            return true;
-        }
-        // An element on it is fully supported: only a continuation of a supported line counts.
-        let cos10 = 10.0_f64.to_radians().cos();
-        let along = |from: usize, to: usize| {
-            let d = unit(sub(&b.c(to), &b.c(from)));
-            nbrs.get(&from).is_some_and(|ns| ns.iter().any(|&x| {
-                x != to && supported(x) && dot(&d, &unit(sub(&b.c(from), &b.c(x)))) > cos10
-            }))
-        };
-        along(p, q) || along(q, p)
     };
+    input.plates.values().for_each(|e| ring(&e.nodes));
+    input.quads.values().for_each(|e| ring(&e.nodes));
+    input.curved_shells.values().for_each(|e| ring(&e.nodes));
+    for e in input.quad9s.values() {
+        let n = e.nodes;
+        ring(&[n[0], n[4], n[1], n[5], n[2], n[6], n[3], n[7]]);
+    }
+    for e in input.solid_shells.values() {
+        ring(&e.nodes[..4]);
+        ring(&e.nodes[4..]);
+    }
+    let mut supports_inferred = 0;
     for (nid, ps) in &b.parents {
-        let sups: Vec<&SolverSupport3D> = ps.iter().filter_map(|p| sup_by_node.get(p).copied()).collect();
-        if sups.len() != ps.len() {
+        // Only a node on an exterior edge between two supported nodes (see the module docs).
+        let [p, q] = ps.as_slice() else { continue };
+        if seg_count.get(&key(*p, *q)) != Some(&1) {
             continue;
         }
-        let qualifies = match ps.as_slice() {
-            [p, q] => line_edge(*p, *q),
-            // A centre node lies inside its element: supported only within a supported region,
-            // i.e. when every edge around it qualifies and at least one is interior (an element
-            // whose edges are all exterior — a one-element plate — has a free middle).
-            ring => {
-                let edges = || (0..ring.len()).map(|k| (ring[k], ring[(k + 1) % ring.len()]));
-                edges().all(|(p, q)| line_edge(p, q))
-                    && edges().any(|(p, q)| b.edge_facets.get(&key(p, q)).is_none_or(|fs| fs.len() > 1))
-            }
-        };
-        if !qualifies {
-            continue;
-        }
+        let (Some(&sp), Some(&sq)) = (sup_by_node.get(p), sup_by_node.get(q)) else { continue };
+        let sups = [sp, sq];
         if sups.iter().any(|s| [s.kx, s.ky, s.kz, s.krx, s.kry, s.krz].iter().any(|k| k.is_some_and(|v| v != 0.0))) {
             push_once(&mut caveats, "springsNotDistributed");
         }
@@ -639,6 +640,7 @@ pub fn refine_uniform(input: &SolverInput3D, mode: GeometryMode) -> Result<Refin
             continue;
         }
         let s0 = sups[0];
+        supports_inferred += 1;
         out.supports.insert(next_sup.to_string(), SolverSupport3D {
             node_id: *nid, rx, ry, rz, rrx, rry, rrz,
             kx: None, ky: None, kz: None, krx: None, kry: None, krz: None,
@@ -651,10 +653,13 @@ pub fn refine_uniform(input: &SolverInput3D, mode: GeometryMode) -> Result<Refin
         next_sup += 1;
     }
 
+    if supports_inferred > 0 {
+        push_once(&mut caveats, "supportsInferred");
+    }
     for n in b.new_nodes.drain(..) {
         out.nodes.insert(n.id.to_string(), n);
     }
-    Ok(Refined { input: out, caveats })
+    Ok(Refined { input: out, caveats, supports_inferred })
 }
 
 /// Small dense solve with partial pivoting; None when (nearly) singular.

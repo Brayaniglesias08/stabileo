@@ -80,7 +80,9 @@ but the load goes straight into the supports — one simply supported element un
 the simplest case; the mesh is too coarse to say anything and the panel warns to refine it), or
 `tooCoarse` when no element shares a node with another of its kind (a one-element mesh): every
 recovery patch is the element itself, so the recovered field is its own and the estimate would
-be ≈ 0 by construction. "Alone" uses the recovery's own patch definition (`recovery::patches`):
+be ≈ 0 by construction; or `nonFinite` when the stress field holds NaN or infinity (a NaN
+ratio compares false against every threshold and would read as small; flagged, no element
+map). "Alone" uses the recovery's own patch definition (`recovery::patches`):
 two triangles meeting at a 90° fold share a node but not a patch. When only some elements are
 alone (a lone gusset, an element cut off by folds), they are listed in `isolatedElements`, have
 no indicator (absent, not 0) and no colour on the map, are left out of the global figure, and
@@ -106,12 +108,16 @@ shows a warning.
   only see one side. `faceted` keeps the model exactly as drawn. Folds, edges shared by three or
   more elements and edges carrying a frame member stay straight. Frame members along split
   edges are split at the same node (exact), with releases kept at the outer ends and member loads
-  split. New nodes between supported nodes get the restraints both share, and interpolated
-  prescribed displacements, unless the edge is a chord across a fully supported element that
-  no supported line runs along (the diagonal of a corner triangle whose three nodes sit on two
-  different supported edges is not a line support). Exterior edges between supported nodes are
-  always supported, so the end edge of a strip one element wide supported along both long sides
-  gets a support at its midpoint it may not have; springs are not copied (caveat
+  split. A new node on an exterior edge (one element on it) between supported nodes gets the
+  restraints both share, and interpolated prescribed displacements: a plate simply supported on
+  its edges stays supported along them, however coarse. Nodes on interior edges and element
+  centres stay free: a slab meshed one element per bay on a column grid keeps its interior
+  columns as points (supporting every edge between two columns would pin the whole refined
+  slab), and a wall under a slab drawn as a row of supported nodes is refined as that row of
+  points. The exterior-edge rule cannot tell columns on a free edge (or the end edge of a strip
+  one element wide) from a coarse supported edge, so whenever it adds supports the study says
+  so (caveat `supportsInferred`, count in `supportsInferred`: supports of the finest mesh at
+  nodes the model as drawn does not have). Springs are not copied (caveat
   `springsNotDistributed`). Pressures,
   temperatures and self-weight go to every child, edge loads to the children on that edge, nodal
   loads stay on their node. Models with constraints, connectors or curved beams are refused.
@@ -122,8 +128,9 @@ shows a warning.
   from the through-thickness pairs; the resultant reaction of each group of
   connected supported nodes (nodal reactions along a line support depend on the mesh, their sum
   does not); the largest moment anywhere along any member, from its exact diagram (a member
-  split by the refinement reads the same, so an exact beam shows no change). Changes below 10⁻⁶
-  of the value count as converged.
+  split by the refinement reads the same, so an exact beam shows no change). A last step below
+  10⁻⁶ of the value counts as converged at the finest mesh, whatever the first step did
+  (round-off after convergence is not an oscillation).
 * **Richardson.** For q0 (model), q1, q2: observed order `p = log₂((q1 − q0)/(q2 − q1))`,
   `q∞ = q2 + (q2 − q1)/(2ᵖ − 1)`, estimated error of the model `|q0 − q∞|/|q∞|`. Status
   `oscillating` (non-monotone, no extrapolation), `notConverging` (differences growing: a
@@ -150,16 +157,16 @@ same points and components:
 | Curved shell | 1.12 | 1.05 | 1.01 |
 | DKT | 1.48 | 1.28 | 1.10 |
 | MITC9 | 0.97 | 0.82 | 0.42* |
-| SHB8 solid-shell | 0.74 | 0.46 | 0.24** |
+| SHB8 solid-shell | 1.34 | 1.23 | 1.12** |
 
 \* MITC9 converges to the Reissner–Mindlin solution, whose soft simple support has a
 twisting-moment boundary layer the Kirchhoff moments lack; on fine meshes the "true error" is that
 model difference, which a mesh-error estimator rightly does not report.
-\*\* The solid-shell's centre deflection is ≈ 18 % low on this thin plate and does not improve
-under refinement (0.80, 0.81, 0.82 of Kirchhoff): its 3D constitutive law stiffens thin-plate
-bending by (1 − ν)(1 − ν²)/((1 + ν)(1 − 2ν)) ≈ 1.23 (Poisson thickness locking). That is a model
-error of the element, not a discretization error, and no recovery-based estimate can see it.
-Until the element is fixed the solid-shell estimate covers its mesh error only.
+\*\* With the locking fix of #401 (ANS + condensed EAS, which the samples read) the
+solid-shell converges to Kirchhoff on this thin plate (centre deflection 0.972, 0.995, 1.000) and,
+like DKT, its estimate over-states the error on the coarse meshes. Before #401 it was ≈ 18 % too
+stiff under refinement (Poisson thickness locking), a model error no recovery-based estimate can
+see.
 
 Scordelis–Lo roof (curved shell, 4 × 4 refined three times, true error from the energy
 identity against the Richardson limit): θ = 1.01, 0.98, 0.93, 0.87. MITC9 on the 4 × 4 mesh:
@@ -180,7 +187,7 @@ extrapolated from the last three meshes:
 | | curved shell | 8 × 8 | 0.0902, 0.0924, 0.0930, 0.0933 | 0.0935 | 0.093 |
 | Morley 30° skew plate, w_c | DKT | 4 × 4 | 1.809, 1.225, 1.074, 1.027 | 1.006 (p = 1.7) | 1 (Kirchhoff) |
 | | MITC4 | 4 × 4 | 0.877, 0.841, 0.841, 0.886 | oscillating: no extrapolation | 1 |
-| SS square plate, w_c | MITC4 / DKT / MITC9 | 4 × 4 | | 1.006 / 1.001 / 1.007 | 1 (0.00406 qa⁴/D) |
+| SS square plate, w_c | MITC4 / DKT / MITC9 | 4 × 4 | | 1.006 / 1.001 / not converging† | 1 (0.00406 qa⁴/D) |
 | Clamped square plate, w_c | MITC4 / DKT / MITC9 | 4 × 4 | | 1.006 / 1.004 / 1.006 | 1 (0.00126 qa⁴/D) |
 
 Plate values are ratios to the Kirchhoff reference; the Reissner–Mindlin elements converge to the
@@ -192,6 +199,11 @@ leaves a geometry error the smooth reconstruction cannot remove (the cylinder ex
 
 \*\*\* MITC9 on Scordelis–Lo drifts up by ≈ 0.5 % per refinement from this mesh; the check says
 "not converging" instead of extrapolating, which is the point of having it.
+† MITC9 on the simply supported square dips and then rises (1.0037, 1.0030, 1.0045, 1.0068):
+not in the asymptotic range on these meshes, so no extrapolation; the finest mesh is 1.007.
+
+The tests assert the status of every sequence above: an extrapolation is checked only where the
+sequence is `converging`, never the finest value standing in for one.
 
 
 ## References

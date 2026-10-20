@@ -638,10 +638,11 @@ pub fn solid_shell_stresses(
 }
 
 /// In-plane stress samples at the 2×2×2 integration points, for discretization-error
-/// estimation: the in-plane strains (ε11, ε22, γ12) of the compatible B in the mid-surface frame
-/// of each point (e3 along ∂x/∂ζ, e1 along ∂x/∂ξ), turned into stress with the plane-stress law.
-/// The thickness strain and the transverse shears, which the stiffness replaces with ANS fields,
-/// are not sampled: the estimate covers the membrane and bending energy, as for the shells.
+/// estimation: the in-plane strains (ε11, ε22, γ12) of the strain the element's energy is built
+/// from (ANS + condensed EAS, `strain_with_alpha`, as every other stress recovery of this element
+/// reads it), in the mid-surface frame of each point (e3 along ∂x/∂ζ, e1 along ∂x/∂ξ), turned
+/// into stress with the plane-stress law. The thickness strain and the transverse shears are not
+/// sampled: the estimate covers the membrane and bending energy, as for the shells.
 pub fn solid_shell_inplane_samples(
     coords: &[[f64; 3]; 8],
     u: &[f64],
@@ -649,8 +650,7 @@ pub fn solid_shell_inplane_samples(
     nu: f64,
 ) -> Vec<super::ShellStressSample> {
     let c = e / (1.0 - nu * nu);
-    // The strain the element's energy is built from (ANS + condensed EAS), as every other
-    // stress recovery of this element reads it (`solid_shell_strain`); α once per element.
+    // α once per element.
     let alpha = eas_alpha(&eas_operators(coords, &material_matrix_3d(e, nu)), u);
     let mut out = Vec::with_capacity(8);
     for &(xi, eta, zeta, w) in &gauss_2x2x2() {

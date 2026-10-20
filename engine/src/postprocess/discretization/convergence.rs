@@ -95,9 +95,12 @@ pub struct ConvergenceStudy {
     pub max_estimated_error: Option<f64>,
     pub threshold: f64,
     pub exceeds_threshold: bool,
-    /// `springsNotDistributed`, `inclinedSupportsDropped`, `singleRefinement`,
-    /// `dofLimit`, `centroidStresses`.
+    /// `springsNotDistributed`, `inclinedSupportsDropped`, `supportsInferred`,
+    /// `singleRefinement`, `dofLimit`, `centroidStresses`.
     pub caveats: Vec<String>,
+    /// Supports the finest solved mesh has at nodes the model as drawn does not: refinement
+    /// supports new nodes on exterior edges between supported nodes (`supportsInferred`).
+    pub supports_inferred: usize,
 }
 
 /// Governing quantities of one solution, keyed for matching across meshes (`original_max_node`:
@@ -311,10 +314,11 @@ pub fn richardson(values: &[f64]) -> (Option<f64>, Option<f64>, Option<f64>, &'s
         }
         [q0, q1, q2, ..] => {
             let (d1, d2) = (q1 - q0, q2 - q1);
-            // Changes below a millionth of the value are noise, not discretization: converged,
-            // whichever way they wobble.
+            // Changes below a millionth of the value are noise, not discretization: a last step
+            // that small is converged at the finest mesh, whatever the first did and whichever
+            // way it wobbles.
             let tiny = 1e-6 * scale;
-            if d1.abs() <= tiny && d2.abs() <= tiny {
+            if d2.abs() <= tiny {
                 return (None, Some(*q2), Some(rel(*q0, *q2)), "converged");
             }
             if d1 * d2 < 0.0 {
@@ -347,6 +351,7 @@ pub fn convergence_study_3d(input: &SolverInput3D, opts: &ConvergenceOptions) ->
     let original_max_node = input.nodes.values().map(|n| n.id).max().unwrap_or(0);
     let mut caveats: Vec<String> = vec!["centroidStresses".into()];
     let mut models = vec![input.clone()];
+    let mut supports_inferred = 0;
     for _ in 0..levels_wanted {
         let refined = refine_uniform(models.last().unwrap(), opts.geometry)?;
         if dofs(&refined.input) > opts.max_dofs {
@@ -356,6 +361,7 @@ pub fn convergence_study_3d(input: &SolverInput3D, opts: &ConvergenceOptions) ->
         for c in refined.caveats {
             if !caveats.contains(&c) { caveats.push(c); }
         }
+        supports_inferred += refined.supports_inferred;
         models.push(refined.input);
     }
     if models.len() < 2 {
@@ -408,5 +414,6 @@ pub fn convergence_study_3d(input: &SolverInput3D, opts: &ConvergenceOptions) ->
         threshold: opts.threshold,
         exceeds_threshold,
         caveats,
+        supports_inferred,
     })
 }

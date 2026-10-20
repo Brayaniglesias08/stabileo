@@ -31,8 +31,15 @@ now estimates the second one, and never presents it as certified (docs/verificat
   (solved as prismatic pieces) are not claimed exact.
 - **Fix (results): curved-shell self-weight was 1000× too heavy** (density taken in kN/m³
   instead of kg/m³ like every other shell). Not reachable from the web app.
-- Found, not fixed: the SHB8 solid-shell is ≈ 18 % too stiff in thin-plate bending (Poisson
-  thickness locking; centre deflection 0.82 of Kirchhoff on a t/a = 0.01 plate under refinement).
+- SHB8 solid-shells are estimated from the ANS + EAS strain the element is built from (#401):
+  on the Navier plate (t/a = 0.01) the centre deflection converges to Kirchhoff (0.972, 0.995,
+  1.000 at n = 4, 8, 16) with effectivity 1.34, 1.23, 1.12, asserted like the other families.
+- Refinement supports a new node only on an exterior edge between supported nodes: a slab on a
+  column grid meshed one element per bay keeps its interior columns as points (supporting every
+  edge between columns pinned the whole refined slab and reported it converged). When the rule
+  adds supports the study says so (caveat `supportsInferred`, with the count). A model whose
+  elements name a missing node is an error, not a panic; a non-finite estimate is `nonFinite`,
+  never a NaN percentage; a last Richardson step within round-off is converged, not oscillating.
 
 #### Solid shell: Poisson thickness locking and in-plane locking removed (2026-10-18, #400)
 

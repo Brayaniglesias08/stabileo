@@ -71,8 +71,9 @@ pub struct DiscretizationEstimate {
     /// or `noStrainEnergy` (loaded, but the mesh carries no strain above round-off — e.g. a
     /// single simply supported element whose load goes straight into its supports: the mesh is
     /// too coarse to say anything, refine it) or `tooCoarse` (no element shares a node with
-    /// another of its kind, so no patch is larger than the element itself). None when estimated
-    /// or when there are no shells.
+    /// another of its kind, so no patch is larger than the element itself) or `nonFinite` (the
+    /// stress field holds NaN or infinity: a NaN ratio compares false against every threshold
+    /// and would read as small). None when estimated or when there are no shells.
     pub unestimable_reason: Option<String>,
     /// Estimated energy-norm error η (√(kN·m)).
     pub error_norm: f64,
@@ -167,7 +168,10 @@ pub fn estimate_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Result
     let floor = 1e-24 * raw.energy_scale;
     let relative_error = if n > 0 {
         notes.push("transverseShearExcluded".into());
-        if u_all + eta2 <= floor {
+        if ![eta2, u_all, floor].iter().all(|v| v.is_finite()) {
+            unestimable_reason = Some("nonFinite".to_string());
+            None
+        } else if u_all + eta2 <= floor {
             unestimable_reason = Some(if is_loaded(results) { "noStrainEnergy" } else { "unloaded" }.to_string());
             None
         } else if n_estimated == 0 || u + eta2 <= floor {
@@ -224,9 +228,10 @@ pub fn estimate_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Result
     Ok(DiscretizationEstimate {
         certified: false,
         method: "zz-spr".into(),
-        // A loaded mesh too coarse to estimate is flagged like one above the threshold.
+        // A loaded mesh too coarse to estimate, or a non-finite field, is flagged like one above
+        // the threshold.
         exceeds_threshold: relative_error.is_some_and(|r| r > threshold)
-            || matches!(unestimable_reason.as_deref(), Some("noStrainEnergy" | "tooCoarse"))
+            || matches!(unestimable_reason.as_deref(), Some("noStrainEnergy" | "tooCoarse" | "nonFinite"))
             || isolated_significant,
         relative_error,
         unestimable_reason,
