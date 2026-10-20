@@ -50,6 +50,7 @@ const es: Record<string, string> = {
   'landing.navPro': 'PRO',
   'landing.navAi': 'IA',
   'landing.navEducation': 'Educativo',
+  'landing.navPricing': 'Precios',
   'landing.navBlog': 'Blog',
   'landing.ebHero': 'LIBRE Y ABIERTO · CÁLCULO ESTRUCTURAL',
   'landing.heroH': 'Cálculo estructural, en una pestaña del navegador.',

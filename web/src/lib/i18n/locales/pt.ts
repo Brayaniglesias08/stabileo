@@ -48,6 +48,7 @@ const pt: Translations = {
   'landing.navPro': 'PRO',
   'landing.navAi': 'IA',
   'landing.navEducation': 'Educacional',
+  'landing.navPricing': 'Preços',
   'landing.navBlog': 'Blog',
   'landing.ebHero': 'LIVRE E ABERTO · CÁLCULO ESTRUTURAL',
   'landing.heroH': 'Cálculo estrutural, numa aba do navegador.',

@@ -50,6 +50,7 @@ const en: Record<string, string> = {
   'landing.navPro': 'PRO',
   'landing.navAi': 'AI',
   'landing.navEducation': 'Education',
+  'landing.navPricing': 'Pricing',
   'landing.navBlog': 'Blog',
   'landing.ebHero': 'FREE AND OPEN · STRUCTURAL ANALYSIS',
   'landing.heroH': 'Structural analysis, in a browser tab.',
