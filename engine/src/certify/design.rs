@@ -2357,3 +2357,34 @@ mod tests {
         }
     }
 }
+
+// ==================== Isolated footings (CIRSOC 201) ====================
+
+const FOOTING_CHECK_NAMES: [&str; 3] = ["Bearing", "One-way shear", "Punching"];
+
+/// Certified CIRSOC 201 isolated footings (`postprocess::isolated_footing`): per footing, the
+/// enclosure of the bearing, one-way shear and punching utilizations, evaluated through the same
+/// generic formulas as the ordinary check. A footing the check refuses (uplift, a significant or
+/// unformed unbalanced moment, not isolated) is not certified.
+pub fn certify_isolated_footings(
+    input: &crate::postprocess::isolated_footing::IsolatedFootingInput,
+) -> Vec<CertifiedMemberResult> {
+    use crate::postprocess::isolated_footing::footing_ratio_enclosures;
+    certify_members(
+        &input.footings,
+        |f| f.footing_id,
+        &input.footings,
+        |f| f.footing_id,
+        &FOOTING_CHECK_NAMES,
+        |f, _| {
+            let r = footing_ratio_enclosures::<Interval>(f)?;
+            for (e, name) in r.iter().zip(FOOTING_CHECK_NAMES) {
+                if !e.is_finite() {
+                    return Err(format!("{name}: enclosure not finite"));
+                }
+            }
+            Ok(r.to_vec())
+        },
+    )
+}
+

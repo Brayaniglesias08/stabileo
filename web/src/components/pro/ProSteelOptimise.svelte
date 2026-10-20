@@ -105,7 +105,7 @@
     </div>
   </details>
   {#if !hasResults}<p class="so-warn">{t('opt.needSolve')}</p>{/if}
-  {#if steelOptimise.error}<p class="so-warn">{t(steelOptimise.error)}</p>{/if}
+  {#if steelOptimise.error}<p class="so-warn" role="alert" data-testid="so-error">{t(steelOptimise.error)}{steelOptimise.errorDetail ? ` ${steelOptimise.errorDetail}` : ''}</p>{/if}
   {#if steelOptimise.outOfScope > 0}<p class="so-warn" data-testid="opt-out-of-scope">{tp('opt.onlySteel', { n: steelOptimise.outOfScope })}</p>{/if}
 
   {#if rows.length > 0}
