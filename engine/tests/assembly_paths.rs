@@ -250,7 +250,7 @@ fn forces_2d(axial: &HashMap<usize, f64>) -> Vec<ElementForces> {
         .iter()
         .map(|(&id, &n)| ElementForces {
             element_id: id, n_start: n, n_end: n, v_start: 0.0, v_end: 0.0, m_start: 0.0, m_end: 0.0,
-            length: 0.0, q_i: 0.0, q_j: 0.0, point_loads: vec![], distributed_loads: vec![],
+            length: 0.0, q_i: 0.0, q_j: 0.0, point_loads: vec![], distributed_loads: vec![], distributed_loads_x: vec![],
             hinge_start: false, hinge_end: false,
         })
         .collect();
@@ -566,6 +566,10 @@ fn embed(input: &SolverInput, rot_sign: f64) -> SolverInput3D {
                 let (cy, cz) = transverse(pl.element_id);
                 SolverLoad3D::PointOnElement(SolverPointLoad3D { element_id: pl.element_id, a: pl.a, py: cy * pl.p, pz: cz * pl.p })
             }
+            SolverLoad::AxialDistributed(al) => SolverLoad3D::Distributed(SolverDistributedLoad3D {
+                element_id: al.element_id, q_xi: al.q_i, q_xj: al.q_j,
+                q_yi: 0.0, q_yj: 0.0, q_zi: 0.0, q_zj: 0.0, a: al.a, b: al.b,
+            }),
             SolverLoad::Thermal(tl) => {
                 let (cy, cz) = transverse(tl.element_id);
                 // Opposite conventions: the 2D gradient is the −y face minus
@@ -774,6 +778,7 @@ fn shrink_2d(mut m: SolverInput, fails: &dyn Fn(&SolverInput) -> bool) -> Solver
                     SolverLoad::Distributed(d) => d.element_id != id,
                     SolverLoad::PointOnElement(p) => p.element_id != id,
                     SolverLoad::Thermal(th) => th.element_id != id,
+                    SolverLoad::AxialDistributed(a) => a.element_id != id,
                     SolverLoad::Nodal(_) => true,
                 });
                 cands.push(t);

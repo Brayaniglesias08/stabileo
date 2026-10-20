@@ -779,7 +779,7 @@ mod tests {
             v_start: 30.0, v_end: -30.0,
             m_start: 0.0, m_end: 0.0,
             q_i: -10.0, q_j: -10.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         }
     }
@@ -852,7 +852,7 @@ mod tests {
             v_start: 5.0, v_end: -5.0,
             m_start: -100.0, m_end: 100.0,
             q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
         let ef1 = ElementForces {
@@ -861,7 +861,7 @@ mod tests {
             v_start: 200.0, v_end: -200.0,
             m_start: -10.0, m_end: 10.0,
             q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
 
@@ -912,7 +912,7 @@ mod tests {
             element_id: 99, length: 6.0,
             n_start: 0.0, n_end: 0.0, v_start: 0.0, v_end: 0.0,
             m_start: 0.0, m_end: 0.0, q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
 
@@ -943,7 +943,7 @@ mod tests {
             element_id: 99, length: 6.0,
             n_start: 0.0, n_end: 0.0, v_start: 0.0, v_end: 0.0,
             m_start: 0.0, m_end: 0.0, q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
 
@@ -999,7 +999,7 @@ mod tests {
             v_start: 5.0, v_end: -5.0,
             m_start: -100.0, m_end: 100.0,
             q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
         let ef1 = ElementForces {
@@ -1008,7 +1008,7 @@ mod tests {
             v_start: 200.0, v_end: -200.0,
             m_start: -10.0, m_end: 10.0,
             q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
 
@@ -1198,7 +1198,7 @@ mod tests {
             v_start: -25.0, v_end: 25.0,
             m_start: 50.0, m_end: 150.0,
             q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
         let ef_b = ElementForces {
@@ -1207,7 +1207,7 @@ mod tests {
             v_start: 20.0, v_end: -20.0,
             m_start: -40.0, m_end: -120.0,
             q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
 
@@ -1277,7 +1277,7 @@ mod tests {
             v_start: -25.0, v_end: 25.0,
             m_start: 50.0, m_end: 150.0,
             q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
 
@@ -1310,7 +1310,7 @@ mod tests {
             element_id: 99, length: 6.0,
             n_start: 0.0, n_end: 0.0, v_start: 0.0, v_end: 0.0,
             m_start: 0.0, m_end: 0.0, q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
 
@@ -1339,7 +1339,7 @@ mod tests {
             v_start: 5.0, v_end: -5.0,
             m_start: 200.0, m_end: 180.0,
             q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
         let ef2_c1 = ElementForces {
@@ -1348,7 +1348,7 @@ mod tests {
             v_start: 3.0, v_end: -3.0,
             m_start: -10.0, m_end: 10.0,
             q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
         let ef1_c2 = ElementForces {
@@ -1357,7 +1357,7 @@ mod tests {
             v_start: 2.0, v_end: -2.0,
             m_start: -5.0, m_end: 5.0,
             q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
         let ef2_c2 = ElementForces {
@@ -1366,7 +1366,7 @@ mod tests {
             v_start: 300.0, v_end: -300.0,
             m_start: -20.0, m_end: 20.0,
             q_i: 0.0, q_j: 0.0,
-            point_loads: vec![], distributed_loads: vec![],
+            point_loads: vec![], distributed_loads: vec![], distributed_loads_x: Vec::new(),
             hinge_start: false, hinge_end: false,
         };
 

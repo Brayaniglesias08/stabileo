@@ -152,12 +152,11 @@ pub fn solve_moving_loads_2d(input: &MovingLoadInput) -> Result<MovingLoadEnvelo
         // Update envelopes
         for ef in &results.element_forces {
             if let Some(env) = envelopes.get_mut(&ef.element_id.to_string()) {
-                let m_max = ef.m_start.max(ef.m_end);
-                let m_min = ef.m_start.min(ef.m_end);
-                let v_max = ef.v_start.max(ef.v_end);
-                let v_min = ef.v_start.min(ef.v_end);
-                let n_max = ef.n_start.max(ef.n_end);
-                let n_min = ef.n_start.min(ef.n_end);
+                // Along the member, not only at its ends: under a span load M peaks inside the
+                // span, and under a sign-changing axial span load so does N.
+                let (m_min, m_max) = diagram_range_2d(ef, "moment", ef.m_start, ef.m_end);
+                let (v_min, v_max) = diagram_range_2d(ef, "shear", ef.v_start, ef.v_end);
+                let (n_min, n_max) = diagram_range_2d(ef, "axial", ef.n_start, ef.n_end);
 
                 env.m_max_pos = env.m_max_pos.max(m_max);
                 env.m_max_neg = env.m_max_neg.min(m_min);
@@ -293,10 +292,42 @@ fn find_segment<'a>(path: &'a [PathSegment], global_pos: f64) -> Option<(&'a Pat
     None
 }
 
+/// The least and greatest value of a 2D diagram along a member: its ends and the stations
+/// the diagrams sample (`diagram_positions_2d`, which include every point load), plus, for N,
+/// where the total axial span load changes sign (N' = −q_x, so N peaks there).
+fn diagram_range_2d(ef: &ElementForces, kind: &str, start: f64, end: f64) -> (f64, f64) {
+    use crate::postprocess::diagrams::{compute_diagram_value_at, diagram_positions_2d};
+    let mut ts = diagram_positions_2d(ef, kind);
+    if kind == "axial" && ef.length > 0.0 {
+        let mut xs: Vec<f64> = vec![0.0, ef.length];
+        for d in &ef.distributed_loads_x { xs.push(d.a); xs.push(d.b); }
+        xs.sort_by(|a, b| a.total_cmp(b));
+        let q_at = |x: f64| -> f64 {
+            ef.distributed_loads_x.iter()
+                .filter(|d| d.b > d.a && x >= d.a && x <= d.b)
+                .map(|d| d.q_i + (d.q_j - d.q_i) * (x - d.a) / (d.b - d.a))
+                .sum()
+        };
+        for w in xs.windows(2) {
+            let (x0, x1) = (w[0], w[1]);
+            if x1 - x0 < 1e-12 { continue; }
+            let h = (x1 - x0) * 1e-9;
+            let (q0, q1) = (q_at(x0 + h), q_at(x1 - h));
+            if q0 * q1 < 0.0 { ts.push((x0 + (x1 - x0) * q0 / (q0 - q1)) / ef.length); }
+        }
+    }
+    let (mut lo, mut hi) = (start.min(end), start.max(end));
+    for t in ts {
+        let v = compute_diagram_value_at(kind, t.clamp(0.0, 1.0), ef);
+        if v.is_finite() { lo = lo.min(v); hi = hi.max(v); }
+    }
+    (lo, hi)
+}
+
 fn base_loads(input: &SolverInput) -> Vec<SolverLoad> {
     // Keep existing permanent loads (nodal and distributed, but not moving point loads)
     input.loads.iter().filter(|l| {
-        matches!(l, SolverLoad::Nodal(_) | SolverLoad::Distributed(_) | SolverLoad::Thermal(_))
+        matches!(l, SolverLoad::Nodal(_) | SolverLoad::Distributed(_) | SolverLoad::Thermal(_) | SolverLoad::AxialDistributed(_))
     }).cloned().collect()
 }
 
