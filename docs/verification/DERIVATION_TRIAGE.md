@@ -27,6 +27,7 @@ on that branch: a test that now passes means the finding is fixed.
 | [#439](https://github.com/lambdaclass/stabileo/issues/439) | web sends no Cw and a fallback J | #468 (batch 4) | real J, shear centre, buckling Cw; missing data refused by name |
 | — | settlement on a spring DOF dropped; Winkler member end forces | #436 (batch 4) | `settlement_on_spring_dof_is_not_silently_dropped`, `winkler_member_end_forces_include_foundation` pass |
 | — | SH-9 solid shell Poisson locking | #401 | `sh9_solid_shell_strip_does_not_poisson_lock` passes |
+| [#407](https://github.com/lambdaclass/stabileo/issues/407) | FR-4 frame/truss thermal: fixed α = 12e-6 and depth √(12I/A) | branch `fix/frame-thermal` (SA-2026-019) | `engine/tests/frame_thermal_inputs.rs` (material α and real depth; defaults warn) |
 
 ## A: wrong results a user would rely on (fix, contain, advisory)
 
@@ -42,7 +43,6 @@ on that branch: a test that now passes means the finding is fixed.
 | [#422](https://github.com/lambdaclass/stabileo/issues/422) | AC-13 "stiff clay" p-y discontinuous, not Reese's curve | same | `py_stiff_clay_is_continuous` fails |
 | [#423](https://github.com/lambdaclass/stabileo/issues/423) | AC-16 t-z / q-z curves missing perimeter / tip area | units kPa·m instead of kN: axial pile springs off by the perimeter or area | none (dimensional); to add |
 | [#411](https://github.com/lambdaclass/stabileo/issues/411) | SH-7 MITC9 on non-planar geometry does not reproduce rigid motion | spurious strains on curved shells | `sh7_curved_mitc9_annihilates_rigid_motions` fails |
-| [#407](https://github.com/lambdaclass/stabileo/issues/407) | FR-4 frame/truss thermal: fixed α = 12e-6 and depth √(12I/A) | thermal forces wrong for other materials or real depths | none; to add |
 
 ## B: fix, no advisory
 
