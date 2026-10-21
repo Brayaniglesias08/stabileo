@@ -599,6 +599,26 @@ fn convergence_pinched_cylinder_and_hemisphere() {
     }
 }
 
+/// MITC9 on the curved benchmarks, 16 × 16 elements (33 × 33 nodes) on the quarter or eighth.
+/// Before SH-7 (#411) the curved elements were strained by rigid rotation and the hemisphere,
+/// whose elements rotate the most, came out 6.5 % stiff (0.9347 of 0.093; 0.50 at 8 × 8); with
+/// the rigid links it is 0.9755 (0.68 at 8 × 8). Scordelis–Lo and the pinched cylinder moved by
+/// less than 0.1 %.
+#[test]
+fn mitc9_curved_benchmarks_at_16x16() {
+    let n = 16;
+    let m = scordelis(Fam::Mitc9, n);
+    let sl = disp(&solve(&m.input), m.grid[0][n].0)[2].abs() / 0.3024;
+    let m = pinched_cylinder(Fam::Mitc9, n);
+    let pc = disp(&solve(&m.input), m.grid[0][0].0)[1].abs() / 1.8248e-5;
+    let m = hemisphere(Fam::Mitc9, n);
+    let hs = disp(&solve(&m.input), m.grid[0][0].0)[0].abs() / 0.093;
+    println!("MITC9 16×16: Scordelis–Lo {sl:.4}, pinched cylinder {pc:.4}, hemisphere {hs:.4}");
+    assert!((sl - 1.0).abs() < 0.01, "Scordelis–Lo {sl:.4}");
+    assert!((pc - 1.0).abs() < 0.015, "pinched cylinder {pc:.4}");
+    assert!((hs - 1.0).abs() < 0.03, "hemisphere {hs:.4}");
+}
+
 /// Plates: Morley's skew plate (DKT; the Mindlin elements are not in the asymptotic range on
 /// these meshes, which the check reports instead of extrapolating) and the simply supported and
 /// clamped squares against Timoshenko's coefficients.
