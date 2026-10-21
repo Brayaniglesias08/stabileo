@@ -3,7 +3,9 @@
 The engine builds the same matrices along several independent code paths. A result
 certificate (`CERTIFY.md`) checks a solve against the K it was given; it cannot see that
 another path would have given a different K. `engine/tests/assembly_paths.rs` compares the
-paths with each other.
+paths with each other. For frames and trusses, the end-to-end certificate (CERTIFY.md, "End-to-end
+certificates") also compares the dense and sparse paths with an independent interval
+re-assembly of the model, on every certified linear solve.
 
 ## What it compares
 

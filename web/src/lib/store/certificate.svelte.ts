@@ -18,7 +18,7 @@
 import { certifiableInputOf, certifiableMultiCaseOf, type CertifiableInput } from '../engine/solver-service';
 import { certifyInWorker, PoolUnavailableError } from '../engine/solver-pool';
 import {
-  certifyLinearWire, hasCertifyExport, type LinearCertificate, type LinearCertificateOnly,
+  certifyLinearWire, hasCertifyExport, type EndToEnd, type LinearCertificate, type LinearCertificateOnly,
   type ForceBound2D, type ForceBound3D, type ShellBound, type MultiCaseCertificate, type CombinationCertificate,
   type StationBound2D, type StationBound3D, type ReactionBound2D, type ReactionBound3D, type ShownBounds,
 } from '../engine/wasm-solver';
@@ -55,6 +55,8 @@ interface Certified {
   deflectionBounds: Map<number, number>;
   /** Each supported node's reaction bounds (absent: not bounded). */
   reactionBounds: Map<number, ReactionBound>;
+  /** The check against an independent re-assembly of the model (base solve only). */
+  endToEnd?: EndToEnd;
 }
 
 export type CertificateState =
@@ -85,6 +87,7 @@ function shownMaps(out: ShownBounds): Pick<Certified, 'stationBounds' | 'deflect
 function fromLinear(out: LinearCertificateOnly): Certified {
   return {
     certificate: out.certificate,
+    endToEnd: out.endToEnd,
     forceBounds: new Map((out.forceBounds ?? []).map((b) => [b.elementId, b])),
     shellBounds: new Map((out.shellBounds ?? []).map((b) => [shellKey(b.kind, b.elementId), b])),
     ...shownMaps(out),
