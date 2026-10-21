@@ -38,6 +38,7 @@ export const safetyAdvisories: Post = {
           caption: 'Avisos publicados. Severidad: crítica cuando la capacidad o la demanda podían quedar muy del lado inseguro sin señal visible.',
           head: ['Aviso', 'Qué', 'Severidad', 'Estado'],
           rows: [
+            ['SA-2026-015', 'Cables con peso propio con tracción baja en estructuras hiperestáticas', 'Alta', 'Corrección en revisión'],
             ['SA-2026-011', 'Apoyo 3D cambiado de resorte a empotrado o articulado, calculado como resorte', 'Alta', 'Corregido el 20/10/2026'],
             ['SA-2026-008', 'Espectro de respuesta: corte basal SRSS con CQC; participación sin la masa acoplada a los apoyos', 'Alta', 'Corregido el 21/10/2026'],
             ['SA-2026-007', 'Pandeo 3D sin modos torsionales ni flexotorsionales', 'Alta', 'Corregido el 21/10/2026'],
@@ -57,6 +58,7 @@ export const safetyAdvisories: Post = {
           caption: 'Casos documentados en cada aviso: el valor correcto y el que informaba Stabileo.',
           head: ['Aviso', 'Caso', 'Correcto', 'Informado', 'Unidad'],
           rows: [
+            ['SA-2026-015', 'Mástil de 20 m arriostrado con un cable de acero de 1 cm², 5 kN en el tope: tracción del cable', '5,18', '4,34', 'kN'],
             ['SA-2026-011', 'Viga de 0, 4 y 8 m, apoyo dibujado como empotrado en 8 m: descenso en ese apoyo', '0', '-14,4', 'mm'],
             ['SA-2026-008', 'Dos modos a ω y 1,1ω: corte basal relativo al valor CQC', '1,00', '0,81', '—'],
             ['SA-2026-007', 'Columna cruciforme de 200×10 mm y 1,5 m: carga crítica', '2993', '5860', 'kN'],
@@ -82,6 +84,18 @@ export const safetyAdvisories: Post = {
         { k: 'h', t: 'SA-2026-012: esfuerzos de barra en el análisis no lineal de material' },
         { k: 'p', t: 'Después de que una barra fluía, el solver equilibraba las cargas con la rigidez reducida pero informaba los esfuerzos calculados con la rigidez elástica. Desplazamientos y reacciones eran correctos; los esfuerzos de barra y la utilización no: en una ménsula, el momento informado era 100 veces el real. Este solver sólo se usa desde el motor o su API WASM: ninguna pantalla de la aplicación lo llama, así que los resultados obtenidos en stabileo.com no están afectados.' },
         { k: 'ext', href: `${REPO}/SA-2026-012-material-nonlinear-member-forces.md`, label: 'SA-2026-012 completo', t: 'El aviso, con la ménsula de prueba:' },
+
+        { k: 'h', t: 'SA-2026-015: tracción de cables con peso propio' },
+        { k: 'p', t: 'El análisis de cables usaba el módulo de Ernst, que es la tangente de la ley de la cuerda de un cable que cuelga con su peso, como si fuera una secante desde la cuerda recta. La flecha absorbe longitud de cuerda, así que un cable necesita más tracción que EA·ε para un alargamiento dado, no menos. Donde el equilibrio solo fija la fuerza del cable, la tracción era correcta; donde el cable comparte la carga con otras barras (un mástil arriostrado, un cable que rigidiza un pórtico), el cable quedaba con tracción baja y las barras vecinas con más esfuerzo: en el mástil de prueba, 4,34 kN en lugar de 5,18 kN, y con cargas menores la iteración no convergía. Afecta en la aplicación a los modelos 3D con barras de comportamiento «cable» cuyo material tiene densidad.' },
+        {
+          k: 'ul',
+          items: [
+            'Cómo saber si te afecta: el modelo tiene barras con comportamiento «cable», su material tiene densidad y el cable no es el único camino de la carga.',
+            'Qué hacer: verificá a mano las tracciones de cables y anclajes que gobiernan, o resolvé sin densidad en el material del cable (sin peso la ley era correcta); con la corrección publicada, volvé a resolver.',
+            'Estado: corrección en revisión. El cálculo de cables ahora resuelve por Newton la ley de la cuerda misma.',
+          ],
+        },
+        { k: 'ext', href: `${REPO}/SA-2026-015-cable-tension-chord-law.md`, label: 'SA-2026-015 completo', t: 'El aviso, con el mástil de prueba y la solución cerrada:' },
 
         { k: 'h', t: 'SA-2026-008: corte basal y participación modal en el análisis espectral' },
         { k: 'p', t: 'Con la regla CQC, el corte basal informado se combinaba igual con SRSS. Los cortes basales de los modos en una dirección tienen el mismo signo, así que CQC da más que SRSS: con dos modos cercanos el valor informado quedaba un 19 % bajo. Además, los factores de participación omitían la masa que la matriz de masa consistente acopla a los apoyos, lo que subestimaba la respuesta en modelos con pocas barras por columna.' },
@@ -170,6 +184,7 @@ export const safetyAdvisories: Post = {
           caption: 'Published advisories. Severity: critical when capacity or demand could be far on the unsafe side with no visible sign.',
           head: ['Advisory', 'What', 'Severity', 'Status'],
           rows: [
+            ['SA-2026-015', 'Cables with self-weight got too little tension in indeterminate structures', 'High', 'Fix in review'],
             ['SA-2026-011', '3D support switched from spring to fixed or pinned, solved as a spring', 'High', 'Fixed 2026-10-20'],
             ['SA-2026-008', 'Response spectrum: base shear SRSS under CQC; participation without support-coupled mass', 'High', 'Fixed 2026-10-21'],
             ['SA-2026-007', '3D buckling without torsional or flexural-torsional modes', 'High', 'Fixed 2026-10-21'],
@@ -189,6 +204,7 @@ export const safetyAdvisories: Post = {
           caption: 'Cases documented in each advisory: the correct value and the one Stabileo reported.',
           head: ['Advisory', 'Case', 'Correct', 'Reported', 'Unit'],
           rows: [
+            ['SA-2026-015', '20 m guyed mast, 1 cm² steel guy, 5 kN at the top: guy tension', '5.18', '4.34', 'kN'],
             ['SA-2026-011', 'Beam at 0, 4 and 8 m, support drawn as fixed at 8 m: deflection at that support', '0', '-14.4', 'mm'],
             ['SA-2026-008', 'Two modes at ω and 1.1ω: base shear relative to the CQC value', '1.00', '0.81', '—'],
             ['SA-2026-007', '200×10 mm cruciform column, 1.5 m: critical load', '2993', '5860', 'kN'],
@@ -214,6 +230,18 @@ export const safetyAdvisories: Post = {
         { k: 'h', t: 'SA-2026-012: member forces in material-nonlinear analysis' },
         { k: 'p', t: 'After a member yielded, the solver balanced the loads with the reduced stiffness but reported forces computed with the elastic stiffness. Displacements and reactions were right; member forces and utilization were not: in a cantilever the reported moment was 100 times the real one. This solver is only reachable from the engine or its WASM API: no screen in the app calls it, so results obtained on stabileo.com are not affected.' },
         { k: 'ext', href: `${REPO}/SA-2026-012-material-nonlinear-member-forces.md`, label: 'Full SA-2026-012', t: 'The advisory, with the test cantilever:' },
+
+        { k: 'h', t: 'SA-2026-015: tension of cables with self-weight' },
+        { k: 'p', t: 'The cable analysis used Ernst\'s modulus, the tangent of the chord law of a cable hanging under its own weight, as if it were a secant from the straight chord. Sag takes up chord length, so a cable needs more tension than EA·ε for a given stretch, not less. Where equilibrium alone fixes the cable force the tension was right; where the cable shares the load with other members (a guyed mast, a cable bracing a frame) the cable got too little tension and the members next to it too much: in the test mast, 4.34 kN instead of 5.18 kN, and with smaller loads the iteration did not converge. In the app it affects 3D models with members whose behaviour is "cable" and whose material has a density.' },
+        {
+          k: 'ul',
+          items: [
+            'How to tell: the model has members with the "cable" behaviour, their material has a density, and the cable is not the only load path.',
+            'What to do: check the governing cable and anchorage forces by hand, or solve without density on the cable material (without weight the law was right); once the fix is published, re-run.',
+            'Status: fix in review. The cable analysis now solves the chord law itself by Newton iteration.',
+          ],
+        },
+        { k: 'ext', href: `${REPO}/SA-2026-015-cable-tension-chord-law.md`, label: 'Full SA-2026-015', t: 'The advisory, with the test mast and its closed form:' },
 
         { k: 'h', t: 'SA-2026-008: base shear and modal participation in spectral analysis' },
         { k: 'p', t: 'With the CQC rule, the reported base shear was still combined with SRSS. The modal base shears in one direction share a sign, so CQC gives more than SRSS: with two close modes the reported value was 19 % low. The participation factors also omitted the mass that the consistent mass matrix couples to the supports, which underestimated the response in models with few elements per column.' },
@@ -302,6 +330,7 @@ export const safetyAdvisories: Post = {
           caption: 'Avisos publicados. Severidade: crítica quando a capacidade ou a solicitação podiam ficar muito contra a segurança sem sinal visível.',
           head: ['Aviso', 'O quê', 'Severidade', 'Situação'],
           rows: [
+            ['SA-2026-015', 'Cabos com peso próprio com tração baixa em estruturas hiperestáticas', 'Alta', 'Correção em revisão'],
             ['SA-2026-011', 'Apoio 3D trocado de mola para engaste ou rótula, calculado como mola', 'Alta', 'Corrigido em 20/10/2026'],
             ['SA-2026-008', 'Espectro de resposta: cortante basal SRSS com CQC; participação sem a massa acoplada aos apoios', 'Alta', 'Corrigido em 21/10/2026'],
             ['SA-2026-007', 'Flambagem 3D sem modos torcionais nem flexo-torcionais', 'Alta', 'Corrigido em 21/10/2026'],
@@ -321,6 +350,7 @@ export const safetyAdvisories: Post = {
           caption: 'Casos documentados em cada aviso: o valor correto e o que o Stabileo informava.',
           head: ['Aviso', 'Caso', 'Correto', 'Informado', 'Unidade'],
           rows: [
+            ['SA-2026-015', 'Mastro de 20 m estaiado com cabo de aço de 1 cm², 5 kN no topo: tração do cabo', '5,18', '4,34', 'kN'],
             ['SA-2026-011', 'Viga em 0, 4 e 8 m, apoio desenhado como engaste em 8 m: deslocamento nesse apoio', '0', '-14,4', 'mm'],
             ['SA-2026-008', 'Dois modos em ω e 1,1ω: cortante basal relativo ao valor CQC', '1,00', '0,81', '—'],
             ['SA-2026-007', 'Pilar cruciforme de 200×10 mm e 1,5 m: carga crítica', '2993', '5860', 'kN'],
@@ -346,6 +376,18 @@ export const safetyAdvisories: Post = {
         { k: 'h', t: 'SA-2026-012: esforços de barra na análise não linear de material' },
         { k: 'p', t: 'Depois que uma barra escoava, o solver equilibrava as cargas com a rigidez reduzida, mas informava os esforços calculados com a rigidez elástica. Deslocamentos e reações estavam corretos; esforços de barra e utilização não: num balanço, o momento informado era 100 vezes o real. Este solver só é usado a partir do motor ou da sua API WASM: nenhuma tela do aplicativo o chama, então os resultados obtidos em stabileo.com não são afetados.' },
         { k: 'ext', href: `${REPO}/SA-2026-012-material-nonlinear-member-forces.md`, label: 'SA-2026-012 completo', t: 'O aviso, com o balanço de teste:' },
+
+        { k: 'h', t: 'SA-2026-015: tração de cabos com peso próprio' },
+        { k: 'p', t: 'A análise de cabos usava o módulo de Ernst, que é a tangente da lei da corda de um cabo pendurado sob o próprio peso, como se fosse uma secante a partir da corda reta. A flecha consome comprimento de corda, então um cabo precisa de mais tração que EA·ε para um dado alongamento, não menos. Onde o equilíbrio sozinho fixa a força do cabo, a tração estava certa; onde o cabo divide a carga com outras barras (um mastro estaiado, um cabo que contraventa um pórtico), o cabo ficava com tração baixa e as barras vizinhas com esforço a mais: no mastro de teste, 4,34 kN em vez de 5,18 kN, e com cargas menores a iteração não convergia. No aplicativo afeta modelos 3D com barras de comportamento «cabo» cujo material tem densidade.' },
+        {
+          k: 'ul',
+          items: [
+            'Como saber se afeta você: o modelo tem barras com comportamento «cabo», o material delas tem densidade e o cabo não é o único caminho da carga.',
+            'O que fazer: confira à mão as trações de cabos e ancoragens que governam, ou resolva sem densidade no material do cabo (sem peso a lei estava certa); com a correção publicada, resolva de novo.',
+            'Estado: correção em revisão. A análise de cabos agora resolve a própria lei da corda por Newton.',
+          ],
+        },
+        { k: 'ext', href: `${REPO}/SA-2026-015-cable-tension-chord-law.md`, label: 'SA-2026-015 completo', t: 'O aviso, com o mastro de teste e a solução fechada:' },
 
         { k: 'h', t: 'SA-2026-008: cortante basal e participação modal na análise espectral' },
         { k: 'p', t: 'Com a regra CQC, o cortante basal informado continuava combinado com SRSS. Os cortantes basais modais numa direção têm o mesmo sinal, então CQC dá mais que SRSS: com dois modos próximos o valor informado ficava 19 % baixo. Além disso, os fatores de participação omitiam a massa que a matriz de massa consistente acopla aos apoios, o que subestimava a resposta em modelos com poucos elementos por pilar.' },

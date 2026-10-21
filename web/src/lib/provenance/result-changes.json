@@ -4,6 +4,25 @@
   "currentResultsVersion": 1,
   "changes": [
     {
+      "id": "cable-tension-chord-law",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [],
+      "area": "analysis",
+      "when": { "any": ["members"] },
+      "title": {
+        "en": "Cables with self-weight carry the tension of their sag",
+        "es": "Los cables con peso propio llevan la tracción de su flecha",
+        "pt": "Os cabos com peso próprio levam a tração da sua flecha"
+      },
+      "explanation": {
+        "en": "Members with the cable behaviour whose material has a density got too little tension where they share the load with other members (a guyed mast: 4.34 kN instead of 5.18 kN), and the members next to them too much; the iteration could also fail to converge (SA-2026-015). It concerns 3D models with cable members.",
+        "es": "Las barras con comportamiento de cable cuyo material tiene densidad quedaban con tracción baja donde comparten la carga con otras barras (un mástil arriostrado: 4,34 kN en lugar de 5,18 kN), y las barras vecinas con esfuerzo de más; además la iteración podía no converger (SA-2026-015). Afecta a modelos 3D con barras cable.",
+        "pt": "As barras com comportamento de cabo cujo material tem densidade ficavam com tração baixa onde dividem a carga com outras barras (um mastro estaiado: 4,34 kN em vez de 5,18 kN), e as barras vizinhas com esforço a mais; além disso a iteração podia não convergir (SA-2026-015). Afeta modelos 3D com barras cabo."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-015-cable-tension-chord-law.md", "heading": "SA-2026-015: cable analysis gave cables with self-weight too little tension in statically indeterminate structures" }
+    },
+    {
       "id": "spectral-cqc-and-participation",
       "resultsVersion": 1,
       "date": "2026-10-21",
