@@ -187,7 +187,8 @@ interpolates k in API RP 2GEO Table 5, refusing φ outside 25–40°. The "stiff
 from 0.5·p_u to p_u at y50; it is now Welch & Reese (1972) stiff clay without free water,
 continuous (`free_water: true` is refused). t-z and q-z returned stresses: t-z now needs the
 shaft perimeter and q-z the tip area (kN/m and kN), q-z follows API's table, and the q-z tip
-spring is no longer multiplied by a tributary length. Missing inputs are refused, never assumed.
+spring is no longer multiplied by a tributary length and bears only in compression. Springs on
+missing nodes or along rotations are refused. Missing inputs are refused, never assumed.
 The app's SSI panel asks for J and the sand loading. Known-issue warnings AC-12, AC-13 and
 AC-16 removed. Tests: `engine/tests/soil_curves_references.rs`.
 
