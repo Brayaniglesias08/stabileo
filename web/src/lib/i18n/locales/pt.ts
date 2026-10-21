@@ -9587,6 +9587,10 @@ const pt: Translations = {
   // ─── Certified results (docs/verification/CERTIFY.md) ───
   'certificate.certified': 'Certificado: erro de deslocamentos ≤ {abs} ({rel} relativo)',
   'certificate.notCertified': 'Não certificado: {reason}',
+  'certificate.e2eCertified': 'Verificado de ponta a ponta: uma remontagem independente do modelo concorda; erro de deslocamentos ≤ {abs}',
+  'certificate.e2eFailed': 'A verificação de ponta a ponta falhou: {reason}',
+  'certificate.e2eNotChecked': 'Sem verificação de ponta a ponta: {reason}',
+  'certificate.e2eTooltip': 'Um verificador independente reconstruiu a rigidez e as cargas do modelo a partir dos seus dados (com as suas próprias fórmulas de elementos, em aritmética de intervalos). A montagem do motor concorda com ele, e o limite vale para a solução exata do modelo tal como está escrito.',
   'certificate.pending': 'Certificando…',
   'certificate.tooltip': 'Limite a posteriori rigoroso, demonstrado em Lean: a solução exata do sistema linear montado difere dos deslocamentos calculados em no máximo este valor (norma euclidiana sobre todos os graus de liberdade livres, metros e radianos juntos). O ± ao lado de um esforço de barra limita seu erro da mesma forma.',
   'discretization.tooltip': "Dois erros diferentes. O erro algébrico (certificado) é o quanto os deslocamentos calculados distam da solução exata do sistema de elementos finitos montado: um limite rigoroso. O erro de discretização (estimado) é o quanto esse sistema dista da estrutura que a malha representa; depende da malha, é estimado por recuperação de tensões de Zienkiewicz–Zhu na norma energética (membrana e flexão) e NÃO é certificado.",

@@ -9943,6 +9943,10 @@ const es: Record<string, string> = {
   // ─── Certified results (docs/verification/CERTIFY.md) ───
   'certificate.certified': 'Certificado: error de desplazamientos ≤ {abs} ({rel} relativo)',
   'certificate.notCertified': 'No certificado: {reason}',
+  'certificate.e2eCertified': 'Verificado de punta a punta: un reensamblado independiente del modelo coincide; error de desplazamientos ≤ {abs}',
+  'certificate.e2eFailed': 'Falló la verificación de punta a punta: {reason}',
+  'certificate.e2eNotChecked': 'Sin verificación de punta a punta: {reason}',
+  'certificate.e2eTooltip': 'Un verificador independiente reconstruyó la rigidez y las cargas del modelo a partir de sus datos (con sus propias fórmulas de elementos, en aritmética de intervalos). El ensamblado del motor coincide con él, y la cota vale para la solución exacta del modelo tal como está escrito.',
   'certificate.pending': 'Certificando…',
   'certificate.tooltip': 'Cota a posteriori rigurosa, demostrada en Lean: la solución exacta del sistema lineal ensamblado difiere de los desplazamientos calculados en a lo sumo este valor (norma euclídea sobre todos los grados de libertad libres, metros y radianes juntos). El ± junto a un esfuerzo de barra acota su error de la misma forma.',
   'discretization.tooltip': "Dos errores distintos. El error algebraico (certificado) es cuánto distan los desplazamientos calculados de la solución exacta del sistema de elementos finitos ensamblado: una cota rigurosa. El error de discretización (estimado) es cuánto dista ese sistema de la estructura que la malla representa; depende de la malla, se estima con recuperación de tensiones de Zienkiewicz–Zhu en norma energética (membrana y flexión) y NO está certificado.",

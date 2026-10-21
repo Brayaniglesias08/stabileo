@@ -9954,6 +9954,10 @@ const en: Record<string, string> = {
   // ─── Certified results (docs/verification/CERTIFY.md) ───
   'certificate.certified': 'Certified: displacement error ≤ {abs} ({rel} relative)',
   'certificate.notCertified': 'Not certified: {reason}',
+  'certificate.e2eCertified': 'Checked end to end: an independent re-assembly of the model agrees; displacement error ≤ {abs}',
+  'certificate.e2eFailed': 'End-to-end check failed: {reason}',
+  'certificate.e2eNotChecked': 'Not checked end to end: {reason}',
+  'certificate.e2eTooltip': 'An independent checker rebuilt the model\'s stiffness and loads from its data (its own element formulas, in interval arithmetic). The engine\'s assembly agrees with it, and the bound holds for the exact solution of the model as written.',
   'certificate.pending': 'Certifying…',
   'certificate.tooltip': 'Rigorous a-posteriori bound, proved in Lean: the exact solution of the assembled linear system differs from the computed displacements by at most this amount (Euclidean norm over all free degrees of freedom, meters and radians together). The ± next to a member force bounds its error the same way.',
   'discretization.tooltip': "Two different errors. The algebraic error (certified) is how far the computed displacements are from the exact solution of the assembled finite-element system, a rigorous bound. The discretization error (estimated) is how far that system is from the structure the mesh stands for; it depends on the mesh, is estimated by Zienkiewicz–Zhu stress recovery in the energy norm (membrane and bending), and is NOT certified.",

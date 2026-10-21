@@ -9,6 +9,31 @@ It should capture what changed, not what should be built next.
 
 ## Unreleased
 
+### Added
+
+#### End-to-end certificates for frames and trusses (2026-10-18)
+
+The linear certificate proved the solution of the f64 `K` and `f` the engine assembled; an
+assembly bug would have been certified. An independent checker
+(`engine/src/certify/reassembly/`) now re-derives `K` and `f` from the model JSON in interval
+arithmetic, from formulas written for it (cantilever flexibility and equilibrium, static
+condensation of releases, work-equivalent loads on the exact Timoshenko shapes, its own DOF
+numbering, supports, inclined supports and constraints), and certifies the returned
+displacements against the exact model. The engine's assembled `K` and `f` must agree with it
+to 1e-10 and the displacements must satisfy the model's kinematics. `certify_linear_2d/3d`
+report `endToEnd` and `certificateLevel` (`endToEnd` / `assembled` / `none`). 2D and 3D frames
+(Euler–Bernoulli and Timoshenko), trusses and cables, releases, local axes, springs,
+settlements, inclined supports, rigid links, diaphragms, equal-DOF, eccentric connections,
+MPCs, nodal, distributed, point and thermal loads; shells, connectors, curved beams and
+warping are reported out of scope. Every fixture and 350 stable random frames agree and are
+certified end to end; planted assembly bugs make it fail. Lean: `Certify.end_to_end_bound`.
+Docs: `docs/verification/CERTIFY.md`, "End-to-end certificates".
+
+Found by it (pinned in `engine/tests/certify_end_to_end_findings.rs`): 3D diaphragms in the
+XZ plane tied the slaves with the rotation of the wrong sign (since fixed, #342); in 2D a nodal
+moment on a node where every member is hinged (since refused before the solve), or a rigid link
+from such a node, is held by the artificial spring and the assembled-level certificate
+certifies a model that has no solution.
 ### Changed
 
 #### Discretization error: estimated next to every certified shell result (2026-10-18)

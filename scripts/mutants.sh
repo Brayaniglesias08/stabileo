@@ -37,12 +37,13 @@ case $scope in
     tests+=(certify certify_bundle duplicate_support_reactions determinate_exact index_exhaustive
       fuzz_regressions solver_mutation_kills core integration properties_2d solver_invariants
       pcg_solver_tests sparse_ex_analysis_regressions nan_output_gates conditioning_adversarial
-      assembly_paths feature_matrix)
+      assembly_paths feature_matrix certify_end_to_end certify_end_to_end_mutations)
     ;;&
   element | all)
     files+=(-f 'engine/src/element/**')
     tests+=(element_rigid_body_modes shell_patch_tests shell_rigid_body_modes
-      local_axis_convention determinate_exact opensees_differential_regressions)
+      local_axis_convention determinate_exact opensees_differential_regressions
+      certify_end_to_end certify_end_to_end_mutations)
     ;;
   certify | solver) ;;
   *) echo "MUTANTS_SCOPE must be certify, solver, element or all" >&2; exit 64 ;;
