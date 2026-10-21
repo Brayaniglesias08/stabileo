@@ -82,8 +82,8 @@ pub struct ArcSectionFrame {
 }
 
 impl ArcSectionFrame {
-    /// The local-y reference of a segment from `p_i` to `p_j` (both on the arc's plane):
-    /// a unit vector perpendicular to the segment.
+    /// The local-y reference of a segment from `p_i` to `p_j` (on the arc's plane, up to
+    /// round-off): a unit vector perpendicular to the segment.
     pub fn local_y(&self, p_i: [f64; 3], p_j: [f64; 3]) -> [f64; 3] {
         let n = self.normal;
         let d = sub(p_j, p_i);
@@ -94,7 +94,11 @@ impl ArcSectionFrame {
             return n;
         }
         let m = cross(n, scale(ex, 1.0 / l));
-        [self.a * n[0] + self.b * m[0], self.a * n[1] + self.b * m[1], self.a * n[2] + self.b * m[2]]
+        let y = [self.a * n[0] + self.b * m[0], self.a * n[1] + self.b * m[1], self.a * n[2] + self.b * m[2]];
+        // Exactly perpendicular to the actual segment, should it leave the plane by round-off.
+        let dh = scale(d, 1.0 / norm(d));
+        let y = sub(y, scale(dh, dot(y, dh)));
+        scale(y, 1.0 / norm(y))
     }
 
     /// The frame for an arc of plane normal `n` whose tangent at its middle is `t_mid` (units).

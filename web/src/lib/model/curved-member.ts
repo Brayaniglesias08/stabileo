@@ -194,17 +194,23 @@ export function arcMemberLocalY(spec: Pick<ArcSpec, 'start' | 'through' | 'end'>
     a /= l; b /= l;
   }
   const d = sub(nodeJ, nodeI);
+  // A member no longer in the arc's plane (its nodes were moved) is not a segment of this arc.
+  if (!(Math.abs(dot(d, n)) <= 1e-3 * len(d))) return null;
   const ex0 = sub(d, mul(n, dot(d, n)));
   const l = len(ex0);
   if (!(l > 1e-12)) return null;
   const mi = cross(n, mul(ex0, 1 / l));
-  return add(mul(n, a), mul(mi, b));
+  // Exactly perpendicular to the actual member, which may sit off the plane by the tolerance.
+  const y = add(mul(n, a), mul(mi, b));
+  const dh = mul(d, 1 / len(d));
+  const yp = sub(y, mul(dh, dot(y, dh)));
+  return mul(yp, 1 / len(yp));
 }
 
 /** What `migrateArcLocalAxes` reads and writes of a member. */
 interface ArcMember {
   nodeI: number; nodeJ: number;
-  arc?: { spec: ArcSpec };
+  arc?: { spec: ArcSpec; axes?: 1 };
   localYx?: number; localYy?: number; localYz?: number;
   rollAngle?: number;
 }
@@ -214,7 +220,10 @@ interface ArcMember {
  * which turns the near-vertical members of an arch by 90° (Iy and Iz swapped on them). Each
  * member tagged with an arc and with no orientation of its own (no local y, no roll) takes
  * `arcMemberLocalY` — only where that changes its axes, so a plan curve, whose axes the default
- * rule already gives, is left as it is. Returns how many members changed. Mutates `elements`.
+ * rule already gives, is left as it is. Runs once per member: every arc member it looks at is
+ * marked `arc.axes = 1` (as the arc tool marks the members it builds), and marked members are
+ * never looked at again, so a member later set back to automatic axes stays so through undo, redo
+ * and reopening. Returns how many members changed. Mutates `elements`.
  */
 export function migrateArcLocalAxes(
   elements: Map<number, ArcMember>,
@@ -226,7 +235,9 @@ export function migrateArcLocalAxes(
     return n ? { x: n.x, y: n.y ?? 0, z: n.z ?? 0 } : undefined;
   };
   for (const e of elements.values()) {
-    if (!e.arc?.spec || e.localYx !== undefined || e.localYy !== undefined || e.localYz !== undefined) continue;
+    if (!e.arc?.spec || e.arc.axes === 1) continue;
+    e.arc = { ...e.arc, axes: 1 };
+    if (e.localYx !== undefined || e.localYy !== undefined || e.localYz !== undefined) continue;
     if (e.rollAngle !== undefined && e.rollAngle !== 0) continue;
     const pi = pos(e.nodeI), pj = pos(e.nodeJ);
     if (!pi || !pj) continue;

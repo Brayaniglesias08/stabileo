@@ -239,6 +239,11 @@ describe('the section orientation along the arc (#418)', () => {
     });
   }
 
+  it('gives no local y to a member moved out of the arc plane', () => {
+    const a = arch(90);
+    expect(arcMemberLocalY(a, P(0, -5, 0), P(1, -4.9, 0.5))).toBeNull();
+  });
+
   it('leaves a plan curve on the axes the default rule gives it', () => {
     const pts = arcPoints({ ...HALF, start: P(-5, 0, 3), through: P(0, 5, 3), end: P(5, 0, 3), segments: 12 });
     for (let i = 0; i < 12; i++) {
@@ -271,7 +276,7 @@ describe('the section orientation along the arc (#418)', () => {
     const nodes = new Map(pts.map((p, i) => [i + 1, p]));
     const spec = { start: a.start, through: a.through, end: a.end, segments: 40 };
     const planSpecShape = spec;
-    type M = { nodeI: number; nodeJ: number; arc?: { spec: typeof planSpecShape }; localYx?: number; localYy?: number; localYz?: number; rollAngle?: number };
+    type M = { nodeI: number; nodeJ: number; arc?: { spec: typeof planSpecShape; axes?: 1 }; localYx?: number; localYy?: number; localYz?: number; rollAngle?: number };
     const elements = new Map<number, M>(pts.slice(0, -1).map((_, i) => [i + 1, { nodeI: i + 1, nodeJ: i + 2, arc: { spec } }]));
     // One member whose orientation the engineer stated: kept.
     elements.get(1)!.rollAngle = 15;
@@ -282,6 +287,14 @@ describe('the section orientation along the arc (#418)', () => {
     expect(elements.get(1)!.localYx).toBeUndefined();
     expect(elements.get(40)!.localYx).toBeDefined();
     expect(migrateArcLocalAxes(elements, nodes)).toBe(0);
+    // Once migrated, a member set back to automatic axes stays so (undo, redo, reopening).
+    const last = elements.get(40)!;
+    last.localYx = last.localYy = last.localYz = undefined;
+    expect(migrateArcLocalAxes(elements, nodes)).toBe(0);
+    expect(last.localYx).toBeUndefined();
+    // Members the arc tool built carry the mark and are not migrated.
+    const built = new Map<number, M & { arc: { spec: typeof spec; axes?: 1 } }>([[1, { nodeI: 40, nodeJ: 41, arc: { spec, axes: 1 } }]]);
+    expect(migrateArcLocalAxes(built, nodes)).toBe(0);
 
     const plan = arcPoints({ start: P(-5, 0, 3), through: P(0, 5, 3), end: P(5, 0, 3), segments: 12 });
     const planSpec = { start: P(-5, 0, 3), through: P(0, 5, 3), end: P(5, 0, 3), segments: 12 };

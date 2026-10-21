@@ -549,7 +549,16 @@ export interface Element extends Element3DMetadata {
    * See `lib/model/curved-member.ts`. Carries no analysis meaning: the solver
    * sees straight members and is not told about this.
    */
-  arc?: { id: number; spec: import('../model/curved-member').ArcSpec };
+  arc?: {
+    id: number; spec: import('../model/curved-member').ArcSpec;
+    /**
+     * 1: the member's local axes were set by the arc rule of #418 (`arcMemberLocalY`) — when it
+     * was built, or by the one-time read-migration of an arc saved before. Absent: an arc from
+     * before #418, which `migrateArcLocalAxes` migrates once. Never migrated again after that, so
+     * a member set back to automatic axes stays automatic through undo, redo and reopening.
+     */
+    axes?: 1;
+  };
   /**
    * Stated unbraced length for lateral-torsional buckling, m — where the member is braced
    * against it more often than its geometry shows. Replaces the deduced `Lb`, never `L`; see

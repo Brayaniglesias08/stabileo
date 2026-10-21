@@ -87,7 +87,7 @@
         },
         tag: (elementId, tag) => {
           const el = modelStore.elements.get(elementId);
-          if (el) modelStore.updateElement(elementId, { arc: { id: tag.arcId, spec: tag.spec } } as never);
+          if (el) modelStore.updateElement(elementId, { arc: { id: tag.arcId, spec: tag.spec, axes: 1 } } as never);
         },
       },
       arcId, startId, endId,
