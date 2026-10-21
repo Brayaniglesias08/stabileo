@@ -293,18 +293,8 @@ describe('the safety-advisories post quotes the advisories', () => {
   });
 
   it('quotes each documented case exactly as its advisory states it', () => {
-    // Correct / reported, per advisory: SA-017 soft-clay p_u (kN/m), SA-011 uz (mm), SA-008 base shear /
-    // CQC, SA-007 critical load (kN), SA-006 sway (mm), SA-005 rafter N at
-    // the base (kN), SA-012 cantilever base moment (kN·m), SA-016 arch crown deflection (mm),
-    // SA-009 plate stiffness ratio, SA-013 curved-shell cantilever root moment (kN·m/m).
-    // the base (kN), SA-012 cantilever base moment (kN·m), SA-009 plate stiffness ratio, SA-014
-    // plastic collapse factor of frame3d-2 (certified / worst renumbering).
-    // the base (kN), SA-012 cantilever base moment (kN·m), SA-009 plate stiffness ratio,
-    // SA-015 guyed-mast cable tension (kN).
-    // the base (kN), SA-012 cantilever base moment (kN·m), SA-018 MITC9 patch nodal von Mises
-    // under a 1 mrad rigid rotation (MPa), SA-009 plate stiffness ratio.
-    // the base (kN), SA-012 cantilever base moment (kN·m), SA-020 3D cantilever
-    // first-yield load (kN), SA-009 plate stiffness ratio.
+    // Correct / reported, per advisory, as each advisory's documented-case table states it
+    // (docs/advisories/SA-2026-*.md).
     const cases = post!.i18n.en.blocks.filter((b) => b.k === 'table')[1] as Extract<Block, { k: 'table' }>;
     expect(cases.rows.map((r) => [r[0], r[2], r[3]])).toEqual([
       ['SA-2026-013', '35.0', '0'],
