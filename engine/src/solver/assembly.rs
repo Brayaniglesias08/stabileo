@@ -612,7 +612,7 @@ pub(crate) fn assemble_truss_loads_2d(
         match load {
             SolverLoad::Thermal(tl) if tl.element_id == elem_id => {
                 // Convention matches fef_thermal_2d: node I gets -fx, node J gets +fx (local axial).
-                let alpha = 12e-6; // Steel default
+                let alpha = tl.alpha();
                 let fx = e * area * alpha * tl.dt_uniform;
                 f_global[truss_dofs[0]] += -fx * cos;
                 f_global[truss_dofs[1]] += -fx * sin;
@@ -850,8 +850,8 @@ pub fn assemble_element_loads_2d(
                 }
             }
             SolverLoad::Thermal(tl) if tl.element_id == elem.id => {
-                let alpha = 12e-6; // Steel default
-                let h = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
+                let alpha = tl.alpha();
+                let h = tl.depth(sec.a, sec.iz);
                 let mut fef = fef_thermal_2d(
                     e, sec.a, sec.iz, l,
                     tl.dt_uniform, tl.dt_gradient, alpha, h,
@@ -1397,7 +1397,7 @@ pub(crate) fn truss_member_load_3d(
             }
         }
         SolverLoad3D::Thermal(tl) if tl.element_id == elem.id => {
-            let alpha = 12e-6; // Steel default
+            let alpha = tl.alpha();
             let fx = e * area * alpha * tl.dt_uniform;
             // Equivalent nodal loads: node I ← -fx along axis, node J ← +fx along axis
             for k in 0..3 {
@@ -1914,9 +1914,9 @@ fn assemble_element_loads_3d(
                 }
             }
             SolverLoad3D::Thermal(tl) if tl.element_id == elem.id => {
-                let alpha = 12e-6; // Steel default
-                let hy = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
-                let hz = if sec.a > 1e-15 { (12.0 * sec.iy / sec.a).sqrt() } else { 0.1 };
+                let alpha = tl.alpha();
+                let hy = tl.depth_y(sec.a, sec.iz);
+                let hz = tl.depth_z(sec.a, sec.iy);
                 let mut fef = fef_thermal_3d(
                     e, sec.a, sec.iy, sec.iz, l,
                     tl.dt_uniform, tl.dt_gradient_y, tl.dt_gradient_z,
@@ -1978,9 +1978,9 @@ fn assemble_element_loads_3d_warping(
                 }
             }
             SolverLoad3D::Thermal(tl) if tl.element_id == elem.id => {
-                let alpha = 12e-6;
-                let hy = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
-                let hz = if sec.a > 1e-15 { (12.0 * sec.iy / sec.a).sqrt() } else { 0.1 };
+                let alpha = tl.alpha();
+                let hy = tl.depth_y(sec.a, sec.iz);
+                let hz = tl.depth_z(sec.a, sec.iy);
                 let mut fef12 = fef_thermal_3d(
                     e, sec.a, sec.iy, sec.iz, l,
                     tl.dt_uniform, tl.dt_gradient_y, tl.dt_gradient_z,
@@ -2041,9 +2041,9 @@ fn assemble_element_loads_3d_mapped(
                 }
             }
             SolverLoad3D::Thermal(tl) if tl.element_id == elem.id => {
-                let alpha = 12e-6;
-                let hy = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
-                let hz = if sec.a > 1e-15 { (12.0 * sec.iy / sec.a).sqrt() } else { 0.1 };
+                let alpha = tl.alpha();
+                let hy = tl.depth_y(sec.a, sec.iz);
+                let hz = tl.depth_z(sec.a, sec.iy);
                 let mut fef = fef_thermal_3d(
                     e, sec.a, sec.iy, sec.iz, l,
                     tl.dt_uniform, tl.dt_gradient_y, tl.dt_gradient_z,

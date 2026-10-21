@@ -820,12 +820,8 @@ fn subtract_element_fef(
                 }
             }
             SolverLoad::Thermal(tl) if tl.element_id == elem.id => {
-                let alpha = 12e-6;
-                let h = if sec.a > 1e-15 {
-                    (12.0 * sec.iz / sec.a).sqrt()
-                } else {
-                    0.1
-                };
+                let alpha = tl.alpha();
+                let h = tl.depth(sec.a, sec.iz);
                 let mut fef = fef_thermal_2d(
                     e, sec.a, sec.iz, l,
                     tl.dt_uniform, tl.dt_gradient, alpha, h,

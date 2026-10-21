@@ -768,8 +768,8 @@ pub fn assemble_elements_parallel_2d(input: &SolverInput, dof_num: &DofNumbering
                         }
                     }
                     SolverLoad::Thermal(tl) if tl.element_id == elem.id => {
-                        let alpha = 12e-6;
-                        let h = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
+                        let alpha = tl.alpha();
+                        let h = tl.depth(sec.a, sec.iz);
                         let mut fef = fef_thermal_2d(
                             e, sec.a, sec.iz, l,
                             tl.dt_uniform, tl.dt_gradient, alpha, h,
@@ -1571,9 +1571,9 @@ pub fn assemble_load_vector_3d_sparse_parallel(
                                         for (i, &dof) in elem_dofs.iter().enumerate() { f_global[dof] += fef_global[i]; }
                                     }
                                     SolverLoad3D::Thermal(tl) => {
-                                        let alpha = 12e-6;
-                                        let hy = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
-                                        let hz = if sec.a > 1e-15 { (12.0 * sec.iy / sec.a).sqrt() } else { 0.1 };
+                                        let alpha = tl.alpha();
+                                        let hy = tl.depth_y(sec.a, sec.iz);
+                                        let hz = tl.depth_z(sec.a, sec.iy);
                                         let mut fef12 = element::fef_thermal_3d(e, sec.a, sec.iy, sec.iz, l, tl.dt_uniform, tl.dt_gradient_y, tl.dt_gradient_z, alpha, hy, hz);
                                         adjust_fef_for_hinges_3d(&mut fef12, l, Hinge3D::from_elem(elem), phi_y, phi_z);
                                         let fef14 = element::expand_fef_12_to_14(&fef12);
@@ -1613,9 +1613,9 @@ pub fn assemble_load_vector_3d_sparse_parallel(
                                         for i in 0..12 { f_global[elem_dofs[DOF_MAP_12_TO_14[i]]] += fef_global[i]; }
                                     }
                                     SolverLoad3D::Thermal(tl) => {
-                                        let alpha = 12e-6;
-                                        let hy = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
-                                        let hz = if sec.a > 1e-15 { (12.0 * sec.iy / sec.a).sqrt() } else { 0.1 };
+                                        let alpha = tl.alpha();
+                                        let hy = tl.depth_y(sec.a, sec.iz);
+                                        let hz = tl.depth_z(sec.a, sec.iy);
                                         let mut fef = element::fef_thermal_3d(e, sec.a, sec.iy, sec.iz, l, tl.dt_uniform, tl.dt_gradient_y, tl.dt_gradient_z, alpha, hy, hz);
                                         adjust_fef_for_hinges_3d(&mut fef, l, Hinge3D::from_elem(elem), phi_y, phi_z);
                                         let fef_global = transform_force(&fef, &t, 12);
@@ -1654,9 +1654,9 @@ pub fn assemble_load_vector_3d_sparse_parallel(
                                         for (i, &dof) in elem_dofs.iter().enumerate() { f_global[dof] += fef_global[i]; }
                                     }
                                     SolverLoad3D::Thermal(tl) => {
-                                        let alpha = 12e-6;
-                                        let hy = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
-                                        let hz = if sec.a > 1e-15 { (12.0 * sec.iy / sec.a).sqrt() } else { 0.1 };
+                                        let alpha = tl.alpha();
+                                        let hy = tl.depth_y(sec.a, sec.iz);
+                                        let hz = tl.depth_z(sec.a, sec.iy);
                                         let mut fef = element::fef_thermal_3d(e, sec.a, sec.iy, sec.iz, l, tl.dt_uniform, tl.dt_gradient_y, tl.dt_gradient_z, alpha, hy, hz);
                                         adjust_fef_for_hinges_3d(&mut fef, l, Hinge3D::from_elem(elem), phi_y, phi_z);
                                         let fef_global = transform_force(&fef, &t, 12);

@@ -399,9 +399,8 @@ fn local_fef(
                 element::fef_point_load_3d(pl.py, pl.pz, pl.a, l, phi_y, phi_z)
             }
             SolverLoad3D::Thermal(tl) if tl.element_id == el.id => {
-                let hy = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
-                let hz = if sec.a > 1e-15 { (12.0 * sec.iy / sec.a).sqrt() } else { 0.1 };
-                element::fef_thermal_3d(e, sec.a, sec.iy, sec.iz, l, tl.dt_uniform, tl.dt_gradient_y, tl.dt_gradient_z, 12e-6, hy, hz)
+                let (hy, hz) = (tl.depth_y(sec.a, sec.iz), tl.depth_z(sec.a, sec.iy));
+                element::fef_thermal_3d(e, sec.a, sec.iy, sec.iz, l, tl.dt_uniform, tl.dt_gradient_y, tl.dt_gradient_z, tl.alpha(), hy, hz)
             }
             _ => continue,
         };
