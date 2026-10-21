@@ -177,6 +177,17 @@ structures and modal frequencies shift too). Re-run solid-shell models.
   both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
 ### Fixed
 
+#### 3D plastic collapse factor no longer depends on element numbering (2026-10-21)
+
+**BREAKING (results)** (#511, SA-2026-014). When the hinge reversal checks of
+`solve_plastic_3d` cycled under biaxial bending, the solver went on from whichever state of the
+cycle the element order left it in and pushed a closed section through the yield surface: the
+same structure, renumbered, reported 75.9 to 424.3 against a certified collapse factor of 176.5.
+It now stops at the last consistent state and reports that factor with a warning and
+`isMechanism = false` (a lower bound, static theorem); choices among hinges go by rate, not by
+element number; and a span peak within 0.1 % of the member length of a node of the member does
+not form a sliver hinge. The PC-3D known-issue notice is removed.
+
 #### Silent errors from the element-derivations review: 2D-in-3D signs, settlements, Winkler, imperfections, constraints (2026-10-18)
 
 **BREAKING (results): a flat 2D model solved by the 3D solver now turns nodal moments and

@@ -4,6 +4,25 @@
   "currentResultsVersion": 1,
   "changes": [
     {
+      "id": "plastic-3d-element-order",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [524],
+      "area": "analysis",
+      "when": { "allOf": [["members"], ["analysis:plastic"]] },
+      "title": {
+        "en": "3D plastic collapse no longer depends on element numbering",
+        "es": "El colapso plástico 3D ya no depende de la numeración de las barras",
+        "pt": "O colapso plástico 3D não depende mais da numeração das barras"
+      },
+      "explanation": {
+        "en": "When the hinge reversal checks cycled under biaxial bending, the solver went on from a state chosen by the element order and could report up to 2.4 times the collapse load. It now stops at the last consistent state and reports that factor as a lower bound, the same for any numbering (SA-2026-014).",
+        "es": "Cuando los controles de inversión de rótulas entraban en ciclo con flexión biaxial, el solver seguía desde un estado elegido por el orden de las barras y podía informar hasta 2,4 veces la carga de colapso. Ahora se detiene en el último estado consistente e informa ese factor como cota inferior, el mismo con cualquier numeración (SA-2026-014).",
+        "pt": "Quando as verificações de inversão de rótulas entravam em ciclo com flexão biaxial, o solver seguia a partir de um estado escolhido pela ordem das barras e podia informar até 2,4 vezes a carga de colapso. Agora para no último estado consistente e informa esse fator como limite inferior, o mesmo com qualquer numeração (SA-2026-014)."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-014-plastic-3d-element-order.md", "heading": "SA-2026-014: 3D plastic collapse factor depended on element numbering (up to 2.4× the collapse load)" }
+    },
+    {
       "id": "spectral-cqc-and-participation",
       "resultsVersion": 1,
       "date": "2026-10-21",
