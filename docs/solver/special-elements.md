@@ -116,13 +116,15 @@ slack). Its derivative $dT/d\varepsilon = EA/(1+\alpha(T)) = E_\text{eq}A$ is Er
    cable pulls on its nodes with $T(\varepsilon)$ exactly, whatever the tangent.
 3. New tension from the deformed chord, large-displacement length but small-displacement
    equilibrium: $T^{(k+1)} = $ `cable_chord_tension`$(\varepsilon)$.
-4. Stop when $\max_c |T^{(k+1)}-T^{(k)}| / \max(|T^{(k)}|,|T^{(k+1)}|,1) <$ `tolerance` and
-   $k>0$.
+4. Stop when $k>0$, no slack cable took tension again this pass, and for every cable both
+   $|T^{(k+1)}-T^{(k)}|$ and the chord-law residual $|T^{(k+1)} - T_\text{sys}|$ (with
+   $T_\text{sys} = T^{(k)} + \phi EA(\varepsilon_\text{lin}^{(k+1)} - \varepsilon_\text{lin}^{(k)})$, the
+   force the solved system gave the cable) are at most `tolerance` times the largest cable tension.
 
 Reported results: displacements from the last solve, the member axial force and `tension` = $T$,
 reactions from $K_\text{base}$ with each cable's force replaced by its tension
 ($-c\,(T - EA\varepsilon_\text{lin})$ at the restrained DOFs, rotated like the loads), so they
-balance the reported tensions (`cable_statics.rs`). `horizontal_thrust` $= T\,l_h/L_0$, `sag` $=
+balance the reported tensions (`cable_statics.rs`); constraint forces use the same correction. `horizontal_thrust` $= T\,l_h/L_0$, `sag` $=
 w l_h^2/(8H)$ (parabolic, informative only: the chord geometry is not changed), `ernst_modulus` $=
 \phi E$, the tangent of the last solve.
 
