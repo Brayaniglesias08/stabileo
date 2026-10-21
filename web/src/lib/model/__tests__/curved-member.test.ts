@@ -269,8 +269,9 @@ describe('the section orientation along the arc (#418)', () => {
     const a = arch(90);
     const pts = arcPoints({ ...a, segments: 40 });
     const nodes = new Map(pts.map((p, i) => [i + 1, p]));
-    const spec = { ...a, segments: 40 };
-    type M = { nodeI: number; nodeJ: number; arc?: { spec: typeof spec }; localYx?: number; localYy?: number; localYz?: number; rollAngle?: number };
+    const spec = { start: a.start, through: a.through, end: a.end, segments: 40 };
+    const planSpecShape = spec;
+    type M = { nodeI: number; nodeJ: number; arc?: { spec: typeof planSpecShape }; localYx?: number; localYy?: number; localYz?: number; rollAngle?: number };
     const elements = new Map<number, M>(pts.slice(0, -1).map((_, i) => [i + 1, { nodeI: i + 1, nodeJ: i + 2, arc: { spec } }]));
     // One member whose orientation the engineer stated: kept.
     elements.get(1)!.rollAngle = 15;

@@ -7,7 +7,7 @@
       "id": "arc-member-local-axes",
       "resultsVersion": 1,
       "date": "2026-10-21",
-      "prs": [],
+      "prs": [523],
       "area": "analysis",
       "when": { "any": ["arcMembers"] },
       "title": {

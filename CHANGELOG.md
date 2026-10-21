@@ -177,7 +177,7 @@ structures and modal frequencies shift too). Re-run solid-shell models.
   both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
 ### Fixed
 
-#### Curved members keep one section orientation along the arc (#418, SA-2026-016)
+#### Curved members keep one section orientation along the arc (#418, #523, SA-2026-016)
 
 The straight segments of an arc took the default local axes of a straight member, which switch to
 a global-X reference within 2.56° of vertical. In an arch outside the X–Z plane the near-vertical

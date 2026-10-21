@@ -27,7 +27,7 @@ on that branch: a test that now passes means the finding is fixed.
 | [#439](https://github.com/lambdaclass/stabileo/issues/439) | web sends no Cw and a fallback J | #468 (batch 4) | real J, shear centre, buckling Cw; missing data refused by name |
 | — | settlement on a spring DOF dropped; Winkler member end forces | #436 (batch 4) | `settlement_on_spring_dof_is_not_silently_dropped`, `winkler_member_end_forces_include_foundation` pass |
 | — | SH-9 solid shell Poisson locking | #401 | `sh9_solid_shell_strip_does_not_poisson_lock` passes |
-| [#418](https://github.com/lambdaclass/stabileo/issues/418) | SP-15 curved-beam segment axes depend on plan orientation | `fix/curved-beam-axes` (advisory SA-2026-016) | `curved_beam_arch_is_invariant_under_plan_rotation` passes and is un-ignored; containment removed |
+| [#418](https://github.com/lambdaclass/stabileo/issues/418) | SP-15 curved-beam segment axes depend on plan orientation | #523 (advisory SA-2026-016) | `curved_beam_arch_is_invariant_under_plan_rotation` passes and is un-ignored; containment removed |
 
 ## A: wrong results a user would rely on (fix, contain, advisory)
 
