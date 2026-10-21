@@ -5,7 +5,7 @@
 | Severity | Medium (engine and WASM API; the app has compensated since 2026-10-07) |
 | Status | Draft (fix in review; untagged, next release) |
 | Issue | [#407](https://github.com/lambdaclass/stabileo/issues/407) (FR-4 in the element-derivation review) |
-| Fix | branch `fix/frame-thermal` |
+| Fix | PR [#531](https://github.com/lambdaclass/stabileo/pull/531) |
 | Affected versions | the engine and WASM API in every version up to 0.2.0 and `main` until the fix; the app before 2026-10-07 |
 | Re-check registry | not needed for this fix: app results do not change (the app sent loads scaled to the engine's assumptions since 2026-10-07) |
 
