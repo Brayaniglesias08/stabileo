@@ -119,7 +119,8 @@ pub struct SpringResult {
 /// Solve a 2D SSI problem with nonlinear soil springs.
 pub fn solve_ssi_2d(input: &SSIInput) -> Result<SSIResult, String> {
     let mut r = solve_ssi_2d_inner(input)?;
-    r.results.structured_diagnostics.extend(crate::known_issues::for_ssi(&input.soil_springs.iter().map(|s| &s.curve).collect::<Vec<_>>()));
+    crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_2d(&input.solver, crate::known_issues::Analysis::Ssi));
+    crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_ssi(&input.soil_springs.iter().map(|s| &s.curve).collect::<Vec<_>>()));
     Ok(r)
 }
 
@@ -362,7 +363,8 @@ fn solve_ssi_2d_inner(input: &SSIInput) -> Result<SSIResult, String> {
 /// Solve a 3D SSI problem with nonlinear soil springs.
 pub fn solve_ssi_3d(input: &SSIInput3D) -> Result<SSIResult3D, String> {
     let mut r = solve_ssi_3d_inner(input)?;
-    r.results.structured_diagnostics.extend(crate::known_issues::for_ssi(&input.soil_springs.iter().map(|s| &s.curve).collect::<Vec<_>>()));
+    crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_3d(&input.solver, crate::known_issues::Analysis::Ssi));
+    crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_ssi(&input.soil_springs.iter().map(|s| &s.curve).collect::<Vec<_>>()));
     Ok(r)
 }
 

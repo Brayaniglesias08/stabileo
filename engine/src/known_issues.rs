@@ -42,36 +42,31 @@ fn soil(curve: &crate::solver::soil_curves::SoilCurve) -> Option<(&'static str, 
     }
 }
 
-/// The known-issue warnings that apply to a 2D result of `analysis`.
-pub fn for_2d(input: &SolverInput, analysis: Analysis) -> Vec<StructuredDiagnostic> {
-    let mut out = Vec::new();
+/// The warnings an analysis carries whatever the model (the solver itself is affected).
+pub fn for_analysis(analysis: Analysis) -> Vec<StructuredDiagnostic> {
     match analysis {
-        Analysis::MaterialNonlinear => out.push(hit("NL-5", 428, NL_MATERIAL)),
-        Analysis::Cable => out.push(hit("SP-12", 416, CABLE)),
-        _ => {}
+        Analysis::MaterialNonlinear => vec![hit("NL-5", 428, NL_MATERIAL)],
+        Analysis::Cable => vec![hit("SP-12", 416, CABLE)],
+        _ => vec![],
     }
-    let thermal_frames: Vec<usize> = input
-        .loads
-        .iter()
-        .filter_map(|l| match l {
-            SolverLoad::Thermal(t) => Some(t.element_id),
-            _ => None,
-        })
-        .collect();
-    if !thermal_frames.is_empty() {
-        out.push(hit("FR-4", 407, THERMAL).with_elements(thermal_frames));
-    }
-    out
 }
 
-/// The known-issue warnings that apply to a 3D result of `analysis`.
-pub fn for_3d(input: &SolverInput3D, analysis: Analysis) -> Vec<StructuredDiagnostic> {
+/// The warnings a 2D load set carries (frame temperature loads).
+pub fn loads_2d(loads: &[SolverLoad]) -> Vec<StructuredDiagnostic> {
+    let thermal: Vec<usize> = loads.iter().filter_map(|l| match l { SolverLoad::Thermal(t) => Some(t.element_id), _ => None }).collect();
+    if thermal.is_empty() { vec![] } else { vec![hit("FR-4", 407, THERMAL).with_elements(thermal)] }
+}
+
+/// The warnings a 3D load set carries (frame temperature loads).
+pub fn loads_3d(loads: &[SolverLoad3D]) -> Vec<StructuredDiagnostic> {
+    let thermal: Vec<usize> = loads.iter().filter_map(|l| match l { SolverLoad3D::Thermal(t) => Some(t.element_id), _ => None }).collect();
+    if thermal.is_empty() { vec![] } else { vec![hit("FR-4", 407, THERMAL).with_elements(thermal)] }
+}
+
+/// The warnings a 3D model carries whatever its loads: curved shells, warped MITC9, arches.
+/// Read from the model as given, before its curved beams are expanded into members.
+pub fn model_3d(input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
     let mut out = Vec::new();
-    match analysis {
-        Analysis::MaterialNonlinear => out.push(hit("NL-5", 428, NL_MATERIAL)),
-        Analysis::Cable => out.push(hit("SP-12", 416, CABLE)),
-        _ => {}
-    }
     if !input.curved_shells.is_empty() {
         let mut d = hit("SH-6", 410, "Curved shells report zero bending moments, and their stresses ignore thermal strain; do not design from curved-shell moments or stresses");
         d.element_ids = input.curved_shells.values().map(|c| c.id).collect();
@@ -88,18 +83,33 @@ pub fn for_3d(input: &SolverInput3D, analysis: Analysis) -> Vec<StructuredDiagno
     if input.curved_beams.iter().any(|c| !horizontal_plane(c, input)) {
         out.push(hit("SP-15", 418, "Curved beams outside a horizontal plane (arches) take their segment axes from the plan orientation, so Iy and Iz swap on near-vertical segments; check the segments' stiffness and forces"));
     }
-    let thermal_frames: Vec<usize> = input
-        .loads
-        .iter()
-        .filter_map(|l| match l {
-            SolverLoad3D::Thermal(t) => Some(t.element_id),
-            _ => None,
-        })
-        .collect();
-    if !thermal_frames.is_empty() {
-        out.push(hit("FR-4", 407, THERMAL).with_elements(thermal_frames));
-    }
     out
+}
+
+/// The known-issue warnings that apply to a 2D result of `analysis` on `input`.
+pub fn for_2d(input: &SolverInput, analysis: Analysis) -> Vec<StructuredDiagnostic> {
+    let mut out = for_analysis(analysis);
+    out.extend(loads_2d(&input.loads));
+    out
+}
+
+/// The known-issue warnings that apply to a 3D result of `analysis` on `input`.
+pub fn for_3d(input: &SolverInput3D, analysis: Analysis) -> Vec<StructuredDiagnostic> {
+    let mut out = for_analysis(analysis);
+    out.extend(model_3d(input));
+    out.extend(loads_3d(&input.loads));
+    out
+}
+
+/// Add warnings to a result's diagnostics, once each: a path that already attached a finding
+/// (a prepared solve under the solve that called it) does not repeat it.
+pub fn attach(target: &mut Vec<StructuredDiagnostic>, new: Vec<StructuredDiagnostic>) {
+    for d in new {
+        let seen = target.iter().any(|t| t.code == DiagnosticCode::KnownIssue && t.phase == d.phase);
+        if !seen {
+            target.push(d);
+        }
+    }
 }
 
 /// The warnings for an SSI analysis: one per soil-curve family the springs use.

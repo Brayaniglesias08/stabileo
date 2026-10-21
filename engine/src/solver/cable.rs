@@ -170,7 +170,7 @@ pub fn solve_cable_2d(
     tolerance: f64,
 ) -> Result<CableAnalysisResult2D, String> {
     let mut r = solve_cable_2d_inner(input, densities, max_iter, tolerance)?;
-    r.results.structured_diagnostics.extend(crate::known_issues::for_2d(input, crate::known_issues::Analysis::Cable));
+    crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_2d(input, crate::known_issues::Analysis::Cable));
     Ok(r)
 }
 
@@ -610,7 +610,7 @@ pub fn solve_cable_3d(
     tolerance: f64,
 ) -> Result<CableAnalysisResult3D, String> {
     let mut r = solve_cable_3d_inner(input, densities, max_iter, tolerance)?;
-    r.results.structured_diagnostics.extend(crate::known_issues::for_3d(input, crate::known_issues::Analysis::Cable));
+    crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_3d(input, crate::known_issues::Analysis::Cable));
     Ok(r)
 }
 

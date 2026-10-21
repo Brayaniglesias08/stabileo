@@ -4,7 +4,8 @@
 mod common;
 use common::{make_3d_beam, make_beam};
 use dedaliano_engine::known_issues::{for_3d, for_ssi, Analysis};
-use dedaliano_engine::solver::linear::solve_2d;
+use dedaliano_engine::solver::linear::{prepare_static_2d, solve_2d};
+use dedaliano_engine::solver::ssi::{solve_ssi_2d, SSIInput, SoilSpring};
 use dedaliano_engine::solver::material_nonlinear::solve_nonlinear_material_2d;
 use dedaliano_engine::solver::soil_curves::SoilCurve;
 use dedaliano_engine::types::*;
@@ -113,4 +114,32 @@ fn soil_curves_are_flagged_once_per_family() {
     let d = for_ssi(&[&soft, &soft, &tz]);
     assert_eq!(ids(&d), vec!["AC-12".to_string(), "AC-16".to_string()]);
     assert!(for_ssi(&[]).is_empty());
+}
+
+#[test]
+fn a_load_case_solve_carries_the_warnings_of_its_load_set() {
+    // Load-case analyses and WASM load sessions solve through the prepared path.
+    let input = make_beam(4, 4.0, E, 0.045, 3.375e-4, "fixed", None, vec![]);
+    let prepared = prepare_static_2d(&input).unwrap();
+    let thermal = vec![SolverLoad::Thermal(SolverThermalLoad { element_id: 3, dt_uniform: 10.0, dt_gradient: 0.0 })];
+    let r = prepared.solve_loads(&thermal).unwrap();
+    assert!(ids(&r.structured_diagnostics).contains(&"FR-4".to_string()));
+    let r = prepared.solve_loads(&tip(-1.0)).unwrap();
+    assert!(ids(&r.structured_diagnostics).is_empty(), "a mechanical load set carries none");
+}
+
+#[test]
+fn ssi_results_carry_structural_and_soil_warnings_once() {
+    let mut loads = tip(-10.0);
+    loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 10.0, dt_gradient: 0.0 }));
+    let input = SSIInput {
+        solver: make_beam(4, 4.0, E, 0.045, 3.375e-4, "fixed", None, loads),
+        soil_springs: vec![SoilSpring { node_id: 3, direction: 0, curve: SoilCurve::Tz { t_ult: 40.0, z_ult: 0.005 }, tributary_length: 1.0 }],
+        max_iter: 50,
+        tolerance: 1e-8,
+    };
+    let r = solve_ssi_2d(&input).unwrap();
+    let found = ids(&r.results.structured_diagnostics);
+    assert!(found.contains(&"FR-4".to_string()) && found.contains(&"AC-16".to_string()), "{found:?}");
+    assert_eq!(found.iter().filter(|x| *x == "FR-4").count(), 1, "attached once");
 }

@@ -411,7 +411,7 @@ fn pcg_solver_path(preconditioner: &str) -> &'static str {
 /// Linear static 2D solve, with the known-issue warnings that apply to the model attached.
 pub fn solve_2d(input: &SolverInput) -> Result<AnalysisResults, String> {
     let mut r = solve_2d_inner(input)?;
-    r.structured_diagnostics.extend(crate::known_issues::for_2d(input, crate::known_issues::Analysis::Linear));
+    crate::known_issues::attach(&mut r.structured_diagnostics, crate::known_issues::for_2d(input, crate::known_issues::Analysis::Linear));
     Ok(r)
 }
 
@@ -977,6 +977,13 @@ impl PreparedStatic2D<'_> {
     /// load vector (prescribed-displacement coupling included), reuses the
     /// stored factorization, then runs the same postprocessing as `solve_2d`.
     pub fn solve_loads(&self, loads: &[SolverLoad]) -> Result<AnalysisResults, String> {
+        let mut r = self.solve_loads_by_path(loads)?;
+        // Known issues of this load set.
+        crate::known_issues::attach(&mut r.structured_diagnostics, crate::known_issues::loads_2d(loads));
+        Ok(r)
+    }
+
+    fn solve_loads_by_path(&self, loads: &[SolverLoad]) -> Result<AnalysisResults, String> {
         // Per-case load validation (the structure was validated in prepare)
         validate_loads_2d(&self.input, loads)?;
 
@@ -1914,7 +1921,7 @@ pub(crate) fn assert_finite_3d(u: &[f64]) -> Result<(), String> {
 /// Linear static 3D solve, with the known-issue warnings that apply to the model attached.
 pub fn solve_3d(input: &SolverInput3D) -> Result<AnalysisResults3D, String> {
     let mut r = solve_3d_inner(input)?;
-    r.structured_diagnostics.extend(crate::known_issues::for_3d(input, crate::known_issues::Analysis::Linear));
+    crate::known_issues::attach(&mut r.structured_diagnostics, crate::known_issues::for_3d(input, crate::known_issues::Analysis::Linear));
     Ok(r)
 }
 
@@ -2152,6 +2159,9 @@ pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, Stri
     if !input.constraints.is_empty() {
         return Err("prepared static solve does not support constraints: solve the model with solve_3d (constrained solver)".into());
     }
+    // Known issues of the model as given (an arch is only visible before its expansion); they
+    // go with the pre-solve diagnostics into every result of this preparation.
+    let known_model = crate::known_issues::model_3d(input);
     // Expand curved beams into frame elements before solving
     let input = expand_curved_beams_3d(input);
     let n_nodes = input.nodes.len();
@@ -2163,6 +2173,7 @@ pub fn prepare_static_3d(input: &SolverInput3D) -> Result<PreparedStatic3D, Stri
         + input.curved_shells.len();
     let dof_num = DofNumbering::build_3d(&input);
     let mut pre_solve_diags = super::pre_solve_gates::run_pre_solve_gates_3d(&input);
+    pre_solve_diags.extend(known_model);
     validate_solver_options(&input.solver_options, &mut pre_solve_diags);
 
     // ── Input validation (before assembly) ──
@@ -2513,6 +2524,13 @@ impl PreparedStatic3D {
         // Per-case load validation (the structure was validated in prepare)
         validate_loads_3d(&self.input, loads)?;
         self.refuse_loads_on_orphan_dofs(loads)?;
+        let mut r = self.solve_loads_by_path(loads)?;
+        // Known issues of this load set (the model's are in the pre-solve diagnostics).
+        crate::known_issues::attach(&mut r.structured_diagnostics, crate::known_issues::loads_3d(loads));
+        Ok(r)
+    }
+
+    fn solve_loads_by_path(&self, loads: &[SolverLoad3D]) -> Result<AnalysisResults3D, String> {
         match &self.path {
             PreparedPath3D::FullyRestrained(p) => self.solve_loads_fully_restrained(loads, p),
             PreparedPath3D::Dense(p) => self.solve_loads_dense(loads, p),
