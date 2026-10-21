@@ -219,7 +219,7 @@ fn validation_fixed_fixed_settlement() {
     });
 
     let input = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map, materials: mats_map, sections: secs_map,
         elements: elems_map, supports: sups_map, loads: vec![], constraints: vec![],
         connectors: std::collections::HashMap::new(), };
@@ -304,7 +304,7 @@ fn validation_cantilever_tip_spring() {
     }
 
     let input = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map, materials: mats_map, sections: secs_map,
         elements: elems_map, supports: sups_map, loads, constraints: vec![],
         connectors: std::collections::HashMap::new(), };

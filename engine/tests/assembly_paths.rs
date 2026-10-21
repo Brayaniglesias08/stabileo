@@ -250,7 +250,7 @@ fn forces_2d(axial: &HashMap<usize, f64>) -> Vec<ElementForces> {
         .iter()
         .map(|(&id, &n)| ElementForces {
             element_id: id, n_start: n, n_end: n, v_start: 0.0, v_end: 0.0, m_start: 0.0, m_end: 0.0,
-            length: 0.0, q_i: 0.0, q_j: 0.0, point_loads: vec![], distributed_loads: vec![],
+            length: 0.0, q_i: 0.0, q_j: 0.0, point_loads: vec![], distributed_loads: vec![], distributed_loads_x: vec![],
             hinge_start: false, hinge_end: false,
         })
         .collect();
@@ -487,6 +487,8 @@ fn embed(input: &SolverInput, rot_sign: f64) -> SolverInput3D {
         .map(|s| {
             (s.id.to_string(), SolverSection3D {
                 id: s.id, name: None, a: s.a, iy: s.iz, iz: s.iz, j: s.iz, cw: None, as_y: s.as_y, as_z: s.as_y,
+                shear_center_y: None,
+                shear_center_z: None,
             })
         })
         .collect();
@@ -566,6 +568,10 @@ fn embed(input: &SolverInput, rot_sign: f64) -> SolverInput3D {
                 let (cy, cz) = transverse(pl.element_id);
                 SolverLoad3D::PointOnElement(SolverPointLoad3D { element_id: pl.element_id, a: pl.a, py: cy * pl.p, pz: cz * pl.p })
             }
+            SolverLoad::AxialDistributed(al) => SolverLoad3D::Distributed(SolverDistributedLoad3D {
+                element_id: al.element_id, q_xi: al.q_i, q_xj: al.q_j,
+                q_yi: 0.0, q_yj: 0.0, q_zi: 0.0, q_zj: 0.0, a: al.a, b: al.b,
+            }),
             SolverLoad::Thermal(tl) => {
                 let (cy, cz) = transverse(tl.element_id);
                 // Opposite conventions: the 2D gradient is the −y face minus
@@ -579,7 +585,7 @@ fn embed(input: &SolverInput, rot_sign: f64) -> SolverInput3D {
         })
         .collect();
     SolverInput3D {
-        solver_options: None, nodes, materials: input.materials.clone(), sections, elements, supports, loads,
+        solver_options: None, masses: Default::default(), nodes, materials: input.materials.clone(), sections, elements, supports, loads,
         constraints: vec![], left_hand: None, plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(),
         solid_shells: HashMap::new(), curved_shells: HashMap::new(), curved_beams: vec![], connectors: HashMap::new(),
     }
@@ -774,6 +780,7 @@ fn shrink_2d(mut m: SolverInput, fails: &dyn Fn(&SolverInput) -> bool) -> Solver
                     SolverLoad::Distributed(d) => d.element_id != id,
                     SolverLoad::PointOnElement(p) => p.element_id != id,
                     SolverLoad::Thermal(th) => th.element_id != id,
+                    SolverLoad::AxialDistributed(a) => a.element_id != id,
                     SolverLoad::Nodal(_) => true,
                 });
                 cands.push(t);
@@ -1132,7 +1139,7 @@ fn model_2d_from(
         loads,
         constraints: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 
@@ -1175,7 +1182,7 @@ fn model_3d_from(
     // section with `cw` turns on the seventh DOF for the whole model.
     for (id, a, i, cw) in [(1, 0.01, 1e-4, None), (2, 0.01, 1e-4, Some(1e-7)), (3, 10.0, 1.0, None)] {
         if id == 1 || elems.iter().any(|e| e.4 == id) {
-            sections.insert(id.to_string(), SolverSection3D { id, name: None, a, iy: i, iz: 2.0 * i, j: 0.5 * i, cw, as_y: None, as_z: None });
+            sections.insert(id.to_string(), SolverSection3D { id, name: None, a, iy: i, iz: 2.0 * i, j: 0.5 * i, cw, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None });
         }
     }
     SolverInput3D {
@@ -1204,7 +1211,7 @@ fn model_3d_from(
         curved_shells: HashMap::new(),
         curved_beams: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 

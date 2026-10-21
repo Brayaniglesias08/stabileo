@@ -105,7 +105,7 @@ fn make_ss_plate(nx: usize, ny: usize) -> SolverInput3D {
         .collect();
 
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -1182,7 +1182,7 @@ fn make_ss_plate_with_grid(nx: usize, ny: usize) -> (SolverInput3D, Vec<Vec<usiz
         .collect();
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -1271,7 +1271,7 @@ fn make_compressed_plate(nx: usize, ny: usize) -> SolverInput3D {
     }
 
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -2235,7 +2235,7 @@ fn make_2d_multi_span(n_elements: usize) -> SolverInput {
     })];
 
     SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials, sections, elements, supports, loads,
         constraints: vec![], connectors: HashMap::new(),
     }
@@ -2304,13 +2304,19 @@ fn dense_modal_masses(
     let eigen = dedaliano_engine::linalg::lanczos_generalized_eigen(&k_dense, &m_ff, nf, num_modes, 0.0)
         .expect("Dense Lanczos failed");
 
-    // Influence vectors for X, Y, Z translational DOFs (same as modal.rs)
+    // Ground-motion loads (M·r)_f for X, Y, Z (same as modal.rs): r = 1 on every
+    // node's translation, supports included, times the full mass, free rows kept —
+    // the inertia the consistent mass couples to the moving supports is part of it.
     let mut r = [vec![0.0; nf], vec![0.0; nf], vec![0.0; nf]];
-    for &node_id in &dof_num.node_order {
-        for (axis, r_axis) in r.iter_mut().enumerate() {
+    for (axis, r_axis) in r.iter_mut().enumerate() {
+        let mut iota = vec![0.0; n];
+        for &node_id in &dof_num.node_order {
             if let Some(&d) = dof_num.map.get(&(node_id, axis)) {
-                if d < nf { r_axis[d] = 1.0; }
+                iota[d] = 1.0;
             }
+        }
+        for i in 0..nf {
+            r_axis[i] = (0..n).map(|j| m_full[i * n + j] * iota[j]).sum();
         }
     }
 
@@ -2334,8 +2340,8 @@ fn dense_modal_masses(
         }
         let phi_m_phi: f64 = phi.iter().zip(m_phi.iter()).map(|(a, b)| a * b).sum();
         if phi_m_phi.abs() < 1e-30 { continue; }
-        for (axis, r_axis) in r.iter().enumerate() {
-            let phi_m_r: f64 = r_axis.iter().zip(m_phi.iter()).map(|(a, b)| a * b).sum();
+        for (axis, mr_axis) in r.iter().enumerate() {
+            let phi_m_r: f64 = mr_axis.iter().zip(phi.iter()).map(|(a, b)| a * b).sum();
             let gamma = phi_m_r / phi_m_phi;
             meff_sum[axis] += gamma * gamma * phi_m_phi;
         }
@@ -2419,6 +2425,8 @@ fn make_cantilever_frame_3d(n_elem: usize) -> SolverInput3D {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.0625, iy: 2.0e-4, iz: 3.2552e-4, j: 5.0e-4,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();
@@ -2445,7 +2453,7 @@ fn make_cantilever_frame_3d(n_elem: usize) -> SolverInput3D {
     });
 
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections, elements, supports,
         loads: vec![],
         constraints: vec![], left_hand: None,

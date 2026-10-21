@@ -674,6 +674,20 @@ fn shear_b_covariant(
     b_cov
 }
 
+/// Coefficients mapping the tied covariant transverse shears (2ε_ξζ, 2ε_ηζ) to the local
+/// engineering shears (γ13, γ23): γα3 = Σ_i (eα·gⁱ)(e3·g³)·2ε_iζ, with the contravariant
+/// basis gⁱ = rows of J⁻¹ (e3 ∥ g3, so e3·g¹ = e3·g² = 0 exactly; ε_ζζ is not part of the
+/// shell's strain set). Returns (c11, c12, c21, c22) with γ13 = c11·2ε_ξζ + c12·2ε_ηζ.
+///
+/// It used (ĝα·eβ)/(|gα||g3|), which equals gᵅ·eβ·(e3·g³) only when g1 ⊥ g2: on a
+/// parallelogram with a 60° corner a constant transverse shear read γ13 = 1 + cos²60°
+/// and γ23 = sin60°·cos60° instead of (1, 0) (SH-3, docs/solver/shells.md).
+fn ans_shear_to_local(inv_j: &[[f64; 3]; 3], e1: &[f64; 3], e2: &[f64; 3], e3: &[f64; 3]) -> (f64, f64, f64, f64) {
+    let (gc1, gc2, gc3) = (inv_j[0], inv_j[1], inv_j[2]);
+    let s3 = dot3(e3, &gc3);
+    (dot3(e1, &gc1) * s3, dot3(e1, &gc2) * s3, dot3(e2, &gc1) * s3, dot3(e2, &gc2) * s3)
+}
+
 // ==================== Stiffness Matrix ====================
 
 /// Hughes–Brezzi drilling row at a mid-surface point: θ·n − ω_n, with n the
@@ -685,14 +699,20 @@ fn shear_b_covariant(
 /// ∂u/∂ξₐ = ω × gₐ, Σₐ gᵃ × (ω × gₐ) = 2ω − P·ω, whose normal part is 2 n·ω.
 /// n and the dual basis gᵃ come from the interpolated surface itself, not from
 /// the directors, which on a curved patch are not exactly normal to it.
+///
+/// Returns the row and the mid-surface area Jacobian |g1 × g2|: the penalty is an AREA
+/// integral, γ·∫(θn − ωn)² dA with γ = G·h/1000 as in the flat MITC4/MITC9/DKT. It was
+/// integrated over the volume (det J·2 = dA·h) with γ already carrying h, giving
+/// G·h²/1000 — not a stiffness of the same dimension, unit-dependent, and h times the flat
+/// elements' value (SH-2, docs/solver/shells.md).
 fn drilling_row(coords: &[[f64; 3]; 4], dirs: &[[f64; 3]; 4], h: f64, xi: f64, eta: f64) -> ([f64; 24], f64) {
-    let (g1, g2, _g3, det_j) = covariant_basis(coords, dirs, h, xi, eta, 0.0);
+    let (g1, g2, _g3, _det_j) = covariant_basis(coords, dirs, h, xi, eta, 0.0);
     let n_sh = shape_functions(xi, eta);
     let (dn_dxi, dn_deta) = shape_derivatives(xi, eta);
     let mut row = [0.0; 24];
     let nn = cross3(&g1, &g2);
     let len = norm3(&nn);
-    if len < 1e-30 { return (row, det_j); }
+    if len < 1e-30 { return (row, 0.0); }
     let n = [nn[0] / len, nn[1] / len, nn[2] / len];
     // Dual tangent basis gᵃ = G⁻¹ᵃᵇ g_b.
     let (m11, m12, m22) = (dot3(&g1, &g1), dot3(&g1, &g2), dot3(&g2, &g2));
@@ -708,7 +728,7 @@ fn drilling_row(coords: &[[f64; 3]; 4], dirs: &[[f64; 3]; 4], h: f64, xi: f64, e
             row[i * 6 + 3 + c] = n_sh[i] * n[c];
         }
     }
-    (row, det_j)
+    (row, len)
 }
 
 
@@ -791,6 +811,15 @@ pub fn curved_shell_stiffness_covariant(
 
             let (e1, e2, e3) = local_frame(&g1, &g2, &g3);
 
+            let inv_j = match invert_3x3(&[
+                [g1[0], g2[0], g3[0]],
+                [g1[1], g2[1], g3[1]],
+                [g1[2], g2[2], g3[2]],
+            ]) {
+                Some(m) => m,
+                None => continue,
+            };
+
             // Build B-matrix using COVARIANT approach (the key difference)
             let mut b = build_b_matrix_covariant(
                 coords, dirs, h, xi, eta, zeta,
@@ -810,24 +839,11 @@ pub fn curved_shell_stiffness_covariant(
                     b_cov_tied[1][col] = w_c * b_cov_c[1][col] + w_d * b_cov_d[1][col];
                 }
 
-                let g1_norm = norm3(&g1);
-                let g2_norm = norm3(&g2);
-                let g3_norm = norm3(&g3);
-                let scale_1 = if g1_norm > 1e-15 && g3_norm > 1e-15 { 1.0 / (g1_norm * g3_norm) } else { 0.0 };
-                let scale_2 = if g2_norm > 1e-15 && g3_norm > 1e-15 { 1.0 / (g2_norm * g3_norm) } else { 0.0 };
-
-                let g1_hat = normalize3(&g1);
-                let g2_hat = normalize3(&g2);
-                let g1_e1 = dot3(&g1_hat, &e1);
-                let g1_e2 = dot3(&g1_hat, &e2);
-                let g2_e1 = dot3(&g2_hat, &e1);
-                let g2_e2 = dot3(&g2_hat, &e2);
-
+                let (c11, c12, c21, c22) = ans_shear_to_local(&inv_j, &e1, &e2, &e3);
                 for col in 0..24 {
-                    let tied_xi = b_cov_tied[0][col] * scale_1;
-                    let tied_eta = b_cov_tied[1][col] * scale_2;
-                    b[3][col] = g1_e1 * tied_xi + g2_e1 * tied_eta;
-                    b[4][col] = g1_e2 * tied_xi + g2_e2 * tied_eta;
+                    let (t_xi, t_eta) = (b_cov_tied[0][col], b_cov_tied[1][col]);
+                    b[3][col] = c11 * t_xi + c12 * t_eta;
+                    b[4][col] = c21 * t_xi + c22 * t_eta;
                 }
             }
 
@@ -863,8 +879,8 @@ pub fn curved_shell_stiffness_covariant(
 
     // Drilling DOF stabilization — identical to standard
     for &((xi, eta), w_g) in &gauss_ip {
-        let (row, det_j) = drilling_row(coords, dirs, h, xi, eta);
-        let dv = det_j.abs() * w_g * 2.0;
+        let (row, da) = drilling_row(coords, dirs, h, xi, eta);
+        let dv = da * w_g;
         // Upper triangle, mirrored: exactly symmetric, not symmetric to round-off.
         for r in 0..24 {
             if row[r] == 0.0 { continue; }
@@ -954,24 +970,11 @@ fn curved_shell_stiffness_impl(
                     b_cov_tied[1][col] = w_c * b_cov_c[1][col] + w_d * b_cov_d[1][col];
                 }
 
-                let g1_norm = norm3(&g1);
-                let g2_norm = norm3(&g2);
-                let g3_norm = norm3(&g3);
-                let scale_1 = if g1_norm > 1e-15 && g3_norm > 1e-15 { 1.0 / (g1_norm * g3_norm) } else { 0.0 };
-                let scale_2 = if g2_norm > 1e-15 && g3_norm > 1e-15 { 1.0 / (g2_norm * g3_norm) } else { 0.0 };
-
-                let g1_hat = normalize3(&g1);
-                let g2_hat = normalize3(&g2);
-                let g1_e1 = dot3(&g1_hat, &e1);
-                let g1_e2 = dot3(&g1_hat, &e2);
-                let g2_e1 = dot3(&g2_hat, &e1);
-                let g2_e2 = dot3(&g2_hat, &e2);
-
+                let (c11, c12, c21, c22) = ans_shear_to_local(&inv_j, &e1, &e2, &e3);
                 for col in 0..24 {
-                    let tied_xi = b_cov_tied[0][col] * scale_1;
-                    let tied_eta = b_cov_tied[1][col] * scale_2;
-                    b[3][col] = g1_e1 * tied_xi + g2_e1 * tied_eta;
-                    b[4][col] = g1_e2 * tied_xi + g2_e2 * tied_eta;
+                    let (t_xi, t_eta) = (b_cov_tied[0][col], b_cov_tied[1][col]);
+                    b[3][col] = c11 * t_xi + c12 * t_eta;
+                    b[4][col] = c21 * t_xi + c22 * t_eta;
                 }
             }
             // When use_ans=false, rows 3,4 from build_b_matrix_at_point are kept as-is
@@ -1011,10 +1014,10 @@ fn curved_shell_stiffness_impl(
     // Drilling DOF stabilization: penalize the rotation about the local normal (e3 at
     // the GP) against the membrane's own rotation (`drilling_row`). PSD by construction
     // (a rank-one BᵀB per point), so Cholesky compatibility is kept.
-    // (factor 2.0 from ∫_{-1}^{1} dζ = 2, with det_j already containing h/2 from g₃)
+    // An area integral (γ = G·h/1000 already carries the thickness), see `drilling_row`.
     for &((xi, eta), w_g) in &gauss_ip {
-        let (row, det_j) = drilling_row(coords, dirs, h, xi, eta);
-        let dv = det_j.abs() * w_g * 2.0;
+        let (row, da) = drilling_row(coords, dirs, h, xi, eta);
+        let dv = da * w_g;
         // Upper triangle, mirrored: exactly symmetric, not symmetric to round-off.
         for r in 0..24 {
             if row[r] == 0.0 { continue; }
@@ -1067,17 +1070,30 @@ pub fn curved_shell_consistent_mass(
             }
         }
 
-        // Rotational inertia: m_rot = ρ·h³/12·∫ N_i·N_j dA for rx, ry
+        // Rotational inertia from the element's own kinematics, u_rot = ζ·(h/2)·Σ N_i·(θ_i × d_i):
+        // ½∫ρ|u̇_rot|²dV gives, for the node pair (i, j), ρ·h³/12·∫N_i·N_j dA times
+        //   S_iᵀ·S_j = (d_i·d_j)·I − d_j·d_iᵀ,   S = [d]×,
+        // which is I − d·dᵀ on the diagonal blocks: inertia about the two axes normal to the
+        // nodal director, none for a spin about the director (that rotation moves no material).
+        // It was first on global rx, ry (right only for a horizontal element: a wall got
+        // inertia about its own normal and none about an in-plane axis, SH-4), then on the
+        // Gauss-point surface normal, which gave a director spin positive mass wherever the
+        // director differs from that normal (review of #330).
         let rot_factor = rho * h * h / 12.0;
         for i in 0..4 {
             for j in i..4 {
                 let mass_val = rot_factor * dv * n_shape[i] * n_shape[j];
-                for d in 3..5 { // rx, ry only
-                    let r = i * 6 + d;
-                    let c = j * 6 + d;
-                    m[r * ndof + c] += mass_val;
-                    if i != j {
-                        m[c * ndof + r] += mass_val;
+                let (di, dj) = (&dirs[i], &dirs[j]);
+                let dij = di[0] * dj[0] + di[1] * dj[1] + di[2] * dj[2];
+                for a in 0..3 {
+                    for b in 0..3 {
+                        let p = if a == b { dij } else { 0.0 } - dj[a] * di[b];
+                        let r = i * 6 + 3 + a;
+                        let c = j * 6 + 3 + b;
+                        m[r * ndof + c] += mass_val * p;
+                        if i != j {
+                            m[c * ndof + r] += mass_val * p;
+                        }
                     }
                 }
             }
@@ -1388,8 +1404,8 @@ pub fn curved_shell_pressure_load(
     f
 }
 
-/// Compute self-weight load vector: `rho` in kg/m³ and g in m/s², forces in kN, as for the
-/// other shell families (it used to omit the /1000 and weigh 1000× too much).
+/// Compute self-weight load vector (global, kN): ∫ (ρ/1000)·h·N_i·g dA with ρ in
+/// kg/m³ and g in m/s².
 pub fn curved_shell_self_weight_load(
     coords: &[[f64; 3]; 4],
     _dirs: &[[f64; 3]; 4],
@@ -1421,7 +1437,8 @@ pub fn curved_shell_self_weight_load(
         let gravity = [gx, gy, gz];
 
         for i in 0..4 {
-            // Density in kg/m³ to kN like the other shells: w = ρ/1000 · h · g per area.
+            // ρ in kg/m³ and g in m/s² (SolverQuadSelfWeightLoad): /1000 gives kN, as in
+            // quad_self_weight_load. Without it the self-weight was 1000× too large (SH-12).
             let w = rho / 1000.0 * h * da * w_g * n_shape[i];
             for k in 0..3 {
                 f[i * 6 + k] += w * gravity[k];

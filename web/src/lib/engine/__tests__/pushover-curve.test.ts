@@ -63,7 +63,10 @@ describe('pushover curve', () => {
     const exact = (4 * MP) / (H * h);
     expect(Math.abs(res.collapseFactor - exact)).toBeLessThan(1e-9 * exact);
     expect(res.isMechanism).toBe(true);
-    expect(res.warnings ?? []).toEqual([]);
+    // Only the known-issue warning every 3D plastic result carries (#511).
+    const warnings: string[] = res.warnings ?? [];
+    expect(warnings.filter((w) => !w.includes('#511'))).toEqual([]);
+    expect(warnings.some((w) => w.includes('#511'))).toBe(true);
   });
 
   it('no longer stops at a joint where every end yielded at once', () => {

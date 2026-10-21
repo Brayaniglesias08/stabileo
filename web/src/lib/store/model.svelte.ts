@@ -17,6 +17,7 @@ import {
   type Footing, type FootingMatPreferences,
 } from '../model/footing';
 import { DEFAULT_COVER } from '../engine/design/member-context';
+import { DOF_SPRING, dofRestraintsOfType3D, is3DSupportType, type SpringKey } from '../model/support-3d';
 import {
   emptyGeotechnical, migrateGeotechnical, newSoilProfile,
   type ProjectGeotechnical, type SoilProfile,
@@ -2682,9 +2683,14 @@ function createModelStore() {
       if ([...model.footings.values()].some((f) => to.has(f.nodeId))) {
         model.footings = new Map([...model.footings].map(([id, f]) => [id, to.has(f.nodeId) ? { ...f, nodeId: r(f.nodeId), revision: f.revision + 1 } : f]));
       }
+      // A point mass follows its node; two merged onto one node both stay (their masses add).
+      const points = model.massSource?.points;
+      if (points?.some((p) => to.has(p.nodeId))) {
+        model.massSource = { ...model.massSource!, points: points.map((p) => (to.has(p.nodeId) ? { ...p, nodeId: r(p.nodeId) } : p)) };
+      }
     },
 
-    /** Node ids named by constraints, connectors and footings. */
+    /** Node ids named by constraints, connectors, footings and point masses. */
     referencedNodeIds(): Set<number> {
       const out = new Set<number>();
       for (const c of model.constraints) {
@@ -2693,6 +2699,7 @@ function createModelStore() {
       }
       for (const c of model.connectors.values()) { out.add(c.nodeI); out.add(c.nodeJ); }
       for (const f of model.footings.values()) out.add(f.nodeId);
+      for (const p of model.massSource?.points ?? []) out.add(p.nodeId);
       return out;
     },
 
@@ -2958,6 +2965,10 @@ function createModelStore() {
         footingsChanged = true;
       }
       if (footingsChanged) model.footings = new Map(model.footings);
+      // A point mass goes with its node, as a nodal load does: left, it named a number the next
+      // node drawn would take.
+      const pts = model.massSource?.points;
+      if (pts?.some((p) => p.nodeId === id)) model.massSource = { ...model.massSource!, points: pts.filter((p) => p.nodeId !== id) };
       const pruneConstraints = (arr: Constraint3D[]) => arr
         .map((c): Constraint3D | null => {
           if (c.type === 'diaphragm') {
@@ -3507,14 +3518,24 @@ function createModelStore() {
           }
         }
       }
+      // A 3D support keeps springs only on the DOFs it leaves free: switching
+      // a spring support to fixed (or ticking a DOF) used to keep the spring,
+      // and the engine then solved the "fixed" DOF as elastic (#488).
+      const nextType = data.type ? normalize2DSupportType(data.type) : sup.type;
+      const nextDofs = data.dofRestraints ?? sup.dofRestraints;
+      const restrained = nextDofs ?? (is3DSupportType(nextType) ? dofRestraintsOfType3D(nextType) : undefined);
+      const spring = (key: SpringKey, value: number | undefined) => {
+        const dof = DOF_SPRING.find(([, k]) => k === key)![0];
+        return restrained?.[dof] ? undefined : value;
+      };
       // Replace entire object to guarantee Svelte 5 reactivity
       model.supports.set(id, {
         id: sup.id,
         nodeId: data.nodeId ?? sup.nodeId,
         type: data.type ? normalize2DSupportType(data.type) : sup.type,
-        kx: data.kx ?? sup.kx,
-        ky: data.ky ?? sup.ky,
-        kz: data.kz ?? sup.kz,
+        kx: spring('kx', data.kx ?? sup.kx),
+        ky: spring('ky', data.ky ?? sup.ky),
+        kz: spring('kz', data.kz ?? sup.kz),
         dx: data.dx ?? sup.dx,
         dz: data.dz ?? data.dy ?? sup.dz ?? sup.dy,
         dry: data.dry ?? data.drz ?? sup.dry ?? sup.drz,
@@ -3522,9 +3543,9 @@ function createModelStore() {
         isGlobal: 'isGlobal' in data ? data.isGlobal : sup.isGlobal,
         // 3D fields
         drx: data.drx ?? sup.drx,
-        krx: data.krx ?? sup.krx,
-        kry: data.kry ?? sup.kry,
-        krz: data.krz ?? sup.krz,
+        krx: spring('krx', data.krx ?? sup.krx),
+        kry: spring('kry', data.kry ?? sup.kry),
+        krz: spring('krz', data.krz ?? sup.krz),
         // Per-DOF 3D configuration
         dofRestraints: data.dofRestraints ?? sup.dofRestraints,
         dofFrame: data.dofFrame ?? sup.dofFrame,
@@ -4029,7 +4050,8 @@ function createModelStore() {
       // And from the mass source, where a stale case id would come to mean whatever case
       // takes that number next.
       if (model.massSource?.kind === 'custom') {
-        model.massSource = { kind: 'custom', factors: model.massSource.factors.filter(f => f.caseId !== id) };
+        // Only the removed case's row goes: the weights and point masses stay.
+        model.massSource = { ...model.massSource, factors: model.massSource.factors.filter(f => f.caseId !== id) };
       }
       // And the self-weight rule: a row for a case that no longer exists would still load the
       // single solve (which takes every stated row) and not the combinations.
@@ -4145,9 +4167,12 @@ function createModelStore() {
      */
     setMassSource(ms: MassSource | null): void {
       if (!_undoBatching) _pushUndo?.();
-      // The weights stay through a change of the case factors unless the change names them.
+      // The weights and point masses stay through a change of the case factors unless the
+      // change names them.
       const kept = model.massSource?.weights;
       if (kept?.length && (!ms || !('weights' in ms))) ms = ms ? { ...ms, weights: kept } : { kind: 'custom', factors: [], weights: kept };
+      const keptPoints = model.massSource?.points;
+      if (keptPoints?.length && (!ms || !('points' in ms))) ms = ms ? { ...ms, points: keptPoints } : { kind: 'custom', factors: [], points: keptPoints };
       model.massSource = normalizeMassSource(ms ? JSON.parse(JSON.stringify(ms)) : undefined);
       this.bumpModelVersion();
     },

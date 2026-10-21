@@ -430,6 +430,9 @@
   cursor: pointer;
   color: var(--lp-paper-2);
   flex: none;
+  /* On the blog the brand is a link (PublicLink), and links are underlined: the
+     logo is a mark, not a word in running text. */
+  text-decoration: none;
 }
 
 /*
@@ -468,7 +471,8 @@
   min-width: 0;
 }
 
-.landing .nav-links button {
+.landing .nav-links button,
+.landing .nav-links .nav-link {
   background: none;
   border: 0;
   cursor: pointer;
@@ -480,7 +484,16 @@
   white-space: nowrap;
 }
 
-.landing .nav-links button:hover {
+/* The same box as the nav buttons beside it: a link inherits the page's line
+   height, which made the sticky nav taller than the hero assumes. */
+.landing .nav-links .nav-link {
+  display: inline-block;
+  line-height: normal;
+  text-decoration: none;
+}
+
+.landing .nav-links button:hover,
+.landing .nav-links .nav-link:hover {
   color: var(--lp-paper-2);
 }
 
@@ -1765,7 +1778,8 @@
 
   .landing .nav-links.open { display: flex; }
 
-  .landing .nav-links button {
+  .landing .nav-links button,
+  .landing .nav-links .nav-link {
     text-align: left;
     padding: 0.7rem 0;
     border-bottom: 1px solid rgba(143, 163, 179, 0.1);

@@ -194,8 +194,47 @@ jobs:
 
       - name: Run test suite (shard ${{ matrix.shard }}/2)
         working-directory: engine
-        run: cargo nextest run --profile ci -E 'all() - test(harmonic_phase_breakdown) - test(harmonic_modal_vs_direct_timing) - binary(perf_regression_advanced) - binary(perf_regression_gates) - (test(/benchmark_shell/) + test(/benchmark_beam_shell/) + test(/benchmark_plate/) + test(/benchmark_navier/) + test(/benchmark_scordelis/) + test(/benchmark_cantilever/) + test(/benchmark_pinched/) + test(/test_quad_thin_plate/)) - (test(/acceptance_.*shell/) + test(/acceptance_.*diaphragm/)) - test(/benchmark_.*constraint/) - binary(sparse_shell_gates) - binary(solver_invariants) - binary(solver_ci_coverage) - binary(conditioning_adversarial) - binary(kfull_overbuild_gates) - binary(certify) - binary(properties_2d) - binary(properties_3d) - binary(acceptance)' --partition count:${{ matrix.shard }}/2
+        run: cargo nextest run --profile ci -E 'all() - test(harmonic_phase_breakdown) - test(harmonic_modal_vs_direct_timing) - binary(perf_regression_advanced) - binary(perf_regression_gates) - (test(/benchmark_shell/) + test(/benchmark_beam_shell/) + test(/benchmark_plate/) + test(/benchmark_navier/) + test(/benchmark_scordelis/) + test(/benchmark_cantilever/) + test(/benchmark_pinched/) + test(/test_quad_thin_plate/)) - (test(/acceptance_.*shell/) + test(/acceptance_.*diaphragm/)) - test(/benchmark_.*constraint/) - binary(sparse_shell_gates) - binary(solver_invariants) - binary(solver_ci_coverage) - binary(conditioning_adversarial) - binary(kfull_overbuild_gates) - binary(certify) - binary(properties_2d) - binary(properties_3d) - binary(acceptance) - binary(metamorphic)' --partition count:${{ matrix.shard }}/2
         timeout-minutes: 20
+
+  # Metamorphic tests, sampled tier (docs/verification/METAMORPHIC.md): every
+  # analysis on the corpus under rotation, mirroring, renumbering, units,
+  # superposition, reciprocity, energy and symmetry. Excluded from the suite
+  # above and run here optimised: about 30 s in release, more than the suite
+  # shard's 20 minutes unoptimised (the engine crate's [profile.test] is not
+  # applied in this workspace, so the suite builds at opt-level 0).
+  metamorphic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly
+          components: rust-src
+
+      - name: Install mold linker
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y mold
+        timeout-minutes: 5
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: engine
+          key: metamorphic-release
+
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: nextest
+
+      - name: Metamorphic tests (sampled tier, release)
+        working-directory: engine
+        run: cargo nextest run --profile ci --cargo-profile release --test metamorphic
+        timeout-minutes: 30
 
   # The web suite runs as two jobs in parallel. It used to be one job that built
   # the app and then ran both Vitest passes back to back: 11–16 min, most of it

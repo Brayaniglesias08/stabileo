@@ -55,7 +55,7 @@ fn inclined_model_2d(with_constraint: bool) -> SolverInput {
         nodes, materials, sections, elements, supports,
         loads: vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 3, fx: 5.0, fz: -15.0, my: 0.0 })],
         constraints,
-        connectors: HashMap::new(), solver_options: None,
+        connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 
@@ -157,6 +157,8 @@ fn winkler_model_3d_inclined() -> WinklerInput3D {
     let mut sections = HashMap::new();
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 5e-5, cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
     let mut elements = HashMap::new();
     for (id, ni, nj) in [(1usize, 1usize, 2usize), (2, 2, 3)] {
@@ -192,7 +194,7 @@ fn winkler_model_3d_inclined() -> WinklerInput3D {
         constraints: vec![], left_hand: None,
         plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(),
         solid_shells: HashMap::new(), curved_shells: HashMap::new(), curved_beams: vec![],
-        connectors: HashMap::new(), solver_options: None,
+        connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     };
     WinklerInput3D {
         solver,
@@ -315,7 +317,7 @@ fn inclined_model_2d_cable() -> SolverInput {
         nodes, materials, sections, elements, supports,
         loads: vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 3, fx: 1.0, fz: -15.0, my: 0.0 })],
         constraints: vec![],
-        connectors: HashMap::new(), solver_options: None,
+        connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 
@@ -381,6 +383,8 @@ fn staged_rejects_inclined_supports_3d() {
     let mut sections = HashMap::new();
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 5e-5, cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
     let mut elements = HashMap::new();
     elements.insert("1".to_string(), SolverElement3D {

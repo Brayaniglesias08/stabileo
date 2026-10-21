@@ -18,7 +18,8 @@ import { mergeAllHingedJoints2D, restrainOrphanRotations2D } from './orphan-rota
 import { stripStabilisedReactions } from './stabilised-reactions';
 import type { SpectralModeInput3D } from './dynamics/requests';
 import type { SolverInput, AnalysisResults, FullEnvelope } from './types';
-import type { SolverInput3D, SolverElement3D, AnalysisResults3D, FullEnvelope3D } from './types-3d';
+import type { SolverInput3D, SolverElement3D, SolverSection3D, AnalysisResults3D, FullEnvelope3D } from './types-3d';
+import { bucklingWarpingInput, hasBucklingWarping, torsionGaps3D } from './buckling-warping';
 import { finishSolve3D, finishPDelta3D } from './solve-finish';
 import { plainDeepCopy, findUncloneablePath } from '../utils/plain-deep-copy';
 import { errorText } from '../utils/error-text';
@@ -491,11 +492,18 @@ function serializeInput2D(input: SolverInput): string {
  * before both consumers, so "the payload is plain data" holds for every caller, present and
  * future.
  */
+/** A section as the engine takes it: the web-only fields (`bucklingCw`, `torsionGap`) left out. */
+function wireSection3D(s: SolverSection3D): SolverSection3D {
+  if (!('bucklingCw' in s) && !('torsionGap' in s)) return s;
+  const { bucklingCw: _cw, torsionGap: _gap, ...wire } = s;
+  return wire;
+}
+
 export function input3DToWireObject(input: SolverInput3D): Record<string, any> {
   return {
     nodes: mapToObj(input.nodes),
     materials: mapToObj(input.materials),
-    sections: mapToObj(input.sections),
+    sections: mapToObj(new Map(Array.from(input.sections, ([id, s]) => [id, wireSection3D(s)]))),
     elements: mapToObj(input.elements),
     supports: mapToObj(input.supports),
     loads: input.loads,
@@ -505,6 +513,8 @@ export function input3DToWireObject(input: SolverInput3D): Record<string, any> {
     constraints: plainDeepCopy(input.constraints ?? []),
     connectors: input.connectors ? mapToPlainObj(input.connectors) : {},
     leftHand: input.leftHand ?? false,
+    // Nodal, line and area masses (the mass source); absent when there are none.
+    ...(input.masses ? { masses: plainDeepCopy(input.masses) } : {}),
   };
 }
 
@@ -1189,6 +1199,7 @@ export function solvePDelta3D(input: SolverInput3D, maxIter = 20, tolerance = 1e
   if (!wasmReady || !wasmSolvePdelta3d) throw new Error('WASM P-Delta 3D solver not available.');
   const wire = input3DToWireObject(input);
   refuse(guards?.refuse3D(input));
+  refuse(torsionGapRefusal(input, 'pdelta'));
   let result;
   const json = JSON.stringify(wire);
   try {
@@ -1229,10 +1240,22 @@ export function solveModal3D(input: SolverInput3D, densities: Map<number, number
 export function solveBuckling3D(input: SolverInput3D, numModes = 4) {
   if (!wasmReady || !wasmSolveBuckling3d) throw new Error('WASM Buckling 3D solver not available.');
   refuse(guards?.refuse3D(input));
+  refuse(torsionGapRefusal(input, 'buckling'));
+  // Cw for the members that can take it, from their axial forces in the linear solve
+  // (`buckling-warping.ts`). The static solve itself never sees `cw`.
+  let axial: Map<number, number> | null = null;
+  if (hasBucklingWarping(input)) {
+    try {
+      axial = new Map(solve3D(input).elementForces.map((f) => [f.elementId, (f.nStart + f.nEnd) / 2]));
+    } catch { axial = null; /* The buckling solve below says why. */ }
+  }
+  let warpingMembers: number[] = [];
   let run;
   try {
     run = eigen3D(guards ? guards.eigenInput3D(input) : input, (i) => {
-      const json = serializeInput3D(i);
+      const w = axial ? bucklingWarpingInput(i, axial) : { input: i, warped: [] };
+      warpingMembers = w.warped;
+      const json = serializeInput3D(w.input);
       return bucklingWithCertificate(wasmCertifyBuckling3d, json, numModes) ?? JSON.parse(wasmSolveBuckling3d!(json, numModes));
     });
   } catch (e) {
@@ -1240,7 +1263,24 @@ export function solveBuckling3D(input: SolverInput3D, numModes = 4) {
     throw e;
   }
   const out = filterBuckling(run.result);
-  return withoutStaleCertificate({ ...out, discardedModes: [...run.held, ...out.discardedModes] });
+  return withoutStaleCertificate({ ...out, discardedModes: [...run.held, ...out.discardedModes], warpingMembers });
+}
+
+/**
+ * The refusal of an analysis whose geometric stiffness needs a section's torsional data and does
+ * not have it (`buckling-warping.ts`, `torsionGaps3D`): no J, or no shear centre for a tee,
+ * channel or angle. Null when nothing is missing.
+ */
+export function torsionGapRefusal(input: SolverInput3D, analysis: 'buckling' | 'pdelta' | 'nonlinear'): string | null {
+  const gaps = torsionGaps3D(input);
+  if (gaps.length === 0) return null;
+  const g = gaps[0]!;
+  const list = g.elements.slice(0, 8).join(', ') + (g.elements.length > 8 ? ', …' : '');
+  const params = { section: g.sectionName ? `${g.sectionId} (${g.sectionName})` : String(g.sectionId), members: list, analysis: guards ? guards.text(`svc.torsionGap.analysis.${analysis}`) : analysis };
+  if (guards) return guards.text(g.kind === 'j' ? 'svc.torsionGap.j' : 'svc.torsionGap.shearCentre', params);
+  return g.kind === 'j'
+    ? `Section ${params.section} has no torsion constant J (members ${list}): ${analysis} cannot form their torsional buckling.`
+    : `Section ${params.section} has no shear centre (members ${list}): ${analysis} cannot form their flexural-torsional buckling.`;
 }
 
 /**
@@ -1658,6 +1698,7 @@ export function solveNonlinearMaterial2D(config: {
 /** Solve 3D corotational (large displacement) analysis via WASM. */
 export function solveCorotational3D(input: SolverInput3D, maxIter = 50, tolerance = 1e-6, nIncrements = 10): any {
   if (!wasmReady || !wasmSolveCorotational3d) throw new Error('WASM Corotational 3D solver not available.');
+  refuse(torsionGapRefusal(input, 'nonlinear'));
   return JSON.parse(wasmSolveCorotational3d(serializeInput3D(input), maxIter, tolerance, nIncrements));
 }
 
@@ -2008,6 +2049,7 @@ export function solveWithImperfections2D(config: any): any {
 export function solveWithImperfections3D(config: any): any {
   if (!wasmReady || !wasmSolveWithImperfections3d) throw new Error('WASM imperfections 3D solver not available.');
   if (config.solver && config.solver.nodes instanceof Map) {
+    refuse(torsionGapRefusal(config.solver, 'nonlinear'));
     config = { ...config, solver: JSON.parse(serializeInput3D(config.solver)) };
   }
   return JSON.parse(wasmSolveWithImperfections3d(JSON.stringify(config)));
