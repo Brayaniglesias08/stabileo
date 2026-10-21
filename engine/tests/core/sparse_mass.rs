@@ -181,7 +181,7 @@ fn make_ss_plate(nx: usize, ny: usize) -> SolverInput3D {
         solid_shells: HashMap::new(),
         curved_shells: HashMap::new(),
         curved_beams: vec![],
-        connectors: HashMap::new(), solver_options: None,
+        connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 
@@ -245,6 +245,8 @@ fn make_frame_with_released_beam(n_stories: usize, n_bays: usize) -> SolverInput
     let mut secs = HashMap::new();
     secs.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: A, iy: IY, iz: IZ, j: J, cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut sups = HashMap::new();
@@ -265,7 +267,7 @@ fn make_frame_with_released_beam(n_stories: usize, n_bays: usize) -> SolverInput
         supports: sups, loads: vec![], constraints: vec![], left_hand: None,
         plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(),
         solid_shells: HashMap::new(), curved_shells: HashMap::new(),
-        curved_beams: vec![], connectors: HashMap::new(), solver_options: None,
+        curved_beams: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 
@@ -521,10 +523,16 @@ const GOLDEN_BUCKLING_3D: [f64; 4] = [
     // axial force from its elongation (EA·δ/L, the exact mean of N) instead of
     // (N_start + N_end)/2 of the recovered end forces: mode 0 moved 1.9e-10,
     // now 1.1e-11 from the closed form (mode 1: 1.1e-10).
-    4.934802200597014e0,
-    9.86960440216402e0,
-    4.441322215041605e1,
-    8.882644430536759e1,
+    //
+    // Recaptured a fourth time when the 3D frame Kg gained its torsional (Wagner) term:
+    // the twist DOFs now enter the pencil, so the iteration takes another floating-point
+    // path. Mode 0 moved 1.2e-10 and sits 1.3e-10 from the closed form; mode 1 is now
+    // 2.2e-11 from it (was 1.1e-10). The torsional load of this section is far above
+    // these four modes.
+    4.934802201182984e0,
+    9.869604401308603e0,
+    4.441322214967293e1,
+    8.882644430572996e1,
 ];
 
 #[test]

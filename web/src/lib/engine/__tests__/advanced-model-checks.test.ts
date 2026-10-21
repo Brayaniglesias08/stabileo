@@ -201,7 +201,15 @@ describe('2D D8 — modal and buckling on nodes only truss bars meet', () => {
     });
     expect(typeof staticSolve3D()).toBe('object');
     const f3 = solveModal3D(input3D(), densities()).modes.map((q: { frequency: number }) => q.frequency);
-    const l3 = solveBuckling3D(input3D()).modes.map((q: { loadFactor: number }) => q.loadFactor);
+    // Holding every node out of plane holds the twist at the nodes, not the warping between them:
+    // the IPN beams, compressed, also buckle in torsion between nodes, (GJ + π²ECw/L²)/r0², which
+    // the space model sees once buckling has their Cw (#439) and the plane one cannot. Those modes
+    // are out of plane (a twist, warping at the nodes); the in-plane ones are compared.
+    type Mode3D = { loadFactor: number; displacements: Array<{ rx: number; ry: number; rz: number; warping?: number }> };
+    const modes3 = (solveBuckling3D(input3D(), 12).modes as Mode3D[]);
+    const twists = (q: Mode3D) => q.displacements.some((d) => Math.abs(d.warping ?? 0) > 1e-9 || Math.abs(d.rx) > 1e-9 || Math.abs(d.rz) > 1e-9);
+    const l3 = modes3.filter((q) => !twists(q)).map((q) => q.loadFactor);
+    expect(modes3.some(twists)).toBe(true);
     for (let k = 0; k < 3; k++) expect(Math.abs(f3[k] / f2[k] - 1)).toBeLessThan(1e-6);
     for (let k = 0; k < 3; k++) expect(Math.abs(l3[k] / l2[k] - 1)).toBeLessThan(1e-6);
   });

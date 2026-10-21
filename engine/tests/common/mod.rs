@@ -50,7 +50,7 @@ pub fn make_input(
             dx: None, dz: None, dry: None, angle: None,
         });
     }
-    SolverInput { solver_options: None, nodes: nodes_map, materials: mats_map, sections: secs_map, elements: elems_map, supports: sups_map, loads, constraints: vec![] , connectors: HashMap::new() }
+    SolverInput { solver_options: None, masses: Default::default(), nodes: nodes_map, materials: mats_map, sections: secs_map, elements: elems_map, supports: sups_map, loads, constraints: vec![] , connectors: HashMap::new() }
 }
 
 /// Build a multi-element column along X for buckling/modal tests.
@@ -276,7 +276,7 @@ pub fn make_3d_input(
     }
     let mut secs_map = HashMap::new();
     for (id, a, iy, iz, j) in secs {
-        secs_map.insert(id.to_string(), SolverSection3D { id, name: None, a, iy, iz, j, cw: None, as_y: None, as_z: None });
+        secs_map.insert(id.to_string(), SolverSection3D { id, name: None, a, iy, iz, j, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None });
     }
     let mut elems_map = HashMap::new();
     for (id, t, ni, nj, mi, si) in elems {
@@ -302,7 +302,7 @@ pub fn make_3d_input(
             });
     }
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map, materials: mats_map, sections: secs_map,
         elements: elems_map, supports: sups_map, loads, constraints: vec![], left_hand: None, plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(), solid_shells: HashMap::new(), curved_beams: vec![],
             curved_shells: HashMap::new(),

@@ -122,7 +122,9 @@ describe('blog posts', () => {
                   ? `embed:${b.mode ?? 'basic'}:${b.query}`
                   : b.k === 'link'
                     ? `link:${b.slug}`
-                    : b.k,
+                    : b.k === 'ext'
+                      ? `ext:${b.href}`
+                      : b.k,
           );
         for (const locale of LOCALES) {
           expect(shape(locale), `${locale} does not match the English structure`).toEqual(shape('en'));
@@ -145,6 +147,18 @@ describe('blog posts', () => {
             if (b.k !== 'link') continue;
             expect(findPost(b.slug), `${locale}: no post "${b.slug}"`).toBeTruthy();
             expect(b.slug).not.toBe(post.slug);
+          }
+        }
+      });
+
+      it('links outside the blog only to the project\'s own repository', () => {
+        // An external link is a promise about where the reader lands; the
+        // only place this blog vouches for is the project's repository.
+        for (const locale of LOCALES) {
+          for (const b of post.i18n[locale].blocks) {
+            if (b.k !== 'ext') continue;
+            expect(b.href, `${locale}: ${b.href}`).toMatch(/^https:\/\/github\.com\/lambdaclass\/stabileo\/[\w./#-]+$/);
+            expect(b.label.trim()).not.toBe('');
           }
         }
       });
@@ -260,5 +274,37 @@ describe('reading time', () => {
     const body = { title: 'One', excerpt: 'Two', blocks: [{ k: 'link', slug: 'other', t: 'Read next:' }] } as unknown as PostBody;
     expect(wordCount(body)).toBe(4);
     expect(wordCount(body, () => 'The other post')).toBe(7);
+  });
+});
+
+describe('the safety-advisories post quotes the advisories', () => {
+  const post = findPost('safety-advisories');
+
+  it('exists, and lists every advisory in docs/advisories', async () => {
+    expect(post).toBeTruthy();
+    const { readdirSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const ids = readdirSync(join(__dirname, '../../../../../docs/advisories'))
+      .map((f) => /^(SA-\d{4}-\d{3})-/.exec(f)?.[1])
+      .filter((x): x is string => !!x)
+      .sort();
+    const summary = post!.i18n.en.blocks.find((b) => b.k === 'table') as Extract<Block, { k: 'table' }>;
+    expect(summary.rows.map((r) => r[0]).sort()).toEqual(ids);
+  });
+
+  it('quotes each documented case exactly as its advisory states it', () => {
+    // Correct / reported, per advisory: SA-011 uz (mm), SA-008 base shear /
+    // CQC, SA-007 critical load (kN), SA-006 sway (mm), SA-005 rafter N at
+    // the base (kN), SA-012 cantilever base moment (kN·m), SA-009 plate stiffness ratio.
+    const cases = post!.i18n.en.blocks.filter((b) => b.k === 'table')[1] as Extract<Block, { k: 'table' }>;
+    expect(cases.rows.map((r) => [r[0], r[2], r[3]])).toEqual([
+      ['SA-2026-011', '0', '-14.4'],
+      ['SA-2026-008', '1.00', '0.81'],
+      ['SA-2026-007', '2993', '5860'],
+      ['SA-2026-006', '0.92', '2.52'],
+      ['SA-2026-005', '-56.67', '-41.67'],
+      ['SA-2026-012', '1012.5', '101250'],
+      ['SA-2026-009', '1.000', '1.225'],
+    ]);
   });
 });

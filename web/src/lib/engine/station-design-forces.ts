@@ -22,7 +22,6 @@ import { prepareSection, type Bar as SectionBar, type PreparedSection } from './
  */
 
 import { seatedLongitudinalHalfExtents } from '../codes/cirsoc201/transverse-cage';
-import type { AnalysisResults3D } from './types-3d';
 import type { ProvidedReinforcement, RebarGroup, RebarLayer, StirrupDef, BeamRegions, BeamContinuity, LongBarGroup, ColumnReinforcement } from '../store/model.svelte';
 import type { Node, Element, Section, Support } from '../store/model.svelte';
 import {
@@ -214,39 +213,12 @@ export function computeBeamCriticalSections(
 
 // ─── Force Extraction ───────────────────────────────────
 
-/** Extract station forces for one element across all combos. */
-export function extractElementStations(
-  elementId: number,
-  perCombo: Map<number, AnalysisResults3D>,
-  comboNames: Map<number, string>,
-): ElementStationResult | null {
-  // Get element forces from first combo to determine station positions
-  const firstCombo = perCombo.values().next().value;
-  if (!firstCombo) return null;
-  const refEf = firstCombo.elementForces.find(ef => ef.elementId === elementId);
-  if (!refEf) return null;
-
-  const stationTs = buildCriticalStations(refEf);
-
-  const comboResults: ComboStationResult[] = [];
-  for (const [comboId, results] of perCombo) {
-    const ef = results.elementForces.find(e => e.elementId === elementId);
-    if (!ef) continue;
-    const stations = stationTs.map(t => extractForcesAtStation(ef, t));
-    comboResults.push({
-      comboId,
-      comboName: comboNames.get(comboId) ?? `Combo ${comboId}`,
-      stations,
-    });
-  }
-
-  return {
-    elementId,
-    length: refEf.length,
-    stationTs,
-    comboResults,
-  };
-}
+/*
+ * `extractElementStations`, the TypeScript station extraction, used to live here as the fallback
+ * `computeStationDemands` took when the engine was not loaded. Station forces now come from the
+ * engine only (`beam_stations.rs`); the TypeScript is the tests' oracle,
+ * `__tests__/differential/station-oracle.ts`.
+ */
 
 // ─── Governing Demand Extraction ────────────────────────
 

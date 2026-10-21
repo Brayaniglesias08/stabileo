@@ -66,6 +66,7 @@ fn w14x22_data(eid: usize, lby: f64, lbz: f64) -> SteelMemberData {
             AiscElement { kind: AiscElementKind::RolledFlange, b: 0.127 / 2.0, t: 8.509e-3, count: Some(4.0), kc: None },
             AiscElement { kind: AiscElementKind::Web, b: 53.3 * 5.842e-3, t: 5.842e-3, count: None, kc: None },
         ]),
+        lcz: None,
         load_position: Some(AiscLoadPosition::ShearCentre),
     }
 }

@@ -193,6 +193,10 @@ describe('validation-04 with its own combinations', () => {
       expect(so.b2).toBeGreaterThan(1);
       expect(so.b2).toBeLessThan(1 / (1 - 1 / lambda));
     }
-    expect(stable).toBe(4);
+    // Three of the fourteen: with torsional and flexural-torsional buckling in the geometric
+    // stiffness (#434) and the members' real J (#468), several governing modes are almost pure
+    // twist (open sections under compression), so one combination that the bending-only Kg
+    // called stable (λ > 1) buckles. It was 4.
+    expect(stable).toBe(3);
   }, 300_000);
 });

@@ -87,6 +87,8 @@ function nodeIsBusy(nodeId: number): boolean {
   // Kept beside the model and named by node id: removing the node left the force on a number the
   // next node drawn would take.
   if ((modelStore.model.dynamics?.timeHistory?.forces ?? []).some((f) => f.nodeId === nodeId)) return true;
+  // A point mass of the mass source, likewise.
+  if ((modelStore.model.massSource?.points ?? []).some((p) => p.nodeId === nodeId)) return true;
   return false;
 }
 

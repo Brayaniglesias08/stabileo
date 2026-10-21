@@ -229,7 +229,7 @@ impl DofNumbering {
     }
 }
 
-fn is_dof_restrained_2d(sup: &SolverSupport, local_dof: usize) -> bool {
+pub(crate) fn is_dof_restrained_2d(sup: &SolverSupport, local_dof: usize) -> bool {
     // A "spring" support leaves every DOF free (its stiffness is added to K);
     // the rigid types restrain theirs whatever spring values they carry.
     match sup.support_type.as_str() {

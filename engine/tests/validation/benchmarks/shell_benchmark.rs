@@ -158,7 +158,7 @@ fn scordelis_lo_solve(nx: usize, ntheta: usize) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -364,7 +364,7 @@ fn navier_plate_solve(nx: usize, ny: usize) -> (f64, f64) {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -519,7 +519,7 @@ fn benchmark_quad_patch_test_uniform_stress() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -677,7 +677,7 @@ fn pinched_hemisphere_solve(n_phi: usize, n_theta: usize) -> f64 {
     }));
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -908,7 +908,7 @@ fn navier_plate_solve_with_quad_pressure(nx: usize, ny: usize) -> (f64, f64) {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -1045,7 +1045,7 @@ fn benchmark_cantilever_plate_pressure() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -1172,7 +1172,7 @@ fn shell_buckling_plate(nx: usize, ny: usize) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -1378,7 +1378,7 @@ fn benchmark_shell_buckling_cylinder() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -1503,7 +1503,7 @@ fn benchmark_shell_thermal_free_expansion() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -1591,7 +1591,7 @@ fn benchmark_shell_thermal_restrained() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -1718,7 +1718,7 @@ fn benchmark_shell_thermal_gradient_bending() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -1888,7 +1888,7 @@ fn benchmark_shell_scordelis_lo_pressure() {
         }
 
         let input = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials: mats, sections: HashMap::new(),
             elements: HashMap::new(), supports, loads,
             constraints: vec![], left_hand: None,
@@ -1975,6 +1975,8 @@ fn benchmark_mixed_frame_shell_building() {
         id: 1, name: None,
         a: 0.09, iy: 6.75e-4, iz: 6.75e-4, j: 1.0e-3,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
     let mut mats = HashMap::new();
     mats.insert("1".to_string(), SolverMaterial { id: 1, e, nu });
@@ -2028,7 +2030,7 @@ fn benchmark_mixed_frame_shell_building() {
     }));
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections, elements, supports, loads,
         constraints: vec![], left_hand: None,
         plates: HashMap::new(), quads, quad9s: HashMap::new(), solid_shells: HashMap::new(), curved_shells: HashMap::new(), curved_beams: vec![],
@@ -2207,7 +2209,7 @@ fn benchmark_shell_buckling_plate_triangle() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: {
             let mut m = HashMap::new();
@@ -2339,7 +2341,7 @@ fn benchmark_shell_modal_frequencies_ss_plate() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -2558,7 +2560,7 @@ fn benchmark_shell_mixed_tri_quad_patch() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -2750,7 +2752,7 @@ fn benchmark_shell_stress_mixed_plate_quad() {
     ];
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -2980,7 +2982,7 @@ fn distorted_plate_solve(nx: usize, ny: usize, distortion: &str, param: f64) -> 
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -3160,7 +3162,7 @@ fn pinched_cylinder_solve(nx: usize, ntheta: usize) -> f64 {
     ];
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -3305,7 +3307,7 @@ fn benchmark_shell_self_weight_scordelis_lo() {
         .collect();
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -3420,7 +3422,7 @@ fn benchmark_edge_load_normal() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -3556,7 +3558,7 @@ fn benchmark_edge_load_tangential() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -3644,7 +3646,7 @@ fn benchmark_shell_thermal_gradient_convergence() {
         }
 
         let input = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials: mats, sections: HashMap::new(),
             elements: HashMap::new(), supports, loads,
             constraints: vec![], left_hand: None,
@@ -3773,7 +3775,7 @@ fn benchmark_warped_element_accuracy() {
         })];
 
         let input = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials: mats, sections: HashMap::new(),
             elements: HashMap::new(), supports, loads,
             constraints: vec![], left_hand: None,
@@ -3901,7 +3903,7 @@ fn raasch_hook_solve(n_arc: usize, n_width: usize) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -4076,7 +4078,7 @@ fn twisted_beam_solve(nx: usize, ny: usize, load_case: char) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -4283,7 +4285,7 @@ fn hemisphere_hole_solve(n_phi: usize, n_theta: usize) -> f64 {
     }));
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -4436,7 +4438,7 @@ fn hypar_solve(n: usize) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -4636,7 +4638,7 @@ fn spherical_cap_solve(n: usize) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -4799,7 +4801,7 @@ fn pinched_hemisphere_rt_solve(n: usize, rt_ratio: f64) -> f64 {
     }));
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -5049,7 +5051,7 @@ fn benchmark_q9_patch_test() {
     }));
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -5169,7 +5171,7 @@ fn q9_navier_plate_solve(nx: usize, ny: usize) -> (f64, f64) {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -5325,7 +5327,7 @@ fn q9_scordelis_lo_solve(nx: usize, ntheta: usize) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -5462,7 +5464,7 @@ fn q9_hemisphere_solve(n_phi: usize, n_theta: usize) -> f64 {
     }));
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -5595,7 +5597,7 @@ fn q9_spherical_cap_solve(n: usize) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -5702,7 +5704,7 @@ fn q9_hypar_solve(n: usize) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -5831,7 +5833,7 @@ fn q9_twisted_beam_solve(nx: usize, ny: usize, load_case: char) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -5959,7 +5961,7 @@ fn q9_raasch_hook_solve(n_arc: usize, n_width: usize) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -6093,7 +6095,7 @@ fn benchmark_q9_hemisphere_rt_sweep() {
         }));
 
         let input = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes,
             materials: mats,
             sections: HashMap::new(),
@@ -6262,7 +6264,7 @@ fn benchmark_ss_patch_test() {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -6297,12 +6299,15 @@ fn benchmark_ss_patch_test() {
 fn benchmark_ss_navier_plate() {
     let e_mpa = 10920.0; // ksi → keep as-is in MPa
     let nu = 0.3;
-    let t = 0.1;
+    // Thin (t/a = 0.01) so the Kirchhoff series is the right reference (at t/a = 0.1 the
+    // shear flexibility adds ~4 %; thick plates are checked against Mindlin in
+    // tests/solid_shell_locking.rs).
+    let t = 0.01;
     let a = 1.0; // plate side length
     let q = 1.0; // pressure (kN/m²)
 
     // Analytical center deflection (Kirchhoff thin plate):
-    // w = 16*q / (π⁶ * D) * Σ 1/(m²+n²)² for m,n odd
+    // w = 16*q / (π⁶ * D) * Σ (−1)^((m+n)/2−1) / (m·n·(m²+n²)²) for m,n odd
     // D = E*t³ / (12*(1-ν²))
     let e_kn = e_mpa * 1000.0;
     let d = e_kn * t * t * t / (12.0 * (1.0 - nu * nu));
@@ -6313,7 +6318,9 @@ fn benchmark_ss_navier_plate() {
             let mf = m as f64;
             let nf = n_val as f64;
             let denom = mf * nf * (mf * mf + nf * nf).powi(2);
-            w_analytical += 1.0 / denom;
+            // sin(mπ/2)·sin(nπ/2) = ±1: without this sign the sum was 5.7 % high.
+            let sign = if (m / 2 + n_val / 2) % 2 == 0 { 1.0 } else { -1.0 };
+            w_analytical += sign / denom;
         }
     }
     w_analytical *= 16.0 * q / (pi.powi(6) * d);
@@ -6355,7 +6362,7 @@ fn benchmark_ss_navier_plate() {
         }).collect();
 
         let input = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes,
             materials: mats,
             sections: HashMap::new(),
@@ -6388,11 +6395,12 @@ fn benchmark_ss_navier_plate() {
             n, n, uz, w_analytical, ratio
         );
 
-        // Solid-shell should be within 30% for coarse mesh, improving with refinement
-        if n >= 8 {
-            assert!(ratio > 0.5 && ratio < 2.0,
-                "SS Navier {}×{}: ratio {:.4} out of range [0.5, 2.0]", n, n, ratio);
-        }
+        // Before the EAS thickness mode (issue #400) this stalled at ≈0.81 on every mesh
+        // (Poisson thickness locking) and the old [0.5, 2.0] band hid it. Converges at
+        // second order from below: 4×4 ≈ 0.97, 8×8 ≈ 0.994.
+        let tol = if n >= 8 { 0.01 } else { 0.04 };
+        assert!((ratio - 1.0).abs() < tol,
+            "SS Navier {}×{}: ratio {:.4} outside 1 ± {}", n, n, ratio, tol);
     }
 }
 
@@ -6470,7 +6478,7 @@ fn benchmark_ss_scordelis_lo() {
         }).collect();
 
         let input = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes,
             materials: mats,
             sections: HashMap::new(),
@@ -6501,9 +6509,10 @@ fn benchmark_ss_scordelis_lo() {
             "SS Scordelis-Lo {}×{}: uz={:.6e}, ref={:.4}, ratio={:.4}",
             n, n, uz, ref_val, ratio
         );
-        // Current: 6×6 ≈ 0.952, 8×8 ≈ 0.965.
-        assert!(ratio > 0.9 && ratio < 1.05,
-            "SS Scordelis-Lo {}×{}: ratio {:.4} out of range [0.9, 1.05]", n, n, ratio);
+        // Current (ANS + EAS): 6×6 ≈ 1.006, 8×8 ≈ 0.997 (ANS only: 0.952, 0.965). The
+        // reference spread (0.3024 vs 0.3086 deep-shell) is 2 %.
+        assert!(ratio > 0.98 && ratio < 1.02,
+            "SS Scordelis-Lo {}×{}: ratio {:.4} out of range [0.98, 1.02]", n, n, ratio);
     }
 }
 
@@ -6559,40 +6568,30 @@ fn benchmark_ss_pinched_hemisphere() {
                     .or_insert_with(|| sup3d(nid, true, false, false, false, false, false));
             }
         }
-        // Equator (φ=0, i=0): uz=0 (prevent rigid body in z)
-        for j in 1..n {
-            // Skip corners (j=0 and j=n) to keep load nodes free in x/y
-            for &nid in &grid[0][j] {
-                supports.entry(nid.to_string())
-                    .or_insert_with(|| sup3d(nid, false, false, true, false, false, false));
-            }
+        for (k, &nid) in grid[0][0].iter().enumerate() {
+            // uy = 0 (symmetry); uz = 0 on the bottom node only: the one restraint against
+            // rigid translation along z (MacNeal–Harder: the equator is otherwise free).
+            supports.insert(nid.to_string(), sup3d(nid, false, true, k == 0, false, false, false));
         }
-        // Fix uz at equator corners too, but via combined BC
-        // Corner (0,0): uy=0 (from θ=0) + uz=0
-        for &nid in &grid[0][0] {
-            supports.insert(nid.to_string(), sup3d(nid, false, true, true, false, false, false));
-        }
-        // Corner (0,n): ux=0 (from θ=π/2) + uz=0
+        // Corner (0,n): ux=0 (from θ=π/2)
         for &nid in &grid[0][n] {
-            supports.insert(nid.to_string(), sup3d(nid, true, false, true, false, false, false));
+            supports.insert(nid.to_string(), sup3d(nid, true, false, false, false, false, false));
         }
 
-        // Point loads at equator: Fx=1 at θ=0, Fy=1 at θ=π/2
         let eq_x_bot = grid[0][0][0]; // equator, θ=0 (free in x)
-        let eq_y_bot = grid[0][n][0]; // equator, θ=π/2 (free in y)
-        let loads = vec![
-            SolverLoad3D::Nodal(SolverNodalLoad3D {
-                node_id: eq_x_bot, fx: 1.0, fy: 0.0, fz: 0.0,
-                mx: 0.0, my: 0.0, mz: 0.0, bw: None,
-            }),
-            SolverLoad3D::Nodal(SolverNodalLoad3D {
-                node_id: eq_y_bot, fx: 0.0, fy: 1.0, fz: 0.0,
-                mx: 0.0, my: 0.0, mz: 0.0, bw: None,
-            }),
-        ];
+        // MacNeal–Harder pinching: outward (+x) at θ = 0, INWARD (−y) at θ = 90° (equal
+        // outward loads would load the shell as a membrane, not pinch it). Each load is
+        // shared by the two face nodes of its grid point (a point force on
+        // one face would also squeeze the thickness locally).
+        let loads: Vec<SolverLoad3D> = grid[0][0].iter().map(|&nid| (nid, [0.5, 0.0]))
+            .chain(grid[0][n].iter().map(|&nid| (nid, [0.0, -0.5])))
+            .map(|(nid, f)| SolverLoad3D::Nodal(SolverNodalLoad3D {
+                node_id: nid, fx: f[0], fy: f[1], fz: 0.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None,
+            }))
+            .collect();
 
         let input = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes,
             materials: mats,
             sections: HashMap::new(),
@@ -6623,16 +6622,12 @@ fn benchmark_ss_pinched_hemisphere() {
             n, n, ux, ref_val, ratio
         );
 
-        // SHB8-ANS is membrane-locked on hemisphere (translations-only DOFs, no drilling).
-        // With correct E=68.25 GPa: ratios ~4e-4 (8×8) and ~9e-4 (16×16).
-        // Just verify nonzero deflection; curved_shell element handles hemisphere properly.
-        assert!(ux > 1e-15, "SS Hemisphere {}×{}: should deflect", n, n);
-        if n == 8 {
-            assert!(ratio > 1e-6, "SS Hemisphere 8×8: ratio {:.6} regressed below floor 1e-6", ratio);
-        }
-        if n == 16 {
-            assert!(ratio > 1e-6, "SS Hemisphere 16×16: ratio {:.6} regressed below floor 1e-6", ratio);
-        }
+        // This used to report ratios of 4e-4 / 1e-3 as "membrane locking". The element was
+        // not the cause: the test pulled both equator points OUTWARD (a membrane load, not
+        // the pinching pair) and held uz = 0 along the whole equator. With the
+        // MacNeal–Harder loading and supports: 8×8 ≈ 1.004, 16×16 ≈ 0.997 of 0.0924.
+        assert!((ratio - 1.0).abs() < 0.02,
+            "SS Hemisphere {}×{}: ratio {:.4} outside 1 ± 0.02", n, n, ratio);
     }
 }
 
@@ -6703,7 +6698,7 @@ fn benchmark_ss_twisted_beam() {
         ];
 
         let input = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes,
             materials: mats,
             sections: HashMap::new(),
@@ -6734,15 +6729,14 @@ fn benchmark_ss_twisted_beam() {
         );
 
         // Permanent gate: SHB8-ANS must capture twist geometry.
-        // Current: 4×1 ratio≈0.67, 8×1 ratio≈0.82 (covariant ANS; the old
-        // global-z ANS locked at ≈0.08 / 0.25 against this reference).
-        // Floor at 50% of current to catch regressions.
-        assert!(uy > 1e-15, "SS Twisted beam {}×{}: should deflect", nx, ny);
+        // Current (ANS + EAS): 4×1 ≈ 0.90, 8×1 ≈ 0.97. Covariant ANS alone: 0.67 / 0.82
+        // (in-plane bending of the 1.1-wide strip locked); the old global-z ANS locked at
+        // ≈0.08 / 0.25.
         if nx == 4 {
-            assert!(ratio > 0.33, "SS Twisted beam 4×1: ratio {:.4} regressed below floor 0.33", ratio);
+            assert!(ratio > 0.88 && ratio < 1.02, "SS Twisted beam 4×1: ratio {:.4} outside [0.88, 1.02]", ratio);
         }
         if nx == 8 {
-            assert!(ratio > 0.41, "SS Twisted beam 8×1: ratio {:.4} regressed below floor 0.41", ratio);
+            assert!(ratio > 0.95 && ratio < 1.02, "SS Twisted beam 8×1: ratio {:.4} outside [0.95, 1.02]", ratio);
         }
     }
 }
@@ -6791,37 +6785,30 @@ fn benchmark_ss_spherical_cap() {
                 .or_insert_with(|| sup3d(nid, true, false, false, false, false, false));
         }
     }
-    // Equator (i=0): uz=0, but keep x/y free at load corners
-    for j in 1..n {
-        for &nid in &grid[0][j] {
-            supports.entry(nid.to_string())
-                .or_insert_with(|| sup3d(nid, false, false, true, false, false, false));
-        }
+    for (k, &nid) in grid[0][0].iter().enumerate() {
+        // uy = 0 (symmetry); uz = 0 on the bottom node only: the one restraint against
+        // rigid translation along z (MacNeal–Harder: the equator is otherwise free).
+        supports.insert(nid.to_string(), sup3d(nid, false, true, k == 0, false, false, false));
     }
-    // Corner (0,0): uy=0 + uz=0
-    for &nid in &grid[0][0] {
-        supports.insert(nid.to_string(), sup3d(nid, false, true, true, false, false, false));
-    }
-    // Corner (0,n): ux=0 + uz=0
+    // Corner (0,n): ux=0 (from θ=π/2)
     for &nid in &grid[0][n] {
-        supports.insert(nid.to_string(), sup3d(nid, true, false, true, false, false, false));
+        supports.insert(nid.to_string(), sup3d(nid, true, false, false, false, false, false));
     }
 
     let eq_x_bot = grid[0][0][0];
-    let eq_y_bot = grid[0][n][0];
-    let loads = vec![
-        SolverLoad3D::Nodal(SolverNodalLoad3D {
-            node_id: eq_x_bot, fx: 1.0, fy: 0.0, fz: 0.0,
-            mx: 0.0, my: 0.0, mz: 0.0, bw: None,
-        }),
-        SolverLoad3D::Nodal(SolverNodalLoad3D {
-            node_id: eq_y_bot, fx: 0.0, fy: 1.0, fz: 0.0,
-            mx: 0.0, my: 0.0, mz: 0.0, bw: None,
-        }),
-    ];
+    // MacNeal–Harder pinching: outward (+x) at θ = 0, INWARD (−y) at θ = 90° (equal
+    // outward loads would load the shell as a membrane, not pinch it). Each load is
+    // shared by the two face nodes of its grid point (a point force on
+    // one face would also squeeze the thickness locally).
+    let loads: Vec<SolverLoad3D> = grid[0][0].iter().map(|&nid| (nid, [0.5, 0.0]))
+        .chain(grid[0][n].iter().map(|&nid| (nid, [0.0, -0.5])))
+        .map(|(nid, f)| SolverLoad3D::Nodal(SolverNodalLoad3D {
+            node_id: nid, fx: f[0], fy: f[1], fz: 0.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None,
+        }))
+        .collect();
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -6846,10 +6833,13 @@ fn benchmark_ss_spherical_cap() {
     let ratio = ux / ref_val;
 
     println!("SS Spherical cap R/t={}: ux={:.6e}, ref={:.4}, ratio={:.4}", r_over_t, ux, ref_val, ratio);
-    // SHB8-ANS is membrane-locked on spherical cap (same as hemisphere).
-    // With correct E=68.25 GPa: ratio ~1e-4. Just verify nonzero deflection.
-    assert!(ux > 1e-15, "SS Spherical cap: should deflect");
-    assert!(ratio > 1e-7, "SS Spherical cap: ratio {:.6} regressed below floor 1e-7", ratio);
+    // 0.0924 is the R/t = 250 (t = 0.04) answer. The pinched hemisphere deforms almost
+    // inextensionally, so its displacement scales like 1/D ∝ t⁻³: at t = 0.1 the estimate
+    // is 0.0924·(0.04/0.1)³ = 5.91e-3. The solid shell gives ≈1.015 of that; the ±5 %
+    // band is the scaling estimate's own accuracy (membrane energy grows as t falls less).
+    // (This used to report ~1e-4 for the same test bug as the hemisphere above.)
+    let scaled = ux / (ref_val * (0.04_f64 / t).powi(3));
+    assert!((scaled - 1.0).abs() < 0.05, "SS Spherical cap: {:.4} of the t⁻³-scaled reference", scaled);
 }
 
 // ================================================================
@@ -6860,13 +6850,15 @@ fn benchmark_ss_spherical_cap() {
 //
 // | Benchmark            | MITC4       | MITC9       | SHB8-ANS    | Curved Shell |
 // |----------------------|-------------|-------------|-------------|--------------|
-// | Hemisphere (pinched) | ratio 0.03  | ratio 0.04  | ratio 4e-4  | ratio 0.94   |
+// | Hemisphere (pinched) | ratio 0.03  | ratio 0.04  | ratio 1.00  | ratio 0.94   |
 // | Twisted beam A       | ratio 0.002 | ratio 0.001 | (not run)   | ratio 0.01+  |
-// | Twisted beam B       | ratio 0.002 | ratio 0.002 | ratio 0.82  | TBD          |
+// | Twisted beam B       | ratio 0.002 | ratio 0.002 | ratio 0.97  | TBD          |
 // | Raasch hook          | ratio 1e-4  | ratio 1e-4  | (not impl)  | TBD          |
 //
-// The curved shell (degenerated continuum) breaks through the flat-faceted wall
-// that limits MITC4, MITC9, and SHB8-ANS on curved geometry.
+// The curved shell (degenerated continuum) and the solid shell break through the
+// flat-faceted wall that limits MITC4 and MITC9 on curved geometry. (The SHB8 hemisphere
+// row read 4e-4 until issue #400: a test bug — both equator loads pointed outward and
+// the whole equator was held in z — not membrane locking.)
 //
 // Selection guidance:
 // - MITC4: flat or mildly curved shells, fastest solve, good for
@@ -6918,34 +6910,29 @@ fn benchmark_shell_family_frontier_gates() {
                     .or_insert_with(|| sup3d(nid, true, false, false, false, false, false));
             }
         }
-        for j in 1..n {
-            for &nid in &grid[0][j] {
-                supports.entry(nid.to_string())
-                    .or_insert_with(|| sup3d(nid, false, false, true, false, false, false));
-            }
-        }
-        for &nid in &grid[0][0] {
-            supports.insert(nid.to_string(), sup3d(nid, false, true, true, false, false, false));
+        for (k, &nid) in grid[0][0].iter().enumerate() {
+            // uy = 0 (symmetry); uz = 0 on the bottom node only: the one restraint against
+            // rigid translation along z (MacNeal–Harder: the equator is otherwise free).
+            supports.insert(nid.to_string(), sup3d(nid, false, true, k == 0, false, false, false));
         }
         for &nid in &grid[0][n] {
-            supports.insert(nid.to_string(), sup3d(nid, true, false, true, false, false, false));
+            supports.insert(nid.to_string(), sup3d(nid, true, false, false, false, false, false));
         }
 
         let eq_x_bot = grid[0][0][0];
-        let eq_y_bot = grid[0][n][0];
-        let loads = vec![
-            SolverLoad3D::Nodal(SolverNodalLoad3D {
-                node_id: eq_x_bot, fx: 1.0, fy: 0.0, fz: 0.0,
-                mx: 0.0, my: 0.0, mz: 0.0, bw: None,
-            }),
-            SolverLoad3D::Nodal(SolverNodalLoad3D {
-                node_id: eq_y_bot, fx: 0.0, fy: 1.0, fz: 0.0,
-                mx: 0.0, my: 0.0, mz: 0.0, bw: None,
-            }),
-        ];
+        // MacNeal–Harder pinching: outward (+x) at θ = 0, INWARD (−y) at θ = 90° (equal
+        // outward loads would load the shell as a membrane, not pinch it). Each load is
+        // shared by the two face nodes of its grid point (a point force on
+        // one face would also squeeze the thickness locally).
+        let loads: Vec<SolverLoad3D> = grid[0][0].iter().map(|&nid| (nid, [0.5, 0.0]))
+            .chain(grid[0][n].iter().map(|&nid| (nid, [0.0, -0.5])))
+            .map(|(nid, f)| SolverLoad3D::Nodal(SolverNodalLoad3D {
+                node_id: nid, fx: f[0], fy: f[1], fz: 0.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None,
+            }))
+            .collect();
 
         let input = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials: mats, sections: HashMap::new(),
             elements: HashMap::new(), supports, loads, constraints: vec![],
             left_hand: None, plates: HashMap::new(), quads: HashMap::new(),
@@ -6995,7 +6982,7 @@ fn benchmark_shell_family_frontier_gates() {
         }).collect();
 
         let input = SolverInput3D {
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
             nodes, materials: mats, sections: HashMap::new(),
             elements: HashMap::new(), supports, loads, constraints: vec![],
             left_hand: None, plates: HashMap::new(), quads: HashMap::new(),
@@ -7018,10 +7005,9 @@ fn benchmark_shell_family_frontier_gates() {
     eprintln!("SHB8-ANS/MITC4: hemisphere {:.2}×, twisted {:.0}×",
         ss_hemi / 0.03, ss_twist / 0.002);
 
-    // Gate: SHB8-ANS is membrane-locked on hemisphere with correct E=68.25 GPa.
-    // Twisted beam uses different material (E=29 GPa), unaffected.
-    assert!(ss_hemi > 1e-6, "SHB8-ANS hemisphere regressed: ratio {:.6}", ss_hemi);
-    assert!(ss_twist > 0.41, "SHB8-ANS twisted beam regressed: ratio {:.4}", ss_twist);
+    // Gates: SHB8-ANS-EAS 8×8 hemisphere ≈ 1.004 of 0.0924, 8×1 twisted beam ≈ 0.97.
+    assert!((ss_hemi - 1.0).abs() < 0.02, "SHB8-ANS hemisphere regressed: ratio {:.4}", ss_hemi);
+    assert!(ss_twist > 0.95 && ss_twist < 1.02, "SHB8-ANS twisted beam regressed: ratio {:.4}", ss_twist);
 }
 
 // ================================================================
@@ -7138,7 +7124,7 @@ fn curved_shell_navier_solve(nx: usize, ny: usize) -> (f64, f64) {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -7294,7 +7280,7 @@ fn curved_shell_scordelis_lo_solve(nx: usize, ntheta: usize) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -7457,7 +7443,7 @@ fn curved_shell_hemisphere_solve(n_phi: usize, n_theta: usize) -> f64 {
     }));
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -7647,7 +7633,7 @@ fn benchmark_curved_vs_mitc4_hemisphere_8x8() {
     ];
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads, constraints: vec![],
         left_hand: None, plates: HashMap::new(), quads,
@@ -7772,7 +7758,7 @@ fn curved_shell_hemisphere_hole_solve(n_phi: usize, n_theta: usize) -> f64 {
     ];
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: HashMap::new(),
         elements: HashMap::new(), supports, loads,
         constraints: vec![], left_hand: None,
@@ -7904,7 +7890,7 @@ fn curved_shell_twisted_beam_solve(nx: usize, ny: usize, load_case: char) -> f64
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),
@@ -8029,7 +8015,7 @@ fn curved_shell_raasch_hook_solve(n_arc: usize, n_width: usize) -> f64 {
     }
 
     let input = SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes,
         materials: mats,
         sections: HashMap::new(),

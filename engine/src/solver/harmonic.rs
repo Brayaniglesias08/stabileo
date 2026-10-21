@@ -99,8 +99,7 @@ pub fn solve_harmonic_2d_with_damping(input: &HarmonicInput) -> Result<(Harmonic
     super::linear::validate_input_2d(&input.solver)?;
     // The forcing is the load vector; a support displacement is not in it.
     super::feature_gates::refuse_2d(&input.solver, "Harmonic analysis", &[super::feature_gates::Feature::PrescribedDisplacements])?;
-    let referenced_material_ids = super::dynamic_validation::referenced_material_ids_2d(&input.solver);
-    super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
+    super::dynamic_validation::validate_mass_2d(&input.solver, &input.densities)?;
     if !input.damping_ratio.is_finite() {
         return Err("damping_ratio must be finite".to_string());
     }
@@ -269,8 +268,7 @@ pub fn solve_harmonic_3d_with_damping(input: &HarmonicInput3D) -> Result<(Harmon
         e
     });
     let input = expanded.as_ref().unwrap_or(input);
-    let referenced_material_ids = super::dynamic_validation::referenced_material_ids_3d(&input.solver);
-    super::dynamic_validation::validate_densities(&input.densities, &referenced_material_ids)?;
+    super::dynamic_validation::validate_mass_3d(&input.solver, &input.densities)?;
     if !input.damping_ratio.is_finite() {
         return Err("damping_ratio must be finite".to_string());
     }
@@ -470,6 +468,21 @@ fn harmonic_modal_from_eigen(
     if nk < n {
         let top = eigen.values.iter().cloned().fold(0.0f64, f64::max);
         lambda_omit = lambda_omit.min(top);
+        // The eigensolve stopped somewhere inside the spectrum, possibly in
+        // the middle of a repeated eigenvalue: then which members of that
+        // eigenspace were kept exactly and which only through the static
+        // correction depended on the arbitrary basis the solver returned, and
+        // the response changed when the model was merely rotated or
+        // renumbered (found by the metamorphic rotation check). The top
+        // cluster of the computed set is therefore left to the correction
+        // in full; the correction stays valid because its bound λ_omit is
+        // that cluster's eigenvalue.
+        let cut = top * (1.0 - 1e-6);
+        let before = mode_indices.len();
+        mode_indices.retain(|&j| eigen.values[j] < cut);
+        if mode_indices.len() < before {
+            lambda_omit = lambda_omit.min(cut);
+        }
     }
 
     if mode_indices.is_empty() {

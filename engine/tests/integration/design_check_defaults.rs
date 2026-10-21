@@ -23,6 +23,8 @@ fn timber(b: f64, d: f64, le: f64, lu: Option<f64>, e: f64, e_min: Option<f64>) 
         d,
         le,
         lu,
+        le_b: None,
+            le_bending: None,
         cd: None, cm: None, ct: None,
         cf_bending: None, cf_tension: None, cf_compression: None,
         cfu: None, ci: None, cr: None,
@@ -289,6 +291,7 @@ fn w14x22_without_depth(lb: f64) -> SteelMemberData {
         flange_slenderness: None,
         compression_elements: None,
         // The expected 49.8 kN·m is the F2-4 value at the shear centre.
+        lcz: None,
         load_position: Some(AiscLoadPosition::ShearCentre),
     }
 }

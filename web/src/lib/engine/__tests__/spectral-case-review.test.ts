@@ -90,10 +90,13 @@ describe('directions', () => {
     const s = spectral('Es', { x: 1, y: 0.3, z: 0 }, { directions: 'srss' });
     const r = results();
     const n = (id: number) => ef(r.get(id)!, 1).nStart;
-    expect(Math.abs(n(ex))).toBeCloseTo(2.828, 3);
-    expect(Math.abs(n(ey))).toBeCloseTo(4.236, 3);
+    // Engine values (snapshots), with the support-coupled mass in the participation since
+    // #434 (they were 2.828 / 4.236 / 4.099 with the free block only). The rule is what is
+    // asserted: |Ex| + 0.3·|Ey|.
+    expect(Math.abs(n(ex))).toBeCloseTo(2.869, 3);
+    expect(Math.abs(n(ey))).toBeCloseTo(4.332, 3);
     expect(Math.abs(n(e))).toBeCloseTo(Math.abs(n(ex)) + 0.3 * Math.abs(n(ey)), 9);
-    expect(Math.abs(n(e))).toBeCloseTo(4.099, 3);
+    expect(Math.abs(n(e))).toBeCloseTo(4.168, 3);
     // The sense across does not matter; the sign is the main direction's.
     expect(n(minus)).toBeCloseTo(n(e), 9);
     expect(Math.sign(n(e))).toBe(Math.sign(n(ex)));

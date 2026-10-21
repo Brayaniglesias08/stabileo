@@ -12,6 +12,7 @@ pub mod timber_check;
 pub mod serviceability;
 pub mod connection_check;
 pub mod foundation_check;
+pub mod isolated_footing;
 pub mod cfs_check;
 pub mod ec2_check;
 pub mod cirsoc201_check;
