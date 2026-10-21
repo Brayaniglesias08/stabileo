@@ -1341,6 +1341,7 @@
           {#if nlResult.isMechanism != null} — {nlResult.isMechanism ? t('pro.mechanism') : t('pro.stable')}{/if}
           {#if nlOutcome?.kind === 'converged'} — {t('pro.converged')}{/if}
           {#if nlResult.steps != null} — {nlResult.steps.length} {t('pro.steps')}{/if}
+          {#if nlType === 'pushover'}<div class="adv-hint" data-testid="known-issue-511">⚠ {t('knownIssue.PC-3D')} (#511)</div>{/if}
           {#if nlType === 'pushover' && nlAssumed.length > 0}<div class="adv-hint" data-testid="pushover-assumed">{tp('pro.pushoverAssumed', { names: nlAssumed.join(', ') })}</div>{/if}
           {#if nlDisplacements.length}
             — δmax={fmtNum(Math.max(...nlDisplacements.map((d: any) => Math.hypot(d.ux ?? 0, d.uy ?? 0, d.uz ?? 0))))} m

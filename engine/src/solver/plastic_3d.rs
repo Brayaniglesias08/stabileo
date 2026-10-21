@@ -702,7 +702,14 @@ fn mechanism(input: &SolverInput3D) -> bool {
 /// loaded outward reopens. When the structure is a mechanism, a hinge that
 /// would unload under the mechanism's motion closes and loading continues.
 /// `warnings` lists what keeps the result from being the collapse load.
+/// 3D plastic collapse, with the known-issue warning attached (#511).
 pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, String> {
+    let mut r = solve_plastic_3d_inner(input)?;
+    r.warnings.push(crate::known_issues::PLASTIC_3D.to_string());
+    Ok(r)
+}
+
+fn solve_plastic_3d_inner(input: &PlasticInput3D) -> Result<PlasticResult3D, String> {
     // Same reason as the 2D entry: keep `Err` from the inner solve meaning
     // "mechanism", and nothing else.
     super::super::linear::validate_input_3d(&input.solver)?;

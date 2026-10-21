@@ -114,6 +114,10 @@ pub fn attach(target: &mut Vec<StructuredDiagnostic>, new: Vec<StructuredDiagnos
     }
 }
 
+/// The 3D plastic-collapse warning (#511): the collapse factor depends on the order the solver
+/// visits members, so the same structure can report different factors, some unconservative.
+pub const PLASTIC_3D: &str = "3D plastic collapse: the collapse factor depends on the order the solver visits the members (renumbering or hash order), so the same structure can report different factors, some well above the true one; take the lowest of several runs only as a check, and verify the governing mechanism by hand (known issue #511, PC-3D; being fixed)";
+
 /// The warnings for an SSI analysis: one per soil-curve family the springs use.
 pub fn for_ssi(curves: &[&crate::solver::soil_curves::SoilCurve]) -> Vec<StructuredDiagnostic> {
     let mut seen: Vec<&'static str> = Vec::new();
