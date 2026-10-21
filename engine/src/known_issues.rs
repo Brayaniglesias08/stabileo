@@ -63,7 +63,7 @@ pub fn loads_3d(loads: &[SolverLoad3D]) -> Vec<StructuredDiagnostic> {
     if thermal.is_empty() { vec![] } else { vec![hit("FR-4", 407, THERMAL).with_elements(thermal)] }
 }
 
-/// The warnings a 3D model carries whatever its loads: curved shells, warped MITC9, arches.
+/// The warnings a 3D model carries whatever its loads: curved shells, arches.
 /// Read from the model as given, before its curved beams are expanded into members.
 pub fn model_3d(input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
     let mut out = Vec::new();
@@ -75,13 +75,6 @@ pub fn model_3d(input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
     }
     // One id index for every element check: a lookup per node made the pass O(elements × nodes).
     let xyz: std::collections::HashMap<usize, [f64; 3]> = crate::ordered::values(&input.nodes).map(|n| (n.id, [n.x, n.y, n.z])).collect();
-    let warped: Vec<usize> = crate::ordered::values(&input.quad9s).filter(|q| !planar(&q.nodes, &xyz)).map(|q| q.id).collect();
-    if !warped.is_empty() {
-        let mut d = hit("SH-7", 411, "MITC9 elements on non-planar geometry do not reproduce rigid-body motion, so curved MITC9 meshes carry spurious strains; refine or use flat elements");
-        d.element_ids = warped;
-        d.element_kind = Some(ElementKind::Quad9);
-        out.push(d);
-    }
     if input.curved_beams.iter().any(|c| !horizontal_plane(c, &xyz)) {
         out.push(hit("SP-15", 418, "Curved beams outside a horizontal plane (arches) take their segment axes from the plan orientation, so Iy and Iz swap on near-vertical segments; check the segments' stiffness and forces"));
     }
@@ -131,23 +124,6 @@ pub fn for_ssi(curves: &[&crate::solver::soil_curves::SoilCurve]) -> Vec<Structu
         }
     }
     out
-}
-
-/// Nine nodes on one plane, to 1e-6 of the element's size.
-fn planar(nodes: &[usize; 9], xyz: &std::collections::HashMap<usize, [f64; 3]>) -> bool {
-    let p: Vec<[f64; 3]> = nodes.iter().filter_map(|n| xyz.get(n).copied()).collect();
-    if p.len() < 9 {
-        return true; // a missing node is refused by validation
-    }
-    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-    let (u, v) = (sub(p[2], p[0]), sub(p[1], p[3]));
-    let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-    let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    let size = p.iter().map(|q| { let d = sub(*q, p[0]); (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() }).fold(0.0, f64::max);
-    if nl <= 0.0 || size <= 0.0 {
-        return true;
-    }
-    p.iter().all(|q| { let d = sub(*q, p[0]); ((d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) / nl).abs() <= 1e-6 * size })
 }
 
 /// A curved beam whose three points lie in a horizontal plane (a plan curve).

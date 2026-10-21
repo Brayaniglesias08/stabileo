@@ -70,25 +70,19 @@ fn curved_shells_and_warped_mitc9_and_arches_are_flagged_only_when_present() {
     let sh6 = d.iter().find(|x| x.phase.as_deref() == Some("SH-6")).expect("SH-6");
     assert_eq!((sh6.element_ids.clone(), sh6.element_kind), (vec![7], Some(ElementKind::CurvedShell)));
 
-    // MITC9: flat is fine, warped is flagged.
+    // MITC9: warped geometry is no longer flagged (SH-7 fixed, #411).
     let add_nodes = |s: &mut SolverInput3D, pts: &[[f64; 3]]| {
         for (k, p) in pts.iter().enumerate() {
             let id = 100 + k;
             s.nodes.insert(id.to_string(), SolverNode3D { id, x: p[0], y: p[1], z: p[2] });
         }
     };
-    let flat = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.5, 0.0, 0.0], [1.0, 0.5, 0.0], [0.5, 1.0, 0.0], [0.0, 0.5, 0.0], [0.5, 0.5, 0.0]];
-    let q9 = SolverQuad9Element { id: 9, nodes: [100, 101, 102, 103, 104, 105, 106, 107, 108], material_id: 1, thickness: 0.1 };
-    let mut s = base.clone();
-    add_nodes(&mut s, &flat);
-    s.quad9s.insert("9".into(), q9.clone());
-    assert!(!ids(&for_3d(&s, Analysis::Linear)).contains(&"SH-7".to_string()), "a flat MITC9 is not affected");
-    let mut warped = flat;
+    let mut warped = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.5, 0.0, 0.0], [1.0, 0.5, 0.0], [0.5, 1.0, 0.0], [0.0, 0.5, 0.0], [0.5, 0.5, 0.0]];
     warped[8][2] = 0.2;
     let mut s = base.clone();
     add_nodes(&mut s, &warped);
-    s.quad9s.insert("9".into(), q9);
-    assert!(ids(&for_3d(&s, Analysis::Linear)).contains(&"SH-7".to_string()));
+    s.quad9s.insert("9".into(), SolverQuad9Element { id: 9, nodes: [100, 101, 102, 103, 104, 105, 106, 107, 108], material_id: 1, thickness: 0.1 });
+    assert!(!ids(&for_3d(&s, Analysis::Linear)).contains(&"SH-7".to_string()), "a warped MITC9 is no longer flagged");
 
     // A plan curve is fine, an arch is flagged.
     let curve = || CurvedBeamInput { node_start: 1, node_mid: 200, node_end: 5, material_id: 1, section_id: 1, num_segments: 4, hinge_start: false, hinge_end: false };

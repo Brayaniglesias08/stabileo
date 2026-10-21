@@ -3699,7 +3699,6 @@ const es: Record<string, string> = {
   'knownIssue.SP-12': 'Las tensiones de cables pueden quedar bajas en sistemas de cables hiperestáticos; verificá por separado los esfuerzos que gobiernan en cables y anclajes',
   'knownIssue.FR-4': 'Las cargas de temperatura en barras usan α = 12·10⁻⁶ /°C y una altura √(12·I/A) sea cual sea el material y la sección; para otros materiales o alturas reales los esfuerzos térmicos quedan desviados en esa proporción',
   'knownIssue.SH-6': 'Las láminas curvas informan momentos flectores nulos y sus tensiones ignoran la deformación térmica: no dimensiones con momentos ni tensiones de láminas curvas',
-  'knownIssue.SH-7': 'Los elementos MITC9 sobre geometría no plana tienen deformaciones espurias; refiná la malla o usá elementos planos',
   'knownIssue.SP-15': 'Las vigas curvas fuera de un plano horizontal (arcos) pueden intercambiar Iy e Iz en tramos casi verticales; verificá la rigidez y los esfuerzos de esos tramos',
   'knownIssue.AC-12': 'Las curvas p-y se apartan de sus referencias (arcilla blanda, arena); los resultados laterales de pilotes y resortes de suelo están desviados',
   'knownIssue.AC-13': 'La curva p-y de arcilla dura es discontinua y no es la de Reese; los resultados laterales de pilotes y resortes de suelo están desviados',
