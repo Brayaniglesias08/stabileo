@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | High |
-| Status | Draft (fixed on `main` by the batch-4 integration, PR #507, deployed to stabileo.com 2026-10-21; untagged, next release) |
+| Status | Published 2026-10-21 (fixed in 0.3.0; live on stabileo.com since 2026-10-21) |
 | Issue | [#435](https://github.com/lambdaclass/stabileo/issues/435) |
 | Fix | PR [#436](https://github.com/lambdaclass/stabileo/pull/436) (merged via #507, 2026-10-21) |
 | Affected versions | up to 0.2.0 and `main` until the fix; introduction not yet bisected |
@@ -37,7 +37,7 @@ prescribed rotations. Rotational springs are not affected.
 ## Fixed in
 
 `main` (#436, merged through the batch-4 integration PR #507 and deployed to stabileo.com on
-2026-10-21); it will ship in the next tagged release. The workaround below is for checking results
+2026-10-21); released in 0.3.0. The workaround below is for checking results
 obtained before that date; it must not be applied to new runs.
 
 ## Workaround

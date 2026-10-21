@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | Medium |
-| Status | Draft (fix in review; untagged, next release) |
+| Status | Published 2026-10-21 (fixed in 0.3.0; live on stabileo.com since 2026-10-21) |
 | Issue | [#429](https://github.com/lambdaclass/stabileo/issues/429) (NL-6 in the element-derivation review) |
 | Fix | PR [#529](https://github.com/lambdaclass/stabileo/pull/529) |
 | Affected versions | every version with the 3D material-nonlinear solver (added 2026-03-07), up to 0.2.0 and `main` until the fix |
@@ -45,7 +45,7 @@ may have yielded.
 
 ## Fixed in
 
-The fix is in review on `fix/nl6-yield-surface`; it will ship in the next tagged release. The 3D
+The fix is in review on `fix/nl6-yield-surface`; released in 0.3.0. The 3D
 solver uses $(N/N_p)^2 + |M_y|/M_{py} + |M_z|/M_{pz} \le 1$ to detect yield and to report
 utilization, which is computed from the reported member forces (the secant forces, SA-2026-012).
 For bending about one axis it is exactly the 2D surface. Between the axes it is the straight line

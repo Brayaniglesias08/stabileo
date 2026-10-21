@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | Critical |
-| Status | Draft (retroactive) |
+| Status | Published 2026-10-21 (fixed in 0.2.0, released 2026-10-18) |
 | Issues / fix | PRs #298, #301 (safety wave), released in **0.2.0** (2026-10-18) |
 | Affected versions | every deployment before 2026-10-17; introduction not bisected |
 | Re-check registry | `cirsoc201-strain-compatibility`, `aci318-strain-and-axial`, `footing-shear-lambda-s`, `steel-ratio-above-one-fails` (PR #328) |

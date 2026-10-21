@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | Medium (engine and WASM only; spurious stresses on curved MITC9 meshes, 101 MPa from a 1 mrad rigid rotation; curved meshes too stiff, hemisphere deflection 26 % below the corrected element at 8 × 8) |
-| Status | Draft (fixed on `main`; untagged, next release) |
+| Status | Published 2026-10-21 (fixed in 0.3.0; live on stabileo.com since 2026-10-21) |
 | Issue | [#411](https://github.com/lambdaclass/stabileo/issues/411) (SH-7 in the element-derivation review) |
 | Fix | PR [#528](https://github.com/lambdaclass/stabileo/pull/528) |
 | Affected versions | every version with the MITC9 element (added 2026-03-10), up to 0.2.0 and `main` until the fix |
@@ -54,7 +54,7 @@ naming the elements. Flat MITC9 meshes are not affected.
 
 ## Fixed in
 
-`main` (this fix); it will ship in the next tagged release. Each node is tied to its projection on
+`main` (this fix); released in 0.3.0. Each node is tied to its projection on
 the element plane (through the mid-surface centroid) by a rigid link, the MITC4 warping correction
 applied to all nine nodes: K ← WᵀKW, displacements W·u in stress recovery and Wᵀf for the thermal
 load, so the six rigid motions are strain- and stress-free on any geometry. The element stays a flat facet: curvature is represented by the mesh,

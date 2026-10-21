@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | Medium (engine and WASM API; the app has compensated since 2026-10-07) |
-| Status | Draft (fix in review; untagged, next release) |
+| Status | Published 2026-10-21 (fixed in 0.3.0; live on stabileo.com since 2026-10-21) |
 | Issue | [#407](https://github.com/lambdaclass/stabileo/issues/407) (FR-4 in the element-derivation review) |
 | Fix | PR [#531](https://github.com/lambdaclass/stabileo/pull/531) |
 | Affected versions | the engine and WASM API in every version up to 0.2.0 and `main` until the fix; the app before 2026-10-07 |
@@ -39,7 +39,7 @@ before 2026-10-07.
 
 ## Fixed in
 
-The next release. A member thermal load takes the material's α (`alpha`) and the section's real
+0.3.0. A member thermal load takes the material's α (`alpha`) and the section's real
 depth (`depth` in 2D, `depthY` / `depthZ` in 3D); the app sends both. A load without them is still
 solved with the old defaults, and the result carries a warning (`thermal_default_assumed`) naming
 the default, so it is never silent. The independent end-to-end certificate re-assembles thermal

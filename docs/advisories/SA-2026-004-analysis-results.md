@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | Critical |
-| Status | Draft (retroactive) |
+| Status | Published 2026-10-21 (fixed in 0.2.0, released 2026-10-18) |
 | Issues / fix | PRs #275, #278, #279, #283, #284, #287, #288, #289, #290, #296, #297, #302 (safety wave), released in **0.2.0** (2026-10-18) |
 | Affected versions | every deployment before 2026-10-17; introduction not bisected |
 | Re-check registry | `inclined-supports-every-analysis`, `constraints-on-supported-slaves`, `constraints-at-inclined-supports`, `multiple-supports-one-node`, `buckling-axial-from-elongation`, `buckling-2d-linear-stiffness`, `ground-motion-coupled-mass`, `plastic-collapse-corrected`, `connectors-shear-and-dofs`, `nonlinear-solvers-as-given`, `solid-shell-and-mitc4-warping`, `feature-matrix-refusals` (PR #328) |

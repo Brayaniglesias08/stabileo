@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | High |
-| Status | Draft (fixed on `main`; untagged, next release) |
+| Status | Published 2026-10-21 (fixed in 0.3.0; live on stabileo.com since 2026-10-21) |
 | Issue | [#511](https://github.com/lambdaclass/stabileo/issues/511) |
 | Fix | PR [#524](https://github.com/lambdaclass/stabileo/pull/524) |
 | Affected versions | every version with 3D plastic collapse (pushover), up to 0.2.0 and `main` until the fix |
@@ -53,7 +53,7 @@ PR #510 also carried the known-issue notice PC-3D (#511) on every 3D plastic col
 
 ## Fixed in
 
-`main` (#524); it will ship in the next tagged release.
+`main` (#524); released in 0.3.0.
 
 - When no consistent set of active hinges exists, the analysis stops at the last consistent
   state and reports that load factor with a warning and `isMechanism = false`. Its moment field

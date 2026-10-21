@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | Medium |
-| Status | Draft (fix in review; untagged, next release) |
+| Status | Published 2026-10-21 (fixed in 0.3.0; live on stabileo.com since 2026-10-21) |
 | Issue | [#418](https://github.com/lambdaclass/stabileo/issues/418) (SP-15 in the element-derivation review) |
 | Fix | PR [#523](https://github.com/lambdaclass/stabileo/pull/523) |
 | Affected versions | every version with curved beams in the engine or the arc tool in the app, up to 0.2.0 and `main` until the fix |
