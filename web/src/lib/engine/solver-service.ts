@@ -2879,7 +2879,9 @@ export function comboSolverLoads3D(combo: LoadCombination, caseLoads: Map<number
  * A quad's thermal load carries its material's α, and an edge load its edge index; a quad's
  * self-weight scales through its gravity, so its density stays too, or the factor went in twice.
  */
-const LOAD_KEYS_KEPT = new Set(['nodeId', 'elementId', 'quadId', 'plateId', 'id', 'a', 'b', 'caseId', 'alpha', 'edge', 'density']);
+// Ids, positions and properties of the member, not magnitudes: a thermal load's α and section
+// depths (#407) stay as they are, or a factor would cancel out of the gradient's bending.
+const LOAD_KEYS_KEPT = new Set(['nodeId', 'elementId', 'quadId', 'plateId', 'id', 'a', 'b', 'caseId', 'alpha', 'edge', 'density', 'depth', 'depthY', 'depthZ']);
 
 export function scaleSolverLoad(l: SolverLoad3D, f: number): SolverLoad3D {
   const data: Record<string, unknown> = {};
