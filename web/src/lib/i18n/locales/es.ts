@@ -3698,7 +3698,7 @@ const es: Record<string, string> = {
   'knownIssue.NL-5': 'Los resultados no lineales de material son aproximados: el modelo es una secante de barra completa y no plasticidad, así que la respuesta salta en la primera fluencia, y en 3D la superficie de fluencia es menos conservadora que en 2D. Verificá el factor de colapso con colapso plástico',
   'knownIssue.SP-12': 'Las tensiones de cables pueden quedar bajas en sistemas de cables hiperestáticos; verificá por separado los esfuerzos que gobiernan en cables y anclajes',
   'knownIssue.FR-4': 'Las cargas de temperatura en barras usan α = 12·10⁻⁶ /°C y una altura √(12·I/A) sea cual sea el material y la sección; para otros materiales o alturas reales los esfuerzos térmicos quedan desviados en esa proporción',
-  'knownIssue.SH-6': 'Las láminas curvas informan momentos flectores nulos y sus tensiones ignoran la deformación térmica: no dimensiones con momentos ni tensiones de láminas curvas',
+  'knownIssue.SH-6': 'Bajo una carga de temperatura, las tensiones y momentos de las láminas curvas incluyen la deformación térmica libre, que no deberían incluir: no dimensiones con ellos',
   'knownIssue.SH-7': 'Los elementos MITC9 sobre geometría no plana tienen deformaciones espurias; refiná la malla o usá elementos planos',
   'knownIssue.SP-15': 'Las vigas curvas fuera de un plano horizontal (arcos) pueden intercambiar Iy e Iz en tramos casi verticales; verificá la rigidez y los esfuerzos de esos tramos',
   'knownIssue.AC-12': 'Las curvas p-y se apartan de sus referencias (arcilla blanda, arena); los resultados laterales de pilotes y resortes de suelo están desviados',

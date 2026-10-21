@@ -354,7 +354,6 @@ fn sh5_free_thermal_expansion_carries_no_geometric_stiffness() {
 /// reports those zeros as the element's moments. A flat curved-shell element in pure
 /// bending (θy = κx, w = −κx²/2) must report |mx| = D·κ.
 #[test]
-#[ignore = "open question SH-6: curved-shell stress recovery reports zero bending moments"]
 fn sh6_curved_shell_reports_bending_moments() {
     let (nu, h, kappa) = (0.3, 0.1, 1e-3);
     let mut u = [0.0; 24];
@@ -366,6 +365,27 @@ fn sh6_curved_shell_reports_bending_moments() {
     let s = curved_shell_stresses(&FLAT_SQUARE, &EZ_DIRS, &u, E, nu, h);
     let d = E * h.powi(3) / (12.0 * (1.0 - nu * nu));
     assert!(s.mx.abs() > 0.5 * d * kappa, "mx = {} for D·κ = {}", s.mx, d * kappa);
+    // The flat curved shell reports what the flat MITC4 reports, sign included.
+    let mut ul = [0.0; 24];
+    ul.copy_from_slice(&u);
+    let q = dedaliano_engine::element::quad::quad_stresses(&FLAT_SQUARE, &ul, E, nu, h, 0.0, 0.0, 0.0);
+    for (name, c, m) in [("mx", s.mx, q.mx), ("my", s.my, q.my), ("mxy", s.mxy, q.mxy)] {
+        assert!((c - m).abs() <= 1e-6 * (d * kappa), "{name}: curved {c} vs MITC4 {m}");
+    }
+    // A twisting field, w = κ·x·y (θx = ∂w/∂y, θy = −∂w/∂x): the twisting moment too.
+    let mut t = [0.0; 24];
+    for i in 0..4 {
+        let (x, y) = (FLAT_SQUARE[i][0], FLAT_SQUARE[i][1]);
+        t[i * 6 + 2] = kappa * x * y;
+        t[i * 6 + 3] = kappa * x;
+        t[i * 6 + 4] = -kappa * y;
+    }
+    let st = curved_shell_stresses(&FLAT_SQUARE, &EZ_DIRS, &t, E, nu, h);
+    let qt = dedaliano_engine::element::quad::quad_stresses(&FLAT_SQUARE, &t, E, nu, h, 0.0, 0.0, 0.0);
+    assert!(qt.mxy.abs() > 0.1 * d * kappa, "the twisting field twists: MITC4 mxy {}", qt.mxy);
+    for (name, c, m) in [("mx", st.mx, qt.mx), ("my", st.my, qt.my), ("mxy", st.mxy, qt.mxy)] {
+        assert!((c - m).abs() <= 1e-6 * (d * kappa), "twist {name}: curved {c} vs MITC4 {m}");
+    }
 }
 
 // ───────────────────── SH-7: curved (non-planar) MITC9 ─────────────────────

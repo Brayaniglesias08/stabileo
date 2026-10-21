@@ -59,20 +59,25 @@ pub fn loads_2d(loads: &[SolverLoad]) -> Vec<StructuredDiagnostic> {
 
 /// The warnings a 3D load set carries (frame temperature loads).
 pub fn loads_3d(loads: &[SolverLoad3D]) -> Vec<StructuredDiagnostic> {
-    let thermal: Vec<usize> = loads.iter().filter_map(|l| match l { SolverLoad3D::Thermal(t) => Some(t.element_id), _ => None }).collect();
-    if thermal.is_empty() { vec![] } else { vec![hit("FR-4", 407, THERMAL).with_elements(thermal)] }
-}
-
-/// The warnings a 3D model carries whatever its loads: curved shells, warped MITC9, arches.
-/// Read from the model as given, before its curved beams are expanded into members.
-pub fn model_3d(input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
     let mut out = Vec::new();
-    if !input.curved_shells.is_empty() {
-        let mut d = hit("SH-6", 410, "Curved shells report zero bending moments, and their stresses ignore thermal strain; do not design from curved-shell moments or stresses");
-        d.element_ids = crate::ordered::values(&input.curved_shells).map(|c| c.id).collect();
+    let thermal: Vec<usize> = loads.iter().filter_map(|l| match l { SolverLoad3D::Thermal(t) => Some(t.element_id), _ => None }).collect();
+    if !thermal.is_empty() {
+        out.push(hit("FR-4", 407, THERMAL).with_elements(thermal));
+    }
+    let shells: Vec<usize> = loads.iter().filter_map(|l| match l { SolverLoad3D::CurvedShellThermal(t) => Some(t.element_id), _ => None }).collect();
+    if !shells.is_empty() {
+        let mut d = hit("SH-6", 410, "Curved-shell stresses and moments under a temperature load include the free thermal strain, which they should not; do not design from them");
+        d.element_ids = shells;
         d.element_kind = Some(ElementKind::CurvedShell);
         out.push(d);
     }
+    out
+}
+
+/// The warnings a 3D model carries whatever its loads: warped MITC9, arches.
+/// Read from the model as given, before its curved beams are expanded into members.
+pub fn model_3d(input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
+    let mut out = Vec::new();
     // One id index for every element check: a lookup per node made the pass O(elements × nodes).
     let xyz: std::collections::HashMap<usize, [f64; 3]> = crate::ordered::values(&input.nodes).map(|n| (n.id, [n.x, n.y, n.z])).collect();
     let warped: Vec<usize> = crate::ordered::values(&input.quad9s).filter(|q| !planar(&q.nodes, &xyz)).map(|q| q.id).collect();

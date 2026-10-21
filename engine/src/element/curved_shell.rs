@@ -1230,14 +1230,40 @@ pub fn curved_shell_stresses(
     let von_mises = (sigma_xx * sigma_xx + sigma_yy * sigma_yy
         - sigma_xx * sigma_yy + 3.0 * tau_xy * tau_xy).sqrt();
 
+    // Bending moments per unit length: the in-plane stresses integrated through the thickness,
+    // M = ∫ σ z dz, with two Gauss points at ζ = ±1/√3 (exact for the linear-in-z strain of the
+    // degenerated shell). They were reported as zero (SH-6, #410), so a design read from them saw
+    // no bending. Sign as the flat MITC4 reports it (`quad_stresses`): M = −∫ σ z dz.
+    let g = 1.0 / 3f64.sqrt();
+    let (mut m_xx, mut m_yy, mut m_xy) = (0.0, 0.0, 0.0);
+    for zeta in [-g, g] {
+        let (g1, g2, g3, _) = covariant_basis(coords, dirs, h, 0.0, 0.0, zeta);
+        let (e1, e2, e3) = local_frame(&g1, &g2, &g3);
+        let j_mat = [[g1[0], g2[0], g3[0]], [g1[1], g2[1], g3[1]], [g1[2], g2[2], g3[2]]];
+        let inv_j = invert_3x3(&j_mat).unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
+        let bz = build_b_matrix_at_point(coords, dirs, h, 0.0, 0.0, zeta, &e1, &e2, &e3, &inv_j);
+        let mut ez = [0.0; 3];
+        for (k, e) in ez.iter_mut().enumerate() {
+            for col in 0..24 {
+                *e += bz[k][col] * u[col];
+            }
+        }
+        let (sx, sy, txy) = (d_mat[0][0] * ez[0] + d_mat[0][1] * ez[1], d_mat[1][0] * ez[0] + d_mat[1][1] * ez[1], d_mat[2][2] * ez[2]);
+        let z = zeta * h / 2.0;
+        let w = h / 2.0; // Gauss weight 1 times dz/dζ
+        m_xx -= sx * z * w;
+        m_yy -= sy * z * w;
+        m_xy -= txy * z * w;
+    }
+
     QuadStressResult {
         element_id: 0,
         sigma_xx,
         sigma_yy,
         tau_xy,
-        mx: 0.0,
-        my: 0.0,
-        mxy: 0.0,
+        mx: m_xx,
+        my: m_yy,
+        mxy: m_xy,
         von_mises,
     }
 }

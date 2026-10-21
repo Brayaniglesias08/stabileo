@@ -3705,7 +3705,7 @@ const en: Record<string, string> = {
   'knownIssue.NL-5': 'Material-nonlinear results are approximate: the model is a whole-member secant rather than plasticity, so the response jumps at first yield, and in 3D the yield surface is less conservative than in 2D. Check the collapse load factor with plastic collapse',
   'knownIssue.SP-12': 'Cable tensions can be too low in statically indeterminate cable systems; check the governing cable and anchorage forces independently',
   'knownIssue.FR-4': 'Temperature loads on frames and trusses use α = 12·10⁻⁶ /°C and a depth of √(12·I/A) whatever the material and section; for other materials or real depths the thermal forces are off in proportion',
-  'knownIssue.SH-6': 'Curved shells report zero bending moments and their stresses ignore thermal strain: do not design from curved-shell moments or stresses',
+  'knownIssue.SH-6': 'Under a temperature load, curved-shell stresses and moments include the free thermal strain, which they should not: do not design from them',
   'knownIssue.SH-7': 'MITC9 elements on non-planar geometry carry spurious strains; refine the mesh or use flat elements',
   'knownIssue.SP-15': 'Curved beams outside a horizontal plane (arches) can swap Iy and Iz on near-vertical segments; check those segments’ stiffness and forces',
   'knownIssue.AC-12': 'p-y soil curves depart from their references (soft clay, sand); lateral pile and soil-spring results are off',
