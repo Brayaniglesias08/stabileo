@@ -26,6 +26,8 @@ fn make_plastic_cantilever_3d() -> PlasticInput3D {
         id: 1, name: None, a: 0.01,
         iy: 8.33e-6, iz: 8.33e-6, j: 1.41e-5,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();
@@ -115,6 +117,8 @@ fn plastic_3d_fixed_beam_two_hinges() {
         id: 1, name: None, a: 0.01,
         iy: 8.33e-6, iz: 8.33e-6, j: 1.41e-5,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();
@@ -265,6 +269,8 @@ fn plastic_3d_portal_frame_mechanism() {
         id: 1, name: None, a: 0.01,
         iy: 8.33e-6, iz: 8.33e-6, j: 1.41e-5,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elements = HashMap::new();

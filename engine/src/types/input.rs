@@ -108,6 +108,26 @@ pub struct SolverPointLoadOnElement {
     pub my: Option<f64>,
 }
 
+/// A load along a plane member's axis, linear from `q_i` at `a` to `q_j` at `b` (kN/m,
+/// positive toward J). The part of a load in global axes, or at an angle, that runs along an
+/// inclined member: as equivalent loads at the end nodes the displacements come out right but
+/// the member sees no span load, so N is constant, the average of its true end values. The
+/// space solve carries it in `SolverDistributedLoad3D::q_xi`/`q_xj`; the plane load is its own
+/// variant so the many transverse-only literals stay as they are.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SolverAxialDistributedLoad {
+    pub element_id: usize,
+    #[serde(rename = "qI")]
+    pub q_i: f64,
+    #[serde(rename = "qJ")]
+    pub q_j: f64,
+    #[serde(default)]
+    pub a: Option<f64>,
+    #[serde(default)]
+    pub b: Option<f64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SolverThermalLoad {
@@ -127,6 +147,8 @@ pub enum SolverLoad {
     PointOnElement(SolverPointLoadOnElement),
     #[serde(rename = "thermal")]
     Thermal(SolverThermalLoad),
+    #[serde(rename = "axialDistributed")]
+    AxialDistributed(SolverAxialDistributedLoad),
 }
 
 /// Optional linear-solver configuration.
@@ -249,6 +271,15 @@ pub struct SolverSection3D {
     #[serde(default)]
     /// m², shear area paired with `iz` (bending about local z, shear along local y).
     pub as_z: Option<f64>,
+    /// Shear-centre coordinate along local y, measured from the centroid (m).
+    /// Only the geometric stiffness reads it (flexural-torsional buckling of
+    /// monosymmetric and asymmetric sections, e.g. channels, tees, angles).
+    /// `None` = 0 (doubly symmetric, or point-symmetric like a Z or cruciform).
+    #[serde(default)]
+    pub shear_center_y: Option<f64>,
+    /// Shear-centre coordinate along local z, measured from the centroid (m).
+    #[serde(default)]
+    pub shear_center_z: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1003,12 +1034,12 @@ pub struct NotionalLoadDef {
     /// Direction: 0=X, 1=Y, 2=Z
     #[serde(default)]
     pub direction: usize,
-    /// Gravity axis: 0=X, 1=Z (2D), 0=X, 1=Y, 2=Z (3D). Default 1 = vertical in 2D (Z).
-    #[serde(default = "default_gravity_axis")]
-    pub gravity_axis: usize,
+    /// Gravity axis: 0=X, 1=Z (2D), 0=X, 1=Y, 2=Z (3D). Absent: the vertical axis of the
+    /// model, Z (1 in 2D, 2 in 3D). It defaulted to 1 for both, which is Y in a Z-up 3D
+    /// model: a default 3D definition found no gravity and added nothing (NL-9).
+    #[serde(default)]
+    pub gravity_axis: Option<usize>,
 }
-
-fn default_gravity_axis() -> usize { 1 }
 
 /// Residual stress pattern for fiber sections.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1332,7 +1363,13 @@ pub enum Constraint {
 pub struct RigidLinkConstraint {
     pub master_node: usize,
     pub slave_node: usize,
-    /// DOFs to constrain on slave: 0=ux,1=uz (2D); 0..5 (3D). Empty = all translational.
+    /// DOFs to constrain on slave: 0=ux, 1=uz, 2=θ (2D); 0..5 (3D).
+    ///
+    /// Empty means different links in the two dimensions (docs/solver/assembly-constraints.md,
+    /// AC-3): in 3D (ux, uy, uz), all translations with the slave's rotation free (a pinned
+    /// arm); in 2D (ux, uz, θ), the rotation tied too (a fixed arm). List the DOFs to say which
+    /// link is meant: 2D [0, 1] is the 3D default, 3D [0..6] the 2D one. The web app lists them
+    /// when it sends a stored link to the 2D solver (`constraint-2d-remap.ts`).
     #[serde(default)]
     pub dofs: Vec<usize>,
 }
@@ -1343,7 +1380,14 @@ pub struct RigidLinkConstraint {
 pub struct DiaphragmConstraint {
     pub master_node: usize,
     pub slave_nodes: Vec<usize>,
-    /// Plane: "XY" (default), "XZ", or "YZ"
+    /// Plane: "XY" (default), "XZ", or "YZ".
+    ///
+    /// In 3D (Z up) the plane is the diaphragm's own: "XY" is a horizontal floor, rigid in X–Y
+    /// and free to bend vertically. A 2D model is the X–Z plane; there only "XY" (the default)
+    /// is accepted, and it means the in-plane rigid body of the model plane (u_x, u_z tied to θ;
+    /// other names are refused) (docs/solver/assembly-constraints.md, AC-5). So a 3D floor diaphragm is NOT
+    /// the 2D "XY" one: its trace on a plane frame is an equal u_x (an `equalDOF` on DOF 0),
+    /// which is what the web app sends to the 2D solver (`constraint-2d-remap.ts`).
     #[serde(default = "default_diaphragm_plane")]
     pub plane: String,
 }

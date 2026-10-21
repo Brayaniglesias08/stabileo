@@ -780,6 +780,13 @@ pub fn assemble_elements_parallel_2d(input: &SolverInput, dof_num: &DofNumbering
                             local_forces.push((dof, fef_global[i]));
                         }
                     }
+                    SolverLoad::AxialDistributed(al) if al.element_id == elem.id => {
+                        let fef = crate::element::fef_axial_distributed_2d(al.q_i, al.q_j, al.a.unwrap_or(0.0), al.b.unwrap_or(l), l);
+                        let fef_global = transform_force(&fef, &t, 6);
+                        for (i, &dof) in elem_dofs.iter().enumerate() {
+                            local_forces.push((dof, fef_global[i]));
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -2305,6 +2312,8 @@ mod tests {
         sections.insert("1".to_string(), SolverSection3D {
             id: 1, name: None, a: 0.09, iy: 6.75e-4, iz: 6.75e-4, j: 1.0e-3,
             cw: None, as_y: None, as_z: None,
+            shear_center_y: None,
+            shear_center_z: None,
         });
 
         // Fixed base supports

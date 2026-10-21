@@ -112,6 +112,12 @@ pub fn scale_load_2d(l: &mut SolverLoad, u: &Units) {
             p.px = opt(p.px, u.force);
             p.my = opt(p.my, u.moment());
         }
+        SolverLoad::AxialDistributed(d) => {
+            d.q_i *= u.line_load();
+            d.q_j *= u.line_load();
+            d.a = opt(d.a, u.length);
+            d.b = opt(d.b, u.length);
+        }
         SolverLoad::Thermal(_) => {}
     }
 }

@@ -794,7 +794,9 @@ Newton's method with double-double residuals. Not formalized in Lean.
 CQC with the solver's correlation coefficients), of the **exact lowest `m` modes** of the
 pencil `(K, M)` — `m` the number of modes in the input — with the spectrum evaluated at
 the exact periods. `K` and `M` are the f64 sparse assemblies (as in "Modal enclosures"),
-the influence vector `r` the solver's (unit translation in the direction), `Sa(T)` the
+`Mr` the solver's ground-motion load `(M·r)_f` — the full mass times the unit translation
+of every node in the direction, supports included, kept on the free rows (with a consistent
+mass the free DOFs carry the inertia coupled to the moving supports, `M_fr·r_r`) — `Sa(T)` the
 piecewise-linear interpolation of the spectrum points (constant beyond the ends), times
 `9.81` (when in g, the f64 constant) `× I / R` (exact real quotient). Nothing the input
 says about ω, periods, participation factors or effective masses is trusted; the mode
@@ -847,8 +849,10 @@ inside; the spectrum periods must be finite and strictly increasing (else refuse
 (`ρᵢᵢ = 1` exactly; refused if a denominator enclosure contains 0).
 
 * **Member forces**: per mode the solver's force recovery at `ũᵢ = mid(αᵢ)φ̃`, the error
-  bound `bᵢ = eᵢ + ‖αᵢφ̃ − ũᵢ‖` fed to the member force bounds (`max(|start|, |end|)` is
-  1-Lipschitz), then SRSS/CQC in intervals. As for member force bounds, rounding in the
+  bound `bᵢ = eᵢ + ‖αᵢφ̃ − ũᵢ‖` fed to the member force bounds (the bound of each component
+  holds at both ends), then SRSS/CQC in intervals of each end's **signed** value, and the
+  envelope of the two ends after combining — as the solver does. (Both used to combine the
+  per-mode `max(|start|, |end|)`, which made every CQC cross term non-negative.) As for member force bounds, rounding in the
   f64 force recovery is not included. The recovery is from the modal displacements
   alone, with no element loads: static member loads in the model (distributed, point,
   thermal) are not part of any mode's response, so their fixed-end forces enter neither
@@ -856,8 +860,9 @@ inside; the spectrum periods must be finite and strictly increasing (else refuse
   modal recovery added those fixed-end forces to every mode, and SRSS/CQC combined them
   as if dynamic; `validation_spectral_element_loads_do_not_leak` and its 3D twin pin the
   loaded and unloaded models to the same spectral member forces.)
-* **Base shear** (the solver always combines it by SRSS): `meffᵢ* = λᵢ‖Πᵢb‖²` with
-  `‖Πᵢb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθᵢ‖Mr‖/√σ_K`, times `Sa(Tᵢ)`, SRSS in intervals.
+* **Base shear**, combined by the requested rule like every other quantity (it used to be
+  SRSS whatever the rule, in the solver and here): `meffᵢ* = λᵢ‖Πᵢb‖²` with
+  `‖Πᵢb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθᵢ‖Mr‖/√σ_K`, times `Sa(Tᵢ)`, SRSS or CQC in intervals.
 
 **Output.** Per mode: ω², period and `Sa` enclosures, `sinθ`, `eᵢ`; per node and member
 the enclosures of the combined values; the base-shear enclosure; bounds on

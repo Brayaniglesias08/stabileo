@@ -431,6 +431,8 @@ mod tests {
         let mut sections = Map::new();
         sections.insert("1".into(), SolverSection3D {
             id: 1, name: None, a: 5e-3, iy: 4e-5, iz: 2e-6, j: 1e-7, cw: Some(2e-8), as_y: None, as_z: None,
+            shear_center_y: None,
+            shear_center_z: None,
         });
         let mut materials = Map::new();
         materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });

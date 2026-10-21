@@ -8,7 +8,7 @@
 mod common;
 use common::*;
 use dedaliano_engine::element::Hinge3D;
-use dedaliano_engine::solver::geometric_stiffness::{frame_kg_local_2d, frame_kg_local_3d, truss_kg_3d};
+use dedaliano_engine::solver::geometric_stiffness::{frame_kg_local_2d, frame_kg_local_3d, truss_kg_3d, KgSection};
 use dedaliano_engine::solver::mass_matrix::{
     assemble_mass_matrix_2d, frame_consistent_mass, frame_consistent_mass_3d, frame_consistent_mass_3d_warping,
 };
@@ -63,13 +63,14 @@ fn kg_2d_closed_form_symmetry_and_string_limit() {
     }
 }
 
-/// MD-1 (DOCUMENTED-CHOICE): the 3D frame Kg has no axial (P/L on u) and no torsional
-/// (P·Ip/(A·L) on θx) entries, and no end-moment terms. Its two bending blocks are the 2D
-/// block, with the θy coupling sign flipped (θy = −w').
+/// MD-1: the 3D frame Kg has no axial (P/L on u) entries and no end-moment terms. Its two
+/// bending blocks are the 2D block, with the θy coupling sign flipped (θy = −w'). The Wagner
+/// term P·r0²/L on the twist is there since #434 (MD-1 PARTLY FIXED): with r0 = 0 (an empty
+/// `KgSection`) the twist rows stay empty, with r0 > 0 they carry exactly that term.
 #[test]
 fn kg_3d_has_bending_blocks_only() {
     let (p, l) = (-80.0, 3.0);
-    let kg = frame_kg_local_3d(p, l, &Hinge3D::default());
+    let kg = frame_kg_local_3d(p, l, &Hinge3D::default(), &KgSection::default());
     for &d in &[0usize, 3, 6, 9] {
         for k in 0..12 {
             assert_eq!(kg[d * 12 + k], 0.0, "row {d} (axial/torsion) must be empty");
@@ -85,6 +86,18 @@ fn kg_3d_has_bending_blocks_only() {
             let v2 = k2[d2[a] * 6 + d2[b]];
             assert!((kg[yz[a] * 12 + yz[b]] - v2).abs() < 1e-12 * v2.abs().max(1.0));
             assert!((kg[xz[a] * 12 + xz[b]] - sgn[a] * sgn[b] * v2).abs() < 1e-12 * v2.abs().max(1.0));
+        }
+    }
+    // The Wagner term on the linear twist, θx at DOFs 3 and 9: P·r0²/L·[1, −1; −1, 1].
+    let r0_sq = 0.0125;
+    let kw = frame_kg_local_3d(p, l, &Hinge3D::default(), &KgSection { r0_sq, y0: 0.0, z0: 0.0 });
+    let w = p * r0_sq / l;
+    for &(i, j, v) in &[(3usize, 3usize, w), (9, 9, w), (3, 9, -w), (9, 3, -w)] {
+        assert!((kw[i * 12 + j] - v).abs() < 1e-12 * w.abs(), "Wagner ({i},{j}): {} vs {v}", kw[i * 12 + j]);
+    }
+    for k in 0..144 {
+        if ![3 * 12 + 3, 9 * 12 + 9, 3 * 12 + 9, 9 * 12 + 3].contains(&k) {
+            assert_eq!(kw[k], kg[k], "only the twist entries change with r0 (entry {k})");
         }
     }
     // Truss: (P/L)(I − e eᵀ) — transverse only.
@@ -215,9 +228,11 @@ fn cantilever_column(n: usize, l: f64) -> SolverInput {
     make_input(nodes, vec![(1, E, 0.3)], vec![(1, 0.01, 1e-4)], elems, vec![(1, 1, "fixed")], vec![])
 }
 
-/// MD-4 (DOCUMENTED-CHOICE): Σ over ALL modes of the effective mass equals r_fᵀ·M_ff·r_f, the
-/// mass on the free DOFs; mass ratios divide by the total ρAL of every member, part of which
-/// sits on the supports. A one-element cantilever can never exceed 156/420 = 37%.
+/// MD-4: since #434 the participation factors use (M·r)_f, the free rows of the full product
+/// (MD-5), so Σ over ALL modes of the effective mass is (M·r)_fᵀ·M_ff⁻¹·(M·r)_f. For a one-element
+/// cantilever, M_ff = m/420·[156, −22L; −22L, 4L²] and (M·r)_f = m/420·[210, −35L] give
+/// 315/420·m = 75% of the member mass (it was r_fᵀ·M_ff·r_f = 156/420 = 37% before). Mass
+/// ratios still divide by the total ρAL; refining the mesh takes the sum to the total.
 #[test]
 fn effective_mass_sums_to_free_mass_not_total_mass() {
     let input = cantilever_column(1, 3.0);
@@ -225,8 +240,8 @@ fn effective_mass_sums_to_free_mass_not_total_mass() {
     let m_tot = RHO / 1000.0 * 0.01 * 3.0;
     let sum: f64 = res.modes.iter().map(|m| m.effective_mass_x).sum();
     assert!(rel(res.total_mass, m_tot) < 1e-12);
-    assert!(rel(sum, 156.0 / 420.0 * m_tot) < 1e-8, "Σ meff = {sum}, 156/420·m = {}", 156.0 / 420.0 * m_tot);
-    assert!(rel(res.cumulative_mass_ratio_x, 156.0 / 420.0) < 1e-8);
+    assert!(rel(sum, 315.0 / 420.0 * m_tot) < 1e-8, "Σ meff = {sum}, 315/420·m = {}", 315.0 / 420.0 * m_tot);
+    assert!(rel(res.cumulative_mass_ratio_x, 315.0 / 420.0) < 1e-8);
 }
 
 /// Σ_n φ_n(tip) Γ_n / ω_n² over all modes for a cantilever of `n` elements: the static tip
@@ -241,14 +256,13 @@ fn modal_static_tip(n: usize, l: f64) -> f64 {
     }).sum()
 }
 
-/// MD-5 (OPEN): the participation factor uses M_ff·r_f, the free-DOF block only. For a
+/// MD-5 (FIXED, #434): the participation factor used M_ff·r_f, the free-DOF block only. For a
 /// uniform ground motion the effective load is −(M·r)_f·a_g = −(M_ff·r_f + M_fr·r_r)·a_g
 /// (Chopra §9.7, the m_g term); the time-history path uses that full product. With all modes
 /// and a rigid (constant) acceleration the modal sum must give the static response to the
 /// consistent body force, which is exact at the nodes: ρA·a_g·L⁴/(8EI) at the tip of a
 /// cantilever. The free-block Γ gives 0.781 of it for one element per column.
 #[test]
-#[ignore = "open question MD-5: modal Γ omits the M_fr support-coupling inertia that time history includes"]
 fn modal_participation_includes_support_coupled_mass() {
     let l: f64 = 3.0;
     let exact = RHO / 1000.0 * 0.01 * l.powi(4) / (8.0 * E * 1000.0 * 1e-4);
@@ -260,16 +274,10 @@ fn modal_participation_includes_support_coupled_mass() {
     assert!(rel(s1, exact) < 1e-6, "modal static limit {s1:e} vs exact {exact:e} (ratio {:.4})", s1 / exact);
 }
 
-/// The same check, pinned to what the code does today (Γ from M_ff·r_f): the modal static
-/// limit is K_ff⁻¹·M_ff·r_f, i.e. tip = ρA·L⁴/EI·(156/1260 − 11/420) for one element.
+/// The product the participation factor uses: (M·r) on the free rows, the consistent UDL load.
 #[test]
-fn modal_participation_today_uses_free_block_mass_only() {
+fn support_coupled_mass_row_is_the_consistent_udl_load() {
     let l: f64 = 3.0;
-    let q_over_ei = RHO / 1000.0 * 0.01 / (E * 1000.0 * 1e-4);
-    let today = q_over_ei * l.powi(4) * (156.0 / 420.0 / 3.0 - 22.0 / 420.0 / 2.0);
-    let s1 = modal_static_tip(1, l);
-    assert!(rel(s1, today) < 1e-6, "{s1:e} vs {today:e}");
-    // And the full product (M·r)_f is what the dense assembly gives on the free rows.
     let input = cantilever_column(1, l);
     let dof = DofNumbering::build_2d(&input);
     let m = assemble_mass_matrix_2d(&input, &dof, &dens());
@@ -369,7 +377,6 @@ fn cqc_coefficient_is_der_kiureghian_1981() {
 /// and 1.1ω give responses r and −0.826r: CQC gives |r|·√(1 + c² − 2ρc) for the tip displacement
 /// but |M|·√(1 + c² + 2ρc) for the base moment, although the two are proportional.
 #[test]
-#[ignore = "open question MD-6: spectral CQC/SRSS combine element forces from per-mode absolute values"]
 fn spectral_forces_are_combined_signed_like_displacements() {
     let input = cantilever_column(4, 3.0);
     let m1 = to_spectral(&modal::solve_modal_2d(&input, &dens(), 2).unwrap().modes[0]);
@@ -388,7 +395,6 @@ fn spectral_forces_are_combined_signed_like_displacements() {
 /// is requested. Modal base shears in one direction are all positive, so CQC ≥ SRSS: for two
 /// modes at ω and 1.1ω (ρ = 0.52) the CQC base shear is 1.23× the reported one.
 #[test]
-#[ignore = "open question MD-7: spectral base_shear uses SRSS even when rule = CQC"]
 fn spectral_base_shear_follows_the_requested_rule() {
     let input = cantilever_column(4, 3.0);
     let m1 = to_spectral(&modal::solve_modal_2d(&input, &dens(), 2).unwrap().modes[0]);
@@ -409,7 +415,6 @@ fn spectral_base_shear_follows_the_requested_rule() {
 /// load. A 200×10 mm cruciform, L = 1.5 m, pinned and fork-supported: P_E = 5860 kN,
 /// P_T = 2993 kN; the solver returns P_E (+96%).
 #[test]
-#[ignore = "open question MD-8: frame Kg omits the torsional (Wagner) term, torsional buckling is missed"]
 fn cruciform_column_buckles_in_torsion() {
     let (l, nu) = (1.5, 0.3);
     let (a, iy, j) = (0.0039, 6.68e-6, 1.333e-7);
@@ -423,19 +428,6 @@ fn cruciform_column_buckles_in_torsion() {
     let p_t = g * j * a / (2.0 * iy);
     eprintln!("λ = {:.1}, P_E = {p_e:.1}, P_T = {p_t:.1}", res.modes[0].load_factor);
     assert!(rel(res.modes[0].load_factor, p_t.min(p_e)) < 0.02);
-}
-
-/// The same column today: the first load factor is the flexural (Euler) one.
-#[test]
-fn cruciform_column_today_reports_the_euler_load() {
-    let (l, nu) = (1.5, 0.3);
-    let (a, iy, j) = (0.0039, 6.68e-6, 1.333e-7);
-    let load = vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 9, fx: -1.0, fy: 0.0, fz: 0.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None })];
-    let input = make_3d_beam(8, l, E, nu, a, iy, iy, j,
-        vec![true, true, true, true, false, false], Some(vec![false, true, true, true, false, false]), load);
-    let res = buckling::solve_buckling_3d(&input, 4).unwrap();
-    let p_e = PI * PI * E * 1000.0 * iy / (l * l);
-    assert!(rel(res.modes[0].load_factor, p_e) < 1e-3, "{} vs {p_e}", res.modes[0].load_factor);
 }
 
 /// MD-9 (DOCUMENTED-CHOICE): Kg is built from axial forces only — no lateral-torsional
@@ -489,7 +481,6 @@ fn hht_and_newmark_parameters() {
 /// MD-10 (OPEN, API): the `method` field is not read. `method = "hht"` without `alpha` runs
 /// plain Newmark, and `method = "newmark"` with `alpha` runs HHT.
 #[test]
-#[ignore = "open question MD-10: TimeHistoryInput.method is ignored; the scheme follows alpha alone"]
 fn time_history_method_field_selects_the_scheme() {
     let r = time_integration::solve_time_history_2d(&th_input(None, "hht"));
     match r {

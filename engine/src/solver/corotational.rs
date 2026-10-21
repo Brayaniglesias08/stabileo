@@ -359,6 +359,7 @@ fn scaled_loads_2d(input: &SolverInput, factor: f64) -> SolverInput {
         match l {
             SolverLoad::Nodal(n) => { n.fx *= factor; n.fz *= factor; n.my *= factor; }
             SolverLoad::Distributed(d) => { d.q_i *= factor; d.q_j *= factor; }
+            SolverLoad::AxialDistributed(d) => { d.q_i *= factor; d.q_j *= factor; }
             SolverLoad::PointOnElement(p) => {
                 p.p *= factor;
                 p.px = p.px.map(|v| v * factor);
@@ -835,6 +836,12 @@ fn subtract_element_fef(
                     f_local[i] -= fef[i];
                 }
             }
+            SolverLoad::AxialDistributed(al) if al.element_id == elem.id => {
+                let fef = crate::element::fef_axial_distributed_2d(al.q_i, al.q_j, al.a.unwrap_or(0.0), al.b.unwrap_or(l), l);
+                for i in 0..6 {
+                    f_local[i] -= fef[i];
+                }
+            }
             _ => {}
         }
     }
@@ -1091,10 +1098,38 @@ pub fn compute_corotational_forces(
             let d_axial = elong;
             let n_axial = e * sec.a / l0 * d_axial;
 
+            // Loads along the bar: their consistent end loads make N vary along it, as the linear
+            // recovery has it (n_start = EAδ/L + f_i, n_end = EAδ/L − f_j), and the diagram reads
+            // the span load itself. Without them a bar under an axial span load reported a
+            // constant N, even in the small-displacement limit.
+            let (mut f_i, mut f_j) = (0.0, 0.0);
+            let mut axial_loads_info = Vec::new();
+            let mut truss_point_loads = Vec::new();
+            for load in &input.loads {
+                match load {
+                    SolverLoad::PointOnElement(pl) if pl.element_id == elem.id => {
+                        let px = pl.px.unwrap_or(0.0);
+                        if px != 0.0 {
+                            f_i += px * (1.0 - pl.a / l0);
+                            f_j += px * pl.a / l0;
+                            truss_point_loads.push(PointLoadInfo { a: pl.a, p: 0.0, px: Some(px), my: None });
+                        }
+                    }
+                    SolverLoad::AxialDistributed(al) if al.element_id == elem.id => {
+                        let (a, b) = (al.a.unwrap_or(0.0), al.b.unwrap_or(l0));
+                        let [fa, fb] = crate::element::axial_distributed_fef(al.q_i, al.q_j, a, b, l0);
+                        f_i += fa;
+                        f_j += fb;
+                        axial_loads_info.push(DistributedLoadInfo { q_i: al.q_i, q_j: al.q_j, a, b });
+                    }
+                    _ => {}
+                }
+            }
+
             forces.push(ElementForces {
                 element_id: elem.id,
-                n_start: n_axial,
-                n_end: n_axial,
+                n_start: n_axial + f_i,
+                n_end: n_axial - f_j,
                 v_start: 0.0,
                 v_end: 0.0,
                 m_start: 0.0,
@@ -1102,8 +1137,8 @@ pub fn compute_corotational_forces(
                 length: l_n,
                 q_i: 0.0,
                 q_j: 0.0,
-                point_loads: Vec::new(),
-                distributed_loads: Vec::new(),
+                point_loads: truss_point_loads,
+                distributed_loads: Vec::new(), distributed_loads_x: axial_loads_info,
                 hinge_start: false,
                 hinge_end: false,
             });
@@ -1148,6 +1183,7 @@ pub fn compute_corotational_forces(
             let (mut total_qi, mut total_qj) = (0.0, 0.0);
             let mut point_loads_info = Vec::new();
             let mut dist_loads_info = Vec::new();
+            let mut axial_loads_info = Vec::new();
 
             for load in &input.loads {
                 match load {
@@ -1174,6 +1210,14 @@ pub fn compute_corotational_forces(
                             my: pl.my,
                         });
                     }
+                    SolverLoad::AxialDistributed(al) if al.element_id == elem.id => {
+                        axial_loads_info.push(DistributedLoadInfo {
+                            q_i: al.q_i,
+                            q_j: al.q_j,
+                            a: al.a.unwrap_or(0.0),
+                            b: al.b.unwrap_or(l0),
+                        });
+                    }
                     _ => {}
                 }
             }
@@ -1192,6 +1236,7 @@ pub fn compute_corotational_forces(
                 q_j: total_qj,
                 point_loads: point_loads_info,
                 distributed_loads: dist_loads_info,
+                distributed_loads_x: axial_loads_info,
                 hinge_start: elem.hinge_start,
                 hinge_end: elem.hinge_end,
             });
@@ -1249,6 +1294,23 @@ pub fn solve_corotational_3d(
     if has_shells {
         return Err("Corotational 3D solver does not support shell elements. \
             Use the linear solver for models with plates, quads, or shells.".into());
+    }
+    // The co-rotational element carries the Wagner term of a doubly symmetric
+    // section (internal torque and tangent) but not the shear-centre coupling of
+    // a monosymmetric one: refused rather than missing its flexural-torsional
+    // instability without a word.
+    // Only the sections of frame members: the catalogue may hold unused ones, and a truss has
+    // no flexural-torsional coupling to miss.
+    let frame_sections: std::collections::HashSet<usize> =
+        input.elements.values().filter(|e| e.elem_type == "frame").map(|e| e.section_id).collect();
+    if let Some(sec) = input.sections.values().filter(|s| frame_sections.contains(&s.id)).find(|s| {
+        s.shear_center_y.is_some_and(|v| v != 0.0) || s.shear_center_z.is_some_and(|v| v != 0.0)
+    }) {
+        return Err(format!(
+            "Corotational 3D solver does not model a shear-centre offset (section {}): \
+             flexural-torsional coupling is not included. Use linear buckling or P-Delta.",
+            sec.id
+        ));
     }
 
     // Expand curved beams before DOF numbering and assembly.
@@ -1793,6 +1855,11 @@ fn assemble_frame_corotational_3d(
     }
     current_length_shears(&mut f_local, l0, l_n);
 
+    // Wagner torque (see `add_wagner_torque`); the tangent below carries the same term.
+    let kg_sec = wagner_section(a, iy, iz);
+    let axial_p = -f_local[0]; // Tension positive
+    add_wagner_torque(&mut f_local, &d_nat, elem, &kg_sec, l_n);
+
     // Corotated transformation matrix
     let t_n = frame_transform_3d(&ex_n, &ey_n, &ez_n);
 
@@ -1817,11 +1884,10 @@ fn assemble_frame_corotational_3d(
     // Tangent stiffness: T_n^T * K_local * T_n
     let k_glob = transform_stiffness(&k_local, &t_n, 12);
 
-    // Geometric stiffness (Przemieniecki formula)
-    let axial_p = -f_local[0]; // Tension positive
+    // Geometric stiffness (Przemieniecki formula, plus the Wagner term above)
     // Condensed for the end releases: a released end rotation belongs to no
     // one, and the uncondensed matrix put −4·P·L/30 on it.
-    let k_geo_local = super::geometric_stiffness::frame_kg_local_3d(axial_p, l_n, &Hinge3D::from_elem(elem));
+    let k_geo_local = super::geometric_stiffness::frame_kg_local_3d(axial_p, l_n, &Hinge3D::from_elem(elem), &kg_sec);
     let k_geo_global = transform_stiffness(&k_geo_local, &t_n, 12);
 
     // Scatter to global
@@ -2137,6 +2203,34 @@ fn compute_corotational_forces_3d(
         .collect()
 }
 
+/// The section data of the co-rotational Wagner term: doubly symmetric,
+/// r0² = (Iy + Iz)/A (shear-centre offsets are refused by `solve_corotational_3d`).
+fn wagner_section(a: f64, iy: f64, iz: f64) -> super::geometric_stiffness::KgSection {
+    super::geometric_stiffness::KgSection { r0_sq: if a > 0.0 { (iy + iz) / a } else { 0.0 }, y0: 0.0, z0: 0.0 }
+}
+
+/// Adds the Wagner torque P·r0²·θ' to the local end forces `f_local` (12, local axes,
+/// the axial force read from f_local[0] = −N): the axial stress on fibres helixed by
+/// the twist, which makes a compressed member lose torsional stiffness. Applied in the
+/// residual (`assemble_frame_corotational_3d`) and in the force recovery
+/// (`elastic_corotational_forces_3d`) alike, so the reported torques are the ones in
+/// equilibrium. A torsion release removes it, as it removes GJ.
+fn add_wagner_torque(
+    f_local: &mut [f64; 12],
+    d_nat: &[f64; 12],
+    elem: &SolverElement3D,
+    sec: &super::geometric_stiffness::KgSection,
+    l_n: f64,
+) {
+    if elem.release_t_start || elem.release_t_end {
+        return;
+    }
+    let axial_p = -f_local[0]; // Tension positive
+    let tw = axial_p * sec.r0_sq / l_n * (d_nat[9] - d_nat[3]);
+    f_local[3] -= tw;
+    f_local[9] += tw;
+}
+
 /// The co-rotational elastic part of the member end forces, K·d_nat (3D).
 fn elastic_corotational_forces_3d(
     input: &SolverInput3D,
@@ -2309,6 +2403,9 @@ fn elastic_corotational_forces_3d(
             }
         }
         current_length_shears(&mut f_local, l0, l_n);
+        // The same Wagner torque the residual carries, so the reported member
+        // torques balance the applied torques and the reactions.
+        add_wagner_torque(&mut f_local, &d_nat, elem, &wagner_section(sec.a, sec.iy, sec.iz), l_n);
 
         // Sign convention: match linear solver output
         forces.push(ElementForces3D {

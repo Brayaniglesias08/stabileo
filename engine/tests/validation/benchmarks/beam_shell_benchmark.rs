@@ -91,6 +91,8 @@ fn benchmark_beam_shell_stiffened_plate() {
             sections.insert("1".to_string(), SolverSection3D {
                 id: 1, name: None, a: stiff_a, iy: stiff_iy, iz: stiff_iz, j: stiff_j,
                 cw: None, as_y: None, as_z: None,
+                shear_center_y: None,
+                shear_center_z: None,
             });
 
             let j_mid = ny / 2;
@@ -240,6 +242,8 @@ fn benchmark_beam_shell_column_to_slab() {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.09, iy: 6.75e-4, iz: 6.75e-4, j: 1.0e-3,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
     let mut elements = HashMap::new();
     elements.insert("1".to_string(), SolverElement3D {
@@ -339,6 +343,8 @@ fn benchmark_beam_shell_cantilever_parity() {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: a_beam, iy: iz, iz, j: iz * 2.0,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
     let mut mats = HashMap::new();
     mats.insert("1".to_string(), SolverMaterial { id: 1, e, nu });
@@ -496,6 +502,8 @@ fn benchmark_beam_shell_equilibrium() {
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.04, iy: 1.33e-4, iz: 1.33e-4, j: 2.0e-4,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
     let mut elements = HashMap::new();
     let mut eid = 1;

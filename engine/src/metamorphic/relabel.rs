@@ -225,6 +225,7 @@ impl Relabel {
             SolverLoad::Distributed(x) => SolverLoad::Distributed(SolverDistributedLoad { element_id: self.e(x.element_id), ..x.clone() }),
             SolverLoad::PointOnElement(x) => SolverLoad::PointOnElement(SolverPointLoadOnElement { element_id: self.e(x.element_id), ..x.clone() }),
             SolverLoad::Thermal(x) => SolverLoad::Thermal(SolverThermalLoad { element_id: self.e(x.element_id), ..x.clone() }),
+            SolverLoad::AxialDistributed(x) => SolverLoad::AxialDistributed(SolverAxialDistributedLoad { element_id: self.e(x.element_id), ..x.clone() }),
         }
     }
 

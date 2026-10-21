@@ -47,6 +47,10 @@ fn neg2(l: &SolverLoad) -> SolverLoad {
             t.dt_uniform = -t.dt_uniform;
             t.dt_gradient = -t.dt_gradient;
         }
+        SolverLoad::AxialDistributed(d) => {
+            d.q_i = -d.q_i;
+            d.q_j = -d.q_j;
+        }
     }
     l
 }
@@ -136,6 +140,8 @@ fn pair_load_2d(l: &SolverLoad, nm: &dyn Fn(usize) -> usize, emax: usize) -> Sol
         SolverLoad::Distributed(x) => SolverLoad::Distributed(SolverDistributedLoad { element_id: x.element_id + emax, ..x.clone() }),
         SolverLoad::PointOnElement(x) => SolverLoad::PointOnElement(SolverPointLoadOnElement { element_id: x.element_id + emax, ..x.clone() }),
         SolverLoad::Thermal(x) => SolverLoad::Thermal(SolverThermalLoad { element_id: x.element_id + emax, ..x.clone() }),
+        // The mirrored member keeps its i → j direction, so the load along it is the same.
+        SolverLoad::AxialDistributed(x) => SolverLoad::AxialDistributed(SolverAxialDistributedLoad { element_id: x.element_id + emax, ..x.clone() }),
     }
 }
 

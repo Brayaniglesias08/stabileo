@@ -246,7 +246,9 @@
       "iy": 0.0020833333333333333,
       "iz": 0.00033333333333333343,
       "j": 0.0009980501333333334,
-      "name": null
+      "name": null,
+      "shearCenterY": null,
+      "shearCenterZ": null
     },
     "6": {
       "a": 0.27,
@@ -257,7 +259,9 @@
       "iy": 0.002025,
       "iz": 0.018225,
       "j": 0.006400749999999999,
-      "name": null
+      "name": null,
+      "shearCenterY": null,
+      "shearCenterZ": null
     }
   },
   "solidShells": {},

@@ -1,6 +1,9 @@
 //! Modal invariants: mass orthogonality of the mode shapes and the effective
-//! masses recomputed from the assembled mass matrix (each mode's, their sum
-//! bounded by the free mass, and equal to it once every mode is computed).
+//! masses recomputed from the assembled mass matrix. The participation is
+//! φᵀ(M·r)_f with r the rigid-body influence over EVERY DOF, supports included
+//! (#434: the inertia the consistent mass couples to the moving supports), so
+//! each mode's mass is (φᵀMι)²/(φᵀMφ), their sum is bounded by the total mass
+//! ιᵀMι, and with every mode computed it equals (M·r)_fᵀ·M_ff⁻¹·(M·r)_f.
 //!
 //! Tolerance: the eigensolver stops at a relative residual τ = 1e-10
 //! (linalg/lanczos.rs); an eigenvector's error is then ≲ τ / relgap, with
@@ -60,7 +63,7 @@ fn check(m: &[f64], n: usize, nf: usize, modes: &Modes, dirs: &[Vec<f64>], all_m
     // Effective masses from M: (φᵀMι)²/(φᵀMφ), against the reported ones.
     let tol_m = 2.0 * TAU + base;
     for (d, iota) in dirs.iter().enumerate() {
-        let free_mass = mv(iota, iota);
+        let free_mass = mv(iota, iota); // ιᵀMι, the total mass in this direction
         if free_mass <= 0.0 {
             continue;
         }
@@ -75,13 +78,41 @@ fn check(m: &[f64], n: usize, nf: usize, modes: &Modes, dirs: &[Vec<f64>], all_m
             }
         }
         if !(sum <= free_mass * (1.0 + tol_m)) {
-            return Verdict::Fail(format!("Σ effective mass {sum:.10e} exceeds the free mass {free_mass:.10e} (direction {d})"));
+            return Verdict::Fail(format!("Σ effective mass {sum:.10e} exceeds the total mass {free_mass:.10e} (direction {d})"));
         }
-        if all_modes && !((sum - free_mass).abs() <= tol_m * k as f64 * free_mass) {
-            return Verdict::Fail(format!("all {k} modes: Σ effective mass {sum:.10e} ≠ free mass {free_mass:.10e} (direction {d})"));
+        if all_modes {
+            // (M·r)_fᵀ·M_ff⁻¹·(M·r)_f, by a dense solve (all_modes only for small models).
+            let mr: Vec<f64> = (0..nf).map(|i| (0..n).map(|j| m[i * n + j] * iota[j]).sum()).collect();
+            let mut a: Vec<f64> = (0..nf).flat_map(|i| (0..nf).map(move |j| (i, j))).map(|(i, j)| m[i * n + j]).collect();
+            let mut x = mr.clone();
+            for c in 0..nf {
+                let piv = a[c * nf + c];
+                if !(piv.abs() > 0.0) {
+                    return Verdict::Unrepresentable("singular free mass block".into());
+                }
+                for r in (c + 1)..nf {
+                    let f = a[r * nf + c] / piv;
+                    if f != 0.0 {
+                        for q in c..nf {
+                            a[r * nf + q] -= f * a[c * nf + q];
+                        }
+                        x[r] -= f * x[c];
+                    }
+                }
+            }
+            for c in (0..nf).rev() {
+                let mut v = x[c];
+                for q in (c + 1)..nf {
+                    v -= a[c * nf + q] * x[q];
+                }
+                x[c] = v / a[c * nf + c];
+            }
+            let target: f64 = mr.iter().zip(&x).map(|(u, v)| u * v).sum();
+            if !((sum - target).abs() <= tol_m * k as f64 * free_mass) {
+                return Verdict::Fail(format!("all {k} modes: Σ effective mass {sum:.10e} ≠ (M·r)ᵀM_ff⁻¹(M·r) = {target:.10e} (direction {d})"));
+            }
         }
     }
-    let _ = nf;
     Verdict::Pass(worst)
 }
 
@@ -118,10 +149,9 @@ pub fn check_2d(s: &SolverInput, dens: &HashMap<String, f64>, cond: &Conditionin
         .map(|k| {
             let mut v = vec![0.0; n];
             for nd in s.nodes.values() {
+                // Every DOF, supports included (the support-coupled mass, #434).
                 if let Some(i) = dof.global_dof(nd.id, k) {
-                    if i < nf {
-                        v[i] = 1.0;
-                    }
+                    v[i] = 1.0;
                 }
             }
             v
@@ -169,10 +199,9 @@ pub fn check_3d(s: &SolverInput3D, dens: &HashMap<String, f64>, cond: &Condition
         .map(|k| {
             let mut v = vec![0.0; n];
             for nd in s.nodes.values() {
+                // Every DOF, supports included (the support-coupled mass, #434).
                 if let Some(i) = dof.global_dof(nd.id, k) {
-                    if i < nf {
-                        v[i] = 1.0;
-                    }
+                    v[i] = 1.0;
                 }
             }
             v

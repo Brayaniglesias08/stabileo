@@ -4099,6 +4099,114 @@ fn plain_rigid_3d(s: &SolverSupport3D) -> bool {
             .all(zero_or_none)
 }
 
+/// A prescribed value that is not zero (an absent or zero field imposes nothing).
+fn imposed(v: Option<f64>) -> Option<f64> {
+    v.filter(|x| x.abs() > 1e-15)
+}
+
+/// A settlement the solve would not impose. Only restrained DOFs carry a prescribed
+/// displacement (`u_r`); a value on a DOF the support leaves free was dropped without a
+/// message: a 2D `pinned` with `dry`, a `spring` support with any settlement, a 3D DOF
+/// that is not flagged or whose flag a spring overrides. docs/solver/assembly-constraints.md,
+/// AC-10. At an inclined support a settlement is the ground's movement in global axes and
+/// only its normal part acts, as documented; that projection is not a refusal.
+fn unimposed_settlement(what: &str, name: &str, v: f64, why: &str) -> String {
+    format!(
+        "{what}: the prescribed {name} = {v} would not be applied, because {why}. \
+         Restrain that direction to impose it, or remove the prescribed value."
+    )
+}
+
+/// AC-10, 2D: refuse a prescribed displacement on a DOF the support leaves free.
+fn reject_unimposed_settlements_2d(input: &SolverInput) -> Result<(), String> {
+    let dpn = DofNumbering::dofs_per_node_2d(input);
+    let mut sups: Vec<&SolverSupport> = input.supports.values().collect();
+    sups.sort_by_key(|s| (s.node_id, s.id));
+    for sup in sups {
+        let what = format!("Support {} (node {}, {})", sup.id, sup.node_id, sup.support_type);
+        if sup.support_type == "spring" {
+            for (name, v) in [("dx", sup.dx), ("dz", sup.dz), ("dry", sup.dry)] {
+                if let Some(v) = imposed(v) {
+                    return Err(unimposed_settlement(&what, name, v,
+                        "a spring support restrains nothing rigidly (its stiffness is added to the structure) and a settlement of the spring's base is not modelled"));
+                }
+            }
+            continue;
+        }
+        if sup.support_type == "inclinedRoller" {
+            // (dx, dz) is the ground's movement in global axes; the roller transmits its normal
+            // part only (`prescribed_displacements_2d` projects it), the rest is the roller
+            // sliding. The rotation is free.
+            if let Some(v) = imposed(sup.dry) {
+                return Err(unimposed_settlement(&what, "dry", v, "an inclined roller leaves the rotation free"));
+            }
+            continue;
+        }
+        for (dof, name, v) in [(0usize, "dx", sup.dx), (1, "dz", sup.dz), (2, "dry", sup.dry)] {
+            let Some(v) = imposed(v) else { continue };
+            if dof >= dpn {
+                return Err(unimposed_settlement(&what, name, v, "a model of truss members only has no rotation DOFs"));
+            }
+            if !super::dof::is_dof_restrained_2d(sup, dof) {
+                return Err(unimposed_settlement(&what, name, v, "this support type leaves that DOF free"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// AC-10, 3D: refuse a prescribed displacement on a DOF the support leaves free
+/// (`DofNumbering::build_3d`: a DOF is restrained when its flag is set and no positive
+/// spring frees it; at an inclined support only the normal translation and the flagged
+/// rotations are).
+fn reject_unimposed_settlements_3d(input: &SolverInput3D) -> Result<(), String> {
+    // Curved beams are expanded into frame members after validation in several entry points
+    // (Winkler, co-rotational, …): counted here as the frames they become, or a curved-beam-only
+    // model would look like a truss model with no rotation DOFs.
+    let dpn = DofNumbering::dofs_per_node_3d(input).max(if input.curved_beams.is_empty() { 0 } else { 6 });
+    let mut sups: Vec<(&String, &SolverSupport3D)> = input.supports.iter().collect();
+    sups.sort_by_key(|(k, s)| (s.node_id, (*k).clone()));
+    for (key, sup) in sups {
+        let what = format!("Support {key} (node {})", sup.node_id);
+        let d = [sup.dx, sup.dy, sup.dz, sup.drx, sup.dry, sup.drz];
+        let names = ["dx", "dy", "dz", "drx", "dry", "drz"];
+        let flags = [sup.rx, sup.ry, sup.rz, sup.rrx, sup.rry, sup.rrz];
+        let springs = [sup.kx, sup.ky, sup.kz, sup.krx, sup.kry, sup.krz];
+        let inclined = sup.is_inclined.unwrap_or(false);
+        if inclined {
+            if let (Some(nx), Some(ny), Some(nz)) = (sup.normal_x, sup.normal_y, sup.normal_z) {
+                let len = (nx * nx + ny * ny + nz * nz).sqrt();
+                if len > 1e-12 {
+                    // (dx, dy, dz) is the ground's movement in global axes; the support transmits
+                    // its normal part (`prescribed_displacements_3d` projects it), the rest is the
+                    // support sliding in its plane. Rotations follow the flags.
+                    for i in 3..6 {
+                        let Some(v) = imposed(d[i]) else { continue };
+                        if !flags[i] || i >= dpn {
+                            return Err(unimposed_settlement(&what, names[i], v, "that rotation is not restrained"));
+                        }
+                    }
+                    continue;
+                }
+            }
+        }
+        for i in 0..6 {
+            let Some(v) = imposed(d[i]) else { continue };
+            if i >= dpn {
+                return Err(unimposed_settlement(&what, names[i], v, "a model of truss or cable members only has no rotation DOFs"));
+            }
+            if !flags[i] {
+                return Err(unimposed_settlement(&what, names[i], v, "that direction is not restrained (its flag is not set)"));
+            }
+            if springs[i].unwrap_or(0.0) > 0.0 {
+                return Err(unimposed_settlement(&what, names[i], v,
+                    "a spring on that direction makes it free (its stiffness is added to the structure) and a settlement of the spring's base is not modelled"));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
     // 0. Non-finite input rejection (NaN/Inf). Note: JSON cannot carry NaN, so
     // this primarily protects native/Rust API callers and internally-built inputs.
@@ -4142,6 +4250,7 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
         }
     }
     reject_ambiguous_shared_supports(input.supports.iter().map(|(k, s)| (s.node_id, k.as_str(), plain_rigid_2d(s))))?;
+    reject_unimposed_settlements_2d(input)?;
     // In 2D the model plane is the only diaphragm plane: the model lies in
     // X–Z, and "XY" is its historical name. Both map to the 2D DOFs (ux, uz,
     // ry) since #397 (constraints::diaphragm_dofs); "YZ" names DOFs that do
@@ -4155,6 +4264,8 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
             SolverLoad::PointOnElement(l) => l.a.is_finite() && l.p.is_finite()
                 && l.px.is_none_or(|v| v.is_finite()) && l.my.is_none_or(|v| v.is_finite()),
             SolverLoad::Thermal(l) => l.dt_uniform.is_finite() && l.dt_gradient.is_finite(),
+            SolverLoad::AxialDistributed(l) => l.q_i.is_finite() && l.q_j.is_finite()
+                && l.a.is_none_or(|v| v.is_finite()) && l.b.is_none_or(|v| v.is_finite()),
         };
         if !finite {
             return Err("Load contains non-finite (NaN/Inf) values".to_string());
@@ -4303,6 +4414,11 @@ pub(crate) fn validate_loads_2d(input: &SolverInput, loads: &[SolverLoad]) -> Re
                     return Err(format!("Thermal load: element {} does not exist", l.element_id));
                 }
             }
+            SolverLoad::AxialDistributed(l) => {
+                if !elem_ids.contains(&l.element_id) {
+                    return Err(format!("Axial distributed load: element {} does not exist", l.element_id));
+                }
+            }
         }
     }
 
@@ -4448,7 +4564,7 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
         }
     }
     for s in input.sections.values() {
-        let opts_finite = [s.cw, s.as_y, s.as_z].into_iter().flatten().all(|v| v.is_finite());
+        let opts_finite = [s.cw, s.as_y, s.as_z, s.shear_center_y, s.shear_center_z].into_iter().flatten().all(|v| v.is_finite());
         if !s.a.is_finite() || !s.iy.is_finite() || !s.iz.is_finite() || !s.j.is_finite() || !opts_finite {
             return Err(format!("Section {}: properties must be finite", s.id));
         }
@@ -4479,6 +4595,7 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
             }
         }
     }
+    reject_unimposed_settlements_3d(input)?;
     for load in &input.loads {
         let finite = match load {
             SolverLoad3D::Nodal(l) => l.fx.is_finite() && l.fy.is_finite() && l.fz.is_finite()
@@ -4985,6 +5102,7 @@ pub fn compute_internal_forces_2d_with_loads(
             SolverLoad::Distributed(l) => l.element_id,
             SolverLoad::PointOnElement(l) => l.element_id,
             SolverLoad::Thermal(l) => l.element_id,
+            SolverLoad::AxialDistributed(l) => l.element_id,
             SolverLoad::Nodal(_) => continue,
         };
         loads_by_elem.entry(eid).or_default().push(load);
@@ -5017,33 +5135,42 @@ pub fn compute_internal_forces_2d_with_loads(
             let mut n_axial = e * sec.a / l * delta;
 
             // Subtract thermal FEF for truss: f = K*u - FEF (matches 3D truss path)
+            let (mut n_start, mut n_end) = (0.0, 0.0);
+            let mut axial_loads_info = Vec::new();
+            let mut truss_point_loads = Vec::new();
             for load in loads_by_elem.get(&elem.id).unwrap_or(&empty_loads) {
-                if let SolverLoad::Thermal(tl) = load {
-                    if tl.element_id == elem.id {
+                match load {
+                    SolverLoad::Thermal(tl) if tl.element_id == elem.id => {
                         let alpha = 12e-6;
                         n_axial -= e * sec.a * alpha * tl.dt_uniform;
                     }
-                }
-            }
-
-            // Axial point loads on the bar (px) reach its nodes by the lever
-            // rule (truss_member_load_2d), so the axial force jumps at the
-            // load: N(0) = EAδ/L + F_i, N(L) = EAδ/L − F_j — as the 3D truss
-            // path does. Reporting EAδ/L at both ends was off by the load
-            // share (found by differential testing against OpenSees).
-            let (mut fa_i, mut fa_j) = (0.0, 0.0);
-            for load in loads_by_elem.get(&elem.id).unwrap_or(&empty_loads) {
-                if let SolverLoad::PointOnElement(pl) = load {
-                    let px = pl.px.unwrap_or(0.0);
-                    fa_i += px * (1.0 - pl.a / l);
-                    fa_j += px * pl.a / l;
+                    // An axial point load, and an axial span load: their consistent end loads
+                    // (f = K*u - FEF) make N vary along the bar, n_start = EAδ/L + f_i and
+                    // n_end = EAδ/L - f_j. The transverse part reaches the nodes by the lever
+                    // rule and leaves N alone.
+                    SolverLoad::PointOnElement(pl) if pl.element_id == elem.id => {
+                        let px = pl.px.unwrap_or(0.0);
+                        if px != 0.0 {
+                            n_start += px * (1.0 - pl.a / l);
+                            n_end -= px * pl.a / l;
+                            truss_point_loads.push(PointLoadInfo { a: pl.a, p: 0.0, px: Some(px), my: None });
+                        }
+                    }
+                    SolverLoad::AxialDistributed(al) if al.element_id == elem.id => {
+                        let (a, b) = (al.a.unwrap_or(0.0), al.b.unwrap_or(l));
+                        let [f_i, f_j] = crate::element::axial_distributed_fef(al.q_i, al.q_j, a, b, l);
+                        n_start += f_i;
+                        n_end -= f_j;
+                        axial_loads_info.push(DistributedLoadInfo { q_i: al.q_i, q_j: al.q_j, a, b });
+                    }
+                    _ => {}
                 }
             }
 
             forces.push(ElementForces {
                 element_id: elem.id,
-                n_start: n_axial + fa_i,
-                n_end: n_axial - fa_j,
+                n_start: n_axial + n_start,
+                n_end: n_axial + n_end,
                 v_start: 0.0,
                 v_end: 0.0,
                 m_start: 0.0,
@@ -5051,8 +5178,8 @@ pub fn compute_internal_forces_2d_with_loads(
                 length: l,
                 q_i: 0.0,
                 q_j: 0.0,
-                point_loads: Vec::new(),
-                distributed_loads: Vec::new(),
+                point_loads: truss_point_loads,
+                distributed_loads: Vec::new(), distributed_loads_x: axial_loads_info,
                 hinge_start: false,
                 hinge_end: false,
             });
@@ -5081,6 +5208,7 @@ pub fn compute_internal_forces_2d_with_loads(
             let (mut total_qi, mut total_qj) = (0.0, 0.0);
             let mut point_loads_info = Vec::new();
             let mut dist_loads_info = Vec::new();
+            let mut axial_loads_info = Vec::new();
 
             for load in loads_by_elem.get(&elem.id).unwrap_or(&empty_loads) {
                 match load {
@@ -5139,6 +5267,14 @@ pub fn compute_internal_forces_2d_with_loads(
                             f_local[i] -= fef[i];
                         }
                     }
+                    SolverLoad::AxialDistributed(al) if al.element_id == elem.id => {
+                        let (a, b) = (al.a.unwrap_or(0.0), al.b.unwrap_or(l));
+                        let fef = crate::element::fef_axial_distributed_2d(al.q_i, al.q_j, a, b, l);
+                        for i in 0..6 {
+                            f_local[i] -= fef[i];
+                        }
+                        axial_loads_info.push(DistributedLoadInfo { q_i: al.q_i, q_j: al.q_j, a, b });
+                    }
                     _ => {}
                 }
             }
@@ -5157,6 +5293,7 @@ pub fn compute_internal_forces_2d_with_loads(
                 q_j: total_qj,
                 point_loads: point_loads_info,
                 distributed_loads: dist_loads_info,
+                distributed_loads_x: axial_loads_info,
                 hinge_start: elem.hinge_start,
                 hinge_end: elem.hinge_end,
             });

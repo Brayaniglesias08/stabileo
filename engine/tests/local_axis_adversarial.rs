@@ -62,6 +62,8 @@ fn single_element_with_orientation(
     secs_map.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 5e-5,
         cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
 
     let mut elems_map = HashMap::new();

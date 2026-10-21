@@ -1222,3 +1222,42 @@ fn compute_total_mass_elements(
     }
     total
 }
+
+/// (M·r)_f for the rigid-body translation r along `local_dof` of EVERY node,
+/// restrained ones included: the relative-motion load is −(M·r)_f·a_g, and with
+/// a consistent mass the free DOFs are coupled to the supports' translations
+/// (M_fr·r_r). M_ff·r_f alone missed that part of the inertia — half of it on a
+/// bar on two supports. `m_ff` is the free block in the inclined-support frames
+/// `its` (K's basis); `m_full` assembles the whole mass in global axes and is
+/// only built when some restrained DOF moves with the ground. With
+/// T the inclined rotation, (T·M·Tᵀ)(T·r) = T·(M·r): the full product is taken
+/// in global axes and then rotated, so at an inclined roller only the
+/// tangential component of the inertia is a free load.
+///
+/// Time history, modal participation (Γ, effective masses) and therefore the
+/// response spectrum all take their ground-motion load from here, so the three
+/// agree on what a uniform support acceleration does to the structure.
+pub(crate) fn ground_influence<T: super::assembly::InclinedFrame, M: std::borrow::Borrow<CscMatrix>>(
+    dof_num: &DofNumbering,
+    local_dof: usize,
+    its: &[T],
+    m_ff: &CscMatrix,
+    m_full: impl FnOnce() -> M,
+) -> Vec<f64> {
+    let nf = dof_num.n_free;
+    let mut r = vec![0.0; dof_num.n_total];
+    for &node_id in &dof_num.node_order {
+        if let Some(&d) = dof_num.map.get(&(node_id, local_dof)) {
+            r[d] = 1.0;
+        }
+    }
+    let mut r_rot = r.clone();
+    for it in its {
+        it.rotate(&mut r_rot);
+    }
+    if r_rot[nf..].iter().all(|&x| x == 0.0) {
+        return m_ff.sym_mat_vec(&r_rot[..nf]);
+    }
+    super::assembly::to_inclined_free(m_full().borrow().sym_mat_vec(&r), its, nf)
+}
+

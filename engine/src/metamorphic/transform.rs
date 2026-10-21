@@ -371,6 +371,8 @@ pub fn transform_2d(input: &SolverInput, iso: &Iso2) -> TResult<SolverInput> {
                 p.my = p.my.map(|v| v * det);
             }
             SolverLoad::Thermal(t) => t.dt_gradient *= det,
+            // Along node i → node j, which a mirror keeps (as `px` above).
+            SolverLoad::AxialDistributed(_) => {}
         }
     }
     m.constraints = transform_constraints_2d(&input.constraints, iso)?;

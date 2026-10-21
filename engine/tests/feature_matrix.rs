@@ -290,7 +290,7 @@ impl M2 {
                     nl.fx = r[0];
                     nl.fz = r[1];
                 }
-                SolverLoad::Distributed(_) | SolverLoad::PointOnElement(_) | SolverLoad::Thermal(_) => {}
+                SolverLoad::Distributed(_) | SolverLoad::AxialDistributed(_) | SolverLoad::PointOnElement(_) | SolverLoad::Thermal(_) => {}
             }
         }
         m
@@ -1322,12 +1322,24 @@ fn moving_reference_2d(ana: &str, c: &Case2) -> Result<Out, String> {
             let mut s = m.s.clone();
             s.loads.push(SolverLoad::PointOnElement(SolverPointLoadOnElement { element_id: path[k], a: (pos - acc).clamp(0.0, lens[k]), p: -50.0, px: None, my: None }));
             let r = linear::solve_2d(&s)?;
+            // Along the member, as the envelope reads it since #437: the ends and every
+            // station the diagram samples (the point load among them).
+            let range = |ef: &ElementForces, kind: &str, a0: f64, a1: f64| -> (f64, f64) {
+                let (mut lo, mut hi) = (a0.min(a1), a0.max(a1));
+                for t in dedaliano_engine::postprocess::diagrams::diagram_positions_2d(ef, kind) {
+                    let v = dedaliano_engine::postprocess::diagrams::compute_diagram_value_at(kind, t.clamp(0.0, 1.0), ef);
+                    if v.is_finite() { lo = lo.min(v); hi = hi.max(v); }
+                }
+                (lo, hi)
+            };
             for ef in &r.element_forces {
                 if let Some(e) = env.get_mut(&ef.element_id) {
-                    e[0] = e[0].max(ef.m_start.max(ef.m_end));
-                    e[1] = e[1].min(ef.m_start.min(ef.m_end));
-                    e[2] = e[2].max(ef.v_start.max(ef.v_end));
-                    e[3] = e[3].min(ef.v_start.min(ef.v_end));
+                    let (m_lo, m_hi) = range(ef, "moment", ef.m_start, ef.m_end);
+                    let (v_lo, v_hi) = range(ef, "shear", ef.v_start, ef.v_end);
+                    e[0] = e[0].max(m_hi);
+                    e[1] = e[1].min(m_lo);
+                    e[2] = e[2].max(v_hi);
+                    e[3] = e[3].min(v_lo);
                 }
             }
             pos += 0.5;
@@ -1387,6 +1399,7 @@ fn load_scale_2d(m: &M2) -> f64 {
             SolverLoad::Distributed(d) => s2 += (d.q_i.abs().max(d.q_j.abs()) * elem_len_2d(m, d.element_id)).powi(2),
             SolverLoad::PointOnElement(p) => s2 += p.p * p.p + p.px.unwrap_or(0.0).powi(2),
             SolverLoad::Thermal(_) => s2 += 1.0,
+            SolverLoad::AxialDistributed(d) => s2 += (d.q_i.abs().max(d.q_j.abs()) * elem_len_2d(m, d.element_id)).powi(2),
         }
     }
     s2.sqrt().max(1.0)
@@ -1774,7 +1787,7 @@ impl M3 {
         let j = a * b.powi(3) * (1.0 / 3.0 - 0.21 * b / a * (1.0 - b.powi(4) / (12.0 * a.powi(4))));
         self.s.sections.insert(
             id.to_string(),
-            SolverSection3D { id, name: None, a: bz * hy, iy: hy * bz.powi(3) / 12.0, iz: bz * hy.powi(3) / 12.0, j, cw: None, as_y: None, as_z: None },
+            SolverSection3D { id, name: None, a: bz * hy, iy: hy * bz.powi(3) / 12.0, iz: bz * hy.powi(3) / 12.0, j, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None },
         );
         self.rects.insert(id, (bz, hy));
         self

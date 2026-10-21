@@ -157,6 +157,8 @@ fn winkler_model_3d_inclined() -> WinklerInput3D {
     let mut sections = HashMap::new();
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 5e-5, cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
     let mut elements = HashMap::new();
     for (id, ni, nj) in [(1usize, 1usize, 2usize), (2, 2, 3)] {
@@ -381,6 +383,8 @@ fn staged_rejects_inclined_supports_3d() {
     let mut sections = HashMap::new();
     sections.insert("1".to_string(), SolverSection3D {
         id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 5e-5, cw: None, as_y: None, as_z: None,
+        shear_center_y: None,
+        shear_center_z: None,
     });
     let mut elements = HashMap::new();
     elements.insert("1".to_string(), SolverElement3D {

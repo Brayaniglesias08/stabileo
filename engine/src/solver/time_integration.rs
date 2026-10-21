@@ -601,43 +601,9 @@ fn build_ground_influence_2d(
     // Validated: "X"/"x" (default) or "Y"/"y".
     let local_dof = if matches!(dir, "Y" | "y") { 1 } else { 0 };
 
-    Some(ground_influence(dof_num, local_dof, its, m_ff, || {
+    Some(mass_matrix::ground_influence(dof_num, local_dof, its, m_ff, || {
         mass_matrix::assemble_mass_matrix_2d_sparse_block(&input.solver, dof_num, &input.densities, dof_num.n_total)
     }))
-}
-
-/// (M·r)_f for the rigid-body translation r along `local_dof` of EVERY node,
-/// restrained ones included: the relative-motion load is −(M·r)_f·a_g, and with
-/// a consistent mass the free DOFs are coupled to the supports' translations
-/// (M_fr·r_r). M_ff·r_f alone missed that part of the inertia — half of it on a
-/// bar on two supports. `m_ff` is the free block in the inclined-support frames
-/// `its` (K's basis); `m_full` assembles the whole mass in global axes and is
-/// only built when some restrained DOF moves with the ground. With
-/// T the inclined rotation, (T·M·Tᵀ)(T·r) = T·(M·r): the full product is taken
-/// in global axes and then rotated, so at an inclined roller only the
-/// tangential component of the inertia is a free load.
-fn ground_influence<T: assembly::InclinedFrame>(
-    dof_num: &DofNumbering,
-    local_dof: usize,
-    its: &[T],
-    m_ff: &CscMatrix,
-    m_full: impl FnOnce() -> CscMatrix,
-) -> Vec<f64> {
-    let nf = dof_num.n_free;
-    let mut r = vec![0.0; dof_num.n_total];
-    for &node_id in &dof_num.node_order {
-        if let Some(&d) = dof_num.map.get(&(node_id, local_dof)) {
-            r[d] = 1.0;
-        }
-    }
-    let mut r_rot = r.clone();
-    for it in its {
-        it.rotate(&mut r_rot);
-    }
-    if r_rot[nf..].iter().all(|&x| x == 0.0) {
-        return m_ff.sym_mat_vec(&r_rot[..nf]);
-    }
-    assembly::to_inclined_free(m_full().sym_mat_vec(&r), its, nf)
 }
 
 /// Compute the external force vector at a given time step.
@@ -1396,7 +1362,7 @@ fn build_ground_influence_3d(
     let mut out: [Option<Vec<f64>>; 3] = [None, None, None];
     for (slot, (accel_opt, local_dof)) in out.iter_mut().zip(accel_dirs.iter()) {
         if accel_opt.is_some() {
-            *slot = Some(ground_influence(dof_num, *local_dof, its, m_ff, || {
+            *slot = Some(mass_matrix::ground_influence(dof_num, *local_dof, its, m_ff, || {
                 mass_matrix::assemble_mass_matrix_3d_sparse_block(&input.solver, dof_num, &input.densities, dof_num.n_total)
             }));
         }

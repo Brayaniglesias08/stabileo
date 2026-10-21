@@ -40,7 +40,7 @@ import { collapseVariableResults, variableExpansionFor } from './variable-member
 import type { LoadCase, LoadCombination } from '../store/model.svelte';
 import type { SolverInput3D, SolverLoad3D, AnalysisResults3D, SolverNode3D } from './types-3d';
 import { computeLocalAxes3D } from './local-axes-3d';
-import { input3DToWireObject, solvePDelta3D } from './wasm-solver';
+import { input3DToWireObject, solvePDelta3D, torsionGapRefusal } from './wasm-solver';
 import { amplification } from './pdelta-amplification';
 import { caseOrder, withCaseEffects } from './case-effects';
 import { isCompositeCase } from './loads/combination-cases';
@@ -93,6 +93,11 @@ export const mainThreadPDelta: PDeltaRunner = async (input, maxIter, tol) => sol
 /** A runner over the worker pool, falling back to this thread when there is none. */
 export function workerPDelta(pdelta3DInWorker: (wire: unknown, maxIter: number, tol: number) => Promise<any>): PDeltaRunner {
   return async (input, maxIter, tol) => {
+    // A section missing its torsion data (no J, or no shear centre for a monosymmetric shape) is
+    // refused by name on the main thread. The wire object drops the web-only `torsionGap`, so the
+    // worker cannot see it and would publish forces without the flexural-torsional coupling:
+    // such a model goes to the main thread, which says why it refuses.
+    if (torsionGapRefusal(input, 'pdelta')) return mainThreadPDelta(input, maxIter, tol);
     try {
       // The worker finishes the solve (`solve-finish.ts`); its member forces already carry the
       // geometric stiffness, as the engine reports them.
