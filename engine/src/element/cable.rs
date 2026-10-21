@@ -174,15 +174,16 @@ pub fn cable_chord_tension(ea: f64, w: f64, l_h: f64, strain: f64) -> f64 {
     let b = ea * strain;
     // Scale T = s·τ with s³ = EA·(w·l_h)²/24, formed without squaring (no under/overflow):
     // τ³ − β·τ² − 1 = 0, β = EA·ε/s.
-    let s = (ea / 24.0).cbrt() * (w * l_h).abs().cbrt().powi(2);
+    let (cw, cl) = (w.abs().cbrt(), l_h.abs().cbrt());
+    let s = (ea / 24.0).cbrt() * cw * cl * cw * cl;
     if !(s > 0.0) || !s.is_finite() {
         return b.max(0.0);
     }
     let beta = b / s;
     if !beta.is_finite() {
-        // The sag term is negligible against the stretch (or the chord is shortened by orders of
-        // magnitude more than the sag can take up): the taut string, or a vanishing tension.
-        return if beta > 0.0 { b } else { 0.0 };
+        // |EA·ε| overwhelms the sag scale: stretched, the taut string T = EA·ε (the sag term is
+        // below round-off); shortened, the asymptote τ = 1/√(−β), i.e. T = s·√(s/(−EA·ε)).
+        return if beta > 0.0 { b } else { s * s.sqrt() / (-b).sqrt() };
     }
     // Bracket: β ≥ 0: τ ∈ [β, β + min(1, 1/β²)]; β < 0: τ ∈ [1/√(1−β), min(1, 1/√(−β))].
     let (mut lo, mut hi) = if beta >= 0.0 {
@@ -199,7 +200,7 @@ pub fn cable_chord_tension(ea: f64, w: f64, l_h: f64, strain: f64) -> f64 {
         let dg = 3.0 * t * t - 2.0 * beta * t;
         let mut next = if dg > 0.0 { t - gt / dg } else { f64::NAN };
         if !(next > lo && next < hi) {
-            next = 0.5 * (lo + hi);
+            next = lo + 0.5 * (hi - lo);
         }
         if (next - t).abs() <= 4.0 * f64::EPSILON * t || hi - lo <= 4.0 * f64::EPSILON * hi {
             return s * next;

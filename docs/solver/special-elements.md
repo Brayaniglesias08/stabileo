@@ -111,9 +111,10 @@ slack). Its derivative $dT/d\varepsilon = EA/(1+\alpha(T)) = E_\text{eq}A$ is Er
 2. Solve the **linear** system $K^{(k)}u = f + \sum_c \big[c\,(T_c^{(k)} - EA\,\varepsilon^{(k)}_{c,\text{lin}})\big]_\text{rot} + \sum_c (\phi_c-1)\tfrac{EA}{L_0}\,c\,(c\cdot u^{(k)})$,
    with $c = (d, -d)$ on the cable's DOFs and $\varepsilon_\text{lin} = d\cdot(u_j-u_i)/L_0$. The
    two terms are the offset of the linearisation $T \approx T^{(k)} + \phi EA(\varepsilon - \varepsilon^{(k)})$
-   written against what the matrix actually produces (the base truss, rotated at inclined
-   supports like the loads, and the correction block as assembled), so at the fixed point every
-   cable pulls on its nodes with $T(\varepsilon)$ exactly, whatever the tangent.
+   written against what the matrix actually produces (the base truss and the correction block,
+   both with $c$ rotated at inclined supports the way the assembly rotates K and f), so at the
+   fixed point every cable pulls on its nodes with $T(\varepsilon)$ exactly, whatever the
+   tangent. (The correction block used to be added unrotated at inclined supports.)
 3. New tension from the deformed chord, large-displacement length but small-displacement
    equilibrium: $T^{(k+1)} = $ `cable_chord_tension`$(\varepsilon)$.
 4. Stop when $k>0$, no slack cable took tension again this pass, and for every cable both

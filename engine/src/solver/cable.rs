@@ -151,20 +151,33 @@ fn ernst_diff_3d(ci: &CableGeom3D, tension: f64, iter: usize) -> Option<f64> {
 
 /// A cable's raw DOFs and the coefficients c of its axial direction (+d at node i, −d at node j):
 /// the cable's internal force on its DOFs is −c·T, and c·u = −(chord elongation).
-fn cable_slots_2d(ci: &CableGeom, dof_num: &DofNumbering) -> ([usize; 4], [f64; 4]) {
-    (
-        [
-            dof_num.global_dof(ci.node_i_id, 0).unwrap(),
-            dof_num.global_dof(ci.node_i_id, 1).unwrap(),
-            dof_num.global_dof(ci.node_j_id, 0).unwrap(),
-            dof_num.global_dof(ci.node_j_id, 1).unwrap(),
-        ],
-        [ci.cos_a, ci.sin_a, -ci.cos_a, -ci.sin_a],
-    )
+///
+/// The coefficients are in the solver's frame: at a node on an inclined support they are rotated
+/// the way the assembly rotates that node's rows of K and f, so c·cᵀ·EA/L0 is exactly the cable's
+/// block of the assembled (rotated) truss and c·T exactly the force it puts on the rotated DOFs.
+fn cable_slots_2d(ci: &CableGeom, dof_num: &DofNumbering, inclined: &[assembly::InclinedTransformData2D]) -> ([usize; 4], [f64; 4]) {
+    let dofs = [
+        dof_num.global_dof(ci.node_i_id, 0).unwrap(),
+        dof_num.global_dof(ci.node_i_id, 1).unwrap(),
+        dof_num.global_dof(ci.node_j_id, 0).unwrap(),
+        dof_num.global_dof(ci.node_j_id, 1).unwrap(),
+    ];
+    let mut coef = [ci.cos_a, ci.sin_a, -ci.cos_a, -ci.sin_a];
+    for it in inclined {
+        for a in 0..2 {
+            if dofs[2 * a] == it.dofs[0] && dofs[2 * a + 1] == it.dofs[1] {
+                let v = [coef[2 * a], coef[2 * a + 1]];
+                for k in 0..2 {
+                    coef[2 * a + k] = it.r[k][0] * v[0] + it.r[k][1] * v[1];
+                }
+            }
+        }
+    }
+    (dofs, coef)
 }
 
 /// 3D twin of `cable_slots_2d`; a DOF the numbering does not have is `usize::MAX`.
-fn cable_slots_3d(ci: &CableGeom3D, dof_num: &DofNumbering) -> ([usize; 6], [f64; 6]) {
+fn cable_slots_3d(ci: &CableGeom3D, dof_num: &DofNumbering, inclined: &[assembly::InclinedTransformData]) -> ([usize; 6], [f64; 6]) {
     let mut dofs = [usize::MAX; 6];
     let mut coef = [0.0; 6];
     for a in 0..2 {
@@ -175,7 +188,42 @@ fn cable_slots_3d(ci: &CableGeom3D, dof_num: &DofNumbering) -> ([usize; 6], [f64
             if let Some(&d) = dof_num.map.get(&(node, i)) { dofs[a * 3 + i] = d; }
         }
     }
+    for it in inclined {
+        for a in 0..2 {
+            if (0..3).all(|k| dofs[3 * a + k] == it.dofs[k]) {
+                let v = [coef[3 * a], coef[3 * a + 1], coef[3 * a + 2]];
+                for k in 0..3 {
+                    coef[3 * a + k] = it.r[k][0] * v[0] + it.r[k][1] * v[1] + it.r[k][2] * v[2];
+                }
+            }
+        }
+    }
     (dofs, coef)
+}
+
+/// Adds diff·c·cᵀ (a cable's tangent correction) to a dense n×n K at the cable's DOFs.
+fn add_block_dense(k: &mut [f64], n: usize, dofs: &[usize], coef: &[f64], diff: f64) {
+    for (p, &dp) in dofs.iter().enumerate() {
+        if dp == usize::MAX { continue; }
+        for (q, &dq) in dofs.iter().enumerate() {
+            if dq == usize::MAX { continue; }
+            k[dp * n + dq] += diff * coef[p] * coef[q];
+        }
+    }
+}
+
+/// Lower-triangle triplets of diff·c·cᵀ on the free DOFs (the sparse twin of `add_block_dense`).
+fn add_block_triplets(rows: &mut Vec<usize>, cols: &mut Vec<usize>, vals: &mut Vec<f64>, nf: usize, dofs: &[usize], coef: &[f64], diff: f64) {
+    for p in 0..dofs.len() {
+        for q in 0..=p {
+            let (dp, dq) = (dofs[p], dofs[q]);
+            if dp < nf && dq < nf {
+                rows.push(dp);
+                cols.push(dq);
+                vals.push(diff * coef[p] * coef[q]);
+            }
+        }
+    }
 }
 
 /// c·v over a cable's DOFs.
@@ -365,6 +413,8 @@ fn solve_cable_2d_inner(
         }
     }
 
+    // Each cable's DOFs and solver-frame direction coefficients (fixed geometry).
+    let slots: Vec<_> = cables.iter().map(|ci| cable_slots_2d(ci, &dof_num, inclined_2d)).collect();
     let mut u_full = vec![0.0; n];
     let mut converged = false;
     let mut total_iterations = 0;
@@ -383,22 +433,18 @@ fn solve_cable_2d_inner(
         // last tension T_k; the rest of T(ε) ≈ T_k + (E_eq/E)·EA·(ε − ε_k) goes to the right-hand
         // side as nodal forces. They are built from what the matrix actually produces (the base
         // truss with its full EA, rotated at inclined supports, plus the correction block as
-        // assembled), so at the fixed point the cables pull with T(ε) exactly, whatever the
-        // tangent: c·(T_k − EA·ε_k), rotated like the loads, plus diff·c·(c·u_k).
+        // assembled, both in the solver's frame), so at the fixed point the cables pull with
+        // T(ε) exactly, whatever the tangent: c·(T_k − EA·ε_k) plus diff·c·(c·u_k).
         let mut f_cable = vec![0.0; n];
-        for ci in &cables {
-            let (dofs, coef) = cable_slots_2d(ci, &dof_num);
-            add_along(&mut f_cable, &dofs, &coef, cable_tensions[&ci.elem_id] - ci.ea * cable_eps_lin[&ci.elem_id]);
-        }
-        for it in inclined_2d {
-            assembly::rotate_inclined_f_2d(&mut f_cable, &it.dofs, &it.r);
-        }
-        for ci in &cables {
-            if let Some(diff) = ernst_diff_2d(ci, cable_tensions[&ci.elem_id], iter) {
-                let (dofs, coef) = cable_slots_2d(ci, &dof_num);
-                let s = diff * along(&u_full, &dofs, &coef);
-                add_along(&mut f_cable, &dofs, &coef, s);
+        let mut tangent: Vec<Option<f64>> = Vec::with_capacity(cables.len());
+        for (ci, (dofs, coef)) in cables.iter().zip(&slots) {
+            let diff = ernst_diff_2d(ci, cable_tensions[&ci.elem_id], iter);
+            let mut s = cable_tensions[&ci.elem_id] - ci.ea * cable_eps_lin[&ci.elem_id];
+            if let Some(diff) = diff {
+                s += diff * along(&u_full, dofs, coef);
             }
+            add_along(&mut f_cable, dofs, coef, s);
+            tangent.push(diff);
         }
         let f_f: Vec<f64> = (0..nf).map(|i| f_global[i] + f_cable[i]).collect();
 
@@ -408,42 +454,9 @@ fn solve_cable_2d_inner(
             let mut rows = base_tr.clone();
             let mut cols = base_tc.clone();
             let mut vals = base_tv.clone();
-            for ci in &cables {
-                let tension = cable_tensions[&ci.elem_id];
-                if let Some(diff) = ernst_diff_2d(ci, tension, iter) {
-                    let cable_dofs = [
-                        dof_num.global_dof(ci.node_i_id, 0).unwrap(),
-                        dof_num.global_dof(ci.node_i_id, 1).unwrap(),
-                        dof_num.global_dof(ci.node_j_id, 0).unwrap(),
-                        dof_num.global_dof(ci.node_j_id, 1).unwrap(),
-                    ];
-                    let c2 = ci.cos_a * ci.cos_a;
-                    let s2 = ci.sin_a * ci.sin_a;
-                    let cs2 = ci.cos_a * ci.sin_a;
-
-                    // Correction matrix: adds (E_eq - E) * A/L contribution.
-                    // Same KNOWN RESIDUAL GAP as the dense path (see below):
-                    // dk is built in the true-global cable frame and added
-                    // unrotated at `cable_dofs`, even if a cable end sits on
-                    // an inclined support. Symmetric block: push each lower-
-                    // triangle pair once, filtered to free DOFs (restrained
-                    // entries never entered k_ff in the dense path either).
-                    let dk = [
-                        [diff * c2,  diff * cs2, -diff * c2, -diff * cs2],
-                        [diff * cs2, diff * s2,  -diff * cs2, -diff * s2],
-                        [-diff * c2, -diff * cs2,  diff * c2,  diff * cs2],
-                        [-diff * cs2, -diff * s2,  diff * cs2,  diff * s2],
-                    ];
-                    for i in 0..4 {
-                        for j in 0..=i {
-                            let (gi, gj) = (cable_dofs[i], cable_dofs[j]);
-                            if gi < nf && gj < nf {
-                                rows.push(gi);
-                                cols.push(gj);
-                                vals.push(dk[i][j]);
-                            }
-                        }
-                    }
+            for ((dofs, coef), diff) in slots.iter().zip(&tangent) {
+                if let Some(diff) = *diff {
+                    add_block_triplets(&mut rows, &mut cols, &mut vals, nf, dofs, coef, diff);
                 }
             }
             let f_solve = if let Some(ref cs) = cs { cs.reduce_vector(&f_f) } else { f_f };
@@ -451,55 +464,12 @@ fn solve_cable_2d_inner(
             solve_tangent_sparse(&k_csc, &f_solve, &mut sparse_sym_cache)?
         } else {
             let mut k_global = dense_asm.as_ref().unwrap().k.clone();
-
-            // Modify cable stiffnesses based on current tension
-            for ci in &cables {
-                let tension = cable_tensions[&ci.elem_id];
-
-                let cable_dofs = [
-                    dof_num.global_dof(ci.node_i_id, 0).unwrap(),
-                    dof_num.global_dof(ci.node_i_id, 1).unwrap(),
-                    dof_num.global_dof(ci.node_j_id, 0).unwrap(),
-                    dof_num.global_dof(ci.node_j_id, 1).unwrap(),
-                ];
-
-                if let Some(diff) = ernst_diff_2d(ci, tension, iter) {
-                    let c2 = ci.cos_a * ci.cos_a;
-                    let s2 = ci.sin_a * ci.sin_a;
-                    let cs2 = ci.cos_a * ci.sin_a;
-
-                    // Correction matrix: adds (E_eq - E) * A/L contribution
-                    //
-                    // KNOWN RESIDUAL GAP: `dk` is built in the true-global (cos_a,
-                    // sin_a) cable frame and added directly at `cable_dofs`
-                    // positions into `k_global`, which is already in the rotated
-                    // (mixed) frame for any inclined-support DOFs (base_asm.k came
-                    // out of assemble_2d with apply_inclined_transform_2d already
-                    // applied). If a cable end happens to sit on an inclined-
-                    // support node, this correction is added unrotated — it would
-                    // need to be rotated the same way apply_inclined_transform_2d
-                    // rotates a full K (see assembly.rs), scoped to just this 4×4
-                    // block. Not implemented: cable-on-inclined-support is a rare
-                    // combination and doing this correctly needs either a per-
-                    // iteration full-matrix rotation pass (expensive) or a new
-                    // local-block rotation helper — deferred as documented,
-                    // low-severity residual gap (see C4 review Finding 2).
-                    let dk = [
-                        [diff * c2,  diff * cs2, -diff * c2, -diff * cs2],
-                        [diff * cs2, diff * s2,  -diff * cs2, -diff * s2],
-                        [-diff * c2, -diff * cs2,  diff * c2,  diff * cs2],
-                        [-diff * cs2, -diff * s2,  diff * cs2,  diff * s2],
-                    ];
-
-                    for i in 0..4 {
-                        for j in 0..4 {
-                            k_global[cable_dofs[i] * n + cable_dofs[j]] += dk[i][j];
-                        }
-                    }
+            // The tangent correction (E_eq/E − 1)·EA/L0·c·cᵀ, in the solver's frame like the base.
+            for ((dofs, coef), diff) in slots.iter().zip(&tangent) {
+                if let Some(diff) = *diff {
+                    add_block_dense(&mut k_global, n, dofs, coef, diff);
                 }
             }
-
-            // Solve
             let free_idx: Vec<usize> = (0..nf).collect();
             let k_ff = extract_submatrix(&k_global, n, &free_idx, &free_idx);
             let (k_solve, f_solve) = if let Some(ref cs) = cs {
@@ -597,14 +567,10 @@ fn solve_cable_2d_inner(
         reactions_vec[i] = k_rf_uf[i] - f_r[i];
     }
     // The base block gives every cable the force EA·ε_lin of a full-E truss; the supports feel its
-    // tension T instead: add −c·(T − EA·ε_lin) at the restrained DOFs, rotated like the loads.
+    // tension T instead: add −c·(T − EA·ε_lin) at the restrained DOFs (c in the solver's frame).
     let mut r_cable = vec![0.0; n];
-    for ci in &cables {
-        let (dofs, coef) = cable_slots_2d(ci, &dof_num);
-        add_along(&mut r_cable, &dofs, &coef, -(cable_tensions[&ci.elem_id] - ci.ea * cable_eps_lin[&ci.elem_id]));
-    }
-    for it in inclined_2d {
-        assembly::rotate_inclined_f_2d(&mut r_cable, &it.dofs, &it.r);
+    for (ci, (dofs, coef)) in cables.iter().zip(&slots) {
+        add_along(&mut r_cable, dofs, coef, -(cable_tensions[&ci.elem_id] - ci.ea * cable_eps_lin[&ci.elem_id]));
     }
     for i in 0..nr {
         reactions_vec[i] += r_cable[nf + i];
@@ -840,6 +806,8 @@ fn solve_cable_3d_inner(
         }
     }
 
+    // Each cable's DOFs and solver-frame direction coefficients (fixed geometry).
+    let slots: Vec<_> = cables.iter().map(|ci| cable_slots_3d(ci, &dof_num, inclined_3d)).collect();
     let mut u_full = vec![0.0; n];
     let mut converged = false;
     let mut total_iterations = 0;
@@ -858,22 +826,18 @@ fn solve_cable_3d_inner(
         // last tension T_k; the rest of T(ε) ≈ T_k + (E_eq/E)·EA·(ε − ε_k) goes to the right-hand
         // side as nodal forces. They are built from what the matrix actually produces (the base
         // truss with its full EA, rotated at inclined supports, plus the correction block as
-        // assembled), so at the fixed point the cables pull with T(ε) exactly, whatever the
-        // tangent: c·(T_k − EA·ε_k), rotated like the loads, plus diff·c·(c·u_k).
+        // assembled, both in the solver's frame), so at the fixed point the cables pull with
+        // T(ε) exactly, whatever the tangent: c·(T_k − EA·ε_k) plus diff·c·(c·u_k).
         let mut f_cable = vec![0.0; n];
-        for ci in &cables {
-            let (dofs, coef) = cable_slots_3d(ci, &dof_num);
-            add_along(&mut f_cable, &dofs, &coef, cable_tensions[&ci.elem_id] - ci.ea * cable_eps_lin[&ci.elem_id]);
-        }
-        for it in inclined_3d {
-            assembly::rotate_inclined_f_3d(&mut f_cable, &it.dofs, &it.r);
-        }
-        for ci in &cables {
-            if let Some(diff) = ernst_diff_3d(ci, cable_tensions[&ci.elem_id], iter) {
-                let (dofs, coef) = cable_slots_3d(ci, &dof_num);
-                let s = diff * along(&u_full, &dofs, &coef);
-                add_along(&mut f_cable, &dofs, &coef, s);
+        let mut tangent: Vec<Option<f64>> = Vec::with_capacity(cables.len());
+        for (ci, (dofs, coef)) in cables.iter().zip(&slots) {
+            let diff = ernst_diff_3d(ci, cable_tensions[&ci.elem_id], iter);
+            let mut s = cable_tensions[&ci.elem_id] - ci.ea * cable_eps_lin[&ci.elem_id];
+            if let Some(diff) = diff {
+                s += diff * along(&u_full, dofs, coef);
             }
+            add_along(&mut f_cable, dofs, coef, s);
+            tangent.push(diff);
         }
         let f_f: Vec<f64> = (0..nf).map(|i| f_global[i] + f_cable[i]).collect();
 
@@ -883,39 +847,9 @@ fn solve_cable_3d_inner(
             let mut rows = base_tr.clone();
             let mut cols = base_tc.clone();
             let mut vals = base_tv.clone();
-            for ci in &cables {
-                let tension = cable_tensions[&ci.elem_id];
-                if let Some(diff) = ernst_diff_3d(ci, tension, iter) {
-                    // Same KNOWN RESIDUAL GAP as the dense path (see below):
-                    // the correction is assembled in the true-global cable
-                    // direction and added unrotated at the raw node DOFs, even
-                    // if a cable end sits on an inclined support. The 6×6
-                    // block is symmetric: slot p = a*3+i with coefficient
-                    // sign(a)*dir[i]; push each pair once, free DOFs only
-                    // (restrained entries never entered k_ff in the dense
-                    // path either).
-                    let mut sdofs = [usize::MAX; 6];
-                    let mut coef = [0.0; 6];
-                    for a in 0..2 {
-                        let node_a = if a == 0 { ci.node_i_id } else { ci.node_j_id };
-                        let sign = if a == 0 { 1.0 } else { -1.0 };
-                        for i in 0..3 {
-                            coef[a * 3 + i] = sign * ci.dir[i];
-                            if let Some(&d) = dof_num.map.get(&(node_a, i)) {
-                                sdofs[a * 3 + i] = d;
-                            }
-                        }
-                    }
-                    for p in 0..6 {
-                        for q in 0..=p {
-                            let (dp, dq) = (sdofs[p], sdofs[q]);
-                            if dp < nf && dq < nf {
-                                rows.push(dp);
-                                cols.push(dq);
-                                vals.push(diff * coef[p] * coef[q]);
-                            }
-                        }
-                    }
+            for ((dofs, coef), diff) in slots.iter().zip(&tangent) {
+                if let Some(diff) = *diff {
+                    add_block_triplets(&mut rows, &mut cols, &mut vals, nf, dofs, coef, diff);
                 }
             }
             let f_solve = if let Some(ref cs) = cs { cs.reduce_vector(&f_f) } else { f_f };
@@ -923,40 +857,12 @@ fn solve_cable_3d_inner(
             solve_tangent_sparse(&k_csc, &f_solve, &mut sparse_sym_cache)?
         } else {
             let mut k_global = dense_asm.as_ref().unwrap().k.clone();
-
-            for ci in &cables {
-                let tension = cable_tensions[&ci.elem_id];
-
-                if let Some(diff) = ernst_diff_3d(ci, tension, iter) {
-                    // KNOWN RESIDUAL GAP (3D twin of the 2D dk comment above): this
-                    // correction is assembled in the true-global cable direction
-                    // and added directly at the raw node/dof indices into
-                    // `k_global`, which is already rotated for any inclined-
-                    // support DOFs. If a cable end sits on an inclined-support
-                    // node, the correction should be rotated the same way
-                    // apply_inclined_transform (assembly.rs) rotates a full K,
-                    // scoped to this local block. Not implemented — deferred as a
-                    // documented, low-severity residual gap (C4 review Finding 2).
-                    for a in 0..2 {
-                        for b in 0..2 {
-                            let sign = if a == b { 1.0 } else { -1.0 };
-                            let node_a = if a == 0 { ci.node_i_id } else { ci.node_j_id };
-                            let node_b = if b == 0 { ci.node_i_id } else { ci.node_j_id };
-                            for i in 0..3 {
-                                for j in 0..3 {
-                                    if let (Some(&da), Some(&db)) = (
-                                        dof_num.map.get(&(node_a, i)),
-                                        dof_num.map.get(&(node_b, j)),
-                                    ) {
-                                        k_global[da * n + db] += sign * diff * ci.dir[i] * ci.dir[j];
-                                    }
-                                }
-                            }
-                        }
-                    }
+            // The tangent correction (E_eq/E − 1)·EA/L0·c·cᵀ, in the solver's frame like the base.
+            for ((dofs, coef), diff) in slots.iter().zip(&tangent) {
+                if let Some(diff) = *diff {
+                    add_block_dense(&mut k_global, n, dofs, coef, diff);
                 }
             }
-
             let free_idx: Vec<usize> = (0..nf).collect();
             let k_ff = extract_submatrix(&k_global, n, &free_idx, &free_idx);
             let (k_solve, f_solve) = if let Some(ref cs) = cs {
@@ -1053,14 +959,10 @@ fn solve_cable_3d_inner(
         reactions_vec[i] = k_rf_uf[i] - f_r[i];
     }
     // The base block gives every cable the force EA·ε_lin of a full-E truss; the supports feel its
-    // tension T instead: add −c·(T − EA·ε_lin) at the restrained DOFs, rotated like the loads.
+    // tension T instead: add −c·(T − EA·ε_lin) at the restrained DOFs (c in the solver's frame).
     let mut r_cable = vec![0.0; n];
-    for ci in &cables {
-        let (dofs, coef) = cable_slots_3d(ci, &dof_num);
-        add_along(&mut r_cable, &dofs, &coef, -(cable_tensions[&ci.elem_id] - ci.ea * cable_eps_lin[&ci.elem_id]));
-    }
-    for it in inclined_3d {
-        assembly::rotate_inclined_f_3d(&mut r_cable, &it.dofs, &it.r);
+    for (ci, (dofs, coef)) in cables.iter().zip(&slots) {
+        add_along(&mut r_cable, dofs, coef, -(cable_tensions[&ci.elem_id] - ci.ea * cable_eps_lin[&ci.elem_id]));
     }
     for i in 0..nr {
         reactions_vec[i] += r_cable[nf + i];

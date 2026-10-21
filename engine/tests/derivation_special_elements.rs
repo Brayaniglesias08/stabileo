@@ -952,8 +952,46 @@ fn cable_chord_tension_is_robust() {
     // Huge and tiny scales: no under/overflow.
     assert!(rel(cable_chord_tension(1e200, 1e-200, 1.0, 0.0), (1e200f64 / 24.0).cbrt() * 1e-200f64.cbrt().powi(2)) < 1e-12);
     assert!(rel(cable_chord_tension(1e200, 1e60, 1.0, 0.0), (1e200f64 / 24.0).cbrt() * 1e60f64.cbrt().powi(2)) < 1e-12);
+    // Extreme scales that overflow intermediate products (Codex review).
+    assert!(rel(cable_chord_tension(24.0, 1e-150, 1.0, 4e206), 24.0 * 4e206) < 1e-12);
+    assert!(rel(cable_chord_tension(1e300, 1e-200, 1.0, -1.0), 1e-200 / 24f64.sqrt()) < 1e-9);
+    assert!(rel(cable_chord_tension(1e-300, 1e200, 1e200, 0.0), 10f64.powf(500.0 / 3.0) / 24f64.cbrt()) < 1e-9);
     // Weightless: the taut string.
     assert_eq!(cable_chord_tension(2e4, 0.0, 50.0, 1e-3), 20.0);
     assert_eq!(cable_chord_tension(2e4, 0.0, 50.0, -1e-3), 0.0);
     assert!(cable_chord_tension(1.0, 1.0, 1.0, f64::NAN).is_nan());
+}
+
+/// A cable ending on an inclined roller: the tangent correction and the chord-law
+/// forces are rotated with the support (they used to be added unrotated, so the
+/// iteration could stop away from equilibrium). The roller node is also held by a
+/// soft bar, so the cable law decides the share; closed form by bisection along
+/// the roller's free direction.
+#[test]
+fn cable_on_an_inclined_roller_follows_the_chord_law() {
+    let (l, a, rho, p, theta, a_bar) = (50.0, 1e-4, 7850.0, 10.0, 0.5_f64, 2e-6);
+    let mut input = common::make_input(
+        vec![(1, 0.0, 0.0), (2, l, 0.0), (3, l, -5.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, a, 1e-8), (2, a_bar, 1e-12)],
+        vec![(1, "cable", 1, 2, 1, 1, false, false), (2, "truss", 2, 3, 1, 2, false, false)],
+        vec![(1, 1, "pinned"), (2, 2, "inclinedRoller"), (3, 3, "pinned")],
+        vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: p, fz: 0.0, my: 0.0 })],
+    );
+    input.supports.get_mut("2").unwrap().angle = Some(theta);
+    let dens = HashMap::from([("1".to_string(), rho)]);
+    let r = cable::solve_cable_2d(&input, &dens, 100, 1e-12).unwrap();
+    assert!(r.converged);
+    let (tx, tz) = (-theta.cos(), theta.sin()); // the roller's free direction
+    let (ea, kb) = (200e6 * a, 200e6 * a_bar / 5.0);
+    let w = rho / 1000.0 * a * 9.80665;
+    let t_ref = bisect(|t| t / ea - (w * l).powi(2) / (24.0 * t * t) - tx * tx * (p - t) / (kb * tz * tz * l), 1e-6, p);
+    let t = r.cable_forces[0].tension;
+    assert!(rel(t, t_ref) < 1e-4, "T = {t}, closed form {t_ref}");
+    // The node moves along the roller only, and the statics close.
+    let d = r.results.displacements.iter().find(|d| d.node_id == 2).unwrap();
+    assert!((d.ux * theta.sin() + d.uz * theta.cos()).abs() < 1e-12, "normal displacement {d:?}");
+    let rx: f64 = r.results.reactions.iter().map(|x| x.rx).sum();
+    let rz: f64 = r.results.reactions.iter().map(|x| x.rz).sum();
+    assert!((rx + p).abs() < 1e-6 * p && rz.abs() < 1e-6 * p, "ΣR = ({rx}, {rz})");
 }
