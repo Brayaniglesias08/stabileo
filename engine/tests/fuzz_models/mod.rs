@@ -225,7 +225,7 @@ pub fn random_2d_model(seed: u64) -> SolverInput {
     }
 
     SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map,
         materials: mats_map,
         sections: secs_map,
@@ -289,6 +289,8 @@ pub fn random_3d_model(seed: u64) -> SolverInput3D {
                 cw: None,
                 as_y: None,
                 as_z: None,
+                shear_center_y: None,
+                shear_center_z: None,
             },
         );
     }
@@ -481,7 +483,7 @@ pub fn random_3d_model(seed: u64) -> SolverInput3D {
     }
 
     SolverInput3D {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map,
         materials: mats_map,
         sections: secs_map,
@@ -694,7 +696,7 @@ pub fn random_2d_model_rich(seed: u64) -> (SolverInput, HashMap<String, f64>) {
 
     let densities = random_densities(&mut rng, n_mats);
     let input = SolverInput {
-        solver_options: None, nodes, materials, sections, elements, supports, loads,
+        solver_options: None, masses: Default::default(), nodes, materials, sections, elements, supports, loads,
         constraints: vec![], connectors,
     };
     (input, densities)
@@ -811,6 +813,8 @@ pub fn random_3d_model_rich(seed: u64) -> (SolverInput3D, HashMap<String, f64>) 
             cw: if warping && i == 1 { Some(10f64.powf(rng.gen_range(-8.0..-5.0))) } else { None },
             as_y: if rng.gen_bool(0.4) { Some(a * rng.gen_range(0.4..0.9)) } else { None },
             as_z: if rng.gen_bool(0.4) { Some(a * rng.gen_range(0.4..0.9)) } else { None },
+            shear_center_y: None,
+            shear_center_z: None,
         });
     }
 
@@ -1064,7 +1068,7 @@ pub fn random_3d_model_rich(seed: u64) -> (SolverInput3D, HashMap<String, f64>) 
 
     let densities = random_densities(&mut rng, n_mats);
     let input = SolverInput3D {
-        solver_options: None, nodes, materials, sections, elements, supports, loads,
+        solver_options: None, masses: Default::default(), nodes, materials, sections, elements, supports, loads,
         constraints: vec![],
         left_hand: if rng.gen_bool(0.2) { Some(true) } else { None },
         plates, quads, quad9s, solid_shells, curved_shells,

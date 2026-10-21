@@ -14,6 +14,7 @@
  *     could go LIGHTER, or FAILS NOW. All rows holding is convergence, and it is shown as such;
  *     anything else is shown as it is, one pass at a time, never iterated behind the user's back.
  */
+import { isEngineError, isEngineUnavailable, engineFailureText } from '../engine/engine-unavailable';
 import { modelStore } from './model.svelte';
 import { resultsStore } from './results.svelte';
 import { activePerCombo3D, activeCombinations } from './active-results';
@@ -193,6 +194,14 @@ function createSteelOptimise() {
   /** The model version the picks were applied at; a later version means the user edited since. */
   let appliedAt = $state<number | null>(null);
   let error = $state<string | null>(null);
+  let errorDetail = $state<string | null>(null);
+  /** An engine error becomes the panel's message ("engine not available", or its own words). */
+  const engineFailed = (err: unknown): boolean => {
+    if (!isEngineError(err)) return false;
+    error = isEngineUnavailable(err) ? 'engine.unavailable' : 'engine.failed';
+    errorDetail = isEngineUnavailable(err) ? null : engineFailureText(err);
+    return true;
+  };
   /** The criteria of the last run, which the re-verification applies again. */
   let lastSettings: OptimiseSettings = {};
   /**
@@ -211,6 +220,8 @@ function createSteelOptimise() {
     get rows() { return fresh() ? rows : []; },
     get applied() { return appliedEpoch === modelStore.loadEpoch ? applied : []; },
     get error() { return error; },
+    /** The engine's own message, when `error` is `engine.failed`. */
+    get errorDetail() { return errorDetail; },
     /** Picks written, and no solve since: the model is designed but not re-verified. */
     get awaitingReverify() { const a = this.applied; return a.length > 0 && a.every((x) => x.status === 'unchecked'); },
     get converged() { const a = this.applied; return a.length > 0 && a.every((x) => x.status === 'holds'); },
@@ -220,7 +231,11 @@ function createSteelOptimise() {
 
     /** Propose the lightest passing profile per group, against the analysis on hand. */
     run(scope: OptimiseScope, ids?: readonly number[], settings: OptimiseSettings = {}): void {
-      error = null;
+      error = null; errorDetail = null;
+      try { this.runWithEngine(scope, ids, settings); } catch (err) { if (!engineFailed(err)) throw err; rows = []; }
+    },
+
+    runWithEngine(scope: OptimiseScope, ids: readonly number[] | undefined, settings: OptimiseSettings): void {
       lastSettings = settings;
       proposedResults = resultsStore.results3D;
       if (!resultsStore.results3D) { rows = []; error = 'opt.needSolve'; return; }
@@ -300,7 +315,11 @@ function createSteelOptimise() {
      * One pass, reported per row.
      */
     recheck(): void {
-      error = null;
+      error = null; errorDetail = null;
+      try { this.recheckWithEngine(); } catch (err) { if (!engineFailed(err)) throw err; }
+    },
+
+    recheckWithEngine(): void {
       if (appliedEpoch !== modelStore.loadEpoch) { applied = []; appliedAt = null; return; }
       if (!resultsStore.results3D) { error = 'opt.needSolve'; return; }
       applied = applied.map((a) => {

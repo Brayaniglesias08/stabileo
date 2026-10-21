@@ -233,6 +233,26 @@ fn tension_shear_lag_d32_and_floor() {
     published(val(&t, "phiPnRupture"), 0.75 * 370.0 * 1500.0 / 1000.0, 1e-12);
 }
 
+/// Ejemplo 4 (Ej. 4-1 – 4-3): IPB 120 tie, bolted flange splice, Tu = 500 kN, Fy = 235,
+/// Fu = 370 MPa. Printed: Ag = 34 cm², tf = 11,0 mm; 4 holes of 16 mm nominal, dcal = 18 mm;
+/// An = 34,0 − 1,8·1,1·4 = 26,08 cm²; x̄ = 1,22 cm (half the IPB as a tee), L = 4·4,5 = 18 cm,
+/// U = 1 − 1,22/18 = 0,93 > 0,9 → U = 0,9; φRn yield = 0,9·34·235·0,1 = 719 kN, rupture
+/// = 0,75·(0,9·26,08)·370·0,1 = 651 kN (governs). D.3 from the connection geometry, B.4.2.2
+/// holes, and the U ≤ 0,9 cap, from a published example (they had only clause tests).
+#[test]
+fn inti_4_ipb120_tie_shear_lag_and_net_area() {
+    let m = member(json!({
+        "A": 34e-4, "Iz": 864e-8, "Iy": 318e-8, "h": 0.12, "b": 0.12, "tw": 0.0065, "tf": 0.011, "L": 9.0,
+        "tensionConnection": {"holes": {"count": 4.0, "d": 0.016, "t": 0.011}, "xBar": 0.0122, "length": 0.18}
+    }));
+    let t = check_tension(&m, 500.0);
+    assert!(t.not_evaluated.is_none(), "{:?}", t.not_evaluated);
+    published(val(&t, "phiPnYield"), 719.0, 0.005);
+    published(val(&t, "phiPnRupture"), 651.0, 0.005);
+    published(t.capacity, 651.0, 0.005);
+    assert_eq!(t.clause, "D.2(b)");
+}
+
 // ───────────── §E.4 by hand ─────────────
 
 fn tee(extra: Value) -> Cirsoc301MemberData {

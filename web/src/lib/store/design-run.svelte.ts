@@ -15,6 +15,7 @@
 
 import { activePerCombo3D, activeCombinations, noLinearCombinationActive } from './active-results';
 import { modelStore } from './model.svelte';
+import { isEngineUnavailable } from '../engine/engine-unavailable';
 import { requestAutosave } from './autosave-service';
 import { regulationsStore } from './regulations.svelte';
 import type { RegulationEdition } from '../codes/regulation';
@@ -211,6 +212,10 @@ function createDesignRunStore() {
         if (a) return failNothingChecked(a.name);
       }
       return { ok: true };
+    } catch (err) {
+      // The station forces come from the engine only; without it there are no demands to design for.
+      if (isEngineUnavailable(err)) return fail('engine.unavailable');
+      throw err;
     } finally {
       phase = 'idle';
     }

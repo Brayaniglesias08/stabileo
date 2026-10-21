@@ -10,9 +10,16 @@ frames, nodal/full-length loads and rigid supports, and mostly mechanisms):
       and rotational springs, settlements, partial trapezoidal loads with
       axial component, point loads.
 
-Geometry and properties stay in engineering ranges so most models are
-well-conditioned; mechanisms are filtered out by the harness (both solvers
-must succeed). Deterministic in the seed.
+Geometry and properties stay in engineering ranges. Hinges and releases
+are drawn at random and often leave a mechanism (a member hanging on a
+hinge, a node free to turn about one axis): before this was checked, 40 %
+of rich3d and 25 % of rich2d models were mechanisms that no comparison
+could use. `stability.py` finds them exactly (independently of stabileo
+and of the references), and in 90 % of the models the hinges / releases
+that cause one are dropped, and nodal moments on rotations nothing
+stiffens are zeroed. The other 10 % are kept as drawn, so that stabileo's
+singularity diagnostics and refusals stay exercised (and cross-checked:
+refused / false_reject / false_warning). Deterministic in the seed.
 """
 
 import json
@@ -34,7 +41,55 @@ def _connected_edges(rng, n, extra):
     return [(i, j, t) if rng.random() < 0.5 else (j, i, t) for i, j, t in out]
 
 
+# Fraction of rich models kept exactly as drawn, mechanisms included.
+KEEP_DEGENERATE = 0.1
+
+
+def _well_posed(m, seed, dim):
+    """Drop the hinges / releases that make m a mechanism (greedily, each
+    one whose removal lowers the number of mechanisms), and the nodal
+    moments on rotations only the engine's artificial stiffness holds;
+    unless this seed keeps its model as drawn (KEEP_DEGENERATE)."""
+    import stability
+    if random.Random(1_000_003 * seed + 17).random() < KEEP_DEGENERATE:
+        return m
+    count = stability.mechanisms_3d if dim == 3 else stability.mechanisms_2d
+    keys = ("hingeStart", "hingeEnd") if dim == 2 else \
+        ("releaseMyStart", "releaseMyEnd", "releaseMzStart", "releaseMzEnd")
+    n = count(m)
+    while n > 0:
+        cands = [(e, k) for _, e in sorted(m["elements"].items(), key=lambda kv: kv[1]["id"])
+                 for k in keys if e.get(k)]
+        if not cands:
+            break
+        for e, k in cands:
+            e[k] = False
+            n2 = count(m)
+            if n2 < n:
+                n = n2
+                break
+            e[k] = True
+        else:
+            for e, k in cands:  # no single release matters alone: drop them all
+                e[k] = False
+            n = count(m)
+    if dim == 2:
+        orphan = stability.orphan_rotation_nodes_2d(m)
+        for ld in m["loads"]:
+            if ld["type"] == "nodal" and ld["data"]["nodeId"] in orphan:
+                ld["data"]["my"] = 0.0
+    return m
+
+
 def rich_2d(seed):
+    return _well_posed(_rich_2d(seed), seed, 2)
+
+
+def rich_3d(seed):
+    return _well_posed(_rich_3d(seed), seed, 3)
+
+
+def _rich_2d(seed):
     rng = random.Random(seed)
     n = rng.randint(3, 9)
     pts = []
@@ -111,7 +166,7 @@ def rich_2d(seed):
             "supports": sups, "loads": loads}
 
 
-def rich_3d(seed):
+def _rich_3d(seed):
     rng = random.Random(seed)
     n = rng.randint(3, 9)
     pts = []

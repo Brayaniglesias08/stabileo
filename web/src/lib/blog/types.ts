@@ -42,7 +42,15 @@ export type Block =
    * reachable only from the index. Posts on neighbouring questions that point
    * at each other are how a reader — and a crawler — finds the next one.
    */
-  | { k: 'link'; slug: string; t: string };
+  | { k: 'link'; slug: string; t: string }
+  /**
+   * A pointer to a document outside the blog: an advisory's full text, a
+   * verification report, an issue. `t` says why the reader would follow it;
+   * `label` is the link text. Only the project's own repository is allowed
+   * (the content test enforces it), so a post cannot send readers anywhere
+   * we do not publish.
+   */
+  | { k: 'ext'; href: string; label: string; t: string };
 
 /** One post in one language. */
 export type PostBody = {
@@ -90,6 +98,7 @@ export function wordCount(body: PostBody, linkTitle?: (slug: string) => string |
   const parts: string[] = [body.title, body.excerpt];
   for (const b of body.blocks) {
     if (b.k === 'link') parts.push(b.t, linkTitle?.(b.slug) ?? '');
+    else if (b.k === 'ext') parts.push(b.t, b.label);
     else if (b.k === 'p' || b.k === 'h' || b.k === 'quote' || b.k === 'note') parts.push(b.t);
     else if (b.k === 'ul' || b.k === 'ol') parts.push(...b.items);
     else if (b.k === 'embed') parts.push(b.label);

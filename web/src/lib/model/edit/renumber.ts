@@ -175,7 +175,8 @@ export function renumber(opts: RenumberOptions): RenumberResult {
     },
   }]);
   // What the project keeps beside the model and names by id: the self-weight rule's member list,
-  // a deflection rule on chosen members, what a saved view hides, a time-history force on a node.
+  // a deflection rule on chosen members, what a saved view hides, a time-history force or a point
+  // mass on a node.
   // Left alone, each kept its old numbers and so moved to whatever member, shell or node took them.
   if (snap.analysis?.selfWeight) snap.analysis = {
     ...snap.analysis,
@@ -189,6 +190,7 @@ export function renumber(opts: RenumberOptions): RenumberResult {
   if (snap.views) snap.views = snap.views.map((v: any) => (v.display?.hidden ? {
     ...v, display: { ...v.display, hidden: { ...v.display.hidden, elements: (v.display.hidden.elements ?? []).map(re), shells: (v.display.hidden.shells ?? []).map(rShell) } },
   } : v));
+  if (snap.massSource?.points) snap.massSource = { ...snap.massSource, points: snap.massSource.points.map((p: any) => ({ ...p, nodeId: rn(p.nodeId) })) };
   const th = snap.dynamics?.timeHistory;
   if (th?.forces) snap.dynamics = { ...snap.dynamics, timeHistory: { ...th, forces: th.forces.map((f: any) => ({ ...f, nodeId: rn(f.nodeId) })) } };
   // Counters stay ahead of every id in use.

@@ -26,6 +26,31 @@ export interface SolverSection3D {
   asY?: number;
   /** m² — shear area paired with iz. */
   asZ?: number;
+  /**
+   * m — shear-centre coordinates from the centroid, local y and z. Read only by the
+   * geometric stiffness (flexural-torsional buckling of channels, tees, angles).
+   * Absent: 0 (doubly or point symmetric).
+   */
+  shearCenterY?: number;
+  shearCenterZ?: number;
+  /**
+   * m⁶ — warping constant. Sent only by the buckling analysis (`buckling-warping.ts`): with it
+   * the engine numbers a warping DOF at every node (Vlasov torsion), which the other analyses
+   * are not given (#439).
+   */
+  cw?: number;
+  /**
+   * Web-only, never sent (`input3DToWireObject` strips it): the section's Cw, for the buckling
+   * analysis to turn into `cw` on the members it can give warping to.
+   */
+  bucklingCw?: number;
+  /**
+   * Web-only, never sent: what is missing for the section's torsional terms. `'j'`: no torsion
+   * constant — its members are sent released in torsion (`j: 0`) and buckling and P-Δ refuse
+   * them. `'shearCentre'`: a tee, channel or angle whose shear centre nothing placed — buckling
+   * and P-Δ refuse, since taking the centroid drops its flexural-torsional coupling.
+   */
+  torsionGap?: 'j' | 'shearCentre';
 }
 
 // ─── Elements ────────────────────────────────────────────────────
@@ -337,6 +362,32 @@ export interface SolverInput3D {
    *  `connectors: HashMap<String, ConnectorElement>` (see Rust ConnectorElement). */
   connectors?: Map<number, ConnectorElement>;
   leftHand?: boolean;  // Terna izquierda: negate ey in local axes
+  /** Mass beyond the material densities, for the dynamic analyses only (engine `MassInput3D`). */
+  masses?: MassInput3D;
+}
+
+/** A lumped mass at a node: t in each translation (`mass`, or per direction), t·m² about global axes. */
+export interface NodalMass3D {
+  nodeId: number;
+  mass: number;
+  massX?: number;
+  massY?: number;
+  massZ?: number;
+  ixx?: number;
+  iyy?: number;
+  izz?: number;
+}
+
+/** Mass added along a member, t/m, distributed as the member's own mass is. */
+export interface LineMass { elementId: number; massPerLength: number }
+
+/** Mass added over a shell, t/m², distributed as the shell's own mass is. */
+export interface AreaMass { elementId: number; kind: 'quad' | 'plate' | 'quad9' | 'curvedShell'; massPerArea: number }
+
+export interface MassInput3D {
+  nodal?: NodalMass3D[];
+  line?: LineMass[];
+  area?: AreaMass[];
 }
 
 // ─── Results ─────────────────────────────────────────────────────

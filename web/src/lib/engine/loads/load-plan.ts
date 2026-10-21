@@ -31,6 +31,7 @@
  * Pure: no store, no runes. Forces kN, lengths m, pressures kPa.
  */
 
+import { engineFailureMessage } from '../engine-unavailable';
 import { memberMeanArea } from '../../section/variable';
 import type { CombinationInputs, LoadCombinationSpec, LoadSymbol } from '../../codes/cirsoc101/combinations';
 import type { ElementKind, OccupancyEntry } from '../../codes/cirsoc101/live-loads';
@@ -558,7 +559,31 @@ export function findCase(model: LoadModelData, type: string, nameMatch?: string)
  * BLOCKED, with reasons, when the bound roles cannot produce loads — an unusable role is
  * reported rather than silently substituted with a default.
  */
+/**
+ * The plan for `input`. The code arithmetic runs in the engine (combinations and seismic,
+ * `engine/src/loads`): without it, or when it refuses, the plan is BLOCKED by name with the
+ * engine's message, never a plan computed some other way and never an exception for the dialog.
+ */
 export function buildLoadPlan(input: LoadPlanInput): LoadPlan {
+  try {
+    return buildLoadPlanWithEngine(input);
+  } catch (err) {
+    const m = engineFailureMessage(err);
+    if (!m) throw err;
+    return {
+      outcome: 'BLOCKED', cases: [], distributed: [], nodal: [], surface: [], thermal: [], combinations: [],
+      factors: {
+        occupancy: fromProject(0, 'kN/m²'),
+        liveReduced: fromProject(0, 'kN/m²'),
+        deadTotal: fromProject(0, 'kN/m²'),
+      },
+      levels: [], assumptions: [], unsupportedKeys: [], refs: [], derivation: [],
+      blockedKeys: [msg(m.key, m.params)],
+    };
+  }
+}
+
+function buildLoadPlanWithEngine(input: LoadPlanInput): LoadPlan {
   const derivation: EngineMessage[] = [];
   const assumptions: EngineMessage[] = [];
   const refs: ClauseRef[] = [];

@@ -12,6 +12,7 @@
    * showing numbers for a model that has moved on.
    */
   import { modelStore, resultsStore, uiStore } from '../../lib/store';
+  import { isEngineUnavailable, engineFailureText } from '../../lib/engine/engine-unavailable';
   import ProDesignCompleteness from './design/ProDesignCompleteness.svelte';
   import { t, tp } from '../../lib/i18n';
   import { activeCombinations, activePerCombo3D } from '../../lib/store/active-results';
@@ -34,6 +35,8 @@
   let run = $state<OtherCodeRun | null>(null);
   let runOf = $state<unknown>(null);
   let failed = $state(false);
+  /** Why the check could not run: "engine not available", or the engine's own message. */
+  let failure = $state<{ key: string; message: string } | null>(null);
   /**
    * Where the forces come from. The direct analysis is AISC 360's own method (Chapter C), so it
    * is offered with that code only; with it every member is checked at K = 1.
@@ -50,6 +53,7 @@
 
   function verify() {
     failed = false;
+    failure = null;
     try {
       const forces = direct ? directAnalysis.forces() : activePerCombo3D();
       if (!forces) { run = null; failed = true; return; }
@@ -63,9 +67,10 @@
       runContexts = ctxs;
       runOf = direct ? directAnalysis.result : resultsStore.perCombo3D;
       ranDirect = direct;
-    } catch {
+    } catch (err) {
       run = null;
       failed = true;
+      failure = { key: isEngineUnavailable(err) ? 'engine.unavailable' : 'otherCodes.error.engine', message: engineFailureText(err) };
     }
   }
 
@@ -204,12 +209,14 @@
   </section>
 
   {#if failed}
-    <p class="pk-warn" data-testid="other-codes-error">{t('otherCodes.error.engine')}</p>
+    <p class="pk-warn" data-testid="other-codes-error">{t(failure?.key ?? 'otherCodes.error.engine')}</p>
+    {#if failure && failure.key !== 'engine.unavailable'}<p class="pk-warn">{failure.message}</p>{/if}
   {:else if run}
     <section class="pk-card" data-testid="other-codes-results">
       <ProDesignCompleteness {missing} />
       {#if run.errorKey}
-        <p class="pk-warn">{t(run.errorKey)}</p>
+        <p class="pk-warn" data-testid="other-codes-run-error">{t(run.errorKey)}</p>
+        {#if run.errorMessage && run.errorKey !== 'engine.unavailable'}<p class="pk-warn">{run.errorMessage}</p>{/if}
       {/if}
       {#if stale}
         <p class="pk-warn" data-testid="other-codes-stale">{t('otherCodes.stale')}</p>

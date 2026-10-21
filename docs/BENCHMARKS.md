@@ -6,8 +6,8 @@
 > BLOCKED = needs new solver features.
 
 Read next:
-- solver roadmap: [`SOLVER_ROADMAP.md`](/Users/unbalancedparen/projects/dedaliano/docs/roadmap/SOLVER_ROADMAP.md)
-- verification method: [`VERIFICATION.md`](/Users/unbalancedparen/projects/dedaliano/docs/VERIFICATION.md)
+- solver roadmap: [`SOLVER_ROADMAP.md`](../docs/roadmap/SOLVER_ROADMAP.md)
+- verification method: [`VERIFICATION.md`](../docs/VERIFICATION.md)
 
 ---
 
@@ -207,7 +207,7 @@ The right long-term role for differential tests here is:
 
 In other words, the benchmark strategy should be framed around reproducibility and solver consistency, not around parity with a removed TypeScript solver.
 
-For the broader verification strategy, including fuzzing and selective formal verification, see [`VERIFICATION.md`](/Users/unbalancedparen/projects/dedaliano/docs/VERIFICATION.md).
+For the broader verification strategy, including fuzzing and selective formal verification, see [`VERIFICATION.md`](../docs/VERIFICATION.md).
 
 ---
 
@@ -264,7 +264,7 @@ one headline number.
 | Plate / shell triangles | Good | `element/plate.rs`, `validation_plates.rs`, `validation_scordelis_lo.rs`, recent drilling/nodal-stress/thermal upgrades | Higher fidelity shell behavior, convergence quality, and more benchmark depth |
 | MITC4 quadrilateral shell element | Strong | `element/quad.rs` with Bathe-Dvorkin (1986) ANS shear tying plus EAS-7 membrane enhancement, integrated through standard input and assembly, nonlinear 3D stress recovery, full nodal stress tensor recovery, shell-quality diagnostics, and Jacobian/warping detection. Scordelis-Lo 84%, Navier plate 93%, buckling 102%, modal 99.9% of reference. | Extreme non-planar shell cases like the pinched hemisphere, Raasch hook, and twisted beam still expose formulation limits |
 | MITC9 9-node quadrilateral shell element | Strong | `element/quad9.rs` with ANS shear tying (Bucalem & Bathe 1993), Hughes-Brezzi drilling stabilization, 3×3 Gauss quadrature, 54 DOFs. Full solver-stack integration: dense+sparse assembly, mass, geometric stiffness, buckling, stress recovery, all load types. Navier plate 2×2: 98%, Scordelis-Lo 2×2: 96%, spherical cap self-convergence 63%→92%→100%. 4 acceptance models (cantilever, mixed beam+slab, cylindrical tank, modal plate). | Curved/non-planar frontier remains weaker than SHB8-ANS; corotational extension |
-| SHB8-ANS 8-node solid-shell element | Strong | `element/solid_shell.rs` with covariant ANS (Dvorkin–Bathe transverse shear, Betsch–Stein thickness strain), frame invariant and patch-test exact on distorted, tilted meshes; full solver-stack integration. Scordelis-Lo 8×8: 96%, twisted beam (load B) 8×1: 82%, thin cantilever free of shear locking to t/L = 1/1000. Still membrane-locked on the hemisphere (~1e-3) and Poisson-thickness-locked on plates (Navier ~84%; no EAS). | Needs broader acceptance/workflow coverage, hardening, and performance maturity |
+| SHB8-ANS 8-node solid-shell element | Strong | `element/solid_shell.rs` with covariant ANS (Dvorkin–Bathe transverse shear, Betsch–Stein thickness strain) plus five condensed EAS modes (thickness E_ζζ ∝ ζ against Poisson thickness locking, membrane EAS-4 against in-plane shear locking; #400), frame invariant and patch-test exact on distorted, tilted meshes; full solver-stack integration. Navier plate t/a = 0.01 32×32: 100.0% (order 2.0), thick plates → Mindlin κ = 1, pure bending with ν exact, Scordelis-Lo 16×16: 99.7%, pinched cylinder 32×32: 98.8%, hemisphere 99.7–100.4%, twisted beam (load B) 8×1: 97%, MacNeal–Harder straight cantilever 96–98% (in-plane trapezoidal 5%: trapezoidal locking). One layer has κ = 1 transverse shear (0.8% / 2.9% stiff vs κ = 5/6 at t/a = 0.1 / 0.2). | Needs broader acceptance/workflow coverage, hardening, and performance maturity |
 | Curved shell element | Strong | `element/curved_shell.rs` with direct curved-geometry formulation, consistent mass, geometric stiffness, pressure/self-weight/thermal/edge loading, stress recovery, and strong hemisphere performance. Hemisphere 8×8: ~0.94, 16×16: ~0.99, hemisphere-hole 16×16: ~1.00, Navier flat plate: ~0.93, Scordelis-Lo: ~0.82. | Twisted beam and Raasch hook remain weaker than ideal; family still needs broader workflow guidance and hardening |
 
 **MITC4 vs MITC9 vs SHB8-ANS vs Curved-Shell Comparison**
