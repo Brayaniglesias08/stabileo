@@ -5,7 +5,7 @@
 | Severity | High |
 | Status | Draft (fix in review; next release) |
 | Issue | [#416](https://github.com/lambdaclass/stabileo/issues/416) (SP-12 in the element-derivation review); [#415](https://github.com/lambdaclass/stabileo/issues/415) (SP-11) fixed with it |
-| Fix | PR on branch `fix/cable-tension` |
+| Fix | PR [#525](https://github.com/lambdaclass/stabileo/pull/525) |
 | Affected versions | every version with the cable solver, up to 0.2.0 and `main` until the fix |
 | Re-check registry | entry `cable-tension-chord-law` (models with members) |
 
@@ -58,7 +58,7 @@ app result that carried the "cables did not converge" note is affected.
 
 ## Fixed in
 
-The fix (`fix/cable-tension`), next release. The cable solve now runs Newton on the chord law
+#525, next release. The cable solve now runs Newton on the chord law
 itself: each pass assembles Ernst's modulus as the tangent and puts the rest of the linearised law
 on the right-hand side as nodal forces, so the converged state satisfies the chord law exactly,
 whatever the tangent. Reactions balance the reported tensions. `ernst_tangent_modulus` returns the

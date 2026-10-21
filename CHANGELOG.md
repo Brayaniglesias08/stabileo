@@ -177,7 +177,7 @@ structures and modal frequencies shift too). Re-run solid-shell models.
   both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
 ### Fixed
 
-#### Cable tension follows the elastic-catenary chord law (2026-10-21, #416, #415)
+#### Cable tension follows the elastic-catenary chord law (2026-10-21, #416, #415, #525)
 
 **BREAKING (results): cables with self-weight in statically indeterminate structures carry more
 tension.** The cable solve used Ernst's modulus (the tangent of the chord law) as a secant from the

@@ -7,7 +7,7 @@
       "id": "cable-tension-chord-law",
       "resultsVersion": 1,
       "date": "2026-10-21",
-      "prs": [],
+      "prs": [525],
       "area": "analysis",
       "when": { "any": ["members"] },
       "title": {
