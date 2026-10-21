@@ -181,10 +181,19 @@ Membrane and bending are **displacement-based** (no assumed membrane strains, un
 
 Bucalem–Bathe place the "3" direction at $0,\pm\sqrt{3/5}$, not at $0,\pm1$ (SH-8). The element
 passes the patch test, has six zero eigenvalues on planar geometry and does not lock in the thin
-limit. No warp correction exists, so midside or centre nodes off the corner plane (a curved 9-node
-shell) break rigid-body invariance (SH-7). Mass, $K_G$, loads and recovery mirror MITC4 with the
-9-node functions (3×3 Gauss, nodal values by tensor Lagrange extrapolation from the Gauss grid,
-no $Q$ output, thermal-subtracted). The matrix is explicitly symmetrised at the end.
+limit. The element is a flat facet on the plane normal to the corner-diagonal $e_z$ through the
+parametric mid-surface centroid $\mathbf c=\sum w_i\mathbf x_i$ (Simpson weights 1/36, 1/9, 4/9 on
+corner, midside and centre nodes). Nodes off that plane (any curved 9-node shell, or warped corners)
+are tied to their projections by rigid links of length $h_i=(\mathbf x_i-\mathbf c)\cdot e_z$, the
+MITC4 warp correction on all nine nodes: $K\leftarrow W^{\mathsf T}KW$, $u\leftarrow Wu$ in
+recovery, $f\leftarrow W^{\mathsf T}f$ for the thermal gradient load, so rigid motions are exact on
+any geometry (SH-7). The uniform thermal load is $K\,u_{\text{free}}$ with
+$u_{\text{free}}=\alpha\Delta T(\mathbf x_i-\bar{\mathbf x})$ and no rotation, equal to
+$\int B^{\mathsf T}N_{th}$ on a flat element and stress-free for a freely heated curved one.
+Curvature is carried by the mesh (facets), not inside the element. Mass, $K_G$, loads and recovery
+mirror MITC4 with the 9-node functions (3×3 Gauss, nodal values by tensor Lagrange extrapolation
+from the Gauss grid, no $Q$ output, thermal-subtracted); $K_G$ acts on $w$ only, which the links
+leave unchanged. The matrix is explicitly symmetrised at the end.
 
 ## 5. Curved shell: degenerated continuum (`curved_shell.rs`)
 
@@ -283,7 +292,7 @@ the corotational solver ignores them (`shell_nonlinear_regressions.rs`).
 |---|---|---|---|---|
 | DKT+CST | exact Kirchhoff, no locking | no shear deformation | flat only; CST membrane very stiff in in-plane bending | no $Q$ |
 | MITC4 | no shear locking (ANS) | Mindlin, $\kappa_s=5/6$ | warp corrected by rigid links (warping > 0.01 and > 0.1 diagnosed in assembly) | EAS membrane |
-| MITC9 | no shear locking | Mindlin | planar geometry only (SH-7) | no assumed membrane strain |
+| MITC9 | no shear locking | Mindlin | flat facet; curved or warped nodes tied by rigid links (SH-7), curvature from the mesh | no assumed membrane strain |
 | Curved shell | no shear locking | Mindlin | true 3D geometry; no EAS → membrane locking on coarse curved meshes | moments not recovered (SH-6) |
 | Solid shell | no shear/curvature-thickness locking | 3D | Poisson thickness locking for $\nu>0$ (SH-9) | translations only |
 
@@ -346,7 +355,7 @@ $K_G$ in-plane terms are untested separately; no orthotropic or layered material
 | SH-4 | **Shell rotary inertia on the wrong axes.** Quad and quad9 masses (local) were scattered without rotation; the curved shell put $\rho h^3/12$ on global $\theta_X,\theta_Y$. A wall got inertia about its normal (drilling) and none about one in-plane axis. Now $T^{\mathsf T}MT$ in dense and sparse assembly, and $(I-\mathbf n\mathbf n^{\mathsf T})$ in the curved shell. Horizontal elements unchanged. Follow-ups from the review of #330: the curved-shell block is built from the nodal directors (§5.5). The time-history initial acceleration now finds the massless drilling direction of an oblique shell, which is not a coordinate DOF ([mass-geometric-dynamics.md §7](mass-geometric-dynamics.md)). | FIXED | `sh4_wall_rotary_inertia_is_about_in_plane_axes`, `sh4_curved_shell_mass_horizontal_unchanged`, `sh4_curved_shell_director_spin_has_no_mass`, `shell_mass_is_rotation_invariant`, `shell_time_history_initial_acceleration_is_rotation_invariant` |
 | SH-5 | **$K_G$ from total strain for DKT, MITC9, curved shell.** Only the quad removed the thermal strain; a free, heated slab got $N=E t\alpha\Delta T/(1-\nu)$ of spurious tension (cooled: compression, so a spurious buckling load). All shells now use the mechanical strain, with several thermal loads summed as $\sum\alpha\Delta T$. | FIXED | `sh5_free_thermal_expansion_carries_no_geometric_stiffness` |
 | SH-6 | **Curved-shell moments are reported as zero** and its stresses ignore thermal strain. `curved_shell_stresses` computes only mid-surface membrane stresses; the solver writes mx = my = mxy = 0 into the results, which reads as "no bending". Needs through-thickness recovery ($m=\int z\sigma\,dz$ at the 2 ζ points) and thermal subtraction. | OPEN | `sh6_curved_shell_reports_bending_moments` (ignored) |
-| SH-7 | **MITC9 is planar only.** Flat projection on the corner plane with no rigid-link correction: a cylindrical patch with 0.2 sag on a 2×2 element has relative $K\mathbf r$ residual 0.11 for a rigid rotation (spring to ground). The docstring advertises it for curved shells (hemisphere, twisted beam). Apply the MITC4 rigid-link correction to all nine nodes (exact rigid modes, still faceted), or refuse non-planar quad9 geometry? | OPEN | `sh7_curved_mitc9_annihilates_rigid_motions` (ignored) |
+| SH-7 | **MITC9 was planar only.** Flat projection on the corner plane with no rigid-link correction: a cylindrical patch with 0.2 sag on a 2×2 element had relative $K\mathbf r$ residual 0.11 for a rigid rotation, and 101 MPa of nodal von Mises stress (steel, t = 50 mm) for a 1 mrad rigid rotation, while the docstring advertised it for curved shells. Now the MITC4 rigid links on all nine nodes (exact rigid modes, still faceted; docstring says so), and the uniform thermal load is $K\,u_{\text{free}}$ (a free heated curved element had 12 % of its load unbalanced). Hemisphere (MacNeal–Harder) 16×16: 0.935 → 0.976 of 0.093. Advisory SA-2026-018. | FIXED (#411) | `sh7_curved_mitc9_annihilates_rigid_motions`, `sh7_warped_doubly_curved_mitc9_annihilates_rigid_motions`, `sh7_curved_mitc9_rigid_motion_is_stress_free`, `sh7_curved_mitc9_free_thermal_expansion_is_stress_free`, `discretization_error.rs::mitc9_curved_benchmarks_at_16x16` |
 | SH-8 | **MITC9 tying points differ from the cited reference.** The code ties $e_{\xi z}$ at $\eta\in\{-1,0,1\}$ (and symmetric); Bucalem–Bathe use $0,\pm\sqrt{3/5}$, and also tie the membrane strains. No failing behaviour found (kernel 6, patch test, thin limit pass); a reviewer should decide whether the variant is intended and cite it. | OPEN | none (no failing case found) |
 | SH-9 | **Solid shell Poisson thickness locking.** No EAS on $E_{\zeta\zeta}$ with the full 3D law: at ν = 0.3 a narrow strip (b/L = 0.15) is stiffer than even the cylindrical-bending bound $PL^3(1-\nu^2)/3EI$ (ratio 0.96; 0.88 of beam theory). At ν = 0 it matches beam theory to 1%. Add a linear-in-ζ EAS thickness mode or a plane-stress-condensed law? | OPEN | `sh9_solid_shell_strip_does_not_poisson_lock` (ignored), control `sh9_solid_shell_strip_matches_beam_at_zero_poisson` |
 | SH-10 | **DKT nodal stresses ignored thermal strain.** The solver's `nodal_von_mises` for plates came from the total strain: a free, heated triangle reported $E\alpha\Delta T/(1-\nu)$ at its nodes and 0 at its centroid. New `plate_stress_at_nodes_thermal`, used by the solver. | FIXED | `sh10_free_heated_plate_has_zero_nodal_stress` |

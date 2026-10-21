@@ -177,6 +177,22 @@ structures and modal frequencies shift too). Re-run solid-shell models.
   both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
 ### Fixed
 
+#### MITC9 on curved geometry reproduces rigid-body motion (SH-7, #411, SA-2026-018) (2026-10-21)
+
+**Results change for curved MITC9 meshes (engine/WASM only; the app creates no MITC9).** The
+MITC9 projected its nine nodes onto the corner-diagonal plane with no rigid-link correction, so a
+rigid rotation strained any curved or warped element (relative K·r residual 0.11 on a 2 × 2 m
+patch with 0.2 m sag; 101 MPa of nodal von Mises stress for a 1 mrad rigid rotation, steel,
+t = 50 mm). Each node is now tied to its projection by a rigid link (the MITC4 warp correction on
+all nine nodes) in the stiffness, the stress recovery and the thermal load, and the uniform thermal
+load is K·u_free, so a freely heated curved element is stress-free (12 % of it was unbalanced).
+Flat MITC9 elements are unchanged. Pinched hemisphere (MacNeal–Harder) at 16 × 16: 0.935 → 0.976
+of 0.093 (0.504 → 0.681 at 8 × 8); Scordelis–Lo and the pinched cylinder move by less than 0.1 %.
+The element is documented as a flat facet (curvature from the mesh). The `SH-7` known-issue warning
+is removed. The Scordelis–Lo MITC9 effectivity check against w₃ − w₀ is dropped: the faceted
+energies are not monotone under refinement, so that difference is not the error (θ was 0.99 by
+coincidence, 1.57 after the fix with the same displacements).
+
 #### Silent errors from the element-derivations review: 2D-in-3D signs, settlements, Winkler, imperfections, constraints (2026-10-18)
 
 **BREAKING (results): a flat 2D model solved by the 3D solver now turns nodal moments and

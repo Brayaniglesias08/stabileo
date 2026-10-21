@@ -41,7 +41,7 @@ on that branch: a test that now passes means the finding is fixed.
 | [#421](https://github.com/lambdaclass/stabileo/issues/421) | AC-12 p-y curves depart from the cited references | lateral pile and soil-spring response off | `py_soft_clay_ultimate_includes_j_term` fails |
 | [#422](https://github.com/lambdaclass/stabileo/issues/422) | AC-13 "stiff clay" p-y discontinuous, not Reese's curve | same | `py_stiff_clay_is_continuous` fails |
 | [#423](https://github.com/lambdaclass/stabileo/issues/423) | AC-16 t-z / q-z curves missing perimeter / tip area | units kPa·m instead of kN: axial pile springs off by the perimeter or area | none (dimensional); to add |
-| [#411](https://github.com/lambdaclass/stabileo/issues/411) | SH-7 MITC9 on non-planar geometry does not reproduce rigid motion | spurious strains on curved shells | `sh7_curved_mitc9_annihilates_rigid_motions` fails |
+| [#411](https://github.com/lambdaclass/stabileo/issues/411) | SH-7 MITC9 on non-planar geometry does not reproduce rigid motion | spurious strains on curved shells | **FIXED** (rigid links on all nine nodes; containment removed; advisory [SA-2026-018](../advisories/SA-2026-018-mitc9-curved-rigid-motion.md)): `sh7_curved_mitc9_annihilates_rigid_motions` passes |
 | [#407](https://github.com/lambdaclass/stabileo/issues/407) | FR-4 frame/truss thermal: fixed α = 12e-6 and depth √(12I/A) | thermal forces wrong for other materials or real depths | none; to add |
 
 ## B: fix, no advisory
