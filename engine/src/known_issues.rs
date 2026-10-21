@@ -63,7 +63,7 @@ pub fn loads_3d(loads: &[SolverLoad3D]) -> Vec<StructuredDiagnostic> {
     if thermal.is_empty() { vec![] } else { vec![hit("FR-4", 407, THERMAL).with_elements(thermal)] }
 }
 
-/// The warnings a 3D model carries whatever its loads: curved shells, warped MITC9, arches.
+/// The warnings a 3D model carries whatever its loads: curved shells, warped MITC9.
 /// Read from the model as given, before its curved beams are expanded into members.
 pub fn model_3d(input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
     let mut out = Vec::new();
@@ -81,9 +81,6 @@ pub fn model_3d(input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
         d.element_ids = warped;
         d.element_kind = Some(ElementKind::Quad9);
         out.push(d);
-    }
-    if input.curved_beams.iter().any(|c| !horizontal_plane(c, &xyz)) {
-        out.push(hit("SP-15", 418, "Curved beams outside a horizontal plane (arches) take their segment axes from the plan orientation, so Iy and Iz swap on near-vertical segments; check the segments' stiffness and forces"));
     }
     out
 }
@@ -150,11 +147,3 @@ fn planar(nodes: &[usize; 9], xyz: &std::collections::HashMap<usize, [f64; 3]>) 
     p.iter().all(|q| { let d = sub(*q, p[0]); ((d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) / nl).abs() <= 1e-6 * size })
 }
 
-/// A curved beam whose three points lie in a horizontal plane (a plan curve).
-fn horizontal_plane(c: &CurvedBeamInput, xyz: &std::collections::HashMap<usize, [f64; 3]>) -> bool {
-    let (Some(&a), Some(&b), Some(&m)) = (xyz.get(&c.node_start), xyz.get(&c.node_end), xyz.get(&c.node_mid)) else {
-        return true;
-    };
-    let span = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt().max(1e-12);
-    (a[2] - b[2]).abs() <= 1e-6 * span && (a[2] - m[2]).abs() <= 1e-6 * span
-}

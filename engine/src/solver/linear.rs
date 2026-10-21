@@ -5739,8 +5739,19 @@ pub fn expand_curved_beams_3d(input: &SolverInput3D) -> SolverInput3D {
             }
         }
 
-        // Add frame elements (remapping snapped node ID)
-        for &(eid, ni, nj, mat_id, sec_id, hs, he) in &expansion.new_elements {
+        // Add frame elements (remapping snapped node ID). Every segment takes its
+        // section orientation from the arc, not from the default rule (#418, SP-15).
+        let xyz_of = |id: usize| result.nodes.get(&id.to_string()).map(|n| [n.x, n.y, n.z]);
+        let mut segment_local_y = Vec::with_capacity(expansion.new_elements.len());
+        for &(_, ni, nj, ..) in &expansion.new_elements {
+            let actual_ni = if snap_from == Some(ni) { mid_id } else { ni };
+            let actual_nj = if snap_from == Some(nj) { mid_id } else { nj };
+            segment_local_y.push(match (expansion.section_frame, xyz_of(actual_ni), xyz_of(actual_nj)) {
+                (Some(f), Some(pi), Some(pj)) => Some(f.local_y(pi, pj)),
+                _ => None,
+            });
+        }
+        for (&(eid, ni, nj, mat_id, sec_id, hs, he), ly) in expansion.new_elements.iter().zip(segment_local_y) {
             let actual_ni = if snap_from == Some(ni) { mid_id } else { ni };
             let actual_nj = if snap_from == Some(nj) { mid_id } else { nj };
             result.elements.insert(eid.to_string(), SolverElement3D {
@@ -5756,9 +5767,9 @@ pub fn expand_curved_beams_3d(input: &SolverInput3D) -> SolverInput3D {
                 release_mz_end: he,
                 release_t_start: false,
                 release_t_end: false,
-                local_yx: None,
-                local_yy: None,
-                local_yz: None,
+                local_yx: ly.map(|v| v[0]),
+                local_yy: ly.map(|v| v[1]),
+                local_yz: ly.map(|v| v[2]),
                 roll_angle: None,
             });
             if eid >= next_elem_id {
