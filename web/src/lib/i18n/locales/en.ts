@@ -3704,7 +3704,6 @@ const en: Record<string, string> = {
   'diag.elements': 'Members',
   'knownIssue.NL-5': 'Material-nonlinear results are approximate: the model is a whole-member secant rather than plasticity, so the response jumps at first yield, and in 3D the yield surface is less conservative than in 2D. Check the collapse load factor with plastic collapse',
   'knownIssue.FR-4': 'Temperature loads on frames and trusses use α = 12·10⁻⁶ /°C and a depth of √(12·I/A) whatever the material and section; for other materials or real depths the thermal forces are off in proportion',
-  'knownIssue.SH-7': 'MITC9 elements on non-planar geometry carry spurious strains; refine the mesh or use flat elements',
   'diag.nodes': 'Nodes',
   'diag.shells': 'Shells',
   'diag.verifFailFlexure': 'Flexure check FAILED',

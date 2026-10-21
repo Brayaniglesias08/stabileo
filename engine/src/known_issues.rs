@@ -55,17 +55,12 @@ pub fn loads_3d(loads: &[SolverLoad3D]) -> Vec<StructuredDiagnostic> {
 }
 
 /// The warnings a 3D model carries whatever its loads: warped MITC9.
+/// The warnings a 3D model carries whatever its loads: curved shells, arches.
 /// Read from the model as given, before its curved beams are expanded into members.
 pub fn model_3d(input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
     let mut out = Vec::new();
     // One id index for every element check: a lookup per node made the pass O(elements × nodes).
     let xyz: std::collections::HashMap<usize, [f64; 3]> = crate::ordered::values(&input.nodes).map(|n| (n.id, [n.x, n.y, n.z])).collect();
-    let warped: Vec<usize> = crate::ordered::values(&input.quad9s).filter(|q| !planar(&q.nodes, &xyz)).map(|q| q.id).collect();
-    if !warped.is_empty() {
-        let mut d = hit("SH-7", 411, "MITC9 elements on non-planar geometry do not reproduce rigid-body motion, so curved MITC9 meshes carry spurious strains; refine or use flat elements");
-        d.element_ids = warped;
-        d.element_kind = Some(ElementKind::Quad9);
-        out.push(d);
     }
     out
 }
@@ -96,21 +91,4 @@ pub fn attach(target: &mut Vec<StructuredDiagnostic>, new: Vec<StructuredDiagnos
     }
 }
 
-
-/// Nine nodes on one plane, to 1e-6 of the element's size.
-fn planar(nodes: &[usize; 9], xyz: &std::collections::HashMap<usize, [f64; 3]>) -> bool {
-    let p: Vec<[f64; 3]> = nodes.iter().filter_map(|n| xyz.get(n).copied()).collect();
-    if p.len() < 9 {
-        return true; // a missing node is refused by validation
-    }
-    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-    let (u, v) = (sub(p[2], p[0]), sub(p[1], p[3]));
-    let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-    let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    let size = p.iter().map(|q| { let d = sub(*q, p[0]); (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() }).fold(0.0, f64::max);
-    if nl <= 0.0 || size <= 0.0 {
-        return true;
-    }
-    p.iter().all(|q| { let d = sub(*q, p[0]); ((d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) / nl).abs() <= 1e-6 * size })
-}
 

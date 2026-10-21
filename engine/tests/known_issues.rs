@@ -71,25 +71,19 @@ fn curved_shells_and_warped_mitc9_and_arches_are_flagged_only_when_present() {
     let d = dedaliano_engine::known_issues::loads_3d(&[SolverLoad3D::CurvedShellThermal(SolverPlateThermalLoad { element_id: 7, dt_uniform: 0.0, dt_gradient: 10.0, alpha: None })]);
     assert!(d.is_empty(), "{d:?}");
 
-    // MITC9: flat is fine, warped is flagged.
+    // MITC9: warped geometry is no longer flagged (SH-7 fixed, #411).
     let add_nodes = |s: &mut SolverInput3D, pts: &[[f64; 3]]| {
         for (k, p) in pts.iter().enumerate() {
             let id = 100 + k;
             s.nodes.insert(id.to_string(), SolverNode3D { id, x: p[0], y: p[1], z: p[2] });
         }
     };
-    let flat = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.5, 0.0, 0.0], [1.0, 0.5, 0.0], [0.5, 1.0, 0.0], [0.0, 0.5, 0.0], [0.5, 0.5, 0.0]];
-    let q9 = SolverQuad9Element { id: 9, nodes: [100, 101, 102, 103, 104, 105, 106, 107, 108], material_id: 1, thickness: 0.1 };
-    let mut s = base.clone();
-    add_nodes(&mut s, &flat);
-    s.quad9s.insert("9".into(), q9.clone());
-    assert!(!ids(&for_3d(&s, Analysis::Linear)).contains(&"SH-7".to_string()), "a flat MITC9 is not affected");
-    let mut warped = flat;
+    let mut warped = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.5, 0.0, 0.0], [1.0, 0.5, 0.0], [0.5, 1.0, 0.0], [0.0, 0.5, 0.0], [0.5, 0.5, 0.0]];
     warped[8][2] = 0.2;
     let mut s = base.clone();
     add_nodes(&mut s, &warped);
-    s.quad9s.insert("9".into(), q9);
-    assert!(ids(&for_3d(&s, Analysis::Linear)).contains(&"SH-7".to_string()));
+    s.quad9s.insert("9".into(), SolverQuad9Element { id: 9, nodes: [100, 101, 102, 103, 104, 105, 106, 107, 108], material_id: 1, thickness: 0.1 });
+    assert!(!ids(&for_3d(&s, Analysis::Linear)).contains(&"SH-7".to_string()), "a warped MITC9 is no longer flagged");
 
     // Arches are no longer flagged (SP-15, #418, fixed).
     let mut s = base;
