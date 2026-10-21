@@ -1601,10 +1601,20 @@ export function hasLoadCarrying3D(model: ModelData): boolean {
  * too. It rides along as the web-only `bucklingCw`, which `buckling-warping.ts` turns into `cw`
  * for the buckling analysis alone.
  */
-function torsionOf(props: ReturnType<typeof solverProperties>): Pick<SolverSection3D, 'j' | 'shearCenterY' | 'shearCenterZ' | 'bucklingCw' | 'torsionGap'> {
+function torsionOf(props: ReturnType<typeof solverProperties>, planeModel = false): Pick<SolverSection3D, 'j' | 'shearCenterY' | 'shearCenterZ' | 'bucklingCw' | 'torsionGap'> {
   const sc = props.shearCentre;
+  const known = props.j != null && Number.isFinite(props.j) && props.j > 0;
+  /*
+   * A plane model solved in 3D (project2DToXZ) has rx and rz restrained at every node (the
+   * supports' embedded restraints, and the out-of-plane DOFs added at every other node). A
+   * member's twist is its rotation along its own axis (c, 0, s) in the X–Z plane, c·rx + s·rz,
+   * so it is zero everywhere and J never enters the result. Plane sections have no J (it is not
+   * a 2D property): a nominal one stands in and nothing is flagged, so a plane model still
+   * solves in 3D mode. A real 3D model keeps j = 0 and the refusal by name.
+   */
+  if (planeModel && !known) return { j: 1 };
   const out: Pick<SolverSection3D, 'j' | 'shearCenterY' | 'shearCenterZ' | 'bucklingCw' | 'torsionGap'> = {
-    j: props.j != null && Number.isFinite(props.j) && props.j > 0 ? props.j : 0,
+    j: known ? props.j! : 0,
   };
   if (sc && sc[0] !== 0) out.shearCenterY = sc[0];
   if (sc && sc[1] !== 0) out.shearCenterZ = sc[1];
@@ -1679,7 +1689,7 @@ export function buildSolverInput3D(
           id: s.id, name: s.name, a: props.a,
           iy: inPlaneIy,
           iz: props.source === 'canonical' ? props.iz : outOfPlaneIz,
-          ...torsionOf(props),
+          ...torsionOf(props, project2DToXZ),
           ...(model.analysis?.shearDeformation === 'none' ? {} : shearOf(s)),
         }];
       }
@@ -1695,7 +1705,7 @@ export function buildSolverInput3D(
         id: s.id, name: s.name, a: props.a,
         iy: aboutY,   // solver iy = Iy (about Y horizontal) → controls Z-displacement bending (w, θy)
         iz: aboutZ,   // solver iz = Iz (about Z vertical) → controls Y-displacement bending (v, θz)
-        ...torsionOf(props),
+        ...torsionOf(props, project2DToXZ),
         ...(model.analysis?.shearDeformation === 'none' ? {} : shearOf(s)),
       }];
     })),
