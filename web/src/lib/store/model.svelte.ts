@@ -2286,9 +2286,6 @@ function createModelStore() {
         releaseI: { ...(v.releaseI ?? NO_RELEASE) },
         releaseJ: { ...(v.releaseJ ?? NO_RELEASE) },
       }]));
-      // Arcs drawn before #418 (SP-15) left their members on the default local axes, which turn
-      // the near-vertical members of an arch by 90°: they take the arc's own orientation.
-      migrateArcLocalAxes(model.elements, model.nodes);
       // Deduplicate supports: keep only the last support per node (legacy cleanup)
       const supEntries = s.supports.map(([k, v]) => [k, {
         ...v,
@@ -2330,6 +2327,20 @@ function createModelStore() {
           }
         }
       }
+      // Arcs drawn before #418 (SP-15) left their members on the default local axes, which turn
+      // the near-vertical members of an arch by 90°: they take the arc's own orientation. Not a
+      // member any load or support refers to: its local data would change direction with it.
+      const referenced = new Set<number>();
+      for (const l of model.loads) {
+        const d = l.data as { elementId?: unknown; elementIds?: unknown } | undefined;
+        if (typeof d?.elementId === 'number') referenced.add(d.elementId);
+        if (Array.isArray(d?.elementIds)) for (const id of d.elementIds) if (typeof id === 'number') referenced.add(id);
+      }
+      for (const sp of model.supports.values()) {
+        const id = (sp as { dofLocalElementId?: unknown }).dofLocalElementId;
+        if (typeof id === 'number') referenced.add(id);
+      }
+      migrateArcLocalAxes(model.elements, model.nodes, (id) => referenced.has(id));
       model.loadCases = s.loadCases
         ? s.loadCases.map(c => ({ type: (c as any).type ?? inferLoadCaseType(c.name), ...c }))
         : [{ id: 1, type: 'D' as LoadCaseType, name: 'Dead Load' }, { id: 2, type: 'L' as LoadCaseType, name: 'Live Load' }, { id: 3, type: 'W' as LoadCaseType, name: 'Wind' }, { id: 4, type: 'E' as LoadCaseType, name: 'Earthquake' }];

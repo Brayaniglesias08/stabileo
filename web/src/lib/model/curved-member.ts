@@ -251,7 +251,8 @@ interface ArcMember {
  * member tagged with an arc and with no orientation of its own (no local y, no roll) takes
  * `arcMemberLocalY` — only where its axes are turned (Iy and Iz swapped), so a plan curve, whose
  * axes the default rule already gives, and a member whose axes are merely reversed are left as
- * they are; members whose ends are no longer on the arc too. Runs once per member: every arc member it looks at is
+ * they are; members whose ends are no longer on the arc, and members with local data
+ * (`hasLocalData`), too. Runs once per member: every arc member it looks at is
  * marked `arc.axes = 1` (as the arc tool marks the members it builds), and marked members are
  * never looked at again, so a member later set back to automatic axes stays so through undo, redo
  * and reopening. Returns how many members changed. Mutates `elements`.
@@ -259,15 +260,22 @@ interface ArcMember {
 export function migrateArcLocalAxes(
   elements: Map<number, ArcMember>,
   nodes: ReadonlyMap<number, { x: number; y?: number; z?: number }>,
+  /**
+   * Members that local data refers to (a member load, a support in member axes). Left as they
+   * are: their loads are in local axes and would turn with them, so the physical loading would
+   * change on reopening. The re-check notice (`arc-member-local-axes`) still names the change.
+   */
+  hasLocalData: (id: number) => boolean = () => false,
 ): number {
   let changed = 0;
   const pos = (id: number): Vec3 | undefined => {
     const n = nodes.get(id);
     return n ? { x: n.x, y: n.y ?? 0, z: n.z ?? 0 } : undefined;
   };
-  for (const e of elements.values()) {
+  for (const [id, e] of elements) {
     if (!e.arc?.spec || e.arc.axes === 1) continue;
     e.arc = { ...e.arc, axes: 1 };
+    if (hasLocalData(id)) continue;
     if (e.localYx !== undefined || e.localYy !== undefined || e.localYz !== undefined) continue;
     if (e.rollAngle !== undefined && e.rollAngle !== 0) continue;
     const pi = pos(e.nodeI), pj = pos(e.nodeJ);

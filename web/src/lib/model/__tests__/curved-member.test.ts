@@ -323,6 +323,11 @@ describe('the section orientation along the arc (#418)', () => {
     last.localYx = last.localYy = last.localYz = undefined;
     expect(migrateArcLocalAxes(elements, nodes)).toBe(0);
     expect(last.localYx).toBeUndefined();
+    // A member with a load in local axes is left as it is, so its load keeps its direction.
+    const loaded = new Map<number, M>(pts.slice(0, -1).map((_, i) => [i + 1, { nodeI: i + 1, nodeJ: i + 2, arc: { spec } }]));
+    expect(migrateArcLocalAxes(loaded, nodes, (id) => id === 40)).toBe(1);
+    expect(loaded.get(40)!.localYx).toBeUndefined();
+    expect(loaded.get(1)!.localYx).toBeDefined();
     // Members the arc tool built carry the mark and are not migrated.
     const built = new Map<number, M & { arc: { spec: typeof spec; axes?: 1 } }>([[1, { nodeI: 40, nodeJ: 41, arc: { spec, axes: 1 } }]]);
     expect(migrateArcLocalAxes(built, nodes)).toBe(0);
