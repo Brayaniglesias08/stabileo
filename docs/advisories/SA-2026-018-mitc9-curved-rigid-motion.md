@@ -5,7 +5,7 @@
 | Severity | Medium (engine and WASM only; spurious stresses on curved MITC9 meshes, 101 MPa from a 1 mrad rigid rotation; curved meshes too stiff, hemisphere deflection 26 % below the corrected element at 8 × 8) |
 | Status | Draft (fixed on `main`; untagged, next release) |
 | Issue | [#411](https://github.com/lambdaclass/stabileo/issues/411) (SH-7 in the element-derivation review) |
-| Fix | PR (this fix, `fix/mitc9-warped`) |
+| Fix | PR [#528](https://github.com/lambdaclass/stabileo/pull/528) |
 | Affected versions | every version with the MITC9 element (added 2026-03-10), up to 0.2.0 and `main` until the fix |
 | Re-check registry | not needed: no app workflow creates MITC9 elements |
 
