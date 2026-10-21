@@ -3,7 +3,7 @@ import { noteEngineBuild } from '../provenance/build-identity';
 import { registerCirsoc201BeamKernel } from './codes/argentina/cirsoc201-beam-kernel';
 import { registerCirsoc301Kernel } from './codes/argentina/cirsoc301-kernel';
 import { packedShellCombinationKernel, registerShellCombinationKernel } from './shell-combination-kernel';
-import { registerRcSectionKernel } from './codes/argentina/rc-section-kernel';
+import { registerCirsoc201Engine } from './codes/argentina/cirsoc201-engine';
 import { registerCollisionKernel } from './detailing/collision-kernel';
 /**
  * WASM solver wrapper — replaces the pure-TS solver pipeline.
@@ -231,7 +231,10 @@ export async function initSolver(): Promise<void> {
       noteEngineBuild(bytes, engineInfoOf(wasm));
     }
     registerCollisionKernel(wasm.CollisionGeometry ?? null);
-    registerRcSectionKernel(wasm.RcSectionGeometry ?? null);
+    registerCirsoc201Engine({
+      Section: wasm.Cirsoc201SectionKernel, basis: wasm.cirsoc201_basis, phi: wasm.cirsoc201_phi,
+      designBeam: wasm.cirsoc201_design_beam, slabProvisions: wasm.cirsoc201_slab_provisions,
+    });
     registerColumnCapacityKernel(wasm.solve_column_capacity_batch ?? null);
     registerCirsoc201BeamKernel(wasm.cirsoc201_beam_batch ?? null);
     registerCirsoc301Kernel({ check: wasm.check_cirsoc301_members ?? null, certify: wasm.certify_cirsoc301_members ?? null });
@@ -990,8 +993,24 @@ const CERTIFY_EXPORTS = [
   // Not a certificate, but the same kind of job: a re-solve to hash, run off the main thread
   // (`store/result-provenance.ts` ensureEngineHashes).
   'engine_reproduce_hashes',
+  // Not certificates: the discretization-error estimate and convergence check
+  // (docs/verification/DISCRETIZATION.md) ride the same worker path because they re-solve too.
+  'estimate_discretization_3d', 'convergence_study_3d',
 ] as const;
 export type CertifyExport = (typeof CERTIFY_EXPORTS)[number];
+
+/** The registry itself, for tests that walk it. */
+export const CERTIFY_EXPORT_NAMES: readonly CertifyExport[] = CERTIFY_EXPORTS;
+
+/**
+ * Whether `name` is one of the exports above: the one registry both the main thread and the
+ * worker (`solver-worker.ts`) dispatch by, so an export added here runs in the worker too (the
+ * worker used to keep its own name pattern, and the discretization exports, which match none of
+ * it, failed there while working on the main thread).
+ */
+export function isCertifyExport(name: string): name is CertifyExport {
+  return (CERTIFY_EXPORTS as readonly string[]).includes(name);
+}
 const certifyExports = new Map<string, (...args: any[]) => any>();
 
 /** Whether this WASM build carries the certify export `name`. */

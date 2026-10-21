@@ -92,6 +92,28 @@ pub fn solve_3d(input: JsValue) -> Result<JsValue, JsValue> {
     to_js_value(&results)
 }
 
+/// Solve a 3D linear static model and estimate its discretization (mesh) error
+/// (docs/verification/DISCRETIZATION.md): a Zienkiewicz–Zhu/SPR energy-norm estimate per shell
+/// element and for the model. An estimate, never a bound (`certified` is always false).
+#[wasm_bindgen]
+pub fn estimate_discretization_3d(input: JsValue) -> Result<JsValue, JsValue> {
+    let input: types::SolverInput3D = from_js_value(input)?;
+    let out = postprocess::discretization::solve_and_estimate_3d(&input).map_err(|e| JsValue::from_str(&e))?;
+    to_js_value(&out)
+}
+
+/// Convergence check of a 3D linear static model: re-solve on uniformly refined meshes and
+/// report the governing quantities with a Richardson extrapolation and observed order
+/// (docs/verification/DISCRETIZATION.md). `options` may be null for the defaults.
+#[wasm_bindgen]
+pub fn convergence_study_3d(input: JsValue, options: JsValue) -> Result<JsValue, JsValue> {
+    let input: types::SolverInput3D = from_js_value(input)?;
+    let opts: postprocess::discretization::convergence::ConvergenceOptions =
+        if options.is_null() || options.is_undefined() { Default::default() } else { from_js_value(options)? };
+    let out = postprocess::discretization::convergence::convergence_study_3d(&input, &opts).map_err(|e| JsValue::from_str(&e))?;
+    to_js_value(&out)
+}
+
 /// Solve 2D linear static analysis and certify the displacements
 /// (docs/verification/CERTIFY.md). JsValue in → `{ results, certificate }`.
 #[wasm_bindgen]
@@ -1546,6 +1568,63 @@ pub fn check_ec3_members(json: &str) -> Result<String, JsValue> {
 #[wasm_bindgen]
 pub fn cirsoc201_beam_batch(data: &[f64]) -> Result<Vec<f64>, JsValue> {
     postprocess::cirsoc201_check::beam_batch(data).map_err(JsValue::from_str)
+}
+
+/// The CIRSOC 201 provisions every section shares, for one material and section.
+///
+/// In: `[edition (2005 | 2025), fc, fy, Es, confinement (0 ties | 1 spiral), Ag, Ast, bw, d]`
+/// (Pa, m², m). Out: `[β1, φ compression-controlled, εty, εt tension-controlled, εt,min for a
+/// beam (9.3.3.1), Po, φPn,max, As,min of a beam (9.6.1.2), ρ min, ρ max of a column (10.6.1.1)]`.
+#[wasm_bindgen]
+pub fn cirsoc201_basis(input: &[f64]) -> Result<Vec<f64>, JsValue> {
+    use postprocess::cirsoc201_check as c;
+    use postprocess::cirsoc201_section as s;
+    if input.len() != 9 || input.iter().any(|v| !v.is_finite()) {
+        return Err(JsValue::from_str("cirsoc201_basis: expected 9 finite values"));
+    }
+    let edition = rc_section_kernel::edition_of(input[0]).map_err(JsValue::from_str)?;
+    let confinement = rc_section_kernel::confinement_of(input[4]).map_err(JsValue::from_str)?;
+    let (fc, fy, es, ag, ast, bw, d) = (input[1], input[2], input[3], input[5], input[6], input[7], input[8]);
+    if !(fc > 0.0 && fy > 0.0 && es > 0.0) {
+        return Err(JsValue::from_str("cirsoc201_basis: f'c, fy and Es must be positive"));
+    }
+    Ok(vec![
+        c::beta1(fc),
+        s::phi_compression(edition, confinement),
+        fy / es,
+        c::tension_controlled_strain(edition, fy, es),
+        c::ductility_strain(edition, fy, es),
+        s::squash_load(fc, fy, ag, ast),
+        s::axial_cap(edition, confinement, fc, fy, ag, ast),
+        s::min_flexural_steel(fc, fy, bw, d),
+        s::COLUMN_STEEL_RATIO_MIN,
+        s::COLUMN_STEEL_RATIO_MAX,
+    ])
+}
+
+/// Least flexural reinforcement the CIRSOC 201 beam check passes; layout in
+/// `postprocess::cirsoc201_design::design_batch`.
+#[wasm_bindgen]
+pub fn cirsoc201_design_beam(data: &[f64]) -> Result<Vec<f64>, JsValue> {
+    postprocess::cirsoc201_design::design_batch(data).map_err(JsValue::from_str)
+}
+
+/// Slab minimum steel and maximum spacings; layout in
+/// `postprocess::cirsoc201_design::slab_provisions`.
+#[wasm_bindgen]
+pub fn cirsoc201_slab_provisions(data: &[f64]) -> Result<Vec<f64>, JsValue> {
+    postprocess::cirsoc201_design::slab_provisions(data).map_err(JsValue::from_str)
+}
+
+/// φ (Tabla 21.2.2) for each net tensile strain in `strains`.
+#[wasm_bindgen]
+pub fn cirsoc201_phi(edition: f64, confinement: f64, fy: f64, es: f64, strains: &[f64]) -> Result<Vec<f64>, JsValue> {
+    let edition = rc_section_kernel::edition_of(edition).map_err(JsValue::from_str)?;
+    let confinement = rc_section_kernel::confinement_of(confinement).map_err(JsValue::from_str)?;
+    if !(fy > 0.0 && es > 0.0 && fy.is_finite() && es.is_finite()) || strains.iter().any(|e| e.is_nan()) {
+        return Err(JsValue::from_str("cirsoc201_phi: invalid input"));
+    }
+    Ok(strains.iter().map(|&e| postprocess::cirsoc201_section::phi(edition, confinement, e, fy, es)).collect())
 }
 
 #[wasm_bindgen]

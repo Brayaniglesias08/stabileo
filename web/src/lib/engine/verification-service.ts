@@ -965,7 +965,7 @@ export function getCodeDetail(v: ElementVerification | undefined | null): CodeDe
     });
   }
   if (v.biaxial?.steps?.length) {
-    memos.push({ title: 'Biaxial (Bresler)', titleKey: 'design.memo.biaxial', steps: v.biaxial.steps });
+    memos.push({ title: 'Biaxial (load contour)', titleKey: 'design.memo.biaxial', steps: v.biaxial.steps });
   }
 
   const interactionParams = v.column ? {

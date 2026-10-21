@@ -3,6 +3,10 @@
 The Rust checker (`engine/src/certify/`) and the Lean proofs (`verify/`) implement and
 prove this contract. Change both together.
 
+What a certificate does **not** cover: the discretization (mesh) error, how far the assembled
+system's solution is from the structure the mesh stands for. That is estimated, never certified:
+see `DISCRETIZATION.md`.
+
 ## Setting
 
 After eliminating restrained DOFs the solver solves `K u = f`, with `K` an n×n real
