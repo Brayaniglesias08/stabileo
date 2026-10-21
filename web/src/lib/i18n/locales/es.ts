@@ -3693,7 +3693,7 @@ const es: Record<string, string> = {
   'diag.detail.overlapLength': "Superposición (m)",
   'diag.detail.outOfPlane': "Fuera del plano (m)",
   'diag.elements': 'Barras',
-  'knownIssue.NL-4': 'Los resultados no lineales de material son aproximados: después de la primera fluencia los esfuerzos en barras son los elásticos y pueden no equilibrar las reacciones, la respuesta salta en la primera fluencia, y en 3D la superficie de fluencia es menos conservadora que en 2D. Verificá los esfuerzos a mano o con colapso plástico',
+  'knownIssue.NL-5': 'Los resultados no lineales de material son aproximados: el modelo es una secante de barra completa y no plasticidad, así que la respuesta salta en la primera fluencia, y en 3D la superficie de fluencia es menos conservadora que en 2D. Verificá el factor de colapso con colapso plástico',
   'knownIssue.SP-12': 'Las tensiones de cables pueden quedar bajas en sistemas de cables hiperestáticos; verificá por separado los esfuerzos que gobiernan en cables y anclajes',
   'knownIssue.FR-4': 'Las cargas de temperatura en barras usan α = 12·10⁻⁶ /°C y una altura √(12·I/A) sea cual sea el material y la sección; para otros materiales o alturas reales los esfuerzos térmicos quedan desviados en esa proporción',
   'knownIssue.SH-6': 'Las láminas curvas informan momentos flectores nulos y sus tensiones ignoran la deformación térmica: no dimensiones con momentos ni tensiones de láminas curvas',

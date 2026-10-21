@@ -27,7 +27,7 @@ fn hit(id: &str, issue: u32, message: &str) -> StructuredDiagnostic {
     d
 }
 
-const NL_MATERIAL: &str = "Material-nonlinear results are approximate: after first yield the reported member forces are the elastic K·u and need not balance the reactions (NL-4), the model is a whole-member secant rather than plasticity, so the response jumps at first yield (NL-5), and in 3D the yield surface is less conservative than in 2D (NL-6). Use the reactions and the collapse load factor with care, and check member forces by hand or with plastic collapse";
+const NL_MATERIAL: &str = "Material-nonlinear results are approximate: the model is a whole-member secant rather than plasticity, so the response jumps at first yield (NL-5), and in 3D the yield surface is less conservative than in 2D (NL-6). Check the collapse load factor with plastic collapse";
 const CABLE: &str = "Cable tensions can be too low in statically indeterminate cable systems (the chord law's tangent is used as a secant); check the governing cable and anchorage forces independently";
 const THERMAL: &str = "Frame and truss temperature loads use α = 12·10⁻⁶ /°C and a depth of √(12·I/A) whatever the material and section; for other materials or real section depths the thermal forces are off in proportion";
 
@@ -46,7 +46,7 @@ fn soil(curve: &crate::solver::soil_curves::SoilCurve) -> Option<(&'static str, 
 pub fn for_2d(input: &SolverInput, analysis: Analysis) -> Vec<StructuredDiagnostic> {
     let mut out = Vec::new();
     match analysis {
-        Analysis::MaterialNonlinear => out.push(hit("NL-4", 427, NL_MATERIAL)),
+        Analysis::MaterialNonlinear => out.push(hit("NL-5", 428, NL_MATERIAL)),
         Analysis::Cable => out.push(hit("SP-12", 416, CABLE)),
         _ => {}
     }
@@ -68,7 +68,7 @@ pub fn for_2d(input: &SolverInput, analysis: Analysis) -> Vec<StructuredDiagnost
 pub fn for_3d(input: &SolverInput3D, analysis: Analysis) -> Vec<StructuredDiagnostic> {
     let mut out = Vec::new();
     match analysis {
-        Analysis::MaterialNonlinear => out.push(hit("NL-4", 427, NL_MATERIAL)),
+        Analysis::MaterialNonlinear => out.push(hit("NL-5", 428, NL_MATERIAL)),
         Analysis::Cable => out.push(hit("SP-12", 416, CABLE)),
         _ => {}
     }

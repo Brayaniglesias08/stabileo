@@ -1753,7 +1753,7 @@ const pt: Translations = {
   'diag.deflectionExceeded': 'Deformação excede o limite admissível',
   'diag.deflectionHigh': 'Deformação próxima ao limite admissível',
   'diag.elements': 'Barras',
-  'knownIssue.NL-4': 'Os resultados não lineares de material são aproximados: depois do primeiro escoamento os esforços nas barras são os elásticos e podem não equilibrar as reações, a resposta salta no primeiro escoamento, e em 3D a superfície de escoamento é menos conservadora que em 2D. Confira os esforços à mão ou com colapso plástico',
+  'knownIssue.NL-5': 'Os resultados não lineares de material são aproximados: o modelo é uma secante de barra inteira e não plasticidade, então a resposta salta no primeiro escoamento, e em 3D a superfície de escoamento é menos conservadora que em 2D. Confira o fator de colapso com colapso plástico',
   'knownIssue.SP-12': 'As trações em cabos podem ficar baixas em sistemas de cabos hiperestáticos; confira separadamente os esforços que governam em cabos e ancoragens',
   'knownIssue.FR-4': 'As cargas de temperatura em barras usam α = 12·10⁻⁶ /°C e uma altura √(12·I/A) qualquer que seja o material e a seção; para outros materiais ou alturas reais os esforços térmicos ficam desviados nessa proporção',
   'knownIssue.SH-6': 'As cascas curvas informam momentos fletores nulos e suas tensões ignoram a deformação térmica: não dimensione com momentos nem tensões de cascas curvas',

@@ -3700,7 +3700,7 @@ const en: Record<string, string> = {
   'diag.detail.overlapLength': "Overlap (m)",
   'diag.detail.outOfPlane': "Out of plane (m)",
   'diag.elements': 'Members',
-  'knownIssue.NL-4': 'Material-nonlinear results are approximate: after first yield the member forces are the elastic ones and need not balance the reactions, the response jumps at first yield, and in 3D the yield surface is less conservative than in 2D. Check member forces by hand or with plastic collapse',
+  'knownIssue.NL-5': 'Material-nonlinear results are approximate: the model is a whole-member secant rather than plasticity, so the response jumps at first yield, and in 3D the yield surface is less conservative than in 2D. Check the collapse load factor with plastic collapse',
   'knownIssue.SP-12': 'Cable tensions can be too low in statically indeterminate cable systems; check the governing cable and anchorage forces independently',
   'knownIssue.FR-4': 'Temperature loads on frames and trusses use α = 12·10⁻⁶ /°C and a depth of √(12·I/A) whatever the material and section; for other materials or real depths the thermal forces are off in proportion',
   'knownIssue.SH-6': 'Curved shells report zero bending moments and their stresses ignore thermal strain: do not design from curved-shell moments or stresses',

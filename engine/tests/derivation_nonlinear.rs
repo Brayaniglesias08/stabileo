@@ -361,7 +361,6 @@ fn material_nl_2d(solver: SolverInput, n_increments: usize) -> NonlinearMaterial
 /// the base moment is P·L whatever the stiffness. The reported member end
 /// moment must equal it and the base reaction.
 #[test]
-#[ignore = "open question NL-4: material-nonlinear member forces are the elastic K·u, not the forces the solve balanced"]
 fn nl_material_2d_member_forces_balance_the_reactions() {
     let (l, p) = (4.0, 1.2 * MP / 4.0);
     let solver = make_beam(4, l, E, A_SEC, IZ_SEC, "fixed", None,

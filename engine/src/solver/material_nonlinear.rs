@@ -337,7 +337,10 @@ fn solve_nonlinear_material_2d_inner(
     );
     reactions.sort_by_key(|r| r.node_id);
 
-    let mut element_forces = super::linear::compute_internal_forces_2d(solver, &dof_num, &u_geom);
+    // Member forces from the stiffness the solve balanced: a yielded member at α·EI (NL-4).
+    // They were recovered with the elastic EI, so after yield they were up to ~100× off and did
+    // not balance the reactions.
+    let mut element_forces = super::linear::compute_internal_forces_2d(&secant_model_2d(solver, &states), &dof_num, &u_geom);
     element_forces.sort_by_key(|ef| ef.element_id);
 
     // Build element plastic status.
@@ -375,6 +378,43 @@ fn solve_nonlinear_material_2d_inner(
 }
 
 // ---------------------------------------------------------------------------
+/// The model as the converged state sees it: every yielded member on a section of its own with
+/// α·Iz, the stiffness `compute_global_internal_forces` balanced. Used to recover member forces.
+fn secant_model_2d(solver: &SolverInput, states: &[(usize, ElementState)]) -> SolverInput {
+    let mut m = solver.clone();
+    let mut next = m.sections.values().map(|s| s.id).max().unwrap_or(0) + 1;
+    for (id, st) in states {
+        if !(st.yielded_start || st.yielded_end) {
+            continue;
+        }
+        let Some(e) = m.elements.values_mut().find(|e| e.id == *id && e.elem_type == "frame") else { continue };
+        let Some(sec) = solver.sections.values().find(|s| s.id == e.section_id) else { continue };
+        let reduced = SolverSection { id: next, iz: st.alpha * sec.iz, ..sec.clone() };
+        m.sections.insert(next.to_string(), reduced);
+        e.section_id = next;
+        next += 1;
+    }
+    m
+}
+
+/// As `secant_model_2d`, for 3D: α on both bending inertias.
+fn secant_model_3d(solver: &SolverInput3D, states: &[(usize, ElementState3D)]) -> SolverInput3D {
+    let mut m = solver.clone();
+    let mut next = m.sections.values().map(|s| s.id).max().unwrap_or(0) + 1;
+    for (id, st) in states {
+        if !(st.yielded_start || st.yielded_end) {
+            continue;
+        }
+        let Some(e) = m.elements.values_mut().find(|e| e.id == *id && e.elem_type == "frame") else { continue };
+        let Some(sec) = solver.sections.values().find(|s| s.id == e.section_id) else { continue };
+        let reduced = SolverSection3D { id: next, iy: st.alpha * sec.iy, iz: st.alpha * sec.iz, ..sec.clone() };
+        m.sections.insert(next.to_string(), reduced);
+        e.section_id = next;
+        next += 1;
+    }
+    m
+}
+
 // Helper: look up the hardening ratio alpha for an element.
 // ---------------------------------------------------------------------------
 
@@ -1134,7 +1174,8 @@ fn solve_nonlinear_material_3d_inner(
     );
     reactions.sort_by_key(|r| r.node_id);
 
-    let mut element_forces = super::linear::compute_internal_forces_3d(solver, &dof_num, &u_geom);
+    // Member forces from the stiffness the solve balanced, as in 2D (NL-4).
+    let mut element_forces = super::linear::compute_internal_forces_3d(&secant_model_3d(solver, &states), &dof_num, &u_geom);
     element_forces.sort_by_key(|ef| ef.element_id);
 
     let element_status = build_element_status_3d(solver, input, &dof_num, &u_geom, &states);

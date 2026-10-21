@@ -49,7 +49,7 @@ fn material_nonlinear_results_are_flagged() {
         n_increments: 5,
     };
     let r = solve_nonlinear_material_2d(&input).unwrap();
-    assert!(ids(&r.results.structured_diagnostics).contains(&"NL-4".to_string()));
+    assert!(ids(&r.results.structured_diagnostics).contains(&"NL-5".to_string()));
 }
 
 fn beam3d() -> SolverInput3D {
