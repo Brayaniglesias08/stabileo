@@ -80,7 +80,7 @@ export const safetyAdvisories: Post = {
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'SA-2026-011 completo', t: 'El aviso con la reproducción y el modelo de prueba:' },
 
         { k: 'h', t: 'SA-2026-012: esfuerzos de barra en el análisis no lineal de material' },
-        { k: 'p', t: 'Después de que una barra fluía, el solver equilibraba las cargas con la rigidez reducida pero informaba los esfuerzos calculados con la rigidez elástica. Desplazamientos y reacciones eran correctos; los esfuerzos de barra, los indicadores de fluencia y la utilización no: en una ménsula, el momento informado era 100 veces el real. Este solver sólo se usa desde el motor o su API WASM: ninguna pantalla de la aplicación lo llama, así que los resultados obtenidos en stabileo.com no están afectados.' },
+        { k: 'p', t: 'Después de que una barra fluía, el solver equilibraba las cargas con la rigidez reducida pero informaba los esfuerzos calculados con la rigidez elástica. Desplazamientos y reacciones eran correctos; los esfuerzos de barra y la utilización no: en una ménsula, el momento informado era 100 veces el real. Este solver sólo se usa desde el motor o su API WASM: ninguna pantalla de la aplicación lo llama, así que los resultados obtenidos en stabileo.com no están afectados.' },
         { k: 'ext', href: `${REPO}/SA-2026-012-material-nonlinear-member-forces.md`, label: 'SA-2026-012 completo', t: 'El aviso, con la ménsula de prueba:' },
 
         { k: 'h', t: 'SA-2026-008: corte basal y participación modal en el análisis espectral' },
@@ -212,7 +212,7 @@ export const safetyAdvisories: Post = {
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'Full SA-2026-011', t: 'The advisory with the reproduction and the test model:' },
 
         { k: 'h', t: 'SA-2026-012: member forces in material-nonlinear analysis' },
-        { k: 'p', t: 'After a member yielded, the solver balanced the loads with the reduced stiffness but reported forces computed with the elastic stiffness. Displacements and reactions were right; member forces, yield flags and utilization were not: in a cantilever the reported moment was 100 times the real one. This solver is only reachable from the engine or its WASM API: no screen in the app calls it, so results obtained on stabileo.com are not affected.' },
+        { k: 'p', t: 'After a member yielded, the solver balanced the loads with the reduced stiffness but reported forces computed with the elastic stiffness. Displacements and reactions were right; member forces and utilization were not: in a cantilever the reported moment was 100 times the real one. This solver is only reachable from the engine or its WASM API: no screen in the app calls it, so results obtained on stabileo.com are not affected.' },
         { k: 'ext', href: `${REPO}/SA-2026-012-material-nonlinear-member-forces.md`, label: 'Full SA-2026-012', t: 'The advisory, with the test cantilever:' },
 
         { k: 'h', t: 'SA-2026-008: base shear and modal participation in spectral analysis' },
@@ -344,7 +344,7 @@ export const safetyAdvisories: Post = {
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'SA-2026-011 completo', t: 'O aviso com a reprodução e o modelo de teste:' },
 
         { k: 'h', t: 'SA-2026-012: esforços de barra na análise não linear de material' },
-        { k: 'p', t: 'Depois que uma barra escoava, o solver equilibrava as cargas com a rigidez reduzida, mas informava os esforços calculados com a rigidez elástica. Deslocamentos e reações estavam corretos; esforços de barra, indicadores de escoamento e utilização não: num balanço, o momento informado era 100 vezes o real. Este solver só é usado a partir do motor ou da sua API WASM: nenhuma tela do aplicativo o chama, então os resultados obtidos em stabileo.com não são afetados.' },
+        { k: 'p', t: 'Depois que uma barra escoava, o solver equilibrava as cargas com a rigidez reduzida, mas informava os esforços calculados com a rigidez elástica. Deslocamentos e reações estavam corretos; esforços de barra e utilização não: num balanço, o momento informado era 100 vezes o real. Este solver só é usado a partir do motor ou da sua API WASM: nenhuma tela do aplicativo o chama, então os resultados obtidos em stabileo.com não são afetados.' },
         { k: 'ext', href: `${REPO}/SA-2026-012-material-nonlinear-member-forces.md`, label: 'SA-2026-012 completo', t: 'O aviso, com o balanço de teste:' },
 
         { k: 'h', t: 'SA-2026-008: cortante basal e participação modal na análise espectral' },

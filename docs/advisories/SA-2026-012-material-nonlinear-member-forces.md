@@ -20,14 +20,15 @@ obtained in the app are not affected.
 
 After a member yielded, the solver balanced the loads with the reduced (secant) stiffness but
 reported member forces computed with the elastic stiffness and the solved displacements. The
-displacements and reactions were right; **the member end forces, the yield flags and the
-utilization were not the forces of the solved state**:
+displacements and reactions were right; **the member end forces and the utilization were not those
+of the solved state**:
 
 | Cantilever 4 m, tip load 1.2·Mp/L | Base moment |
 |---|---|
 | Statics and the reported reaction | P·L = 1 012.5 kN·m |
 | Reported member end moment before the fix | 101 250 kN·m (100×) |
 | Reported member end moment after the fix | 1 012.5 kN·m |
+| Reported utilization before / after the fix | ≈ 120 / 1.2 |
 
 The error grows with 1/α (α is the post-yield stiffness ratio). Mostly an overestimate, but in an
 indeterminate structure the redistribution was not reflected in the reported forces, so other
@@ -42,10 +43,12 @@ member end forces do not balance the reactions at a support or the loads at a no
 
 `main` (#510); it will ship in the next tagged release. Member forces are recovered from the
 stiffness the solve balanced (the secant section of each yielded member, keeping the assembled
-fixed-end and thermal forces), so they balance the reactions; two regression tests pin it
-(`derivation_nonlinear.rs`: a yielded cantilever, and the same with a thermal gradient). Results of
-this solver also carry the open known issue NL-5 (#428: the secant model makes the load-deflection
-curve jump at first yield) as a warning.
+fixed-end and thermal forces), so they balance the reactions, and utilization is computed from
+them; two regression tests pin it (`derivation_nonlinear.rs`: a yielded cantilever, and the same
+with a thermal gradient). Which members yield is still decided from the elastic demand, so a member
+stays yielded once it yields: that is part of the secant model, the open known issue NL-5 (#428,
+the load-deflection curve also jumps at first yield), which results of this solver carry as a
+warning.
 
 ## Workaround
 
@@ -60,4 +63,4 @@ Re-derive member forces of yielded models from the reactions or re-run on the fi
 
 Found by the element-derivation review (NL-4, PR #330) and pinned by
 `nl_material_2d_member_forces_balance_the_reactions`; the thermal case was found in the Codex review
-of #510.
+of #510, and the utilization in the Codex fact-check of this advisory.
