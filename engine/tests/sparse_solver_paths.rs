@@ -16,7 +16,6 @@ use dedaliano_engine::types::*;
 use serde_json::{json, Value};
 
 const SINGULAR: &str = "Singular stiffness matrix — structure is a mechanism";
-const LOCAL_MECH: &str = "Local mechanism detected";
 
 // ==================== 2D model builder ====================
 
@@ -499,7 +498,6 @@ use DiagnosticCode as C;
 /// What the reference predicts for the conditioning and displacement checks.
 struct Expect2 {
     nf: usize,
-    maxd: f64,
     ratio: f64,
     near_zero: Vec<usize>,
     max_translation: f64,
@@ -553,7 +551,7 @@ fn expect_2d(m: &M2, rf: &Ref2D) -> Expect2 {
         z1 = z1.max(z);
     }
     let char_length = ((x1 - x0).powi(2) + (z1 - z0).powi(2)).sqrt().max(1.0);
-    Expect2 { nf, maxd, ratio: maxd / mind, near_zero, max_translation, char_length }
+    Expect2 { nf, ratio: maxd / mind, near_zero, max_translation, char_length }
 }
 
 fn close(got: f64, want: f64, rel: f64) -> bool {
@@ -1007,9 +1005,9 @@ fn overflowing_loads_on_every_2d_path() {
 }
 
 /// A floor joint with every member end hinged gets artificial rotational
-/// stiffness 1e-10·max diag: a small moment turns it by M/k (and the diagonal
-/// ratio is exactly 1e10); a moment that turns it past 100 rad is refused as
-/// a local mechanism, on every path.
+/// stiffness 1e-10·max diag: the frame still solves (the diagonal ratio is
+/// exactly 1e10) and balances its loads, and a nodal moment at that joint,
+/// which nothing can carry, is refused before the solve, on every path.
 #[test]
 fn all_hinged_joint_on_every_2d_path() {
     let hinged = |seg: usize, my: f64| {
@@ -1029,16 +1027,8 @@ fn all_hinged_joint_on_every_2d_path() {
         m.load(j, 0.0, 0.0, my);
         m
     };
-    let maxd = |seg: usize| {
-        let m = mixed(seg);
-        expect_2d(&m, &reference_2d(&m)).maxd
-    };
-    for (label, m, p) in all_2d_variants(|seg| hinged(seg, 1e-3)) {
+    for (label, m, p) in all_2d_variants(|seg| hinged(seg, 0.0)) {
         let r = solve_path_2d(&m, p).unwrap_or_else(|e| panic!("{label}: {e}"));
-        let seg = if label.contains("small") { 1 } else { 4 };
-        let th = r.displacements.iter().find(|d| d.node_id == 2).unwrap().ry;
-        let want = 1e-3 / (1e-10 * maxd(seg));
-        assert!(th < 100.0 && close(th, want, 1e-6), "{label}: rotation {th:e}, M/k {want:e}");
         let hd = diag(&r.structured_diagnostics, C::HighDiagonalRatio);
         assert!(close(hd.value.unwrap(), 1e10, 1e-9), "{label}: {:?}", hd.value);
         // global force equilibrium from the reported reactions (springs and
@@ -1055,9 +1045,11 @@ fn all_hinged_joint_on_every_2d_path() {
         let rz: f64 = r.reactions.iter().map(|x| x.rz).sum();
         assert!((rx + fx).abs() < 1e-6 * fz.abs() && (rz + fz).abs() < 1e-6 * fz.abs(), "{label}: ΣR = ({rx}, {rz}), ΣF = ({fx}, {fz})");
     }
-    for (label, m, p) in all_2d_variants(|seg| hinged(seg, 1.0)) {
-        let e = solve_path_2d(&m, p).err().unwrap_or_else(|| panic!("{label}: solved"));
-        assert!(e.starts_with(LOCAL_MECH), "{label}: {e}");
+    for my in [1e-3, 1.0] {
+        for (label, m, p) in all_2d_variants(|seg| hinged(seg, my)) {
+            let e = solve_path_2d(&m, p).err().unwrap_or_else(|| panic!("{label}: solved"));
+            assert!(e.contains("Nodal moment at node 2 is not supported"), "{label}: {e}");
+        }
     }
 }
 
