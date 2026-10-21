@@ -30,7 +30,7 @@ export const safetyAdvisories: Post = {
       blocks: [
         { k: 'p', t: 'Los resultados de Stabileo se usan para dimensionar estructuras reales. Cuando encontramos un error que pudo dar un resultado equivocado, y en particular uno del lado inseguro, lo publicamos como aviso de seguridad: qué estaba mal, qué modelos afecta, cómo reconocerlos, qué hacer hasta que la corrección esté publicada y qué revisar en los resultados que ya se usaron.' },
         { k: 'p', t: 'Casi todos estos errores los encontró nuestro propio programa de verificación: comparación contra otros siete programas de elementos finitos, ejemplos resueltos publicados, pruebas de invariantes físicos y revisión de las derivaciones de cada elemento. Publicarlos es parte de ese trabajo: un error que no se informa sigue en los cálculos que ya se entregaron.' },
-        { k: 'note', t: 'Estado al 20 de octubre de 2026. Un aviso cuenta como corregido cuando la corrección está publicada en stabileo.com, no cuando existe el cambio. Mientras un aviso esté abierto, usá la alternativa que indica y revisá a mano el resultado afectado antes de firmar.' },
+        { k: 'note', t: 'Estado al 21 de octubre de 2026. Un aviso cuenta como corregido cuando la corrección está publicada en stabileo.com, no cuando existe el cambio. Mientras un aviso esté abierto, usá la alternativa que indica y revisá a mano el resultado afectado antes de firmar.' },
 
         { k: 'h', t: 'Resumen' },
         {
@@ -39,10 +39,10 @@ export const safetyAdvisories: Post = {
           head: ['Aviso', 'Qué', 'Severidad', 'Estado'],
           rows: [
             ['SA-2026-011', 'Apoyo 3D cambiado de resorte a empotrado o articulado, calculado como resorte', 'Alta', 'Corregido el 20/10/2026'],
-            ['SA-2026-008', 'Espectro de respuesta: corte basal SRSS con CQC; participación sin la masa acoplada a los apoyos', 'Alta', 'Corrección en revisión'],
-            ['SA-2026-007', 'Pandeo 3D sin modos torsionales ni flexotorsionales', 'Alta', 'Corrección en revisión'],
-            ['SA-2026-006', 'Modelo plano resuelto en 3D: momentos nodales y giros impuestos invertidos', 'Alta', 'Corrección en revisión'],
-            ['SA-2026-005', 'Barras inclinadas 2D: esfuerzo axil sin la componente de la carga a lo largo de la barra', 'Alta', 'Corrección en revisión'],
+            ['SA-2026-008', 'Espectro de respuesta: corte basal SRSS con CQC; participación sin la masa acoplada a los apoyos', 'Alta', 'Corregido el 21/10/2026'],
+            ['SA-2026-007', 'Pandeo 3D sin modos torsionales ni flexotorsionales', 'Alta', 'Corregido el 21/10/2026'],
+            ['SA-2026-006', 'Modelo plano resuelto en 3D: momentos nodales y giros impuestos invertidos', 'Alta', 'Corregido el 21/10/2026'],
+            ['SA-2026-005', 'Barras inclinadas 2D: esfuerzo axil sin la componente de la carga a lo largo de la barra', 'Alta', 'Corregido el 21/10/2026'],
             ['SA-2026-010', 'Certificado espectral aprobado con resultados no finitos', 'Media', 'Corregido el 19/10/2026'],
             ['SA-2026-009', 'Sólido-lámina SHB8 un 22 % demasiado rígido en flexión de placas delgadas (flechas un 18 % bajas)', 'Media (mayor en estructuras hiperestáticas)', 'Corregido el 19/10/2026'],
             ['SA-2026-004', 'Análisis que ignoraban parte del modelo (dinámica, pandeo, colapso plástico)', 'Crítica', 'Corregido en 0.2.0'],
@@ -83,8 +83,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'Cómo saber si te afecta: hiciste un análisis espectral con CQC y usaste el corte basal informado (por ejemplo, para escalarlo al corte estático), o usaste masa consistente con columnas de uno o dos elementos.',
-            'Qué hacer hoy: recalculá el corte basal como combinación CQC de los cortes modales, o escalá con el mayor entre SRSS y la suma de valores absolutos. Subdividí las barras unidas a los apoyos (al menos cuatro elementos por columna) o usá masa concentrada, y verificá que las masas efectivas sumen la masa total en cada dirección.',
-            'Estado: corrección en revisión.',
+            'Qué hacer: volvé a resolver en stabileo.com los modelos afectados y compará con los resultados que ya usaste. La alternativa que este aviso daba antes de la corrección ya no corresponde.',
+            'Estado: corregido en stabileo.com el 21 de octubre de 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-008-spectral-combination.md`, label: 'SA-2026-008 completo', t: 'El aviso, con los dos defectos por separado:' },
@@ -95,8 +95,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'Cómo saber si te afecta: usaste el factor de pandeo 3D o el análisis P-Delta 3D en estructuras con secciones abiertas de pared delgada y poca rigidez torsional: cruciformes, ángulos simples o dobles, tes, canales. Las secciones doble te con simetría doble, en las que gobierna la flexión, no están afectadas. Las verificaciones de diseño que calculan el pandeo torsional por su cuenta (CIRSOC 301 E.4, desde 0.2.0) tampoco.',
-            'Qué hacer hoy: no uses el factor de pandeo 3D para esas secciones; calculá a mano el pandeo torsional y flexotorsional (CIRSOC 301 E.4 o AISC E4) y tomá el menor valor.',
-            'Estado: corrección en revisión.',
+            'Qué hacer: volvé a resolver en stabileo.com los modelos afectados y compará con los resultados que ya usaste. La alternativa que este aviso daba antes de la corrección ya no corresponde.',
+            'Estado: corregido en stabileo.com el 21 de octubre de 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-007-torsional-buckling.md`, label: 'SA-2026-007 completo', t: 'El aviso, con el cálculo de la columna cruciforme:' },
@@ -107,8 +107,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'Cómo saber si te afecta: el modelo es plano (todos los nodos en un plano), se resolvió en modo 3D y tiene momentos nodales o giros impuestos en apoyos. Los resortes rotacionales no están afectados.',
-            'Qué hacer hoy: resolvé los modelos planos en modo 2D, o ingresá los momentos nodales y los giros impuestos con el signo opuesto al resolverlos en 3D, y comprobá una reacción a mano.',
-            'Estado: corrección en revisión.',
+            'Qué hacer: volvé a resolver en stabileo.com los modelos afectados y compará con los resultados que ya usaste. La alternativa que este aviso daba antes de la corrección ya no corresponde.',
+            'Estado: corregido en stabileo.com el 21 de octubre de 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-006-mirrored-moments-2d-in-3d.md`, label: 'SA-2026-006 completo', t: 'El aviso, con los tres casos de prueba:' },
@@ -119,8 +119,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'Cómo saber si te afecta: un modelo 2D resuelto desde el 25/09/2026 con barras inclinadas (cabios, escaleras, diagonales, arcos por segmentos) que llevan cargas distribuidas, puntuales o peso propio con componente a lo largo de la barra; o un modelo plano con un par sobre una barra resuelto en 3D. Las barras dimensionadas a compresión son las más expuestas.',
-            'Qué hacer hoy: verificá a mano el esfuerzo axil en ambos extremos de las barras inclinadas (con carga uniforme varía linealmente a lo largo de la barra). Modelá los pares sobre barras como pares nodales en un nodo intermedio.',
-            'Estado: corrección en revisión.',
+            'Qué hacer: volvé a resolver en stabileo.com los modelos afectados y compará con los resultados que ya usaste. La alternativa que este aviso daba antes de la corrección ya no corresponde.',
+            'Estado: corregido en stabileo.com el 21 de octubre de 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-005-inclined-member-loads.md`, label: 'SA-2026-005 completo', t: 'El aviso, con el cabio y la barra 3-4-5:' },
@@ -156,7 +156,7 @@ export const safetyAdvisories: Post = {
       blocks: [
         { k: 'p', t: 'Stabileo’s results are used to design real structures. When we find a defect that could have produced a wrong result, and especially an unconservative one, we publish it as a safety advisory: what was wrong, which models it affects, how to recognise them, what to do until the fix is live, and what to re-check in results that were already used.' },
         { k: 'p', t: 'Almost all of these defects were found by our own verification programme: comparison against seven other finite-element programs, published worked examples, physical-invariant tests and a review of every element’s derivation. Publishing them is part of that work: a defect that is not reported stays in the calculations that were already delivered.' },
-        { k: 'note', t: 'Status as of 20 October 2026. An advisory counts as fixed when the fix is live on stabileo.com, not when the change exists. While an advisory is open, use its workaround and check the affected result by hand before signing.' },
+        { k: 'note', t: 'Status as of 21 October 2026. An advisory counts as fixed when the fix is live on stabileo.com, not when the change exists. While an advisory is open, use its workaround and check the affected result by hand before signing.' },
 
         { k: 'h', t: 'Summary' },
         {
@@ -165,10 +165,10 @@ export const safetyAdvisories: Post = {
           head: ['Advisory', 'What', 'Severity', 'Status'],
           rows: [
             ['SA-2026-011', '3D support switched from spring to fixed or pinned, solved as a spring', 'High', 'Fixed 2026-10-20'],
-            ['SA-2026-008', 'Response spectrum: base shear SRSS under CQC; participation without support-coupled mass', 'High', 'Fix in review'],
-            ['SA-2026-007', '3D buckling without torsional or flexural-torsional modes', 'High', 'Fix in review'],
-            ['SA-2026-006', 'Plane model solved in 3D: nodal moments and imposed rotations reversed', 'High', 'Fix in review'],
-            ['SA-2026-005', '2D inclined members: axial force without the along-member load component', 'High', 'Fix in review'],
+            ['SA-2026-008', 'Response spectrum: base shear SRSS under CQC; participation without support-coupled mass', 'High', 'Fixed 2026-10-21'],
+            ['SA-2026-007', '3D buckling without torsional or flexural-torsional modes', 'High', 'Fixed 2026-10-21'],
+            ['SA-2026-006', 'Plane model solved in 3D: nodal moments and imposed rotations reversed', 'High', 'Fixed 2026-10-21'],
+            ['SA-2026-005', '2D inclined members: axial force without the along-member load component', 'High', 'Fixed 2026-10-21'],
             ['SA-2026-010', 'Spectral certificate passed non-finite results', 'Medium', 'Fixed 2026-10-19'],
             ['SA-2026-009', 'SHB8 solid shell 22 % too stiff in thin-plate bending (deflections 18 % low)', 'Medium (higher in indeterminate structures)', 'Fixed 2026-10-19'],
             ['SA-2026-004', 'Analyses that ignored part of the model (dynamics, buckling, plastic collapse)', 'Critical', 'Fixed in 0.2.0'],
@@ -209,8 +209,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'How to tell if you are affected: you ran a spectral analysis with CQC and used the reported base shear (for example, to scale it to the static base shear), or you used consistent mass with columns of one or two elements.',
-            'What to do today: recompute the base shear as the CQC combination of the modal base shears, or scale with the larger of SRSS and the sum of absolute values. Subdivide members connected to supports (at least four elements per column) or use lumped mass, and check that the effective masses add up to the total mass in each direction.',
-            'Status: fix in review.',
+            'What to do: re-solve the affected models on stabileo.com and compare with the results you already used. The workaround this advisory gave before the fix no longer applies.',
+            'Status: fixed on stabileo.com on 21 October 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-008-spectral-combination.md`, label: 'Full SA-2026-008', t: 'The advisory, with the two defects separately:' },
@@ -221,8 +221,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'How to tell if you are affected: you used the 3D buckling factor or 3D P-Delta for structures with open thin-walled sections of low torsional stiffness: cruciforms, single or double angles, tees, channels. Doubly symmetric I-sections, where flexural buckling governs, are not affected. Design checks that compute torsional buckling themselves (CIRSOC 301 E.4, since 0.2.0) are not affected either.',
-            'What to do today: do not use the 3D buckling factor for those sections; compute torsional and flexural-torsional buckling by hand (CIRSOC 301 E.4 or AISC E4) and take the lower value.',
-            'Status: fix in review.',
+            'What to do: re-solve the affected models on stabileo.com and compare with the results you already used. The workaround this advisory gave before the fix no longer applies.',
+            'Status: fixed on stabileo.com on 21 October 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-007-torsional-buckling.md`, label: 'Full SA-2026-007', t: 'The advisory, with the cruciform column worked out:' },
@@ -233,8 +233,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'How to tell if you are affected: the model is flat (all nodes in one plane), was solved in 3D mode and has nodal moments or imposed support rotations. Rotational springs are not affected.',
-            'What to do today: solve plane models in 2D mode, or enter nodal moments and imposed rotations with the opposite sign when solving them in 3D, and check one reaction by hand.',
-            'Status: fix in review.',
+            'What to do: re-solve the affected models on stabileo.com and compare with the results you already used. The workaround this advisory gave before the fix no longer applies.',
+            'Status: fixed on stabileo.com on 21 October 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-006-mirrored-moments-2d-in-3d.md`, label: 'Full SA-2026-006', t: 'The advisory, with the three test cases:' },
@@ -245,8 +245,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'How to tell if you are affected: a 2D model solved since 25/09/2026 with inclined members (rafters, stairs, braces, arches drawn as segments) carrying distributed, point or self-weight loads with a component along the member; or a plane model with a couple on a member solved in 3D. Members designed for compression are the most exposed.',
-            'What to do today: check the axial force at both ends of inclined members by hand (under uniform load it varies linearly along the member). Model couples on members as nodal couples at an intermediate node.',
-            'Status: fix in review.',
+            'What to do: re-solve the affected models on stabileo.com and compare with the results you already used. The workaround this advisory gave before the fix no longer applies.',
+            'Status: fixed on stabileo.com on 21 October 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-005-inclined-member-loads.md`, label: 'Full SA-2026-005', t: 'The advisory, with the rafter and the 3-4-5 member:' },
@@ -282,7 +282,7 @@ export const safetyAdvisories: Post = {
       blocks: [
         { k: 'p', t: 'Os resultados do Stabileo são usados para dimensionar estruturas reais. Quando encontramos um defeito que pode ter produzido um resultado errado, e em especial um contra a segurança, publicamos um aviso de segurança: o que estava errado, quais modelos afeta, como reconhecê-los, o que fazer até a correção estar publicada e o que revisar nos resultados que já foram usados.' },
         { k: 'p', t: 'Quase todos esses defeitos foram encontrados pelo nosso próprio programa de verificação: comparação com outros sete programas de elementos finitos, exemplos resolvidos publicados, testes de invariantes físicos e revisão da derivação de cada elemento. Publicá-los faz parte desse trabalho: um defeito que não é informado continua nos cálculos já entregues.' },
-        { k: 'note', t: 'Situação em 20 de outubro de 2026. Um aviso conta como corrigido quando a correção está publicada em stabileo.com, não quando a mudança existe. Enquanto um aviso estiver aberto, use a alternativa indicada e confira à mão o resultado afetado antes de assinar.' },
+        { k: 'note', t: 'Situação em 21 de outubro de 2026. Um aviso conta como corrigido quando a correção está publicada em stabileo.com, não quando a mudança existe. Enquanto um aviso estiver aberto, use a alternativa indicada e confira à mão o resultado afetado antes de assinar.' },
 
         { k: 'h', t: 'Resumo' },
         {
@@ -291,10 +291,10 @@ export const safetyAdvisories: Post = {
           head: ['Aviso', 'O quê', 'Severidade', 'Situação'],
           rows: [
             ['SA-2026-011', 'Apoio 3D trocado de mola para engaste ou rótula, calculado como mola', 'Alta', 'Corrigido em 20/10/2026'],
-            ['SA-2026-008', 'Espectro de resposta: cortante basal SRSS com CQC; participação sem a massa acoplada aos apoios', 'Alta', 'Correção em revisão'],
-            ['SA-2026-007', 'Flambagem 3D sem modos torcionais nem flexo-torcionais', 'Alta', 'Correção em revisão'],
-            ['SA-2026-006', 'Modelo plano resolvido em 3D: momentos nodais e rotações impostas invertidos', 'Alta', 'Correção em revisão'],
-            ['SA-2026-005', 'Barras inclinadas 2D: esforço normal sem a componente da carga ao longo da barra', 'Alta', 'Correção em revisão'],
+            ['SA-2026-008', 'Espectro de resposta: cortante basal SRSS com CQC; participação sem a massa acoplada aos apoios', 'Alta', 'Corrigido em 21/10/2026'],
+            ['SA-2026-007', 'Flambagem 3D sem modos torcionais nem flexo-torcionais', 'Alta', 'Corrigido em 21/10/2026'],
+            ['SA-2026-006', 'Modelo plano resolvido em 3D: momentos nodais e rotações impostas invertidos', 'Alta', 'Corrigido em 21/10/2026'],
+            ['SA-2026-005', 'Barras inclinadas 2D: esforço normal sem a componente da carga ao longo da barra', 'Alta', 'Corrigido em 21/10/2026'],
             ['SA-2026-010', 'Certificado espectral aprovado com resultados não finitos', 'Média', 'Corrigido em 19/10/2026'],
             ['SA-2026-009', 'Sólido-casca SHB8 22 % rígido demais na flexão de placas finas (flechas 18 % baixas)', 'Média (maior em estruturas hiperestáticas)', 'Corrigido em 19/10/2026'],
             ['SA-2026-004', 'Análises que ignoravam parte do modelo (dinâmica, flambagem, colapso plástico)', 'Crítica', 'Corrigido na 0.2.0'],
@@ -335,8 +335,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'Como saber se você foi afetado: fez uma análise espectral com CQC e usou o cortante basal informado (por exemplo, para escalá-lo ao cortante estático), ou usou massa consistente com pilares de um ou dois elementos.',
-            'O que fazer hoje: recalcule o cortante basal como combinação CQC dos cortantes modais, ou escale com o maior entre SRSS e a soma dos valores absolutos. Subdivida as barras ligadas aos apoios (pelo menos quatro elementos por pilar) ou use massa concentrada, e confira que as massas efetivas somam a massa total em cada direção.',
-            'Situação: correção em revisão.',
+            'O que fazer: resolva de novo em stabileo.com os modelos afetados e compare com os resultados que você já usou. A alternativa que este aviso dava antes da correção não se aplica mais.',
+            'Situação: corrigido em stabileo.com em 21 de outubro de 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-008-spectral-combination.md`, label: 'SA-2026-008 completo', t: 'O aviso, com os dois defeitos separados:' },
@@ -347,8 +347,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'Como saber se você foi afetado: usou o fator de flambagem 3D ou o P-Delta 3D em estruturas com seções abertas de parede fina e pouca rigidez à torção: cruciformes, cantoneiras simples ou duplas, tês, perfis U. Perfis I com dupla simetria, em que governa a flexão, não são afetados. As verificações de projeto que calculam a flambagem torcional por conta própria (CIRSOC 301 E.4, desde a 0.2.0) também não.',
-            'O que fazer hoje: não use o fator de flambagem 3D para essas seções; calcule à mão a flambagem torcional e flexo-torcional (CIRSOC 301 E.4 ou AISC E4) e adote o menor valor.',
-            'Situação: correção em revisão.',
+            'O que fazer: resolva de novo em stabileo.com os modelos afetados e compare com os resultados que você já usou. A alternativa que este aviso dava antes da correção não se aplica mais.',
+            'Situação: corrigido em stabileo.com em 21 de outubro de 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-007-torsional-buckling.md`, label: 'SA-2026-007 completo', t: 'O aviso, com o cálculo do pilar cruciforme:' },
@@ -359,8 +359,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'Como saber se você foi afetado: o modelo é plano (todos os nós num plano), foi resolvido no modo 3D e tem momentos nodais ou rotações impostas nos apoios. As molas rotacionais não são afetadas.',
-            'O que fazer hoje: resolva os modelos planos no modo 2D, ou entre os momentos nodais e as rotações impostas com o sinal oposto ao resolvê-los em 3D, e confira uma reação à mão.',
-            'Situação: correção em revisão.',
+            'O que fazer: resolva de novo em stabileo.com os modelos afetados e compare com os resultados que você já usou. A alternativa que este aviso dava antes da correção não se aplica mais.',
+            'Situação: corrigido em stabileo.com em 21 de outubro de 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-006-mirrored-moments-2d-in-3d.md`, label: 'SA-2026-006 completo', t: 'O aviso, com os três casos de teste:' },
@@ -371,8 +371,8 @@ export const safetyAdvisories: Post = {
           k: 'ul',
           items: [
             'Como saber se você foi afetado: um modelo 2D resolvido desde 25/09/2026 com barras inclinadas (caibros, escadas, diagonais, arcos por segmentos) com cargas distribuídas, concentradas ou peso próprio com componente ao longo da barra; ou um modelo plano com um binário numa barra resolvido em 3D. As barras dimensionadas à compressão são as mais expostas.',
-            'O que fazer hoje: confira à mão o esforço normal nas duas extremidades das barras inclinadas (com carga uniforme ele varia linearmente ao longo da barra). Modele binários em barras como binários nodais num nó intermediário.',
-            'Situação: correção em revisão.',
+            'O que fazer: resolva de novo em stabileo.com os modelos afetados e compare com os resultados que você já usou. A alternativa que este aviso dava antes da correção não se aplica mais.',
+            'Situação: corrigido em stabileo.com em 21 de outubro de 2026.',
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-005-inclined-member-loads.md`, label: 'SA-2026-005 completo', t: 'O aviso, com o caibro e a barra 3-4-5:' },

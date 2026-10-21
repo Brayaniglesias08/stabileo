@@ -3,9 +3,9 @@
 | | |
 |---|---|
 | Severity | High |
-| Status | Draft (fix not merged) |
+| Status | Draft (fixed on `main` by the batch-4 integration, PR #507, deployed to stabileo.com 2026-10-21; untagged, next release) |
 | Issue | [#343](https://github.com/lambdaclass/stabileo/issues/343) |
-| Fix | PR [#274](https://github.com/lambdaclass/stabileo/pull/274) (open) |
+| Fix | PR [#437](https://github.com/lambdaclass/stabileo/pull/437) (rebase of #274; merged via #507, 2026-10-21) |
 | Affected versions | axial part: deployments from 2026-09-25 (commit `6c196dd0`, "loads in global axes") through 0.2.0 and `main` until the fix; member couples on the 3D path: not yet bisected, up to 0.2.0 |
 | Re-check registry | to add with the fix |
 
@@ -35,7 +35,9 @@ are the most exposed.
 
 ## Fixed in
 
-Not yet fixed. PR #274 sends the axial part as a span load and keeps member couples on the 3D path.
+`main` (#437 (rebase of #274), merged through the batch-4 integration PR #507 and deployed to stabileo.com on
+2026-10-21); it will ship in the next tagged release. The workaround below is for checking results
+obtained before that date; it must not be applied to new runs.
 
 ## Workaround
 
