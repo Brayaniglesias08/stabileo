@@ -118,6 +118,12 @@ pub struct SpringResult {
 
 /// Solve a 2D SSI problem with nonlinear soil springs.
 pub fn solve_ssi_2d(input: &SSIInput) -> Result<SSIResult, String> {
+    let mut r = solve_ssi_2d_inner(input)?;
+    r.results.structured_diagnostics.extend(crate::known_issues::for_ssi(&input.soil_springs.iter().map(|s| &s.curve).collect::<Vec<_>>()));
+    Ok(r)
+}
+
+fn solve_ssi_2d_inner(input: &SSIInput) -> Result<SSIResult, String> {
     super::linear::validate_input_2d(&input.solver)?;
     // The secant solve does not impose prescribed displacements. Inclined
     // supports are solved in their frames (fix/inclined-supports).
@@ -355,6 +361,12 @@ pub fn solve_ssi_2d(input: &SSIInput) -> Result<SSIResult, String> {
 
 /// Solve a 3D SSI problem with nonlinear soil springs.
 pub fn solve_ssi_3d(input: &SSIInput3D) -> Result<SSIResult3D, String> {
+    let mut r = solve_ssi_3d_inner(input)?;
+    r.results.structured_diagnostics.extend(crate::known_issues::for_ssi(&input.soil_springs.iter().map(|s| &s.curve).collect::<Vec<_>>()));
+    Ok(r)
+}
+
+fn solve_ssi_3d_inner(input: &SSIInput3D) -> Result<SSIResult3D, String> {
     super::linear::validate_input_3d(&input.solver)?;
     super::feature_gates::refuse_3d(&input.solver, "Soil-structure interaction analysis", &[super::feature_gates::Feature::PrescribedDisplacements])?;
 

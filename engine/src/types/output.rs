@@ -242,6 +242,11 @@ pub enum DiagnosticCode {
     CircularConstraint,
     /// DOF is both constrained and restrained by a support.
     OverConstrainedDof,
+
+    // ---- Containment ----
+    /// A known issue that can make this result wrong, contained until it is fixed
+    /// (`known_issues.rs`): the finding id in `phase`, the issue number in `value`.
+    KnownIssue,
 }
 
 /// A structured diagnostic with enum code, severity, optional element/node
@@ -366,6 +371,7 @@ impl From<&StructuredDiagnostic> for SolverDiagnostic {
             DiagnosticCode::HighAspectRatio | DiagnosticCode::NegativeJacobian | DiagnosticCode::HighWarping | DiagnosticCode::PoorJacobianRatio | DiagnosticCode::SmallMinAngle => "element_quality",
             DiagnosticCode::NoFreeDofs | DiagnosticCode::LocalMechanism | DiagnosticCode::SingularMatrix | DiagnosticCode::DisconnectedNode | DiagnosticCode::NearDuplicateNodes | DiagnosticCode::InstabilityRisk | DiagnosticCode::ShellDistortion | DiagnosticCode::SuspiciousLocalAxis | DiagnosticCode::ExcessiveDisplacement | DiagnosticCode::StiffnessNotPositiveDefinite => "model_quality",
             DiagnosticCode::ConflictingConstraints | DiagnosticCode::CircularConstraint | DiagnosticCode::OverConstrainedDof => "constraints",
+            DiagnosticCode::KnownIssue => "known_issue",
         };
         let severity = match sd.severity {
             Severity::Info => "info",

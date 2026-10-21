@@ -169,6 +169,17 @@ pub fn solve_cable_2d(
     max_iter: usize,
     tolerance: f64,
 ) -> Result<CableAnalysisResult2D, String> {
+    let mut r = solve_cable_2d_inner(input, densities, max_iter, tolerance)?;
+    r.results.structured_diagnostics.extend(crate::known_issues::for_2d(input, crate::known_issues::Analysis::Cable));
+    Ok(r)
+}
+
+fn solve_cable_2d_inner(
+    input: &SolverInput,
+    densities: &HashMap<String, f64>,
+    max_iter: usize,
+    tolerance: f64,
+) -> Result<CableAnalysisResult2D, String> {
     // The same input checks as every other analysis (non-finite values,
     // dangling ids, unknown support types, ambiguous shared supports).
     linear::validate_input_2d(input)?;
@@ -593,6 +604,17 @@ pub fn solve_cable_2d(
 
 /// Solve a 3D structure containing cable elements.
 pub fn solve_cable_3d(
+    input: &SolverInput3D,
+    densities: &HashMap<String, f64>,
+    max_iter: usize,
+    tolerance: f64,
+) -> Result<CableAnalysisResult3D, String> {
+    let mut r = solve_cable_3d_inner(input, densities, max_iter, tolerance)?;
+    r.results.structured_diagnostics.extend(crate::known_issues::for_3d(input, crate::known_issues::Analysis::Cable));
+    Ok(r)
+}
+
+fn solve_cable_3d_inner(
     input: &SolverInput3D,
     densities: &HashMap<String, f64>,
     max_iter: usize,

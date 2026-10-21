@@ -408,7 +408,14 @@ fn pcg_solver_path(preconditioner: &str) -> &'static str {
 }
 
 /// Solve a 2D linear static analysis.
+/// Linear static 2D solve, with the known-issue warnings that apply to the model attached.
 pub fn solve_2d(input: &SolverInput) -> Result<AnalysisResults, String> {
+    let mut r = solve_2d_inner(input)?;
+    r.structured_diagnostics.extend(crate::known_issues::for_2d(input, crate::known_issues::Analysis::Linear));
+    Ok(r)
+}
+
+fn solve_2d_inner(input: &SolverInput) -> Result<AnalysisResults, String> {
     // Auto-delegate to constrained solver when constraints are present
     if !input.constraints.is_empty() {
         let ci = super::constraints::ConstrainedInput {
@@ -1904,7 +1911,14 @@ pub(crate) fn assert_finite_3d(u: &[f64]) -> Result<(), String> {
 }
 
 /// Solve a 3D linear static analysis.
+/// Linear static 3D solve, with the known-issue warnings that apply to the model attached.
 pub fn solve_3d(input: &SolverInput3D) -> Result<AnalysisResults3D, String> {
+    let mut r = solve_3d_inner(input)?;
+    r.structured_diagnostics.extend(crate::known_issues::for_3d(input, crate::known_issues::Analysis::Linear));
+    Ok(r)
+}
+
+fn solve_3d_inner(input: &SolverInput3D) -> Result<AnalysisResults3D, String> {
     // Expand curved beams BEFORE anything else: the constrained delegation below
     // used to bypass prepare_static_3d (the only expansion site), silently
     // analyzing models with constraints + curved beams without those members.

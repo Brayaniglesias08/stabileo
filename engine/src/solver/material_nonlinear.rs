@@ -55,6 +55,14 @@ struct ElementState {
 pub fn solve_nonlinear_material_2d(
     input: &NonlinearMaterialInput,
 ) -> Result<NonlinearMaterialResult, String> {
+    let mut r = solve_nonlinear_material_2d_inner(input)?;
+    r.results.structured_diagnostics.extend(crate::known_issues::for_2d(&input.solver, crate::known_issues::Analysis::MaterialNonlinear));
+    Ok(r)
+}
+
+fn solve_nonlinear_material_2d_inner(
+    input: &NonlinearMaterialInput,
+) -> Result<NonlinearMaterialResult, String> {
     // Assembly resolves ids by direct map indexing: an element naming a
     // node that does not exist panicked there, which in WASM ends the
     // module rather than the call.
@@ -861,6 +869,14 @@ struct ElementState3D {
 /// When an element yields at an end, its flexural stiffness is reduced to
 /// alpha * EI (bilinear hardening).
 pub fn solve_nonlinear_material_3d(
+    input: &NonlinearMaterialInput3D,
+) -> Result<NonlinearMaterialResult3D, String> {
+    let mut r = solve_nonlinear_material_3d_inner(input)?;
+    r.results.structured_diagnostics.extend(crate::known_issues::for_3d(&input.solver, crate::known_issues::Analysis::MaterialNonlinear));
+    Ok(r)
+}
+
+fn solve_nonlinear_material_3d_inner(
     input: &NonlinearMaterialInput3D,
 ) -> Result<NonlinearMaterialResult3D, String> {
     super::linear::validate_input_3d(&input.solver)?;
