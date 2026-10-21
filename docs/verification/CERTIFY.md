@@ -352,6 +352,9 @@ frame buildings above to `target/cert-bundles-large/`.
 
 ### What the Lean checker proves, and what remains trusted
 
+The full list of assumptions per certificate kind (rounding model, interval code, f64
+assembly, parsing, runtimes, Lean kernel) is [TRUSTED_BASE.md](TRUSTED_BASE.md).
+
 | result | checked in Lean (theorem) | still trusted |
 |---|---|---|
 | linear static displacements | `‖K⁻¹f − ũ‖₂ ≤ b` for every `f` in the enclosure (`Bundle.check_sound`) | assembly of `K` and of the `f` enclosure from the input; the JSON reader |
@@ -670,6 +673,7 @@ bound by the scaling's rounding), `certify_steel_multi_case_2d/3d`
 | ACI 318-19 (`rc_check`): RC flexure 22.2 (strain compatibility, rectangular singly / doubly, T-beam flange / web), P-M interaction 22.4 at the axial load, axial capacity 22.4.2.1 / 22.4.3.1, φ Table 21.2.2, shear 22.5.5.1 (Av,min switch, λs, √f'c ≤ 8.3, Vs,max) | **certified** |
 | NDS timber (`timber_check`): bending 3.3 (CL with the Table 3.3.3 effective span), compression 3.6 (CP), tension 3.8, shear 3.4, interaction 3.9.1 / 3.9.2 (FcE1 amplification, saturated at 99) | **certified** |
 | AISI S100 (`cfs_check`): compression E2 (weak-axis flexural buckling, local via Ae) / E4 distortional, tension D2, flexure F2.1 LTB / F4 distortional, weak-axis flexure, web shear G2.1 (three ranges), linear interaction H1.2 / H2 | **certified** |
+| CIRSOC 301 (`cirsoc301_check`): tension D.2, compression E.3–E.7, flexure F.2–F.6, shear G.2/G.4, interaction H.1 (see the bullet above) | **certified** |
 | masonry, connections, foundations, serviceability | not certified (f64 only) |
 
 Timber note: past buckling (`fc ≥ FcE1`) the f64 check saturates the 3.9.2 ratio at 99;
@@ -790,7 +794,9 @@ Newton's method with double-double residuals. Not formalized in Lean.
 CQC with the solver's correlation coefficients), of the **exact lowest `m` modes** of the
 pencil `(K, M)` — `m` the number of modes in the input — with the spectrum evaluated at
 the exact periods. `K` and `M` are the f64 sparse assemblies (as in "Modal enclosures"),
-the influence vector `r` the solver's (unit translation in the direction), `Sa(T)` the
+`Mr` the solver's ground-motion load `(M·r)_f` — the full mass times the unit translation
+of every node in the direction, supports included, kept on the free rows (with a consistent
+mass the free DOFs carry the inertia coupled to the moving supports, `M_fr·r_r`) — `Sa(T)` the
 piecewise-linear interpolation of the spectrum points (constant beyond the ends), times
 `9.81` (when in g, the f64 constant) `× I / R` (exact real quotient). Nothing the input
 says about ω, periods, participation factors or effective masses is trusted; the mode
@@ -843,8 +849,10 @@ inside; the spectrum periods must be finite and strictly increasing (else refuse
 (`ρᵢᵢ = 1` exactly; refused if a denominator enclosure contains 0).
 
 * **Member forces**: per mode the solver's force recovery at `ũᵢ = mid(αᵢ)φ̃`, the error
-  bound `bᵢ = eᵢ + ‖αᵢφ̃ − ũᵢ‖` fed to the member force bounds (`max(|start|, |end|)` is
-  1-Lipschitz), then SRSS/CQC in intervals. As for member force bounds, rounding in the
+  bound `bᵢ = eᵢ + ‖αᵢφ̃ − ũᵢ‖` fed to the member force bounds (the bound of each component
+  holds at both ends), then SRSS/CQC in intervals of each end's **signed** value, and the
+  envelope of the two ends after combining — as the solver does. (Both used to combine the
+  per-mode `max(|start|, |end|)`, which made every CQC cross term non-negative.) As for member force bounds, rounding in the
   f64 force recovery is not included. The recovery is from the modal displacements
   alone, with no element loads: static member loads in the model (distributed, point,
   thermal) are not part of any mode's response, so their fixed-end forces enter neither
@@ -852,8 +860,9 @@ inside; the spectrum periods must be finite and strictly increasing (else refuse
   modal recovery added those fixed-end forces to every mode, and SRSS/CQC combined them
   as if dynamic; `validation_spectral_element_loads_do_not_leak` and its 3D twin pin the
   loaded and unloaded models to the same spectral member forces.)
-* **Base shear** (the solver always combines it by SRSS): `meffᵢ* = λᵢ‖Πᵢb‖²` with
-  `‖Πᵢb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθᵢ‖Mr‖/√σ_K`, times `Sa(Tᵢ)`, SRSS in intervals.
+* **Base shear**, combined by the requested rule like every other quantity (it used to be
+  SRSS whatever the rule, in the solver and here): `meffᵢ* = λᵢ‖Πᵢb‖²` with
+  `‖Πᵢb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθᵢ‖Mr‖/√σ_K`, times `Sa(Tᵢ)`, SRSS or CQC in intervals.
 
 **Output.** Per mode: ω², period and `Sa` enclosures, `sinθ`, `eᵢ`; per node and member
 the enclosures of the combined values; the base-shear enclosure; bounds on
@@ -1183,6 +1192,39 @@ the dense, sparse, `_ex`, parallel and constrained paths assemble the same matri
 that the certificates' own reduced systems (`reduced_sparse_2d/3d`, `buckling_system_2d/3d`)
 equal them, is checked separately by the cross-path assembly oracle,
 [ASSEMBLY.md](ASSEMBLY.md).
+
+## Non-finite numbers
+
+A certificate never reports success on a NaN or an infinity (issue #335). `f64::max`,
+`min` and every comparison drop or misread NaN, so a single NaN can turn into an error
+bound of 0: the spectral certificate once reported `certified` with error 0 for results
+that were all NaN. `certify::finite` walks any input, result or certificate with a serde
+serializer (as the fuzz harness does, FUZZ_MUTANTS.md) and every entry point the WASM
+layer exposes uses it:
+
+- a non-finite number anywhere in the input, or in the solver's results, is an `Err`
+  (`check_input`, `check_results`); the solvers should refuse first, this is the
+  backstop;
+- the `certify_*_results` functions, which take results from the caller, return
+  `Uncertified` instead;
+- a certificate that claims anything while carrying a non-finite number is withdrawn
+  (`guard`): the enum certificates become `Uncertified`, the time-history certificate
+  drops its stability and residual claims, a plastic certificate its bounds, a design
+  member its utilization, a linear certificate its force, station, deflection and
+  reaction bounds, and a combination its bounds (and then the envelope too, since it
+  maximizes over the combinations);
+- the bundles are refused if they would carry one.
+
+The only exception is +∞ in a field that documents it (`DOCUMENTED_INFINITE`:
+`relBound`, `omega2Upper`, `uniquenessRadius`, the `bimoment` of combined force bounds,
+`b2Factor`); NaN is never allowed. `tests/certify_nonfinite.rs` sets every number of a
+valid input for each certificate kind to NaN and +∞, and random ones to NaN, ±∞, ±1e308,
+1e-300 or a subnormal, and requires an `Err` or a fully finite `Ok`.
+
+The exact plastic certificates also refuse input numbers whose magnitude is outside
+[1e-30, 1e30] (zero excepted): their rational arithmetic costs grow with the bit length
+of the data, and a value of 1e300 ran for minutes. That is a resource cap, not a
+soundness condition.
 
 ## Rounding model
 

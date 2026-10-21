@@ -4,6 +4,139 @@
   "currentResultsVersion": 1,
   "changes": [
     {
+      "id": "spectral-cqc-and-participation",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [434],
+      "area": "analysis",
+      "when": { "allOf": [["members", "shells"], ["analysis:spectral"]] },
+      "title": {
+        "en": "Response spectrum: CQC base shear and full modal participation",
+        "es": "Espectro de respuesta: corte basal CQC y participación modal completa",
+        "pt": "Espectro de resposta: cortante basal CQC e participação modal completa"
+      },
+      "explanation": {
+        "en": "With CQC the reported base shear was still combined by SRSS (19 % low with two close modes), and modal participation left out the mass the consistent mass matrix couples to the supports (SA-2026-008).",
+        "es": "Con CQC el corte basal informado se combinaba igual por SRSS (un 19 % bajo con dos modos cercanos), y la participación modal omitía la masa que la matriz de masa consistente acopla a los apoyos (SA-2026-008).",
+        "pt": "Com CQC o cortante basal informado ainda era combinado por SRSS (19 % baixo com dois modos próximos), e a participação modal omitia a massa que a matriz de massa consistente acopla aos apoios (SA-2026-008)."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-008-spectral-combination.md", "heading": "SA-2026-008: Response spectrum: base shear always SRSS under CQC; modal participation omitted support-coupled mass" }
+    },
+    {
+      "id": "torsional-buckling-3d",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [434],
+      "area": "analysis",
+      "when": { "allOf": [["members"], ["analysis:buckling", "analysis:pdelta"]] },
+      "title": {
+        "en": "3D buckling includes torsional and flexural-torsional modes",
+        "es": "El pandeo 3D incluye los modos torsionales y flexotorsionales",
+        "pt": "A flambagem 3D inclui os modos torcionais e flexo-torcionais"
+      },
+      "explanation": {
+        "en": "The 3D geometric stiffness had only the bending terms, so torsional and flexural-torsional buckling never appeared; for open thin-walled sections (crosses, angles, tees, channels) the buckling load could be up to 96 % high (SA-2026-007).",
+        "es": "La rigidez geométrica 3D sólo tenía los términos de flexión, así que el pandeo torsional y el flexotorsional nunca aparecían; en secciones abiertas de pared delgada (cruces, ángulos, tes, canales) la carga de pandeo podía ser hasta un 96 % mayor (SA-2026-007).",
+        "pt": "A rigidez geométrica 3D tinha só os termos de flexão, então a flambagem torcional e a flexo-torcional nunca apareciam; em seções abertas de parede fina (cruzes, cantoneiras, tês, perfis U) a carga de flambagem podia ser até 96 % maior (SA-2026-007)."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-007-torsional-buckling.md", "heading": "SA-2026-007: 3D buckling missed torsional and flexural-torsional buckling (up to 96 % too high)" }
+    },
+    {
+      "id": "mirrored-moments-2d-in-3d",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [436],
+      "area": "analysis",
+      "when": { "any": ["members"] },
+      "title": {
+        "en": "Flat models solved in 3D: nodal moments act the right way",
+        "es": "Modelos planos resueltos en 3D: los momentos nodales actúan en el sentido correcto",
+        "pt": "Modelos planos resolvidos em 3D: os momentos nodais atuam no sentido correto"
+      },
+      "explanation": {
+        "en": "A flat model solved with the 3D solver applied its nodal moments and prescribed support rotations mirrored; combined with forces they could add instead of cancel (SA-2026-006). It concerns flat models with nodal moments or prescribed rotations solved in 3D mode.",
+        "es": "Un modelo plano resuelto con el solver 3D aplicaba sus momentos nodales y giros impuestos invertidos; combinados con fuerzas podían sumarse en lugar de restarse (SA-2026-006). Afecta a modelos planos con momentos nodales o giros impuestos resueltos en modo 3D.",
+        "pt": "Um modelo plano resolvido com o solver 3D aplicava seus momentos nodais e rotações impostas invertidos; combinados com forças podiam somar em vez de subtrair (SA-2026-006). Afeta modelos planos com momentos nodais ou rotações impostas resolvidos no modo 3D."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-006-mirrored-moments-2d-in-3d.md", "heading": "SA-2026-006: Flat 2D model solved in 3D: nodal moments and prescribed rotations acted mirrored" }
+    },
+    {
+      "id": "inclined-member-loads",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [437],
+      "area": "analysis",
+      "when": { "allOf": [["members"], ["memberLoads"]] },
+      "title": {
+        "en": "Axial force of inclined members includes the load along them",
+        "es": "El axil de las barras inclinadas incluye la carga a lo largo de la barra",
+        "pt": "O esforço normal das barras inclinadas inclui a carga ao longo da barra"
+      },
+      "explanation": {
+        "en": "In 2D, the part of a member load along an inclined member went straight to its end nodes, so the member's axial force was its average instead of varying along it (a rafter's base axial force was 26 % low). Couples applied on members were dropped when a flat model was solved in 3D (SA-2026-005).",
+        "es": "En 2D, la componente de una carga sobre una barra inclinada a lo largo de la barra pasaba directo a sus nudos extremos, así que el axil era constante e igual al promedio en lugar de variar (en la base de un cabio, un 26 % bajo). Los pares sobre barras se perdían cuando un modelo plano se resolvía en 3D (SA-2026-005).",
+        "pt": "Em 2D, a componente de uma carga sobre uma barra inclinada ao longo da barra ia direto aos nós extremos, então o esforço normal era constante e igual à média em vez de variar (na base de um caibro, 26 % baixo). Binários sobre barras se perdiam quando um modelo plano era resolvido em 3D (SA-2026-005)."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-005-inclined-member-loads.md", "heading": "SA-2026-005: 2D inclined members missed the along-member part of their loads; member couples dropped in the 3D solve" }
+    },
+    {
+      "id": "springs-on-fixed-supports",
+      "resultsVersion": 1,
+      "date": "2026-10-20",
+      "prs": [491],
+      "area": "analysis",
+      "when": { "any": ["springs"] },
+      "title": {
+        "en": "Supports switched from spring to rigid are solved as rigid",
+        "es": "Los apoyos cambiados de resorte a rígido se calculan como rígidos",
+        "pt": "Apoios trocados de mola para rígidos são calculados como rígidos"
+      },
+      "explanation": {
+        "en": "A 3D support whose type was changed from spring to fixed, pinned or roller kept its spring constants and was solved as a spring. Every restrained degree of freedom is now solved as restrained (SA-2026-011).",
+        "es": "Un apoyo 3D cuyo tipo se cambió de resorte a empotrado, articulado o rodillo conservaba sus constantes de resorte y se calculaba como resorte. Ahora todo grado de libertad restringido se calcula como restringido (SA-2026-011).",
+        "pt": "Um apoio 3D cujo tipo foi trocado de mola para engaste, rótula ou rolete mantinha as constantes de mola e era calculado como mola. Agora todo grau de liberdade restringido é calculado como restringido (SA-2026-011)."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-011-springs-on-fixed-supports.md", "heading": "SA-2026-011: 3D support switched from spring to fixed (or pinned) was solved as elastic" }
+    },
+    {
+      "id": "shb8-thickness-locking",
+      "resultsVersion": 1,
+      "date": "2026-10-19",
+      "prs": [401],
+      "area": "analysis",
+      "when": { "any": ["shells"] },
+      "title": {
+        "en": "Solid shell (SHB8) no longer too stiff in thin plates",
+        "es": "El sólido-lámina (SHB8) ya no es demasiado rígido en placas delgadas",
+        "pt": "O sólido-casca (SHB8) não é mais rígido demais em placas finas"
+      },
+      "explanation": {
+        "en": "The SHB8 solid shell was about 22 % too stiff in thin-plate bending (deflections about 18 % low). MITC4, MITC9, DKT and the curved shell were not affected (SA-2026-009).",
+        "es": "El sólido-lámina SHB8 era alrededor de un 22 % demasiado rígido en flexión de placas delgadas (flechas alrededor de un 18 % bajas). MITC4, MITC9, DKT y la lámina curva no estaban afectados (SA-2026-009).",
+        "pt": "O sólido-casca SHB8 era cerca de 22 % rígido demais na flexão de placas finas (flechas cerca de 18 % baixas). MITC4, MITC9, DKT e a casca curva não eram afetados (SA-2026-009)."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-009-shb8-thickness-locking.md", "heading": "SA-2026-009: Solid shell (SHB8-ANS) about 22 % too stiff in thin-plate bending (deflections about 18 % low)" }
+    },
+    {
+      "id": "diaphragm-rigid-rotation",
+      "resultsVersion": 1,
+      "date": "2026-10-18",
+      "prs": [342],
+      "area": "analysis",
+      "when": { "any": ["constraints"] },
+      "title": {
+        "en": "Rigid diaphragms rotate as one body",
+        "es": "Los diafragmas rígidos giran como un solo cuerpo",
+        "pt": "Diafragmas rígidos giram como um só corpo"
+      },
+      "explanation": {
+        "en": "Every node of a rigid diaphragm now rotates in plane with its master; before, the slave nodes' in-plane rotation was free, so storeys were too soft in torsion and column end torques came out zero. 3D XZ diaphragms also had the rotation's sign reversed.",
+        "es": "Todos los nudos de un diafragma rígido giran ahora en su plano con el nudo maestro; antes ese giro quedaba libre, así que los pisos eran demasiado flexibles a torsión y los torsores en los extremos de columnas daban cero. Los diafragmas 3D en el plano XZ además tenían el giro con el signo invertido.",
+        "pt": "Todos os nós de um diafragma rígido agora giram no plano com o nó mestre; antes esse giro ficava livre, então os andares eram flexíveis demais à torção e os torsores nas extremidades das colunas davam zero. Os diafragmas 3D no plano XZ também tinham o giro com o sinal invertido."
+      },
+      "changelog": { "file": "CHANGELOG.md", "heading": "Rigid diaphragm rotates as one body (2026-10-18)" }
+    },
+    {
       "id": "dead-load-default-2.52",
       "resultsVersion": 1,
       "date": "2026-10-17",

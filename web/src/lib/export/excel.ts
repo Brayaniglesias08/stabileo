@@ -26,6 +26,7 @@
  */
 import { captureProvenanceToken, provenanceForExport, provenanceLabels, ExportChangedError } from '../store/result-provenance';
 import { provenanceTextLines, type ResultProvenance } from '../provenance/result-provenance';
+import { runEngineActionAsync } from '../store/engine-action';
 import { memberSectionLabel } from '../section/variable';
 // Type-only: erased at build time, so it costs the bundle nothing.
 import type * as Xlsx from 'xlsx';
@@ -594,9 +595,13 @@ export function combinationPeakRows(): Array<[string, number, number, number, nu
   return data;
 }
 
-/** Write the workbook. False when it was not written (said to the reader already). */
+/**
+ * Write the workbook. False when it was not written (said to the reader already). Its result
+ * sheets read station forces and checks from the engine; without it, or when it refuses, the
+ * export says so (an error toast) instead of failing silently.
+ */
 export async function exportToExcel(options: ExcelExportOptions = {}): Promise<boolean> {
-  const wb = await buildExcelWorkbook(options);
+  const wb = await runEngineActionAsync(() => buildExcelWorkbook(options));
   if (!wb) return false;
   XLSX.writeFile(wb, options.filename ?? 'analisis-estructural.xlsx');
   return true;

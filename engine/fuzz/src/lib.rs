@@ -18,15 +18,9 @@ use serde_json::Value;
 
 pub mod audit;
 
-/// Fields whose documented values include +∞ (serialized as `null`):
-/// - `relBound`: +∞ when ũ = 0 but the absolute bound is not 0;
-/// - `omega2Upper`: +∞ when the residual is too large to bound ω² from above;
-/// - `uniquenessRadius`: +∞ for a linear P-Delta model (β = 0);
-/// - `bimoment` of a force bound: combinations and envelopes do not combine
-///   the warping bimoment and report it unbounded (certify/combinations.rs);
-/// - `b2Factor`: +∞ when the P-Delta solve fails or K + K_G is not positive
-///   definite, reported with `isStable: false` (checked in `check_certificates`).
-pub const ALLOWED_NON_FINITE: &[&str] = &["relBound", "omega2Upper", "uniquenessRadius", "bimoment", "b2Factor"];
+/// Fields whose documented values include +∞ (serialized as `null`); see
+/// `certify::finite::DOCUMENTED_INFINITE`. Only +∞ is allowed there, never NaN.
+pub use dedaliano_engine::certify::finite::DOCUMENTED_INFINITE as ALLOWED_NON_FINITE;
 
 /// Caps on the integer knobs that scale the work (time steps, iterations,
 /// subdivisions).
@@ -121,10 +115,7 @@ where
 
 /// Finite numbers (outside `ALLOWED_NON_FINITE`) and consistent certificates.
 pub fn check_output<O: Serialize>(name: &str, out: &O) {
-    let bad: Vec<String> = audit::non_finite_paths(out)
-        .into_iter()
-        .filter(|p| !ALLOWED_NON_FINITE.iter().any(|f| p.ends_with(&format!(".{f}"))))
-        .collect();
+    let bad: Vec<String> = audit::undocumented_non_finite(out);
     assert!(bad.is_empty(), "{name}: non-finite numbers in an Ok result at {bad:?}");
     let v = serde_json::to_value(out).expect("result serializes");
     check_certificates(name, "$", &v);

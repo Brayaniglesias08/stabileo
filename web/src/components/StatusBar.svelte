@@ -2,7 +2,9 @@
   import { displayUnits } from '../lib/store/display-units.svelte';
   import { uiStore, modelStore } from '../lib/store';
   import { toDisplay, unitLabel } from '../lib/utils/units';
-  import { t } from '../lib/i18n';
+  import { t, i18n } from '../lib/i18n';
+  import { APP_VERSION } from '../lib/build-info';
+  import { RESULTS_CHANGED_IN, releaseNotesUrl } from '../lib/release/whats-new';
   import CadProvenancePanel from './CadProvenancePanel.svelte';
 
   let showProvenance = $state(false);
@@ -109,6 +111,14 @@
       <span class="status-value">{len(uiStore.gridSize)} {unitLabel('length', uiStore.unitSystem)}</span>
     </div>
   {/if}
+  <a
+    class="status-version"
+    href={releaseNotesUrl(i18n.locale, APP_VERSION === 'dev' ? RESULTS_CHANGED_IN : APP_VERSION)}
+    target="_blank"
+    rel="noopener noreferrer"
+    title={t('whatsNew.notesLink')}
+    data-testid="app-version"
+  >v{APP_VERSION}</a>
 </div>
 
 <style>
@@ -131,6 +141,16 @@
     cursor: pointer;
   }
   .draft-badge:hover { background: var(--st-surface-3); }
+
+  .status-version {
+    margin-left: auto;
+    color: var(--st-text-3);
+    font-family: var(--st-mono);
+    font-size: 0.66rem;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .status-version:hover { color: var(--st-text); text-decoration: underline; }
 
   .status-item {
     display: flex;

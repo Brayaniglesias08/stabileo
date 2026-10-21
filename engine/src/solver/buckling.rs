@@ -57,6 +57,8 @@ pub struct BucklingSystem2D {
     pub k_ff: CscMatrix,
     pub neg_kg_csc: CscMatrix,
     pub inclined_transforms_2d: Vec<InclinedTransformData2D>,
+    /// Each element's mean axial force at the linear solution (what Kg is built from).
+    pub mean_n: HashMap<usize, f64>,
 }
 
 #[doc(hidden)]
@@ -70,13 +72,24 @@ pub fn buckling_system_2d(input: &SolverInput) -> Result<BucklingSystem2D, Strin
         return Err("No free DOFs".into());
     }
 
+    // Global-axes displacements of the linear solution (its results are
+    // reported in global axes, also at inclined rollers).
+    let mut u = vec![0.0; dof_num.n_total];
+    for d in &linear.displacements {
+        for (i, v) in [d.ux, d.uz, d.ry].into_iter().enumerate() {
+            if let Some(&dof) = dof_num.map.get(&(d.node_id, i)) {
+                u[dof] = v;
+            }
+        }
+    }
+
     // 2. Check for compression before assembling anything. There are no surface
     //    elements on the 2D path, so the axial forces answer this on their own —
     //    a frame in pure tension can bail here and skip both assemblies below.
-    let has_compression = linear.element_forces.iter().any(|ef| {
-        (ef.n_start + ef.n_end) / 2.0 < -1e-6
-    });
-    if !has_compression {
+    //    The mean force Kg is built from, not the end average: under an axial
+    //    span load both end forces can be 0 with the member compressed.
+    let mean_n = super::geometric_stiffness::mean_axial_forces_2d(input, &dof_num, &u);
+    if !mean_n.values().any(|&n| n < -1e-6) {
         return Err("No compressed elements — buckling not applicable".into());
     }
 
@@ -91,16 +104,6 @@ pub fn buckling_system_2d(input: &SolverInput) -> Result<BucklingSystem2D, Strin
     //    place — we solve K·φ = λ·(-Kg)·φ for positive eigenvalues, and nothing
     //    reads the un-negated Kg.
     let neg_kg_csc = {
-        // Global-axes displacements of the linear solution (its results are
-        // reported in global axes, also at inclined rollers).
-        let mut u = vec![0.0; dof_num.n_total];
-        for d in &linear.displacements {
-            for (i, v) in [d.ux, d.uz, d.ry].into_iter().enumerate() {
-                if let Some(&dof) = dof_num.map.get(&(d.node_id, i)) {
-                    u[dof] = v;
-                }
-            }
-        }
         let mut kg = KgTriplets::new(if inclined_transforms_2d.is_empty() { nf } else { dof_num.n_total });
         emit_geometric_stiffness_2d(input, &dof_num, &u, &mut |i, j, v| if i >= j { kg.add(i, j, v) });
         if !inclined_transforms_2d.is_empty() {
@@ -112,7 +115,7 @@ pub fn buckling_system_2d(input: &SolverInput) -> Result<BucklingSystem2D, Strin
         }
         kg_csc
     };
-    Ok(BucklingSystem2D { linear, dof_num, k_ff, neg_kg_csc, inclined_transforms_2d })
+    Ok(BucklingSystem2D { linear, dof_num, k_ff, neg_kg_csc, inclined_transforms_2d, mean_n })
 }
 
 /// Solve 2D buckling analysis.
@@ -129,7 +132,7 @@ pub fn solve_buckling_2d(
     let sec_by_id: HashMap<usize, &SolverSection> =
         crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
-    let BucklingSystem2D { linear, dof_num, k_ff, neg_kg_csc, inclined_transforms_2d } = buckling_system_2d(input)?;
+    let BucklingSystem2D { linear, dof_num, k_ff, neg_kg_csc, inclined_transforms_2d, mean_n } = buckling_system_2d(input)?;
     let nf = dof_num.n_free;
     let n = dof_num.n_total;
 
@@ -200,7 +203,7 @@ pub fn solve_buckling_2d(
     let lambda_cr = modes[0].load_factor;
     let mut element_data = Vec::new();
     for ef in &linear.element_forces {
-        let n_avg = (ef.n_start + ef.n_end) / 2.0;
+        let n_avg = mean_n.get(&ef.element_id).copied().unwrap_or((ef.n_start + ef.n_end) / 2.0);
         if n_avg >= -1e-6 {
             continue; // Skip tension elements
         }

@@ -1,14 +1,17 @@
 //! Certified response-spectrum results. See "Response spectrum" in
 //! `docs/verification/CERTIFY.md`.
 //!
-//! The certified quantity is the spectral response (SRSS or CQC, as the solver
-//! combines) of the **exact lowest `m` modes** of the pencil `(K, M)` — `m` the
+//! The certified quantity is the spectral response (SRSS or CQC, as requested — the
+//! rule applies to every quantity: displacements, each end's signed member force, base
+//! shear) of the **exact lowest `m` modes** of the pencil `(K, M)` — `m` the
 //! number of modes given — with the spectrum evaluated at the exact periods.
 //! Nothing the input says about frequencies, participation factors or
 //! effective masses is trusted; the given mode shapes and ω are candidates.
 //!
 //! Per mode, with `C = K^{-1/2}MK^{-1/2}`, `y = K^{1/2}φ`, `b = K^{-1/2}Mr`
-//! (`r` the influence vector), the exact peak modal displacement is
+//! (`Mr` the ground-motion load (M·r)_f: the full mass times the rigid translation of
+//! every node, supports included, so the inertia a consistent mass couples to the moving
+//! supports is part of it), the exact peak modal displacement is
 //!
 //! `u* = φ (φᵀMr)/(φᵀMφ) · Sa(T)/ω² = K^{-1/2} Π b · Sa(T)`,
 //!
@@ -27,6 +30,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use super::finite;
 use super::forces::{force_bounds_2d, force_bounds_3d};
 use super::interval::Interval;
 use super::modal::isolate_modes;
@@ -35,9 +39,12 @@ use crate::linalg::sparse::CscMatrix;
 use crate::solver::assembly::assemble_stiffness_sparse_3d;
 use crate::solver::dof::DofNumbering;
 use crate::solver::linear::{compute_internal_forces_2d_with_loads, compute_internal_forces_3d_with_loads};
-use crate::solver::mass_matrix::{assemble_mass_matrix_2d_sparse, assemble_mass_matrix_3d_sparse};
+use crate::solver::mass_matrix::{
+    assemble_mass_matrix_2d_sparse, assemble_mass_matrix_2d_sparse_block, assemble_mass_matrix_3d_sparse,
+    assemble_mass_matrix_3d_sparse_block,
+};
 use crate::solver::sparse_assembly::assemble_stiffness_sparse_2d;
-use crate::solver::spectral::{solve_spectral_2d, solve_spectral_3d, SpectralResult, SpectralResult3D};
+use crate::solver::spectral::{solve_spectral_2d, solve_spectral_3d, CombinationRule, SpectralResult, SpectralResult3D};
 use crate::types::*;
 
 #[inline]
@@ -62,8 +69,13 @@ impl Enclosure {
         Enclosure { lo: i.lo, hi: i.hi }
     }
 
-    /// Upper bound on |exact − x| for every exact value in the enclosure.
+    /// Upper bound on |exact − x| for every exact value in the enclosure;
+    /// +∞ when `x` or the enclosure is not finite (`f64::max` drops NaN, so
+    /// a NaN `x` used to give 0, issue #335).
     pub fn error_of(&self, x: f64) -> f64 {
+        if !(x.is_finite() && self.lo.is_finite() && self.hi.is_finite()) {
+            return f64::INFINITY;
+        }
         up(up(self.hi - x).max(up(x - self.lo))).max(0.0)
     }
 
@@ -115,6 +127,8 @@ pub enum SpectralCertificate {
     Uncertified { reason: String },
 }
 
+super::finite::guarded_enum!(SpectralCertificate);
+
 impl SpectralCertificate {
     fn uncertified(reason: impl Into<String>) -> Self {
         SpectralCertificate::Uncertified { reason: reason.into() }
@@ -139,16 +153,22 @@ pub struct CertifiedSpectral3D {
     pub certificate: SpectralCertificate,
 }
 
-/// Solve 2D spectral analysis and certify it.
+/// Solve 2D spectral analysis and certify it. A non-finite number in the
+/// input or the results is an `Err`.
 pub fn certify_spectral_2d(input: &SpectralInput) -> Result<CertifiedSpectral2D, String> {
+    finite::check_input(input)?;
     let results = solve_spectral_2d(input)?;
+    finite::check_results(&results)?;
     let certificate = certify_spectral_results_2d(input, &results);
     Ok(CertifiedSpectral2D { results, certificate })
 }
 
-/// Solve 3D spectral analysis and certify it.
+/// Solve 3D spectral analysis and certify it. A non-finite number in the
+/// input or the results is an `Err`.
 pub fn certify_spectral_3d(input: &SpectralInput3D) -> Result<CertifiedSpectral3D, String> {
+    finite::check_input(input)?;
     let results = solve_spectral_3d(input)?;
+    finite::check_results(&results)?;
     let certificate = certify_spectral_results_3d(input, &results);
     Ok(CertifiedSpectral3D { results, certificate })
 }
@@ -159,8 +179,10 @@ struct Problem<'a> {
     m: CscMatrix,
     /// Computed (λ̃ = ω̃², φ̃ on free DOFs), in input order.
     modes: Vec<(f64, Vec<f64>)>,
-    /// Influence vector on free DOFs.
-    r: Vec<f64>,
+    /// The ground-motion load (M·r)_f on the free DOFs: the full mass times the rigid
+    /// translation of every node, supports included, enclosed. With a consistent mass the
+    /// free DOFs carry M_fr·r_r besides M_ff·r_f, as the solver's participation does.
+    mr: Vec<Interval>,
     spectrum: &'a DesignSpectrum,
     /// (9.81 if in g)·importance/reduction, enclosed.
     scale: Interval,
@@ -192,6 +214,7 @@ fn certify_2d_inner(input: &SpectralInput, results: &SpectralResult) -> Result<S
         return Err("unsupported: inclined supports".into());
     }
     let m = assemble_mass_matrix_2d_sparse(solver, &dof, &input.densities);
+    let m_full = assemble_mass_matrix_2d_sparse_block(solver, &dof, &input.densities, dof.n_total);
     let modes = input
         .modes
         .iter()
@@ -209,15 +232,15 @@ fn certify_2d_inner(input: &SpectralInput, results: &SpectralResult) -> Result<S
             (md.omega * md.omega, phi)
         })
         .collect();
-    let dir = if input.direction == "X" { 0 } else { 1 };
+    let dir = crate::solver::spectral::spectral_direction(&input.direction, &["X", "Y"])?;
     let p = Problem {
         k: stiff.k_ff,
         m,
         modes,
-        r: influence(&dof, dir),
+        mr: ground_load(&m_full, &dof, dir),
         spectrum: &input.spectrum,
         scale: scale(&input.spectrum, input.importance_factor, input.reduction_factor),
-        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi),
+        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi)?,
     };
     let cores = mode_cores(&p)?;
     let n_comp = 3;
@@ -230,14 +253,7 @@ fn certify_2d_inner(input: &SpectralInput, results: &SpectralResult) -> Result<S
         compute_internal_forces_2d_with_loads(solver, &[], &dof, &full(u))
             .iter()
             .map(|f| {
-                (
-                    f.element_id,
-                    vec![
-                        f.n_start.abs().max(f.n_end.abs()),
-                        f.v_start.abs().max(f.v_end.abs()),
-                        f.m_start.abs().max(f.m_end.abs()),
-                    ],
-                )
+                (f.element_id, vec![f.n_start, f.v_start, f.m_start, f.n_end, f.v_end, f.m_end])
             })
             .collect()
     };
@@ -269,6 +285,7 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
         return Err("unsupported: inclined supports".into());
     }
     let m = assemble_mass_matrix_3d_sparse(solver, &dof, &input.densities);
+    let m_full = assemble_mass_matrix_3d_sparse_block(solver, &dof, &input.densities, dof.n_total);
     let modes = input
         .modes
         .iter()
@@ -286,19 +303,15 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
             (md.omega * md.omega, phi)
         })
         .collect();
-    let dir = match input.direction.as_str() {
-        "X" => 0,
-        "Y" => 1,
-        _ => 2,
-    };
+    let dir = crate::solver::spectral::spectral_direction(&input.direction, &["X", "Y", "Z"])?;
     let p = Problem {
         k: stiff.k_ff,
         m,
         modes,
-        r: influence(&dof, dir),
+        mr: ground_load(&m_full, &dof, dir),
         spectrum: &input.spectrum,
         scale: scale(&input.spectrum, input.importance_factor, input.reduction_factor),
-        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi),
+        cqc_xi: cqc_xi(input.rule.as_deref(), input.xi)?,
     };
     let cores = mode_cores(&p)?;
     let full = |u: &[f64]| {
@@ -310,16 +323,11 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
         compute_internal_forces_3d_with_loads(solver, &[], &dof, &full(u))
             .iter()
             .map(|f| {
-                let mx = |a: f64, b: f64| a.abs().max(b.abs());
                 (
                     f.element_id,
                     vec![
-                        mx(f.n_start, f.n_end),
-                        mx(f.vy_start, f.vy_end),
-                        mx(f.vz_start, f.vz_end),
-                        mx(f.mx_start, f.mx_end),
-                        mx(f.my_start, f.my_end),
-                        mx(f.mz_start, f.mz_end),
+                        f.n_start, f.vy_start, f.vz_start, f.mx_start, f.my_start, f.mz_start,
+                        f.n_end, f.vy_end, f.vz_end, f.mx_end, f.my_end, f.mz_end,
                     ],
                 )
             })
@@ -339,25 +347,39 @@ fn certify_3d_inner(input: &SpectralInput3D, results: &SpectralResult3D) -> Resu
 }
 
 /// Certify given 2D spectral results of `input`.
+/// Uncertified when the input, the results or the bounds are not finite.
 pub fn certify_spectral_results_2d(input: &SpectralInput, results: &SpectralResult) -> SpectralCertificate {
-    certify_2d_inner(input, results).unwrap_or_else(SpectralCertificate::uncertified)
+    let mut c = finite::check_input(input)
+        .and_then(|()| finite::check_results(results))
+        .and_then(|()| certify_2d_inner(input, results))
+        .unwrap_or_else(SpectralCertificate::uncertified);
+    finite::guard(&mut c);
+    c
 }
 
 /// Certify given 3D spectral results of `input`.
+/// Uncertified when the input, the results or the bounds are not finite.
 pub fn certify_spectral_results_3d(input: &SpectralInput3D, results: &SpectralResult3D) -> SpectralCertificate {
-    certify_3d_inner(input, results).unwrap_or_else(SpectralCertificate::uncertified)
+    let mut c = finite::check_input(input)
+        .and_then(|()| finite::check_results(results))
+        .and_then(|()| certify_3d_inner(input, results))
+        .unwrap_or_else(SpectralCertificate::uncertified);
+    finite::guard(&mut c);
+    c
 }
 
-fn influence(dof: &DofNumbering, dir: usize) -> Vec<f64> {
-    let mut r = vec![0.0; dof.n_free];
+/// (M·r)_f enclosed: `m_full` the mass over all DOFs, r = 1 on every node's translation
+/// along `dir` (supports included), the free rows kept.
+fn ground_load(m_full: &CscMatrix, dof: &DofNumbering, dir: usize) -> Vec<Interval> {
+    let mut r = vec![0.0; dof.n_total];
     for &node in &dof.node_order {
         if let Some(&d) = dof.map.get(&(node, dir)) {
-            if d < dof.n_free {
-                r[d] = 1.0;
-            }
+            r[d] = 1.0;
         }
     }
-    r
+    let mut mr = sym_mul(m_full, &r);
+    mr.truncate(dof.n_free);
+    mr
 }
 
 fn scale(spectrum: &DesignSpectrum, importance: Option<f64>, reduction: Option<f64>) -> Interval {
@@ -367,11 +389,12 @@ fn scale(spectrum: &DesignSpectrum, importance: Option<f64>, reduction: Option<f
     (Interval::point(g) * Interval::point(i)).div(Interval::point(r))
 }
 
-fn cqc_xi(rule: Option<&str>, xi: Option<f64>) -> Option<f64> {
-    match rule.unwrap_or("CQC") {
-        "SRSS" => None,
-        _ => Some(xi.unwrap_or(0.05)),
-    }
+/// The CQC damping ratio for the rule the solver applies, None for SRSS.
+fn cqc_xi(rule: Option<&str>, xi: Option<f64>) -> Result<Option<f64>, String> {
+    Ok(match CombinationRule::parse(rule)? {
+        CombinationRule::Srss => None,
+        CombinationRule::Cqc => Some(xi.unwrap_or(0.05)),
+    })
 }
 
 /// Exact range of the piecewise-linear spectrum (constant beyond its ends, as
@@ -443,7 +466,7 @@ fn mode_cores(p: &Problem) -> Result<Vec<ModeCore>, String> {
     if p.modes.is_empty() {
         return Err("no modes".into());
     }
-    if p.m.n != n || p.r.len() != n {
+    if p.m.n != n || p.mr.len() != n {
         return Err("dimension mismatch".into());
     }
     let kv: Vec<Interval> = p.k.values.iter().map(|&x| Interval::point(x)).collect();
@@ -459,8 +482,8 @@ fn mode_cores(p: &Problem) -> Result<Vec<ModeCore>, String> {
     let sorted: Vec<(f64, Vec<f64>)> = order.iter().map(|&i| p.modes[i].clone()).collect();
     let iso = isolate_modes(&p.k, &kv, &p.m, &mv, sigma_k, &sorted)?;
 
-    let mr = sym_mul(&p.m, &p.r);
-    let mr_norm = norm_up(&mr).ok_or("non-finite M·r")?;
+    let mr = &p.mr;
+    let mr_norm = norm_up(mr).ok_or("non-finite M·r")?;
     let two_pi = Interval::new(2.0 * std::f64::consts::PI, up(2.0 * std::f64::consts::PI));
     let mut out: Vec<Option<ModeCore>> = (0..p.modes.len()).map(|_| None).collect();
     for (&idx, is) in order.iter().zip(&iso) {
@@ -490,7 +513,7 @@ fn mode_cores(p: &Problem) -> Result<Vec<ModeCore>, String> {
         if !(pkp.lo > 0.0) {
             return Err(format!("mode {}: φᵀKφ not certified positive", idx + 1));
         }
-        let pmr = dot(phi, &mr);
+        let pmr = dot(phi, mr);
         let alpha = pmr.div(pkp) * sa;
         let e = up(up(up(sin_theta * mr_norm) * sa.mag()) / sigma_k);
         // meff = λ‖Πb‖², ‖Πb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθ‖Mr‖/√σ_K.
@@ -572,7 +595,8 @@ fn combine(vals: &[Interval], rho: Option<&Vec<Vec<Interval>>>) -> Interval {
     abs.sqrt()
 }
 
-/// Per-member force components (max |start|, |end|) at a modal displacement.
+/// Per-member signed end-force components at a modal displacement:
+/// `[start components…, end components…]` (`2·n_comp` values).
 type ForcesFn<'a> = dyn Fn(&[f64]) -> Vec<(usize, Vec<f64>)> + 'a;
 /// Per-member force error bounds for a displacement error bound.
 type BoundsFn<'a> = dyn Fn(f64) -> HashMap<usize, Vec<f64>> + 'a;
@@ -590,6 +614,13 @@ fn finish(
     reported_base_shear: f64,
 ) -> Result<SpectralCertificate, String> {
     let nf = dof.n_free;
+    // Every reported value is certified against an enclosure: a non-finite
+    // one cannot be (and `error_of` would otherwise be the only guard).
+    if !reported_disp.values().chain(reported_forces.values()).flatten().all(|x| x.is_finite())
+        || !reported_base_shear.is_finite()
+    {
+        return Err("non-finite reported value".into());
+    }
     let rho = match p.cqc_xi {
         Some(xi) => Some(cqc_matrix(cores, xi)?),
         None => None,
@@ -649,10 +680,17 @@ fn finish(
             let Some(db) = fb.get(&id) else {
                 return Err(format!("no force bound for element {id}"));
             };
+            if vals.len() != 2 * n_comp || db.len() != n_comp {
+                return Err(format!("element {id}: force component count mismatch"));
+            }
+            // The bound of each component holds at both ends (max over the end rows).
             let encl: Vec<Interval> = vals
                 .iter()
-                .zip(db)
-                .map(|(&v, &d)| Interval::new(down(v - d).max(0.0), up(v + d)))
+                .enumerate()
+                .map(|(k, &v)| {
+                    let d = db[k % n_comp];
+                    Interval::new(down(v - d), up(v + d))
+                })
                 .collect();
             per_elem.entry(id).or_default().push(encl);
         }
@@ -668,8 +706,11 @@ fn finish(
         }
         let mut values = Vec::with_capacity(n_comp);
         for comp in 0..n_comp {
-            let vals: Vec<Interval> = modes.iter().map(|m| m[comp]).collect();
-            let iv = combine(&vals, rho.as_ref());
+            // Each end's signed value is combined, then the envelope of the two ends.
+            let start: Vec<Interval> = modes.iter().map(|m| m[comp]).collect();
+            let end: Vec<Interval> = modes.iter().map(|m| m[n_comp + comp]).collect();
+            let (cs, ce) = (combine(&start, rho.as_ref()), combine(&end, rho.as_ref()));
+            let iv = Interval::new(cs.lo.max(ce.lo), cs.hi.max(ce.hi));
             if !iv.is_finite() {
                 return Err(format!("non-finite force enclosure for element {id}"));
             }
@@ -685,9 +726,9 @@ fn finish(
         element_forces.push(ItemEnclosure { id, values });
     }
 
-    // Base shear: SRSS of meff_i·Sa_i (the solver always uses SRSS here).
+    // Base shear: meff_i·Sa_i combined with the requested rule, as the solver does.
     let shear_vals: Vec<Interval> = cores.iter().map(|c| c.meff * c.sa).collect();
-    let bs = combine(&shear_vals, None);
+    let bs = combine(&shear_vals, rho.as_ref());
     if !bs.is_finite() {
         return Err("non-finite base shear enclosure".into());
     }

@@ -30,6 +30,350 @@ differ in the last digits (2D displacements, equilibrium sums, inclined-support 
   `cargo run --release --example reproduce` does the same natively from the exported solver input.
 - Engine: `crate::ordered` (key-ordered iteration of input maps), `DofNumbering::entries_by_dof`,
   WASM `engine_build_info` and `engine_reproduce_hashes`, `tests/determinism.rs`.
+#### Design checks against published worked examples, part 2 (2026-10-18)
+
+**BREAKING (results): cold-formed columns, steel columns braced about their weak axis, masonry
+walls and partially grouted masonry shear walls get lower (correct) strengths; cold-formed
+compression without `xo` is reported unevaluated.** Examples, sources and discrepancies in
+`docs/verification/DESIGN_EXAMPLES.md` (D18–D31); tests in `engine/tests/design_worked_examples_2.rs`.
+
+- `cfs_check`: flexural-torsional buckling (AISI S100 E2.2) from the new `xo`, `kx_lx`, `kt_lt`.
+  It was weak-axis flexural buckling only: AISI Design Manual Ex. III-3 gave Pn = 10.4 against
+  6.88 kips (+51 %). Without `xo` a compression demand is unevaluated.
+- `steel_check`: AISC E4-2 torsional buckling of doubly symmetric members (`lcz`, default the
+  longer flexural length); refused when the member can twist over a longer length than it buckles
+  about y and neither J nor Cw is given. Constrained-axis torsion (girts on one flange) is still
+  not covered (D20).
+- `masonry_check`: untied bars no longer count in Pn (`laterally_tied`, +14 % before); shear
+  carries γg (`gamma_g`, default 0.70 when An < b·t, +33 % before).
+- `timber_check`: `le_bending` (Table 3.3.3 row when the loading is known) and `le_b` (column
+  length across b, 0 for sheathing). Defaults unchanged.
+- `foundation_check`: `neglect_size_effect` opts in to ACI 318-19 §13.2.6.2 (λs = 1 for
+  footings). Default unchanged (λs applied).
+
+#### Nodal masses in the engine (2026-10-18)
+
+The engine took mass only from material density. `SolverInput`/`SolverInput3D` now take
+`masses`: lumped **nodal** masses (t per direction, rotary inertia in t·m²), mass per length along
+members (**line**, t/m) and, in 3D, per area over shells (**area**, t/m²). They are assembled into
+every mass matrix (dense and sparse, inclined-support frames, before constraint reduction), so
+modal, mass participation, spectral, time history, harmonic, Guyan/Craig–Bampton and their
+certificates all see them; mass ratios divide by the mass per direction. Models without `masses`
+give the same results as before. (#341)
+
+- Validated against closed forms (SDOF, 2-DOF, torsional SDOF, cantilever with a tip mass),
+  equivalent models (raised density, slave masses through a diaphragm, an MPC in place of an
+  inclined support), the Bathe–Wilson frame and the SAC LA 3-storey case with the acceptance
+  suite's mass stubs replaced by nodal masses: `engine/tests/nodal_masses.rs`.
+- Web: the mass source sends load mass as line and area masses instead of copies of the material
+  with a raised density (same modes to 1e-10, tested), and point masses — with a button for floor
+  masses on the diaphragm masters — from the mass-source panel (en/es/pt).
+
+#### Rigid diaphragm rotates as one body (2026-10-18)
+
+**BREAKING (results): every node of a rigid diaphragm now rotates in plane with its master**
+(θz for an XY diaphragm, θ in 2D). The slave nodes' own in-plane rotation was left free, so the
+columns under a rigid floor twisted against nothing at their tops: storeys were too soft in
+torsion and the column end torques came out zero. SAP2000/ETABS diaphragms and OpenSees
+`rigidDiaphragm` tie it. Engine inputs with a diaphragm get new results (torsional periods,
+column torques and moments, drifts); models without one are unchanged. Web projects are
+unchanged: the web already added an equalDOF on that rotation for every slave, which is removed
+now that the engine ties it. (#342)
+
+- `engine/src/solver/constraints.rs`: both the dependent-DOF list used by validation and the
+  constraint equations tie the slave's in-plane rotation; inclined-support frames go through the
+  same equations.
+- **BREAKING (results): 3D XZ diaphragms** coupled the slave to −θy (the XY lever pattern); they
+  now follow ω × r. **Diaphragms in all-truss models are refused**: with no rotational DOFs the
+  floor's rotation cannot be represented (a 3D one tied uz instead). In 2D, plane "XZ" is the
+  model plane as "XY" is; "YZ" is refused.
+- **BREAKING (results): web 2D solves** sent 3D floor (XY) diaphragms as a rigid body in the
+  frame's plane, making floor beams rigid in vertical bending; a floor now ties ux only, a YZ wall
+  uz only, an XZ diaphragm stays a 2D diaphragm.
+- `engine/tests/diaphragm_rotation.rs`: a storey with a diaphragm matches the same storey with a
+  floor of in-plane-rigid beams (displacements, column end forces, periods to 1e-4); slave θz =
+  master θz in static, modal, 2D and inclined-support cases. On the old code the torsional period
+  of that storey came out 6.9 % long and the column torques were zero.
+#### Solid shell: Poisson thickness locking and in-plane locking removed (2026-10-18, #400)
+
+**BREAKING (results): solid-shell (SHB8) models with ν ≠ 0 deflect more — about 22 % more in
+thin-plate bending at ν = 0.3 — and solid shells bent in their own plane deflect up to ~10×
+more.** The old values were too stiff (unconservative for deflections; moments in indeterminate
+structures and modal frequencies shift too). Re-run solid-shell models.
+
+- Root cause: the trilinear element's thickness strain is constant through the thickness, so
+  bending with ν ≠ 0 carried a spurious σ_zz and used the constrained modulus
+  E(1 − ν)/((1 + ν)(1 − 2ν)) instead of E/(1 − ν²): 1.225× too stiff at ν = 0.3 on every mesh
+  (simply supported plate centre deflection 0.80–0.82 of Navier under refinement). Separately,
+  in-plane bending locked through parasitic in-plane shear (MacNeal–Harder in-plane cantilever
+  0.09).
+- Fix (`engine/src/element/solid_shell.rs`): five condensed enhanced assumed strains, Simo–Rifai
+  mapped so the patch test holds — the thickness mode E_ζζ ∝ ζ (Büchter–Ramm–Roehl) and the
+  membrane EAS-4 set (Andelfinger–Ramm) — on top of the existing covariant ANS. Stress recovery
+  uses the same ANS + EAS strains.
+- Now: thin plate (t/a = 0.01, 0.001) → Kirchhoff at observed order 2.0 (32×32: 1.0000); thick
+  plate → Mindlin with κ = 1 (the single-layer limit, 0.8 % / 2.9 % stiffer than κ = 5/6 at
+  t/a = 0.1 / 0.2); pure bending with ν exact; Scordelis–Lo 0.997 (16×16); pinched cylinder 0.988
+  (32×32); hemisphere 0.98–1.00; MacNeal–Harder straight cantilever out-of-plane 0.96–0.98,
+  in-plane 0.98 regular / 0.62 parallelogram / 0.05 trapezoidal (trapezoidal locking, inherent).
+- Tests: `engine/tests/solid_shell_locking.rs`; solid-shell benchmarks tightened (Navier 0.5–2.0×
+  → ±1 %, Scordelis–Lo, twisted beam, hemisphere). Two benchmark bugs fixed: the Navier reference
+  lacked the series' alternating sign (5.7 % high), and the solid-shell hemisphere tests pulled
+  both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
+### Fixed
+
+#### Silent errors from the element-derivations review: 2D-in-3D signs, settlements, Winkler, imperfections, constraints (2026-10-18)
+
+**BREAKING (results): a flat 2D model solved by the 3D solver now turns nodal moments and
+prescribed rotations the right way** (#435, AC-15). Standing the plane in X–Z is a reflection:
+the plane's counter-clockwise θ is a rotation about −Y. Both went in unchanged, so the embedded
+solve modelled the mirror image of the load and the support rotation (a nodal couple moved the
+loaded node up instead of down). `buildSolverLoads3D` sends `my = −M` (the hunk is identical to
+#274's) and the support mapping `dry = −θ`. Store-level test of every rotation-carrying input
+against the 2D solve (`embed-2d-rotations-store.test.ts`); member couples are #343/#274.
+
+**BREAKING (results): Winkler member forces include the bed** (AC-7). End forces are
+(K_e + K_f)·u − FEF; they were K_e·u − FEF, so a free end on a bed reported −K_f·u of shear and
+moment, and the shear jumped at every node. The bed reaction −k_f·v(x) is reported with the
+member loads (16 linear pieces) so a diagram closes. Checked against Hetényi's beam on an
+elastic foundation (w₀, M₀ = P/4λ, V = P/2, M(x)) in 2D and in 3D for both beds. The 3D `kz`
+bed uses D·K_f·D (AC-6, the hunk of #330). A bed on a member with a released end is refused. The
+Winkler solves build the prescribed displacements as the linear solve does (the inclined-roller
+projection was missing).
+
+**BREAKING (results): one stored constraint means one thing in the 2D and the 3D solve**
+(AC-3, AC-5). The web sent a floor (XY) diaphragm to the 2D solver as it was, which reads it as
+the in-plane rigid body and so made the beam it spans rigid in bending; it now sends its trace on
+the X–Z plane (XY: equal u_x, YZ: equal u_z, XZ: the rigid body). A rigid link with no DOFs
+listed, a pinned arm in 3D, was a fixed arm in 2D: it is now sent as [u_x, u_z]. A linear MPC
+term on ry keeps its meaning in 2D (θ = −ry: the coefficient turns). The engine's own defaults
+are unchanged and documented in `types/input.rs`.
+
+**New refusals instead of silently ignored input:**
+- **Settlements on a DOF the support leaves free** (AC-10): a 2D `pinned` with `dry`, any
+  settlement on a `spring` support, a roller's off-axis component, a rotation in a truss-only
+  model, a 3D unflagged DOF or one a spring frees, a free rotation at an inclined support.
+  The message names the support, the value and why. (At an inclined support the documented
+  projection of a global settlement on the normal stays.)
+- **Imperfections** (NL-9, NL-10, NL-11): 3D notional loads looked for gravity along Y by default
+  (Z is up) and found none; member loads were not counted as gravity. The gravity axis now
+  defaults to the model's vertical, and member loads on frames are lumped into it. Residual
+  stresses and initial displacements (never applied), a missing node, a lateral direction equal
+  to the gravity axis, shell gravity loads, and notional loads that find no gravity are refused.
+  `NotionalLoadDef.gravity_axis` is now `Option<usize>`. In the app, notional loads along Y on a
+  plane model (held out of its plane) and on a model without downward load are refused.
+### Fixed
+
+#### 2D: loads along inclined members reach the member; couples on members in the 3D solve (2026-10-18)
+
+**BREAKING (results): the axial force N of inclined plane members under global, angled or
+self-weight loads now varies along the member, and plane models solved in space take couples on
+members and no longer mirror nodal couples.** Rebase of #274 by @diegokingston onto the safety wave.
+
+- The part of a load that runs along an inclined member used to reach the 2D solver as nodal
+  loads at its ends. Reactions and displacements were right, but N came out constant at the mean
+  of its true end values. A 3-4-5 member under 10 kN/m vertical read N = 0 at both ends; the
+  correct values are −15 and +15. The diagram, inspector, despiece, report, Excel and design all
+  read that value. Point loads now put their axial part in `px`. Distributed loads and self-weight
+  use a new engine load, `axialDistributed` (dense, sparse, parallel, truss, corotational,
+  moving loads, combinations, plastic, diagrams).
+- In a plane model solved in space, a couple on a member was dropped: a beam loaded only by one
+  had zero reactions. Nodal couples went in about +Y, which is the mirror image of the drawn
+  load (standing in X–Z is a reflection), so the vertical reactions came out with the wrong
+  sign. Both kinds of couple now go in as −M about Y.
+- Where the safety wave met the new load: the event-to-event plastic solve cuts it at an
+  interior hinge the way it cuts a distributed load (before, part of the load was lost), the 2D
+  diagram certificate bounds N between stations under it (before, it certified a zero gap), and
+  the exact plastic certificate refuses it by name.
+- Plastic collapse reads |N| where it can peak inside a member (a sign-changing axial load
+  peaks between the ends), and when a member yields axially its axial point loads, and on a
+  truss its transverse loads too, stay on the structure at its ends. Before, part of the
+  load was lost, and a frame member with only an axial point load counted as crushed.
+- 2D buckling decides that a member is compressed from its mean axial force, the force its
+  geometric stiffness is built from. A member whose end forces are both 0 but which is
+  compressed along its span is no longer refused as "No compressed elements".
+- The 2D diagram certificate bounds N' by q_x on each interval, so an axial point load's jump
+  beside an axial span load is no longer dropped.
+- Corotational truss and cable bars recover the axial span load: N varies along them as in
+  the linear solve instead of being constant.
+- Staged construction applies member loads on truss bars. Before, it dropped all of them:
+  axial span loads, distributed and point loads, and temperature.
+- Moving-load envelopes of N, V and M read the diagram along each member, not only its end
+  values. Under a span load M peaks inside the span, and under a sign-changing axial load so
+  does N, so these envelopes can now be larger than before.
+- 2D models already materialized to PRO keep their old mirrored couples and lumped axial loads.
+  There is no migration.
+#### Web: real torsion constant, shear centre and warping constant for 3D sections (#439)
+
+**BREAKING (results): 3D sections reach the engine with their real J and shear centre, and
+3D buckling with their warping constant.** With the Wagner term in the geometric stiffness
+(#404) these decide torsional and flexural-torsional buckling, and the web sent none of them
+properly.
+- **J is never invented.** A section with no torsion constant used to get J = 0.001·Iy, which
+  with the Wagner term set a torsional buckling load out of nothing (spurious low modes, P-Delta
+  instabilities). J is now the tabulated or declared value, the exact one of a circle or tube,
+  or Saint-Venant solved on the section's mesh (IPE 300: 20.1 cm⁴, table 20.12). A section with
+  none is sent with J = 0 and its members released in torsion (they carry no torque in the
+  static solve), and buckling, P-Delta, co-rotational and imperfection analyses refuse those
+  members by name. The sections table shows "—" for an unknown J instead of the made-up value.
+- **Shear centre.** Solved on the section's mesh and sent as `shearCenterY/Z`, so channels,
+  tees and angles get their flexural-torsional coupling (UPN 200, 2 m: the coupled
+  twist mode at 1642 kN). A tee, channel or angle stated by its properties only has no shear
+  centre: the same analyses refuse it rather than take the centroid. A section stated by its
+  properties with no shape is taken as symmetric, as before. The co-rotational solver does not
+  model the offset and refuses these sections (#434), where it ran without the coupling.
+- **Warping constant in buckling only.** Cw is solved on the mesh (IPE 300: 125.9·10³ cm⁶ to
+  0.1 %; UPN 200: 8990 cm⁶, table 9070) and given to the buckling analysis alone, on straight
+  runs of compressed members with no end releases, most compressed first, so that no node ties
+  the warping of members at an angle (the engine's warping DOF is one per node; sharing it
+  across a beam-column joint would restrain the column's warping, the unconservative side).
+  Supports leave warping free (effective torsional length factor 1). Every other member keeps
+  Saint-Venant torsion, whose G·J/r0² is a lower bound. The static solve, modal, spectral and
+  P-Delta analyses get no Cw, so their results do not depend on it; P-Delta's torsional limit
+  stays the conservative G·J/r0². IPE 300 column, 2 m, fork supports: buckling is the
+  weak-axis Euler load 2981 kN, with the torsional mode at (GJ + π²ECw/L²)/r0² ≈ 4660 kN;
+  without Cw torsion governed at 928 kN.
+- Results that move: 3D buckling of open sections (higher torsional loads where Cw now counts,
+  lower flexural-torsional loads for channels, tees and angles), 3D static torsion of members
+  whose section had no J (now zero torque), and analyses refused for sections with no J or a
+  missing shear centre. Checked end to end through the model store
+  (`web/src/lib/engine/__tests__/section-torsion-buckling.test.ts`).
+- Torsional modes between twist restraints now appear even in members left as one element:
+  without warping the element's twist is linear, so a member whose two ends are held in twist
+  had no torsional freedom and its torsional buckling was never found (a king-post truss of IPN
+  300 beams, held out of plane at every node: torsional modes at λ = 11.6 behind the in-plane
+  51.7, which the space model now shows). The twist inside one warping element is a cubic, like
+  the deflection, so one element between twist restraints overestimates the Cw term (only) as it
+  overestimates the Euler load (up to 21.6 % for fork ends); two elements bring it under 1 %.
+
+#### Torsional buckling and response-spectrum combination fixed (2026-10-18)
+
+**BREAKING (results): 3D linear buckling and P-Delta now include the torsional terms of the
+frame geometric stiffness** (#404). The Wagner term P·r0²·θ'² (r0² = (Iy + Iz)/A + y0² + z0²
+about the shear centre) and the shear-centre coupling were missing, so torsional and
+flexural-torsional buckling were never found and the flexural load was reported instead
+(unconservative: a 200×10 mm cruciform, L = 1.5 m, reported 5860 kN for a governing 2993 kN,
++96%). Load factors drop for cruciforms, angles, tees, channels and short open sections.
+- New optional section fields `shearCenterY`, `shearCenterZ` (m, from the centroid, local
+  axes) for monosymmetric and asymmetric sections; absent = 0.
+- Sections without `cw` have no warping stiffness in the model, so their torsional buckling
+  load is GJ/r0²: conservative for I-sections, and for short I columns it can now govern.
+  Declare `cw` (warping DOFs) for open sections whose torsional load matters.
+- One Kg for every path: buckling, P-Delta tangent and second-order forces, the buckling
+  and P-Delta certificates, `build_kg_from_forces_3d`, 12-DOF (linear twist) and 14-DOF
+  warping (cubic twist) members, releases (a torsion release removes the terms). The
+  co-rotational solver adds the Wagner torque to its residual and tangent and refuses
+  sections with a shear-centre offset.
+- Checked against Euler, P_T = (GJ + π²ECw/L²)/r0², the flexural-torsional cubic for
+  channels, tees and an asymmetric section, the P-Delta twist amplification 1/(1 − P/P_T),
+  and unchanged I-section loads where flexure governs
+  (`engine/tests/torsional_buckling_and_spectral.rs`).
+
+**BREAKING (results): response spectrum** (#405).
+- The base shear is combined with the requested rule. It was always SRSS, also under CQC
+  (unconservative for closely spaced modes: ×1/1.23 at ω₂ = 1.1ω₁).
+- Member forces combine each end's signed per-mode value and take the envelope of the two
+  ends afterwards. They combined the per-mode max(|start|, |end|), which made every CQC cross
+  term non-negative (conservative, up to 2.7× for opposite-sign modes). Lower forces are
+  possible where modes contribute with opposite signs.
+- An unknown combination rule is refused (it ran CQC silently); SRSS/CQC are case-insensitive.
+
+**BREAKING (results): modal participation includes the support-coupled mass** (#405).
+Γ and the effective masses used M_ff·r_f; with a consistent mass the ground-motion load is
+(M·r)_f = M_ff·r_f + M_fr·r_r, as time history already applied. Participation factors,
+effective masses and mass ratios rise (a one-element cantilever: Σ M_eff from 37% to 75%
+of the mass, the rest moving rigidly with the support), and the spectral displacements and
+forces now have the exact static limit. The spectral certificate uses the same load.
+
+## 0.2.0 (2026-10-18)
+
+**Results change: re-run your projects.** Release notes for users, in English, Spanish and
+Portuguese: [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md) ·
+[es](docs/releases/v0.2.0.es.md) · [pt](docs/releases/v0.2.0.pt.md). They list every change
+that affects results (defaults, loads and combinations, CIRSOC 201/301, ACI, EC3, AISC, AISI,
+analyses), the new refusals, the sanity review and the corrected example models. This is the
+first tagged release: everything below was already deployed to stabileo.com as it was merged.
+The app now shows its version in the status bar and, once, a notice that results may have
+changed with a link to the notes.
+
+### Changed
+#### Element formulations documented for independent review (2026-10-18)
+
+`docs/solver/` documents each element and solver family's derivation, assumptions, conventions
+and tests (roadmap "Solver and proof depth" item 10). Findings while writing the frame family:
+
+- **3D `leftHand: true` is now refused.** It reversed local y and made the member triad
+  improper, so the element stiffness changed with the labelling of an axis (tip twist of a skew
+  cantilever changed sign). No product path sent it. Test: `derivation_frames.rs`.
+- The beam-station output's declared sign convention now matches its values (2D moments are
+  hogging-positive; 3D components are the resultant on the negative face). Values are unchanged.
+- The 2D/3D shear-area pairing (`as_y` goes with `iz` in 2D, with `iy` in 3D) is spelled out in
+  the input docs.
+
+Shells (`docs/solver/shells.md`, tests in `derivation_shells.rs`). **BREAKING (results)** for
+curved shells, walls in dynamics and heated shells:
+
+- Curved shell: transverse-shear ANS transform corrected on non-rectangular elements (it was up
+  to 1.75× too stiff in shear on a 60° parallelogram). Drilling penalty is now an area integral
+  as in MITC4 (it was h × that and unit-dependent). Self-weight was 1000× too large (kg/m³ not
+  converted to kN).
+- Shell rotary inertia is now about the element's in-plane axes. A vertical wall used to get
+  inertia about its normal (drilling) and none about one in-plane axis. Horizontal elements are
+  unchanged.
+- Geometric stiffness of DKT, MITC9 and curved shells uses the mechanical strain, so free thermal
+  expansion no longer creates membrane force (or a spurious buckling load).
+- DKT nodal stresses subtract the thermal strain, and several thermal loads on one shell are
+  summed in stress recovery (only the last was used).
+- Follow-ups from review:
+  - The summed thermal loads are keyed by (family, id), so a quad and a quad9 sharing an id
+    no longer double each other's correction.
+  - The curved-shell rotary mass is built from the nodal directors, so a spin about the
+    director is massless.
+  - The time-history initial acceleration handles mass nullspaces that are not coordinate DOFs
+    (an oblique shell's drilling rotation). It had fallen back to diagonal lumping, giving a
+    25% error on a 45°-rotated quad.
+
+Assembly, supports and constraints (`docs/solver/assembly-constraints.md`, tests in
+`derivation_assembly_constraints.rs`). **BREAKING (results)** for the cases listed:
+
+- Rigid links, eccentric connections and diaphragms in 3D truss/cable-only models (3 DOFs per
+  node) read the master's vertical displacement as its rotation. They now branch on the model's
+  dimension.
+- 2D diaphragm planes: "XZ" (the 2D plane) is now the in-plane rigid body, "YZ" ties vertical
+  displacement only, and unknown plane names are refused (they fell back to XY). The 3D "XZ"
+  diaphragm had both rigid-body signs flipped.
+- Reactions at an inclined support that also carries a spring now balance the loads. 3D rotated
+  the spring force with the normal reaction, and 2D dropped it.
+- 3D Winkler `kz` foundation: the translation–rotation coupling signs were not flipped, so a
+  symmetric beam deflected half as much under z as under y.
+- API RP 2A sand p-y: the C1, C2, C3 coefficients now follow the Reese–Cox–Koop formulas. Ultimate
+  resistance was 5× too low near the surface and 16× too low at depth.
+
+Fiber beams and cables (`docs/solver/special-elements.md`, tests in
+`derivation_special_elements.rs`). **BREAKING (results)** for fiber analyses:
+
+- Fiber beam, 2D and 3D: the sign of the bending curvature mirrored the strain field. Results
+  change for any section not symmetric about its bending axis (asymmetric reinforcement,
+  T-sections, eccentric fibers).
+- Fiber member forces are now the fiber section resultants. They were elastic-stiffness forces,
+  off by orders of magnitude after yield.
+  The elastic forces removed use the same Timoshenko shear parameters as the linear recovery.
+- Non-positive shear areas (`asY`/`asZ` ≤ 0) are refused. Zero gave a NaN stiffness and a
+  negative value a negative shear parameter, silently.
+- Fiber material history is committed only at convergence, so results no longer depend on the
+  load stepping.
+- Steel `hardening_ratio` is now the true post-yield slope over E (it gave αE/(1+α)).
+- 6 and 7 integration points really use 6 and 7 points. Counts outside 3–7 are refused (2 gave a
+  wrong elastic stiffness).
+- `irvine_parameter`: removed a spurious factor L (unused by the solvers).
+
+Nonlinear (`docs/solver/nonlinear.md`, tests in `derivation_nonlinear.rs`):
+
+- Co-rotational 2D (also arc-length and displacement control): member-end deformational rotations
+  are now reduced to (−π, π]. Members drawn right to left, or rotating past ±π, no longer get a
+  spurious 2π of bending. A cantilever fixed at its right end used to fail to converge.
+- The 3D co-rotational leaning-column reproduction (SYMBOLIC.md item 5) now passes and is a
+  regular regression test.
 
 #### CIRSOC 301 steel checks in the engine, re-checked and certified (2026-10-17)
 
@@ -46,7 +390,6 @@ unchanged: the engine agrees with the previous checker to 1e-9 on 4 000 random m
   the E.5 end condition or the E.6 connectors. Angles in flexure (F.9, F.10) are refused by name.
 - Steel results screen: every check per member, ratio, governing check, status with the reason,
   proven-bound badge, the calculation with clause references, in en/es/pt.
-||||||| 333cbc54
 #### Solid shells meshed with frames or shells; spectral analysis checked (2026-10-17)
 
 **BREAKING (results): 3D models that mix solid shells (or trusses) with frames or shells now
@@ -296,7 +639,6 @@ test there.
   modal and harmonic certificates check the expanded model.
 - **The parallel sparse 3D load vector left quad and MITC9 self-weight in local axes.** Only
   builds with the `parallel` feature were affected (the sequential and dense paths transform it).
-||||||| 46ab0e7f
 #### Tension members: end connections in the model (2026-10-17)
 
 - **CIRSOC 301 tension rupture (Ae = An·U) can now be evaluated in the app.** Each member end
@@ -795,6 +1137,15 @@ each with a regression test.
   `isInclined: true` with a missing or zero normal fell back to the support's restraint
   flags. It is now rejected; the web app always sends the normal. Found while triaging
   surviving mutants of the DOF numbering. `tests/solver_mutation_kills.rs`.
+- **An unknown 2D support type restrained nothing, silently.** A type the engine did not
+  know (a typo, or `"pin"`/`"roller"`) left the node free. Every 2D analysis now rejects it,
+  naming the accepted types (`"free"` stays as an explicit no-restraint type). Five engine
+  tests had used `"pin"`/`"roller"` and so ran unsupported models; they now use
+  `"pinned"`/`"rollerX"`, except the stayed-deck cable test, which keeps the cantilevered
+  deck it always ran (`"free"`): with a real end roller the 2D cable iteration does not
+  converge (a stay alternates between slack and taut) and says so. The 2D and 3D cable
+  solvers also skipped input validation entirely; they now validate like every other
+  analysis. `tests/solver_mutation_kills.rs`.
 - **Harmonic certificates reported NaN enclosures for a zero response.** When the target DOF
   was not excited (or the reported value equalled the candidate), the outward-rounded sum of
   squares had a lower end of −5e−324 and its interval square root was NaN, so a *certified*

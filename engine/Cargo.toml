@@ -1,6 +1,6 @@
 [package]
 name = "dedaliano-engine"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 publish = false
@@ -18,7 +18,7 @@ manual-bench-phases = []
 [dependencies]
 wasm-bindgen = "0.2"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 serde-wasm-bindgen = "0.6"
 
 # Constrained Delaunay triangulation with Ruppert-style quality refinement.
@@ -50,6 +50,9 @@ wasm-bindgen-test = "0.3"
 criterion = { version = "0.5", features = ["html_reports"] }
 rand = "0.8"
 proptest = "1"
+# CBOR values hold NaN and ±∞, which JSON cannot: the certificate property
+# tests inject them into typed inputs (tests/certify_nonfinite.rs).
+ciborium = "0.2"
 
 [[bench]]
 name = "solver_bench"

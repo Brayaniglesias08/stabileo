@@ -24,6 +24,12 @@ const MPY: f64 = 100.0;
 const MPZ: f64 = 50.0;
 const FIXED: [bool; 6] = [true; 6];
 
+/// The solver's own warnings: the containment notice every 3D plastic result carries until #511 is
+/// fixed is not one of them.
+fn solver_warnings(res: &dedaliano_engine::solver::plastic::PlasticResult3D) -> Vec<&String> {
+    res.warnings.iter().filter(|w| !w.contains("#511")).collect()
+}
+
 fn plastic(solver: SolverInput3D, mpy: f64, mpz: f64) -> PlasticInput3D {
     let mut sections = HashMap::new();
     sections.insert("1".to_string(), PlasticSectionData3D { a: A, iy: IY, iz: IZ, material_id: 1, b: None, h: None, d: None });
@@ -107,7 +113,7 @@ fn fixed_beam_udl_in_each_plane() {
             let (c, res) = certify(&inp);
             let exact = 16.0 * mp / (qv * l * l);
             assert_encloses(&format!("fixed beam n={n} qy={qy} qz={qz}"), &c, exact, 1e-9);
-            assert!(res.is_mechanism && res.warnings.is_empty(), "{:?}", res.warnings);
+            assert!(res.is_mechanism && solver_warnings(&res).is_empty(), "{:?}", solver_warnings(&res));
             // the last hinge is at midspan
             let last = res.hinges.last().unwrap();
             let x = (last.element_id - 1) as f64 * l / n as f64 + last.position * l / n as f64;
@@ -195,10 +201,10 @@ fn space_portal_sway() {
     // (the latter far above the collapse load).
     let (c, res) = certify(&plastic(portal([1.0, 0.0, 0.0, 0.0, 0.0, 0.0]), MPY, MPZ));
     assert_encloses("portal in-plane sway", &c, 4.0 * MPY / 3.0, 1e-9);
-    assert!(res.is_mechanism && res.warnings.is_empty(), "{:?}", res.warnings);
+    assert!(res.is_mechanism && solver_warnings(&res).is_empty(), "{:?}", solver_warnings(&res));
     let (c, res) = certify(&plastic(portal([0.0, 1.0, 0.0, 0.0, 0.0, 0.0]), MPY, MPZ));
     assert_encloses("portal out-of-plane sway", &c, 2.0 * MPZ / 3.0, 1e-9);
-    assert!(res.is_mechanism && res.warnings.is_empty(), "{:?}", res.warnings);
+    assert!(res.is_mechanism && solver_warnings(&res).is_empty(), "{:?}", solver_warnings(&res));
     // In-plane sway plus a vertical load at midspan of the beam (a point load
     // on the member): combined mechanism 6 Mp_y / (H h + V a), a = 2.
     let mut s = portal([1.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
@@ -221,7 +227,7 @@ fn space_portal_biaxial_sway_is_a_safe_lower_bound() {
     let exact = 2.0 * MPZ / 3.0;
     assert!(lo <= exact * (1.0 + 1e-15) && exact <= up * (1.0 + 1e-15) && (up - lo) / up < 1e-9, "[{lo}, {up}]");
     assert!(res.collapse_factor <= up && res.collapse_factor < lo, "{}", res.collapse_factor);
-    assert!(res.warnings.iter().any(|w| w.contains("biaxial")), "{:?}", res.warnings);
+    assert!(res.warnings.iter().any(|w| w.contains("biaxial")), "{:?}", solver_warnings(&res));
     eprintln!("biaxial portal: solver {} vs certified [{lo}, {up}]", res.collapse_factor);
 }
 
@@ -507,7 +513,7 @@ fn random_plane_frames_in_space_agree_with_solver() {
         assert!((up - lo) / up < 1e-7, "case {case}: [{lo}, {up}]");
         assert!(res.is_mechanism, "case {case}: {:?}", res.warnings);
         let dev = c.solver_deviation.unwrap();
-        if res.warnings.is_empty() {
+        if solver_warnings(&res).is_empty() {
             assert!(dev < 1e-9, "case {case}: solver {} outside [{lo}, {up}]", res.collapse_factor);
             checked += 1;
         } else {

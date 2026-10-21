@@ -87,7 +87,7 @@ fn single_stage_matches_normal_solve() {
 
     // Normal solve
     let normal_input = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials, sections, elements, supports, loads, constraints: vec![],  connectors: HashMap::new() };
     let normal_results = dedaliano_engine::solver::linear::solve_2d(&normal_input).unwrap();
 
@@ -194,7 +194,7 @@ fn prestress_straight_tendon_camber() {
         kx: None, ky: None, kz: None, dx: None, dz: None, dry: None, angle: None,
     });
     supports.insert("s2".into(), SolverSupport {
-        id: 2, node_id: 3, support_type: "roller".into(),
+        id: 2, node_id: 3, support_type: "rollerX".into(),
         kx: None, ky: None, kz: None, dx: None, dz: None, dry: None, angle: None,
     });
 
@@ -293,7 +293,7 @@ fn prestress_parabolic_tendon() {
         kx: None, ky: None, kz: None, dx: None, dz: None, dry: None, angle: None,
     });
     supports.insert("s2".into(), SolverSupport {
-        id: 2, node_id: 11, support_type: "roller".into(),
+        id: 2, node_id: 11, support_type: "rollerX".into(),
         kx: None, ky: None, kz: None, dx: None, dz: None, dry: None, angle: None,
     });
 
@@ -553,7 +553,7 @@ fn staged_braced_frame_matches_linear_results() {
     })];
 
     let normal_input = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes.clone(),
         materials: materials.clone(),
         sections: sections.clone(),
@@ -715,7 +715,7 @@ fn staged_sparse_path_matches_linear_reference() {
 
         let normal_input = SolverInput {
             nodes, materials, sections, elements, supports, loads,
-            constraints: vec![], connectors: HashMap::new(), solver_options: None,
+            constraints: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
         };
         let normal = dedaliano_engine::solver::linear::solve_2d(&normal_input).unwrap();
 

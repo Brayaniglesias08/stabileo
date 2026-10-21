@@ -28,7 +28,8 @@ function wasmStubPlugin(): Plugin {
 /** Not Vitest's business: dependencies, build output, and Playwright's own specs. */
 // `.stryker-tmp` holds Stryker's sandbox copies of the tests (without the gitignored WASM build):
 // collected here, a mutation run in progress made every engine test fail.
-const NOT_VITEST = ['**/node_modules/**', '**/dist/**', 'e2e/**', '**/.stryker-tmp/**'];
+// determinism/ is a Playwright suite of its own (determinism/playwright.config.ts).
+const NOT_VITEST = ['**/node_modules/**', '**/dist/**', 'e2e/**', 'determinism/**', '**/.stryker-tmp/**'];
 
 /**
  * Tests that shell out to a real build or to another project script.
@@ -75,20 +76,17 @@ function buildCommit(): string {
   }
 }
 
-/** `package.json`'s version, for result provenance. */
+/** The app version: the status bar, the what's-new notice (`lib/build-info.ts`) and result
+ * provenance (`lib/provenance/build-identity.ts`). */
 function appVersion(): string {
-  try {
-    return JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')).version ?? 'dev';
-  } catch {
-    return 'dev';
-  }
+  return JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')).version;
 }
 
 export default defineConfig({
   plugins: [wasmStubPlugin(), svelte()],
   define: {
     __STABILEO_COMMIT__: JSON.stringify(buildCommit()),
-    // The app version for result provenance (`lib/provenance/build-identity.ts`).
+    __STABILEO_VERSION__: JSON.stringify(appVersion()),
     __STABILEO_APP_VERSION__: JSON.stringify(appVersion()),
   },
   base: process.env.BASE_PATH || '/',

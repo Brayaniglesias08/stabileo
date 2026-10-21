@@ -52,8 +52,7 @@ pub fn solve_modal_2d(
     num_modes: usize,
 ) -> Result<ModalResult, String> {
     super::linear::validate_input_2d(input)?;
-    let referenced_material_ids = super::dynamic_validation::referenced_material_ids_2d(input);
-    super::dynamic_validation::validate_densities(densities, &referenced_material_ids)?;
+    super::dynamic_validation::validate_mass_2d(input, densities)?;
     if num_modes == 0 {
         return Err("num_modes must be >= 1".to_string());
     }
@@ -65,9 +64,13 @@ pub fn solve_modal_2d(
         return Err("No free DOFs".into());
     }
 
-    let total_mass = compute_total_mass(input, densities);
-    if total_mass < 1e-20 {
-        return Err("No mass assigned — set material densities".into());
+    // Mass ratios divide by the mass that can move in their direction: a
+    // nodal mass may be directional (a floor's horizontal mass only).
+    let [mass_x, mass_z] = total_mass_by_direction_2d(input, densities);
+    let total_mass = mass_x.max(mass_z);
+    let rotary = input.masses.nodal.iter().any(|m| m.rotary_inertia > 0.0);
+    if total_mass < 1e-20 && !rotary {
+        return Err("No mass assigned — set material densities or nodal masses".into());
     }
 
     // Constraint transform, if any: K and M reduce as sparse triple products
@@ -86,17 +89,17 @@ pub fn solve_modal_2d(
         (None, Some(extract_submatrix(&s.k, n, &free_idx, &free_idx)), s.inclined_transforms_2d)
     };
 
-    // Influence vectors: a unit rigid translation along X and along Y, over
-    // all DOFs in global axes, then in the roller frames on the free DOFs (at
-    // an inclined roller only the tangential component moves).
-    let mut r_x_full = vec![0.0; n];
-    let mut r_y_full = vec![0.0; n];
-    for &node_id in &dof_num.node_order {
-        if let Some(&d) = dof_num.map.get(&(node_id, 0)) { r_x_full[d] = 1.0; }
-        if let Some(&d) = dof_num.map.get(&(node_id, 1)) { r_y_full[d] = 1.0; }
-    }
-    let r_x_full = to_inclined_free(r_x_full, &its, nf);
-    let r_y_full = to_inclined_free(r_y_full, &its, nf);
+    // The ground-motion load of a unit rigid translation along X and along Y
+    // is (M·r)_f with r = 1 on EVERY node's translation, supports included
+    // (`ground_influence`, the load time history applies): with a consistent
+    // mass the free DOFs carry the inertia coupled to the moving supports,
+    // M_fr·r_r, besides M_ff·r_f. Γ used to take M_ff·r_f alone, which lost
+    // that part (for a one-element cantilever the modal static limit was 0.78
+    // of the exact tip deflection, and Σ M_eff could not pass 37% of the mass).
+    let m_full_cell: std::cell::OnceCell<CscMatrix> = std::cell::OnceCell::new();
+    let m_full_sparse = || {
+        m_full_cell.get_or_init(|| super::mass_matrix::assemble_mass_matrix_2d_sparse_block(input, &dof_num, densities, n))
+    };
 
     // Solve K·φ = λ·M·φ where λ = ω²
     // Large models (constrained or not): triplet sparse assembly + sparse
@@ -109,8 +112,8 @@ pub fn solve_modal_2d(
         // Assembled once: the branch below differs in whether the matrices are
         // reduced, not in how they are built.
         let m_csc = super::mass_matrix::assemble_mass_matrix_2d_sparse_inclined(input, &dof_num, densities, &its);
-        m_r_x = m_csc.sym_mat_vec(&r_x_full);
-        m_r_y = m_csc.sym_mat_vec(&r_y_full);
+        m_r_x = ground_influence(&dof_num, 0, &its, &m_csc, m_full_sparse);
+        m_r_y = ground_influence(&dof_num, 1, &its, &m_csc, m_full_sparse);
         if let Some(ref cs) = cs {
             let k_solve = cs.reduce_matrix_sparse(&k_ff);
             let m_solve = cs.reduce_matrix_sparse(&m_csc);
@@ -131,8 +134,20 @@ pub fn solve_modal_2d(
         let mut m_full = assemble_mass_matrix_2d(input, &dof_num, densities);
         rotate_inclined_dense(&mut m_full, n, &its);
         let m_ff = extract_submatrix(&m_full, n, &free_idx, &free_idx);
-        m_r_x = mat_vec_sub(&m_ff, &r_x_full, nf);
-        m_r_y = mat_vec_sub(&m_ff, &r_y_full, nf);
+        // (M·r)_f from the full mass (rotated, T·M·Tᵀ) and the rotated rigid
+        // translation T·r over all DOFs: (T·M·Tᵀ)(T·r) = T·(M·r).
+        let full_mr = |local: usize| {
+            let mut r = vec![0.0; n];
+            for &node_id in &dof_num.node_order {
+                if let Some(&d) = dof_num.map.get(&(node_id, local)) { r[d] = 1.0; }
+            }
+            for it in &its { it.rotate(&mut r); }
+            let mut mr = mat_vec_sub(&m_full, &r, n);
+            mr.truncate(nf);
+            mr
+        };
+        m_r_x = full_mr(0);
+        m_r_y = full_mr(1);
         let (k_solve, m_solve, ns) = if let Some(ref cs) = cs {
             (cs.reduce_matrix(&k_ff), cs.reduce_matrix(&m_ff), cs.n_free_indep)
         } else {
@@ -194,8 +209,8 @@ pub fn solve_modal_2d(
         // Effective masses
         let meff_x = gamma_x * gamma_x * phi_m_phi;
         let meff_y = gamma_y * gamma_y * phi_m_phi;
-        let mrx = if total_mass > 1e-20 { meff_x / total_mass } else { 0.0 };
-        let mry = if total_mass > 1e-20 { meff_y / total_mass } else { 0.0 };
+        let mrx = if mass_x > 1e-20 { meff_x / mass_x } else { 0.0 };
+        let mry = if mass_z > 1e-20 { meff_y / mass_z } else { 0.0 };
         cum_mrx += mrx;
         cum_mry += mry;
 
@@ -325,8 +340,7 @@ pub fn solve_modal_3d(
     // does; left in place they were not part of the model at all.
     let expanded = (!input.curved_beams.is_empty()).then(|| super::linear::expand_curved_beams_3d(input));
     let input = expanded.as_ref().unwrap_or(input);
-    let referenced_material_ids = super::dynamic_validation::referenced_material_ids_3d(input);
-    super::dynamic_validation::validate_densities(densities, &referenced_material_ids)?;
+    super::dynamic_validation::validate_mass_3d(input, densities)?;
     if num_modes == 0 {
         return Err("num_modes must be >= 1".to_string());
     }
@@ -336,9 +350,12 @@ pub fn solve_modal_3d(
 
     if nf == 0 { return Err("No free DOFs".into()); }
 
-    let total_mass = compute_total_mass_3d(input, densities);
-    if total_mass < 1e-20 {
-        return Err("No mass assigned — set material densities".into());
+    // Mass ratios per direction: see the 2D solver.
+    let [mass_x, mass_y, mass_z] = total_mass_by_direction_3d(input, densities);
+    let total_mass = mass_x.max(mass_y).max(mass_z);
+    let rotary = input.masses.nodal.iter().any(|m| m.ixx > 0.0 || m.iyy > 0.0 || m.izz > 0.0);
+    if total_mass < 1e-20 && !rotary {
+        return Err("No mass assigned — set material densities or nodal masses".into());
     }
 
     let sasm = assemble_sparse_3d(input, &dof_num, false);
@@ -369,27 +386,19 @@ pub fn solve_modal_3d(
 
     let num_modes = num_modes.min(ns);
 
-    // Influence vectors for X, Y, Z translations: over all DOFs in global
-    // axes, then in the inclined-support frames on the free DOFs.
-    let mut r_x_full = vec![0.0; n];
-    let mut r_y_full = vec![0.0; n];
-    let mut r_z_full = vec![0.0; n];
-    for &node_id in &dof_num.node_order {
-        if let Some(&d) = dof_num.map.get(&(node_id, 0)) { r_x_full[d] = 1.0; }
-        if let Some(&d) = dof_num.map.get(&(node_id, 1)) { r_y_full[d] = 1.0; }
-        if let Some(&d) = dof_num.map.get(&(node_id, 2)) { r_z_full[d] = 1.0; }
-    }
-    let r_x_full = to_inclined_free(r_x_full, its, nf);
-    let r_y_full = to_inclined_free(r_y_full, its, nf);
-    let r_z_full = to_inclined_free(r_z_full, its, nf);
-    // L = Cᵀ(M·r), the reduced inertial load — see the 2D solver. Cᵀr also
-    // put the eccentricities of a diaphragm's nodes on the master's θz, a
-    // torsional participation no rigid translation has.
-    let m_r = |r: &[f64]| {
-        let mr = m_sparse_ff.sym_mat_vec(r);
+    // L = Cᵀ(M·r)_f, the reduced inertial load of a unit rigid translation
+    // along X, Y, Z, with the support-coupled inertia M_fr·r_r included — see
+    // the 2D solver. Cᵀr also put the eccentricities of a diaphragm's nodes on
+    // the master's θz, a torsional participation no rigid translation has.
+    // The full mass is assembled once, only if some support moves with the ground.
+    let m_full_cell: std::cell::OnceCell<CscMatrix> = std::cell::OnceCell::new();
+    let m_r = |local: usize| {
+        let mr = ground_influence(&dof_num, local, its, &m_sparse_ff, || {
+            m_full_cell.get_or_init(|| super::mass_matrix::assemble_mass_matrix_3d_sparse_block(input, &dof_num, densities, n))
+        });
         match &cs { Some(cs) => cs.reduce_vector(&mr), None => mr }
     };
-    let (l_x, l_y, l_z) = (m_r(&r_x_full), m_r(&r_y_full), m_r(&r_z_full));
+    let (l_x, l_y, l_z) = (m_r(0), m_r(1), m_r(2));
 
     let mut modes = Vec::new();
     let mut cum_mrx = 0.0;
@@ -422,9 +431,9 @@ pub fn solve_modal_3d(
         let meff_x = gamma_x * gamma_x * phi_m_phi;
         let meff_y = gamma_y * gamma_y * phi_m_phi;
         let meff_z = gamma_z * gamma_z * phi_m_phi;
-        let mrx = if total_mass > 1e-20 { meff_x / total_mass } else { 0.0 };
-        let mry = if total_mass > 1e-20 { meff_y / total_mass } else { 0.0 };
-        let mrz = if total_mass > 1e-20 { meff_z / total_mass } else { 0.0 };
+        let mrx = if mass_x > 1e-20 { meff_x / mass_x } else { 0.0 };
+        let mry = if mass_y > 1e-20 { meff_y / mass_y } else { 0.0 };
+        let mrz = if mass_z > 1e-20 { meff_z / mass_z } else { 0.0 };
         cum_mrx += mrx;
         cum_mry += mry;
         cum_mrz += mrz;

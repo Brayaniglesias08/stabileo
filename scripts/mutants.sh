@@ -5,7 +5,8 @@
 # (docs/verification/FUZZ_MUTANTS.md).
 #
 # Equivalent mutants are excluded by name in .cargo/mutants.toml, each with a
-# one-line justification; any other missed mutant fails the run.
+# one-line justification, and the equivalent index-arithmetic mutants by
+# scripts/mutants-equivalent.py; any other missed mutant fails the run.
 #
 # Usage (from anywhere in the repo):
 #   scripts/mutants.sh                          # certify + solver + element
@@ -19,28 +20,46 @@ cd "$root"
 
 scope=${MUTANTS_SCOPE:-all}
 files=()
-tests=(--lib)
+tests=()  # integration test targets, besides the library unit tests
 case $scope in
   certify | all)
     files+=(-f 'engine/src/certify/**')
-    for t in engine/tests/certify*.rs; do tests+=(--test "$(basename "$t" .rs)"); done
-    tests+=(--test fuzz_regressions)
+    for t in engine/tests/certify*.rs; do tests+=("$(basename "$t" .rs)"); done
+    tests+=(fuzz_regressions)
     ;;&
   solver | all)
     files+=(-f engine/src/solver/dof.rs -f engine/src/solver/assembly.rs -f engine/src/solver/linear.rs)
-    tests+=(--test certify --test duplicate_support_reactions --test determinate_exact --test index_exhaustive
-      --test solver_mutation_kills --test integration)
+    # core (linear_2d, linear_3d, ...), integration, properties_2d and
+    # solver_invariants exercise the plain 2D/3D static paths of linear.rs; the
+    # next ones the sparse, PCG and sparse-dense-LU paths (nf >= 64) and their
+    # diagnostics. Without them 272 of 305 mutants of the 2D static solver went
+    # uncaught (#339).
+    tests+=(certify certify_bundle duplicate_support_reactions determinate_exact index_exhaustive
+      fuzz_regressions solver_mutation_kills core integration properties_2d solver_invariants
+      pcg_solver_tests sparse_ex_analysis_regressions nan_output_gates conditioning_adversarial
+      assembly_paths feature_matrix)
     ;;&
   element | all)
     files+=(-f 'engine/src/element/**')
-    tests+=(--test element_rigid_body_modes --test shell_patch_tests --test shell_rigid_body_modes
-      --test local_axis_convention --test determinate_exact --test opensees_differential_regressions)
+    tests+=(element_rigid_body_modes shell_patch_tests shell_rigid_body_modes
+      local_axis_convention determinate_exact opensees_differential_regressions)
     ;;
   certify | solver) ;;
   *) echo "MUTANTS_SCOPE must be certify, solver, element or all" >&2; exit 64 ;;
 esac
 
-cargo mutants --package dedaliano-engine "${files[@]}" --timeout-multiplier 3 "$@" -- "${tests[@]}"
+# -C passes each test-target flag to both `cargo test --no-run` and `cargo test`,
+# so only the listed targets are built per mutant (`-- …` reaches only the run).
+cargo_args=(-C --lib)
+for t in $(printf '%s\n' "${tests[@]}" | sort -u); do cargo_args+=(-C --test -C "$t"); done
+# Equivalent mutants in constant index arithmetic (k[0 * 6 + 0] -> k[0 * 6 - 0]):
+# found on the current source by scripts/mutants-equivalent.py, which keeps a
+# mutant out only when the mutated index has exactly the same value.
+excl=()
+while IFS= read -r re; do excl+=(--exclude-re "$re"); done < <(
+  cargo mutants --list --json --package dedaliano-engine "${files[@]}" | python3 scripts/mutants-equivalent.py --regex)
+echo "excluded $(( ${#excl[@]} / 2 )) equivalent index-arithmetic mutants (scripts/mutants-equivalent.py)"
+cargo mutants --package dedaliano-engine "${files[@]}" "${excl[@]}" --timeout-multiplier 3 "${cargo_args[@]}" "$@"
 status=$?
 if [[ -s mutants.out/missed.txt ]]; then
   echo "Missed mutants (add a test, or exclude in .cargo/mutants.toml with a justification if equivalent):"

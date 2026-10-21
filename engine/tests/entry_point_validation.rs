@@ -62,7 +62,7 @@ fn beam_2d() -> SolverInput {
         constraints: vec![],
         connectors: HashMap::new(),
     
-        solver_options: None,}
+        solver_options: None, masses: Default::default(),}
 }
 
 /// Element 1 ends at node 99, which does not exist.

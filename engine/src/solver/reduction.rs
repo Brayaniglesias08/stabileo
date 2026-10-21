@@ -594,6 +594,9 @@ fn guyan_reduce_2d_dense(input: &GuyanInput, dof_num: &DofNumbering) -> Result<G
 pub fn craig_bampton_2d(input: &CraigBamptonInput) -> Result<CraigBamptonResult, String> {
     // As above: validated before assembly indexes by id.
     super::linear::validate_input_2d(&input.solver)?;
+    // Nodal and line masses go into M: a negative one or one on a missing
+    // node is refused here as in every other dynamic analysis.
+    super::dynamic_validation::validate_mass_input_2d(&input.solver)?;
 
     let dof_num = DofNumbering::build_2d(&input.solver);
     if dof_num.n_free == 0 { return Err("No free DOFs".into()); }
@@ -1296,6 +1299,8 @@ pub fn craig_bampton_3d(input: &CraigBamptonInput3D) -> Result<CraigBamptonResul
     };
     // As above: validated before assembly indexes by id.
     super::linear::validate_input_3d(&input.solver)?;
+    // Nodal, line and area masses go into M (see `craig_bampton_2d`).
+    super::dynamic_validation::validate_mass_input_3d(&input.solver)?;
     // Curved beams are expanded into straight members, as every static path
     // does; left in place they were not part of the model at all.
     let expanded = (!input.solver.curved_beams.is_empty()).then(|| {

@@ -75,3 +75,53 @@ fn time_history_zero_solution_residuals_are_finite() {
     assert!(r.max_rel_displacement_update.is_finite() && r.max_rel_displacement_update < 1e-12, "{r:?}");
     assert!(r.max_rel_velocity_update.is_finite() && r.max_rel_velocity_update < 1e-12, "{r:?}");
 }
+
+/// json_dynamics (issue #335): the crash input of nightly run 39125781094,
+/// kept as `fuzz/regressions/json_dynamics/crash-28fad1…` (selector byte 11 =
+/// `certify_spectral_3d`, then the parameter byte, then the JSON). Mode 3 has
+/// ω < 0: the CQC ratio ω_j/ω_i was negative, r^1.5 NaN, and every combined
+/// displacement and force NaN; the certificate still said "certified" with
+/// error bounds of 0, because `f64::max` drops NaN. The solver now refuses
+/// ω ≤ 0, and no certificate passes on a non-finite number
+/// (`tests/certify_nonfinite.rs` for every kind).
+#[test]
+fn spectral_negative_omega_is_refused() {
+    use dedaliano_engine::certify::spectral::{certify_spectral_3d, certify_spectral_results_3d};
+    use dedaliano_engine::solver::spectral::solve_spectral_3d;
+    use dedaliano_engine::types::SpectralInput3D;
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/fuzz/regressions/json_dynamics/crash-28fad1caf98555e982aa0a8f1c1fbf0b1d2aa934"
+    );
+    let bytes = std::fs::read(path).unwrap();
+    assert_eq!(bytes[0] % 20, 11, "selector: certify_spectral_3d");
+    let mut input: SpectralInput3D = serde_json::from_slice(&bytes[2..]).unwrap();
+    assert!(input.modes[2].omega < 0.0);
+    let e = certify_spectral_3d(&input).unwrap_err();
+    assert!(e.contains("omega") && e.contains("mode 3"), "{e}");
+    assert!(solve_spectral_3d(&input).is_err());
+
+    // With ω > 0 the same model solves and certifies, all finite.
+    input.modes[2].omega = -input.modes[2].omega;
+    let out = certify_spectral_3d(&input).unwrap();
+    assert!(dedaliano_engine::certify::finite::non_finite_paths(&out).is_empty());
+    assert!(out.certificate.is_certified(), "{:?}", out.certificate);
+
+    // Reported NaN values are never certified (they were, with bound 0).
+    let mut bad = out.results.clone();
+    bad.displacements[5].ux = f64::NAN;
+    assert!(!certify_spectral_results_3d(&input, &bad).is_certified());
+    let mut bad = out.results.clone();
+    bad.element_forces[0].n_max = f64::NAN;
+    assert!(!certify_spectral_results_3d(&input, &bad).is_certified());
+}
+
+/// The enclosure's error bound of a NaN or infinite value is +∞, never 0.
+#[test]
+fn spectral_enclosure_error_of_non_finite_is_infinite() {
+    use dedaliano_engine::certify::spectral::Enclosure;
+    let e = Enclosure { lo: 1.0, hi: 2.0 };
+    assert_eq!(e.error_of(f64::NAN), f64::INFINITY);
+    assert_eq!(e.error_of(f64::INFINITY), f64::INFINITY);
+    assert!(e.error_of(1.5) <= 0.5 + 1e-15);
+}

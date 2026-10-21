@@ -7,7 +7,8 @@
 //! input per entry point of each JSON target: selector byte, parameter byte,
 //! then the JSON the entry point takes (the model itself, or the model wrapped
 //! with densities, load cases, time-history or plastic data). OUT_DIR defaults
-//! to fuzz/corpus.
+//! to fuzz/corpus. The inputs of past findings (fuzz/regressions/<target>/,
+//! kept in git) are copied in too, so every run starts from them.
 
 use dedaliano_engine::solver::modal;
 use dedaliano_engine::types::{SolverInput, SolverInput3D};
@@ -58,7 +59,18 @@ fn main() {
             count += 1;
         }
     }
-    eprintln!("wrote {count} seeds from {} fixtures to {}", files.len(), out.display());
+    // Past findings (docs/verification/FUZZ_MUTANTS.md), one directory per target.
+    if let Ok(targets) = fs::read_dir("fuzz/regressions") {
+        for t in targets.filter_map(|e| e.ok()).filter(|e| e.path().is_dir()) {
+            let dir = out.join(t.file_name());
+            fs::create_dir_all(&dir).unwrap();
+            for f in fs::read_dir(t.path()).unwrap().filter_map(|e| e.ok()) {
+                fs::copy(f.path(), dir.join(f.file_name())).unwrap();
+                count += 1;
+            }
+        }
+    }
+    eprintln!("wrote {count} seeds from {} fixtures and fuzz/regressions to {}", files.len(), out.display());
 }
 
 fn is_3d(v: &Value) -> bool {
@@ -112,6 +124,11 @@ fn common(model: &Value, results: Option<&Value>, three_d: bool) -> Vec<(&'stati
         ("json_dynamics", 6 + s, model.clone()),
         ("json_dynamics", 16 + s, harmonic(model, &d)),
         ("json_dynamics", 18 + s, harmonic(model, &d)),
+        // metamorphic: selector picks rotation / relabel / units and the seed.
+        ("metamorphic", 0, model.clone()),
+        ("metamorphic", 1, model.clone()),
+        ("metamorphic", 2, model.clone()),
+        ("metamorphic", 4, model.clone()),
     ];
     if let Some(r) = results {
         v.push(("json_static", 14 + s, json!({ "factors": [{ "caseId": 1, "factor": 1.4 }], "cases": [{ "caseId": 1, "results": r }] })));

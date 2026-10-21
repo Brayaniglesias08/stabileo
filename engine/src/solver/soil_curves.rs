@@ -165,10 +165,21 @@ pub fn py_sand(
 ) -> (f64, f64) {
     let phi_rad = phi * std::f64::consts::PI / 180.0;
 
-    // Coefficients from API RP 2A Table
-    let c1 = (phi_rad.tan()).powi(2) * (std::f64::consts::PI / 4.0 + phi_rad / 2.0).tan();
-    let c2 = (phi_rad.tan()).powi(2);
-    let c3 = phi_rad.tan() * (std::f64::consts::PI / 4.0 + phi_rad / 2.0).tan().powi(2);
+    // C1, C2, C3 of API RP 2A Fig. 6.8.6-1: the closed forms of Reese, Cox &
+    // Koop (1974) the figure plots, with α = φ/2, β = 45° + φ/2, K0 = 0.4,
+    // Ka = tan²(45° − φ/2). At φ = 30° they are ≈ 1.91, 2.67, 28.7. (The
+    // engine used tan²φ·tan β, tan²φ and tan φ·tan²β — 0.58, 0.33, 1.73 —
+    // which put the deep p_u 16× too low.)
+    let alpha = phi_rad / 2.0;
+    let beta = std::f64::consts::FRAC_PI_4 + phi_rad / 2.0;
+    let k0 = 0.4;
+    let ka = (std::f64::consts::FRAC_PI_4 - phi_rad / 2.0).tan().powi(2);
+    let (tp, tb, tbp) = (phi_rad.tan(), beta.tan(), (beta - phi_rad).tan());
+    let c1 = k0 * tp * beta.sin() / (tbp * alpha.cos())
+        + tb * tb * alpha.tan() / tbp
+        + k0 * tb * (tp * beta.sin() - alpha.tan());
+    let c2 = tb / tbp - ka;
+    let c3 = ka * (tb.powi(8) - 1.0) + k0 * tp * tb.powi(4);
 
     // Ultimate resistance
     let p_us = (c1 * depth + c2 * d) * gamma_eff * depth; // shallow

@@ -169,6 +169,20 @@ pub fn solve_cable_2d(
     max_iter: usize,
     tolerance: f64,
 ) -> Result<CableAnalysisResult2D, String> {
+    let mut r = solve_cable_2d_inner(input, densities, max_iter, tolerance)?;
+    crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_2d(input, crate::known_issues::Analysis::Cable));
+    Ok(r)
+}
+
+fn solve_cable_2d_inner(
+    input: &SolverInput,
+    densities: &HashMap<String, f64>,
+    max_iter: usize,
+    tolerance: f64,
+) -> Result<CableAnalysisResult2D, String> {
+    // The same input checks as every other analysis (non-finite values,
+    // dangling ids, unknown support types, ambiguous shared supports).
+    linear::validate_input_2d(input)?;
     let dof_num = DofNumbering::build_2d(input);
 
     if dof_num.n_free == 0 {
@@ -183,7 +197,7 @@ pub fn solve_cable_2d(
     let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
 
     // Identify cable elements
-    let has_cables = input.elements.values().any(|e| e.elem_type == "cable");
+    let has_cables = crate::ordered::values(&input.elements).any(|e| e.elem_type == "cable");
 
     if !has_cables {
         let results = linear::solve_2d(input)?;
@@ -595,8 +609,20 @@ pub fn solve_cable_3d(
     max_iter: usize,
     tolerance: f64,
 ) -> Result<CableAnalysisResult3D, String> {
+    let mut r = solve_cable_3d_inner(input, densities, max_iter, tolerance)?;
+    crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_3d(input, crate::known_issues::Analysis::Cable));
+    Ok(r)
+}
+
+fn solve_cable_3d_inner(
+    input: &SolverInput3D,
+    densities: &HashMap<String, f64>,
+    max_iter: usize,
+    tolerance: f64,
+) -> Result<CableAnalysisResult3D, String> {
     // Expand curved beams before DOF numbering and assembly.
     let input = &super::linear::expand_curved_beams_3d(input);
+    linear::validate_input_3d(input)?;
     let dof_num = DofNumbering::build_3d(input);
 
     if dof_num.n_free == 0 {
@@ -610,7 +636,7 @@ pub fn solve_cable_3d(
     let cs = FreeConstraintSystem::build_3d(&input, &dof_num)?;
     let ns = cs.as_ref().map_or(nf, |c| c.n_free_indep);
 
-    let has_cables = input.elements.values().any(|e| e.elem_type == "cable");
+    let has_cables = crate::ordered::values(&input.elements).any(|e| e.elem_type == "cable");
 
     if !has_cables {
         let results = linear::solve_3d(input)?;

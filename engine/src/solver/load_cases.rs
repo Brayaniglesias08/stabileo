@@ -150,6 +150,7 @@ pub fn solve_multi_case_2d(input: &MultiCaseInput) -> Result<MultiCaseResult, St
 
     let prepared = prepare_static_2d(&solver)
         .map_err(|e| format!("Failed to solve case '{}': {}", input.load_cases[0].name, e))?;
+    let settlement_only = if has_settlement_2d(&solver) { Some(prepared.solve_loads(&[])?) } else { None };
 
     // Solve each load case with the shared factorization
     let mut case_results = Vec::new();
@@ -167,11 +168,20 @@ pub fn solve_multi_case_2d(input: &MultiCaseInput) -> Result<MultiCaseResult, St
     }
 
     // Generate combined results for each combination (borrowing case results)
-    let case_refs: Vec<(usize, &AnalysisResults)> = case_results
+    let mut case_refs: Vec<(usize, &AnalysisResults)> = case_results
         .iter()
         .enumerate()
         .map(|(idx, cr)| (idx, &cr.results))
         .collect();
+    // Prescribed support displacements are part of the model, so every
+    // case's solution carries them once; a combination Σ f_c·R_c then
+    // carried them Σ f_c times (twice for 1.0·A + 1.0·B — found by the
+    // metamorphic linear-agreement check). The settlement-only solution
+    // R_0 enters each combination with 1 − Σ f_c, so it counts once.
+    let settle_idx = case_refs.len();
+    if let Some(r0) = settlement_only.as_ref() {
+        case_refs.push((settle_idx, r0));
+    }
     let mut combo_names: Vec<String> = Vec::new();
     let mut all_combined_results: Vec<AnalysisResults> = Vec::new();
 
@@ -184,6 +194,10 @@ pub fn solve_multi_case_2d(input: &MultiCaseInput) -> Result<MultiCaseResult, St
                     factor,
                 });
             }
+        }
+        if settlement_only.is_some() {
+            let sum: f64 = combo_factors.iter().map(|f| f.factor).sum();
+            combo_factors.push(CombinationFactor { case_id: settle_idx, factor: 1.0 - sum });
         }
 
         if let Some(combined) = combine_results_refs(&combo_factors, &case_refs) {
@@ -238,6 +252,7 @@ pub fn solve_multi_case_3d(input: &MultiCaseInput3D) -> Result<MultiCaseResult3D
 
     let prepared = prepare_static_3d(&solver)
         .map_err(|e| format!("Failed to solve case '{}': {}", input.load_cases[0].name, e))?;
+    let settlement_only = if has_settlement_3d(&solver) { Some(prepared.solve_loads(&[])?) } else { None };
 
     let mut case_results = Vec::new();
     let mut case_map: HashMap<String, usize> = HashMap::new();
@@ -253,11 +268,20 @@ pub fn solve_multi_case_3d(input: &MultiCaseInput3D) -> Result<MultiCaseResult3D
         });
     }
 
-    let case_refs: Vec<(usize, &AnalysisResults3D)> = case_results
+    let mut case_refs: Vec<(usize, &AnalysisResults3D)> = case_results
         .iter()
         .enumerate()
         .map(|(idx, cr)| (idx, &cr.results))
         .collect();
+    // Prescribed support displacements are part of the model, so every
+    // case's solution carries them once; a combination Σ f_c·R_c then
+    // carried them Σ f_c times (twice for 1.0·A + 1.0·B — found by the
+    // metamorphic linear-agreement check). The settlement-only solution
+    // R_0 enters each combination with 1 − Σ f_c, so it counts once.
+    let settle_idx = case_refs.len();
+    if let Some(r0) = settlement_only.as_ref() {
+        case_refs.push((settle_idx, r0));
+    }
     let mut combo_names: Vec<String> = Vec::new();
     let mut all_combined_results: Vec<AnalysisResults3D> = Vec::new();
 
@@ -270,6 +294,10 @@ pub fn solve_multi_case_3d(input: &MultiCaseInput3D) -> Result<MultiCaseResult3D
                     factor,
                 });
             }
+        }
+        if settlement_only.is_some() {
+            let sum: f64 = combo_factors.iter().map(|f| f.factor).sum();
+            combo_factors.push(CombinationFactor { case_id: settle_idx, factor: 1.0 - sum });
         }
 
         if let Some(combined) = combine_results_3d_refs(&combo_factors, &case_refs) {
@@ -298,12 +326,19 @@ pub fn solve_multi_case_3d(input: &MultiCaseInput3D) -> Result<MultiCaseResult3D
 /// Retained for models with constraints (which delegate to the constrained
 /// solver per case load set).
 fn solve_multi_case_3d_per_case(input: &MultiCaseInput3D) -> Result<MultiCaseResult3D, String> {
+    let settlement_only = if has_settlement_3d(&input.solver) {
+        let mut s = input.solver.clone();
+        s.loads = vec![];
+        Some(solve_3d(&s)?)
+    } else {
+        None
+    };
     let mut case_results = Vec::new();
     let mut case_map: HashMap<String, usize> = HashMap::new();
 
     for (idx, lc) in input.load_cases.iter().enumerate() {
         let case_input = SolverInput3D {
-            solver_options: input.solver.solver_options.clone(),
+            solver_options: input.solver.solver_options.clone(), masses: input.solver.masses.clone(),
             nodes: input.solver.nodes.clone(),
             materials: input.solver.materials.clone(),
             sections: input.solver.sections.clone(),
@@ -331,11 +366,20 @@ fn solve_multi_case_3d_per_case(input: &MultiCaseInput3D) -> Result<MultiCaseRes
         });
     }
 
-    let case_refs: Vec<(usize, &AnalysisResults3D)> = case_results
+    let mut case_refs: Vec<(usize, &AnalysisResults3D)> = case_results
         .iter()
         .enumerate()
         .map(|(idx, cr)| (idx, &cr.results))
         .collect();
+    // Prescribed support displacements are part of the model, so every
+    // case's solution carries them once; a combination Σ f_c·R_c then
+    // carried them Σ f_c times (twice for 1.0·A + 1.0·B — found by the
+    // metamorphic linear-agreement check). The settlement-only solution
+    // R_0 enters each combination with 1 − Σ f_c, so it counts once.
+    let settle_idx = case_refs.len();
+    if let Some(r0) = settlement_only.as_ref() {
+        case_refs.push((settle_idx, r0));
+    }
     let mut combo_names: Vec<String> = Vec::new();
     let mut all_combined_results: Vec<AnalysisResults3D> = Vec::new();
 
@@ -348,6 +392,10 @@ fn solve_multi_case_3d_per_case(input: &MultiCaseInput3D) -> Result<MultiCaseRes
                     factor,
                 });
             }
+        }
+        if settlement_only.is_some() {
+            let sum: f64 = combo_factors.iter().map(|f| f.factor).sum();
+            combo_factors.push(CombinationFactor { case_id: settle_idx, factor: 1.0 - sum });
         }
 
         if let Some(combined) = combine_results_3d_refs(&combo_factors, &case_refs) {
@@ -376,12 +424,19 @@ fn solve_multi_case_3d_per_case(input: &MultiCaseInput3D) -> Result<MultiCaseRes
 /// (which auto-delegates to the constrained solver). Retained for models with
 /// constraints, mirroring `solve_multi_case_3d_per_case`.
 fn solve_multi_case_2d_per_case(input: &MultiCaseInput) -> Result<MultiCaseResult, String> {
+    let settlement_only = if has_settlement_2d(&input.solver) {
+        let mut s = input.solver.clone();
+        s.loads = vec![];
+        Some(solve_2d(&s)?)
+    } else {
+        None
+    };
     let mut case_results = Vec::new();
     let mut case_map: HashMap<String, usize> = HashMap::new();
 
     for (idx, lc) in input.load_cases.iter().enumerate() {
         let case_input = SolverInput {
-            solver_options: input.solver.solver_options.clone(),
+            solver_options: input.solver.solver_options.clone(), masses: input.solver.masses.clone(),
             nodes: input.solver.nodes.clone(),
             materials: input.solver.materials.clone(),
             sections: input.solver.sections.clone(),
@@ -402,11 +457,20 @@ fn solve_multi_case_2d_per_case(input: &MultiCaseInput) -> Result<MultiCaseResul
         });
     }
 
-    let case_refs: Vec<(usize, &AnalysisResults)> = case_results
+    let mut case_refs: Vec<(usize, &AnalysisResults)> = case_results
         .iter()
         .enumerate()
         .map(|(idx, cr)| (idx, &cr.results))
         .collect();
+    // Prescribed support displacements are part of the model, so every
+    // case's solution carries them once; a combination Σ f_c·R_c then
+    // carried them Σ f_c times (twice for 1.0·A + 1.0·B — found by the
+    // metamorphic linear-agreement check). The settlement-only solution
+    // R_0 enters each combination with 1 − Σ f_c, so it counts once.
+    let settle_idx = case_refs.len();
+    if let Some(r0) = settlement_only.as_ref() {
+        case_refs.push((settle_idx, r0));
+    }
     let mut combo_names: Vec<String> = Vec::new();
     let mut all_combined_results: Vec<AnalysisResults> = Vec::new();
 
@@ -419,6 +483,10 @@ fn solve_multi_case_2d_per_case(input: &MultiCaseInput) -> Result<MultiCaseResul
                     factor,
                 });
             }
+        }
+        if settlement_only.is_some() {
+            let sum: f64 = combo_factors.iter().map(|f| f.factor).sum();
+            combo_factors.push(CombinationFactor { case_id: settle_idx, factor: 1.0 - sum });
         }
 
         if let Some(combined) = combine_results_refs(&combo_factors, &case_refs) {
@@ -441,4 +509,12 @@ fn solve_multi_case_2d_per_case(input: &MultiCaseInput) -> Result<MultiCaseResul
         combination_results,
         envelope,
     })
+}
+
+fn has_settlement_2d(s: &SolverInput) -> bool {
+    crate::ordered::values(&s.supports).any(|x| [x.dx, x.dz, x.dry].iter().any(|d| d.is_some_and(|v| v != 0.0)))
+}
+
+fn has_settlement_3d(s: &SolverInput3D) -> bool {
+    crate::ordered::values(&s.supports).any(|x| [x.dx, x.dy, x.dz, x.drx, x.dry, x.drz].iter().any(|d| d.is_some_and(|v| v != 0.0)))
 }

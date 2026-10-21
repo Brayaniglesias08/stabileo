@@ -21,6 +21,7 @@
  */
 
 import { captureProvenanceToken, provenanceForExport, provenanceLabels, ExportChangedError } from '../store/result-provenance';
+import { runEngineActionAsync } from '../store/engine-action';
 import { tick } from 'svelte';
 import { viewportCanvas } from '../utils/viewport-canvas';
 import { uiStore } from '../store/ui.svelte';
@@ -109,9 +110,14 @@ export function reportDesignChecks(): NonNullable<ReportData['designChecks']> {
   return out.sort((a, b) => a.elementId - b.elementId);
 }
 
+/** Build and open the report; an engine error is said (an error toast), never swallowed. */
 export async function exportReportAs(input: ReportExportInputs): Promise<void> {
   // What the report is taken from, checked again before its provenance is written.
   const token = captureProvenanceToken();
+  await runEngineActionAsync(() => exportReportWithEngine(input, token));
+}
+
+async function exportReportWithEngine(input: ReportExportInputs, token: ReturnType<typeof captureProvenanceToken>): Promise<void> {
   const figures = input.figureOptions ? reportResultFigures(input.config, input.figureOptions) : {};
   // The model's figure is drawn; a capture of the screen only when it cannot be.
   const capture = input.config.sections?.modelData !== false && !figures.model;

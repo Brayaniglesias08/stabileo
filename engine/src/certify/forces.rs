@@ -431,6 +431,8 @@ mod tests {
         let mut sections = Map::new();
         sections.insert("1".into(), SolverSection3D {
             id: 1, name: None, a: 5e-3, iy: 4e-5, iz: 2e-6, j: 1e-7, cw: Some(2e-8), as_y: None, as_z: None,
+            shear_center_y: None,
+            shear_center_z: None,
         });
         let mut materials = Map::new();
         materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
@@ -448,7 +450,7 @@ mod tests {
             })],
             constraints: vec![], left_hand: None, plates: Map::new(), quads: Map::new(), quad9s: Map::new(),
             solid_shells: Map::new(), curved_beams: vec![], curved_shells: Map::new(), connectors: Map::new(),
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
         };
         let res = solve_3d(&input).unwrap();
         let dof = DofNumbering::build_3d(&input);
@@ -563,7 +565,7 @@ mod tests {
         materials.insert("1".into(), SolverMaterial { id: 1, e: 30_000.0, nu: 0.25 });
         SolverInput3D {
             nodes, materials, sections: Map::new(), elements: Map::new(), supports, loads,
-            constraints: vec![], left_hand: None, solver_options: None,
+            constraints: vec![], left_hand: None, solver_options: None, masses: Default::default(),
             plates, quads, quad9s, solid_shells: Map::new(), curved_shells: Map::new(),
             curved_beams: vec![], connectors: Map::new(),
         }

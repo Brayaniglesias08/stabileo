@@ -1179,7 +1179,7 @@ pub fn check_rigid_body_restraint_3d(input: &SolverInput3D) -> Vec<StructuredDia
     if !input.constraints.is_empty() || !input.connectors.is_empty() || !input.curved_beams.is_empty() {
         return Vec::new();
     }
-    if input.supports.values().any(|s| s.is_inclined == Some(true)) {
+    if crate::ordered::values(&input.supports).any(|s| s.is_inclined == Some(true)) {
         return Vec::new();
     }
     let pos: HashMap<usize, [f64; 3]> = crate::ordered::values(&input.nodes).map(|n| (n.id, [n.x, n.y, n.z])).collect();

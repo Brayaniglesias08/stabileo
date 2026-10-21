@@ -26,16 +26,16 @@ impl DofNumbering {
 
     /// DOFs per node of a 2D model: 3 (ux, uz, θ) with frames, 2 for all-truss.
     pub fn dofs_per_node_2d(input: &SolverInput) -> usize {
-        let has_frame = input.elements.values().any(|e| e.elem_type == "frame");
+        let has_frame = crate::ordered::values(&input.elements).any(|e| e.elem_type == "frame");
         if has_frame { 3 } else { 2 }
     }
 
     /// DOFs per node of a 3D model: 7 with warping, 6 with frames or shells,
     /// 3 (translations only) otherwise.
     pub fn dofs_per_node_3d(input: &SolverInput3D) -> usize {
-        let has_frame = input.elements.values().any(|e| e.elem_type == "frame");
+        let has_frame = crate::ordered::values(&input.elements).any(|e| e.elem_type == "frame");
         let has_plate = !input.plates.is_empty() || !input.quads.is_empty() || !input.quad9s.is_empty() || !input.curved_shells.is_empty();
-        let has_warping = input.sections.values().any(|s| s.cw.is_some());
+        let has_warping = crate::ordered::values(&input.sections).any(|s| s.cw.is_some());
         if has_warping { 7 } else if has_frame || has_plate { 6 } else { 3 }
     }
 
@@ -241,7 +241,7 @@ impl DofNumbering {
     }
 }
 
-fn is_dof_restrained_2d(sup: &SolverSupport, local_dof: usize) -> bool {
+pub(crate) fn is_dof_restrained_2d(sup: &SolverSupport, local_dof: usize) -> bool {
     // A "spring" support leaves every DOF free (its stiffness is added to K);
     // the rigid types restrain theirs whatever spring values they carry.
     match sup.support_type.as_str() {
@@ -252,7 +252,8 @@ fn is_dof_restrained_2d(sup: &SolverSupport, local_dof: usize) -> bool {
         "guidedX" => local_dof == 1 || local_dof == 2, // uz+ry fixed, ux free
         "guidedY" | "guidedZ" => local_dof == 0 || local_dof == 2, // ux+ry fixed
         "inclinedRoller" => local_dof == 1, // Constrained normal to surface
-        "spring" => false,  // All spring DOFs are free (stiffness added to K)
+        // "spring" (every DOF free, its stiffness added to K) and "free".
+        // validate_input_2d rejects any other type.
         _ => false,
     }
 }

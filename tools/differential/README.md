@@ -44,7 +44,11 @@ roll angles, Timoshenko sections, springs, settlements, partial/trapezoidal
 and point loads), `frame2d`, `frame3d`, `building`, `modal3d`, `pdelta3d`
 (`common/gen.py`) and per-program ones (`<program>/gen.py`). `--dump-dir`
 writes every flagged model; `--shrink` also writes a delta-debugged minimal
-model (`.min.json`) and, when the adapter can, its native input file.
+model (`.min.json`) and, when the adapter can, its native input file. The
+shrinker keeps a smaller model only if it still mismatches by at least half
+the original error and its reference reactions and end forces are not all
+below 1e-8 of the original's (`SHRINK_FLOOR`): otherwise it drifts to a
+model whose "mismatch" is round-off against round-off.
 
 Exit status: 0 nothing flagged, 1 a model flagged, 2 harness error.
 
@@ -59,7 +63,8 @@ Exit status: 0 nothing flagged, 1 a model flagged, 2 harness error.
 | `false_reject` | stabileo refused a model whose reference stiffness is regular (κ < 1e10) |
 | `false_warning` | stabileo flagged a model ill-conditioned whose reference stiffness is well conditioned (κ < 1e8) |
 | `ill_conditioned` | stabileo warned (singular/indefinite, LU fallback, high residual), or the reference κ > 1e12: no unique answer to compare |
-| `stabileo_failed` | stabileo refused the model (and no reference says it is regular) |
+| `refused` | stabileo refused the model and the reference finds it singular too (κ > 1e12): a correct refusal |
+| `stabileo_failed` | stabileo refused the model (and no reference says it is regular or singular) |
 | `unstable` | P-Delta past the first buckling load |
 | `unsupported` | the reference program cannot represent a feature of the model |
 | `reference_failed`, `unloaded` | the reference program failed; the model has no load |
@@ -76,7 +81,12 @@ forces / moments, end forces / moments) is compared as
 `|stabileo − reference| / scale`, with the scale the group's largest
 magnitude floored by its companion group times the model size. The default
 tolerance is 1e-6, widened to `100 ε κ` when the reference reports κ (both
-programs lose about κ ε). Modal results compare frequencies (relative) and
+programs lose about κ ε). Frame3DD does not expose its stiffness, so its
+adapter reports κ from an independent numpy assembly of the same model
+(`common/conditioning.py`, which reproduces PyNite's own κ to five digits):
+`kappa` for the model stabileo solves (the singularity statuses) and
+`kappa_solved` for the nodalized model Frame3DD factors (the tolerance uses
+the larger; static only, since P-Delta factors K + K_G). Modal results compare frequencies (relative) and
 mode shapes as subspaces of clustered (repeated) frequencies
 (`common/results.py`).
 
@@ -135,6 +145,18 @@ iteration; CalculiX U1's inverted shear deformation, wrong reactions and
 section forces, wrong prescribed displacements and ignored rotational
 springs. Modelling differences documented: Kratos' beam mass has rotary
 inertia, MYSTRAN's is lumped, CalculiX U1 torsion uses Iy + Iz.
+
+**frame3d-744293** (issue #336, static, normalized error 2.4e-5 on macOS,
+6.7e-5 on Linux against the fixed 1e-6): not a stabileo bug. The model is
+well conditioned (κ = 314), but nodalizing its interior loads for Frame3DD
+put a point load 1.9 mm from a Gauss station of a partial load on the same
+4 m member, and the 1.9 mm sub-member makes the system Frame3DD factors
+κ = 1.7e11. A 50- and 100-digit solve (mpmath) of that nodalized system
+gives N = 92.7267325811942 for member 1; stabileo (original model) gives
+92.726732581196, Frame3DD 92.73061 (macOS) / 92.73737 (Linux). Frame3DD loses
+κ ε, as expected. With `kappa_solved` the tolerance is 100 ε κ = 3.8e-3 and
+the model compares `ok`; its shrunk model (one unloaded bar, every result
+~1e-15) is now rejected by the shrinker's floor.
 
 Not a disagreement but worth knowing: `ex-3d-nave-industrial` has 20 nodes
 lying inside member spans without being connected to them, and stabileo has

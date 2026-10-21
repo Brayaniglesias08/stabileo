@@ -97,6 +97,18 @@ pub fn sorted_point_loads(ef: &ElementForces) -> Vec<PointLoadInfo> {
     pl
 }
 
+/// The 2D diagram kinds `compute_diagram_value_at` evaluates.
+pub const DIAGRAM_KINDS_2D: [&str; 3] = ["moment", "shear", "axial"];
+
+/// Refuse an unknown diagram kind (the evaluator returns 0 for one).
+pub fn check_diagram_kind_2d(kind: &str) -> Result<(), String> {
+    if DIAGRAM_KINDS_2D.contains(&kind) {
+        Ok(())
+    } else {
+        Err(format!("unknown diagram kind '{kind}'; accepted: {}", DIAGRAM_KINDS_2D.join(", ")))
+    }
+}
+
 /// Compute the value of a diagram (M, V, or N) at a given normalized position t.
 pub fn compute_diagram_value_at(
     kind: &str,
@@ -202,6 +214,14 @@ pub fn compute_diagram_value_at_sorted(
                         value -= px;
                     }
                 }
+            }
+            // An axial span load lowers it continuously, by what of it lies left of x
+            // (as the space diagram reads `distributed_loads_x`).
+            for dl in &ef.distributed_loads_x {
+                let span = dl.b - dl.a;
+                if span <= 0.0 { continue; }
+                let s = (xi - dl.a).clamp(0.0, span);
+                value -= dl.q_i * s + (dl.q_j - dl.q_i) * s * s / (2.0 * span);
             }
             value
         }

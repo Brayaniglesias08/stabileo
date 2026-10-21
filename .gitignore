@@ -74,3 +74,6 @@ docs/codes/CIRSOC/*.pdf
 # Stryker mutation testing (web/stryker.config.json)
 web/reports/mutation/
 web/.stryker-tmp/
+
+# Python bytecode (scripts/tests)
+__pycache__/

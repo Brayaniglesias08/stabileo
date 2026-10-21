@@ -34,7 +34,7 @@ fn tiny_beam_2d() -> SolverInput {
         constraints: vec![],
         connectors: HashMap::new(),
 
-        solver_options: None,    }
+        solver_options: None, masses: Default::default(),    }
 }
 
 fn densities_1() -> HashMap<String, f64> {
