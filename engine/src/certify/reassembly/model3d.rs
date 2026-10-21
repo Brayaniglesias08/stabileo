@@ -519,7 +519,11 @@ fn constraints(input: &SolverInput3D, model: &Model, kin: &mut Kinematics, dpn: 
             }
             Constraint::Diaphragm(dia) => {
                 // In-plane rigid motion: the plane's two translations follow
-                // the master's translation and its rotation about the normal.
+                // the master's translation and its rotation about the normal,
+                // and the slave's rotation about the normal is the master's.
+                if dpn != 6 {
+                    return Err("unsupported: diaphragm in a model without rotations".into());
+                }
                 let ds: [usize; 2] = match dia.plane.as_str() {
                     "XZ" => [0, 2],
                     "YZ" => [1, 2],
@@ -547,6 +551,7 @@ fn constraints(input: &SolverInput3D, model: &Model, kin: &mut Kinematics, dpn: 
                         }
                         kin.equation(need(sn, d)?, t);
                     }
+                    kin.equation(need(sn, 3 + normal)?, vec![(need(dia.master_node, 3 + normal)?, c(1.0))]);
                 }
             }
             Constraint::EqualDOF(eq) => {

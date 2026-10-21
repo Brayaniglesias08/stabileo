@@ -64,7 +64,19 @@ pub(crate) fn orphan_rotation_dofs_3d(input: &SolverInput3D, dof_num: &DofNumber
             Constraint::EccentricConnection(e) => { tied.insert(e.master_node); tied.insert(e.slave_node); }
         }
     }
-    let tol = if max_diag > 0.0 { max_diag * 1e-12 } else { 1e-14 };
+    // Relative to the largest ROTATIONAL diagonal (same units, F·L): against
+    // the overall maximum — a translational stiffness, F/L — a real but
+    // small rotational stiffness fell under the threshold in a model in
+    // millimetres with one stiff member, was taken for an orphan and locked
+    // by the artificial spring (found by the metamorphic unit-scaling check).
+    // K is positive semi-definite, so a zero diagonal means a zero row.
+    let max_rot = dof_num
+        .node_order
+        .iter()
+        .flat_map(|&nid| (3..6).filter_map(move |l| dof_num.map.get(&(nid, l)).copied()))
+        .fold(0.0f64, |m, d| m.max(diag(d).abs()));
+    let _ = max_diag;
+    let tol = if max_rot > 0.0 { max_rot * 1e-12 } else { 1e-14 };
     for &node_id in &dof_num.node_order {
         if tied.contains(&node_id) {
             continue;
@@ -85,6 +97,34 @@ pub struct InclinedTransformData {
     pub node_id: usize,
     pub dofs: [usize; 3],        // Global DOF indices for ux, uy, uz
     pub r: [[f64; 3]; 3],        // Rotation matrix (rows = local axes)
+}
+
+/// 2D nodes whose rotation a constraint ties to other DOFs. An artificial
+/// rotational spring on such a node is not inert: once the constraint is
+/// imposed it becomes a real spring on the structure (a rigid-link mechanism
+/// was held by it, so whether it counted as a mechanism depended on the
+/// units — found by the metamorphic checks). The 3D assembler already leaves
+/// constraint nodes out (`orphan_rotation_dofs_3d`).
+pub(crate) fn rotation_tied_nodes_2d(input: &SolverInput) -> std::collections::HashSet<usize> {
+    let mut tied = std::collections::HashSet::new();
+    for c in &input.constraints {
+        match c {
+            Constraint::RigidLink(r) => {
+                tied.insert(r.master_node);
+                if r.dofs.contains(&2) { tied.insert(r.slave_node); }
+            }
+            Constraint::Diaphragm(d) => { tied.insert(d.master_node); }
+            Constraint::EqualDOF(e) => {
+                if e.dofs.contains(&2) { tied.extend([e.master_node, e.slave_node]); }
+            }
+            Constraint::EccentricConnection(e) => {
+                tied.insert(e.master_node);
+                if !e.releases.get(2).copied().unwrap_or(false) { tied.insert(e.slave_node); }
+            }
+            Constraint::LinearMPC(m) => tied.extend(m.terms.iter().filter(|t| t.dof == 2).map(|t| t.node_id)),
+        }
+    }
+    tied
 }
 
 /// Data needed to reverse the 2D inclined support rotation after solving.
@@ -467,7 +507,7 @@ pub fn assemble_stiffness_2d(input: &SolverInput, dof_num: &DofNumbering) -> Sti
         // Nodes with rotational restraint from supports
         let mut rot_restrained: std::collections::HashSet<usize> = std::collections::HashSet::new();
         for sup in input.supports.values() {
-            if sup.support_type == "fixed" || sup.support_type == "guidedX" || sup.support_type == "guidedY" {
+            if matches!(sup.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ") {
                 rot_restrained.insert(sup.node_id);
             }
             if sup.support_type == "spring" {
@@ -476,6 +516,8 @@ pub fn assemble_stiffness_2d(input: &SolverInput, dof_num: &DofNumbering) -> Sti
                 }
             }
         }
+        let tied = rotation_tied_nodes_2d(input);
+        rot_restrained.extend(tied.iter().copied());
 
         for (&node_id, &hinges) in &node_hinge_count {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
@@ -496,25 +538,21 @@ pub fn assemble_stiffness_2d(input: &SolverInput, dof_num: &DofNumbering) -> Sti
         // DOFs all-zero) still surfaces as a singular-matrix error.
         let nf = dof_num.n_free;
         let already: std::collections::HashSet<usize> = artificial_dofs.iter().copied().collect();
-        let orphan_tol = if max_diag > 0.0 { max_diag * 1e-12 } else { 1e-14 };
         let mut idx_to_local: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-        for (&(_, ld), &idx) in &dof_num.map {
-            if idx < nf {
+        for (&(node, ld), &idx) in &dof_num.map {
+            if idx < nf && !tied.contains(&node) {
                 idx_to_local.insert(idx, ld);
             }
         }
+        // Against the largest rotational diagonal (same units), not the
+        // overall maximum: see `orphan_rotation_dofs_3d`. K is positive
+        // semi-definite, so a zero diagonal is a zero row.
+        let max_rot = dof_num.map.iter().filter(|(&(_, ld), _)| ld == 2).fold(0.0f64, |m, (_, &d)| m.max(k_global[d * n + d].abs()));
+        let orphan_tol = if max_rot > 0.0 { max_rot * 1e-12 } else { 1e-14 };
         for i in 0..nf {
             if already.contains(&i) { continue; }
             if idx_to_local.get(&i).copied() != Some(2) { continue; }
-            let mut all_zero = true;
-            for j in 0..n {
-                if k_global[i * n + j].abs() > orphan_tol
-                    || k_global[j * n + i].abs() > orphan_tol
-                {
-                    all_zero = false;
-                    break;
-                }
-            }
+            let all_zero = k_global[i * n + i].abs() <= orphan_tol;
             if all_zero {
                 k_global[i * n + i] += artificial_k;
                 artificial_dofs.push(i);
@@ -561,6 +599,31 @@ pub fn assemble_stiffness_2d(input: &SolverInput, dof_num: &DofNumbering) -> Sti
 /// A member load on a 2D truss bar, at its nodes: the bar's simply-supported reactions (lever
 /// rule), statically exact, since a truss carries nothing transverse. Read by
 /// `assemble_load_vector_2d`, which every 2D path (dense and sparse) builds its loads with.
+/// The loads on a 2D truss or cable bar into the global load vector: thermal as its
+/// free-expansion end forces, member loads by the lever rule (`truss_member_load_2d`).
+/// Shared by the linear assembly and staged construction, which used to drop every
+/// member load on a bar.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn assemble_truss_loads_2d(
+    loads: &[&SolverLoad], elem_id: usize, l: f64, cos: f64, sin: f64, e: f64, area: f64,
+    truss_dofs: &[usize; 4], f_global: &mut [f64],
+) {
+    for load in loads {
+        match load {
+            SolverLoad::Thermal(tl) if tl.element_id == elem_id => {
+                // Convention matches fef_thermal_2d: node I gets -fx, node J gets +fx (local axial).
+                let alpha = 12e-6; // Steel default
+                let fx = e * area * alpha * tl.dt_uniform;
+                f_global[truss_dofs[0]] += -fx * cos;
+                f_global[truss_dofs[1]] += -fx * sin;
+                f_global[truss_dofs[2]] += fx * cos;
+                f_global[truss_dofs[3]] += fx * sin;
+            }
+            _ => truss_member_load_2d(load, elem_id, l, cos, sin, truss_dofs, f_global),
+        }
+    }
+}
+
 fn truss_member_load_2d(
     load: &SolverLoad, elem_id: usize, l: f64, cos: f64, sin: f64,
     truss_dofs: &[usize; 4], f_global: &mut [f64],
@@ -608,6 +671,13 @@ fn truss_member_load_2d(
             f_global[truss_dofs[2]] += cos * nj;
             f_global[truss_dofs[3]] += sin * nj;
         }
+        SolverLoad::AxialDistributed(al) if al.element_id == elem_id => {
+            let [ni, nj] = crate::element::axial_distributed_fef(al.q_i, al.q_j, al.a.unwrap_or(0.0), al.b.unwrap_or(l), l);
+            f_global[truss_dofs[0]] += cos * ni;
+            f_global[truss_dofs[1]] += sin * ni;
+            f_global[truss_dofs[2]] += cos * nj;
+            f_global[truss_dofs[3]] += sin * nj;
+        }
         _ => {}
     }
 }
@@ -640,6 +710,7 @@ pub fn assemble_load_vector_2d(
             SolverLoad::Distributed(dl) => { loads_by_elem.entry(dl.element_id).or_default().push(load); }
             SolverLoad::PointOnElement(pl) => { loads_by_elem.entry(pl.element_id).or_default().push(load); }
             SolverLoad::Thermal(tl) => { loads_by_elem.entry(tl.element_id).or_default().push(load); }
+            SolverLoad::AxialDistributed(al) => { loads_by_elem.entry(al.element_id).or_default().push(load); }
             _ => {}
         }
     }
@@ -673,19 +744,7 @@ pub fn assemble_load_vector_2d(
                 dof_num.global_dof(elem.node_j, 0).unwrap(),
                 dof_num.global_dof(elem.node_j, 1).unwrap(),
             ];
-            for load in elem_loads {
-                match load {
-                    SolverLoad::Thermal(tl) if tl.element_id == elem.id => {
-                        let alpha = 12e-6; // Steel default
-                        let fx = e * sec.a * alpha * tl.dt_uniform;
-                        f_global[truss_dofs[0]] += -fx * cos;  // node I, x
-                        f_global[truss_dofs[1]] += -fx * sin;  // node I, z
-                        f_global[truss_dofs[2]] +=  fx * cos;  // node J, x
-                        f_global[truss_dofs[3]] +=  fx * sin;  // node J, z
-                    }
-                    _ => truss_member_load_2d(load, elem.id, l, cos, sin, &truss_dofs, &mut f_global),
-                }
-            }
+            assemble_truss_loads_2d(elem_loads, elem.id, l, cos, sin, e, sec.a, &truss_dofs, &mut f_global);
         } else {
             let t = frame_transform_2d(cos, sin);
             let elem_dofs = dof_num.element_dofs(elem.node_i, elem.node_j);
@@ -800,6 +859,13 @@ pub fn assemble_element_loads_2d(
 
                 adjust_fef_for_hinges(&mut fef, l, elem.hinge_start, elem.hinge_end, phi);
 
+                let fef_global = transform_force(&fef, t, 6);
+                for (i, &dof) in elem_dofs.iter().enumerate() {
+                    f_global[dof] += fef_global[i];
+                }
+            }
+            SolverLoad::AxialDistributed(al) if al.element_id == elem.id => {
+                let fef = crate::element::fef_axial_distributed_2d(al.q_i, al.q_j, al.a.unwrap_or(0.0), al.b.unwrap_or(l), l);
                 let fef_global = transform_force(&fef, t, 6);
                 for (i, &dof) in elem_dofs.iter().enumerate() {
                     f_global[dof] += fef_global[i];
@@ -3083,7 +3149,7 @@ mod tests {
         SolverInput {
             nodes, materials, sections, elements, supports,
             loads: vec![], constraints: vec![], connectors: HashMap::new(),
-            solver_options: None,
+            solver_options: None, masses: Default::default(),
         }
     }
 

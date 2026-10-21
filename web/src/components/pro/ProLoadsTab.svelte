@@ -9,6 +9,7 @@
   import { addGeneratedCombinations, addCompositeCases, combinationExists, templateCombinationSpecs } from '../../lib/store/generated-combinations';
   import { withNotionalVariants } from '../../lib/engine/loads/notional-combinations';
   import { modelStore, uiStore } from '../../lib/store';
+  import { runEngineAction } from '../../lib/store/engine-action';
   import { t } from '../../lib/i18n';
   import WriteInPanelButton from './WriteInPanelButton.svelte';
   import WriteCard from './WriteCard.svelte';
@@ -101,8 +102,11 @@
       uiStore.toast(t('pro.needDeadCase'), 'error');
       return;
     }
+    // The regulation's combinations are the engine's: without it, say so and open nothing.
+    const candidates = runEngineAction(() => buildCandidates(template));
+    if (!candidates) return;
     activeTemplate = template;
-    candidateCombos = buildCandidates(template);
+    candidateCombos = candidates;
     showComboModal = true;
   }
 
@@ -227,20 +231,20 @@
       </div>
       {#if hasSeismicCases}
         <label class="combo-wind-basis" data-testid="combo-both-senses">
-          <input type="checkbox" bind:checked={seismicBothSenses} onchange={() => { candidateCombos = buildCandidates(activeTemplate); }} />
+          <input type="checkbox" bind:checked={seismicBothSenses} onchange={() => { candidateCombos = runEngineAction(() => buildCandidates(activeTemplate)) ?? candidateCombos; }} />
           <span>{t('autoLoad.seismicBothSenses')}</span>
         </label>
       {/if}
       {#if hasWindCases}
         <label class="combo-wind-basis" data-testid="combo-wind-by-sign">
-          <input type="checkbox" bind:checked={windBySign} onchange={() => { candidateCombos = buildCandidates(activeTemplate); }} />
+          <input type="checkbox" bind:checked={windBySign} onchange={() => { candidateCombos = runEngineAction(() => buildCandidates(activeTemplate)) ?? candidateCombos; }} />
           <span>{t('combos.windBySign')}</span>
         </label>
         <p class="combo-senses-hint">{t('combos.windBySignHint')}</p>
       {/if}
       {#if hasNotionalCases}
         <label class="combo-wind-basis" data-testid="combo-add-notionals">
-          <input type="checkbox" bind:checked={addNotionals} onchange={() => { candidateCombos = buildCandidates(activeTemplate); }} />
+          <input type="checkbox" bind:checked={addNotionals} onchange={() => { candidateCombos = runEngineAction(() => buildCandidates(activeTemplate)) ?? candidateCombos; }} />
           <span>{t('combos.addNotionals')}</span>
         </label>
       {/if}

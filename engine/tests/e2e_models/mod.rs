@@ -165,7 +165,7 @@ pub fn stable_2d(seed: u64) -> SolverInput {
             ] })
         });
     }
-    SolverInput { nodes, materials, sections, elements, supports, loads, constraints, connectors: HashMap::new(), solver_options: None }
+    SolverInput { nodes, materials, sections, elements, supports, loads, constraints, connectors: HashMap::new(), solver_options: None, masses: Default::default() }
 }
 
 fn blank_support_3d(node_id: usize) -> SolverSupport3D {
@@ -216,7 +216,7 @@ pub fn stable_3d(seed: u64) -> SolverInput3D {
         let j = (iy + iz) * rng.gen_range(0.05..0.5);
         let as_y = if rng.gen_bool(0.5) { Some(a * rng.gen_range(0.3..0.9)) } else { None };
         let as_z = if rng.gen_bool(0.5) { Some(a * rng.gen_range(0.3..0.9)) } else { None };
-        sections.insert(i.to_string(), SolverSection3D { id: i, name: None, a, iy, iz, j, cw: None, as_y, as_z });
+        sections.insert(i.to_string(), SolverSection3D { id: i, name: None, a, iy, iz, j, cw: None, as_y, as_z, shear_center_y: None, shear_center_z: None });
     }
     let mut elements = HashMap::new();
     let mut eid = 0;
@@ -381,8 +381,10 @@ pub fn stable_3d(seed: u64) -> SolverInput3D {
         _ => {}
     }
     SolverInput3D {
-        nodes, materials, sections, elements, supports, loads, constraints,
-        left_hand: if rng.gen_bool(0.2) { Some(true) } else { None },
+        nodes, materials, sections, elements, supports, loads, constraints, masses: Default::default(),
+        // The engine refuses `leftHand: true` before the solve; the draw stays so the seeds
+        // give the same models.
+        left_hand: { let _ = rng.gen_bool(0.2); None },
         plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(), solid_shells: HashMap::new(),
         curved_shells: HashMap::new(), curved_beams: Vec::new(), connectors: HashMap::new(), solver_options: None,
     }

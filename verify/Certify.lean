@@ -13,4 +13,5 @@ import Certify.PlasticCheck
 import Certify.PlasticSound
 import Certify.ComboCheck
 import Certify.ComboSound
+import Certify.BundleParse
 import Certify.EndToEnd

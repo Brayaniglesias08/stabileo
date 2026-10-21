@@ -1,5 +1,7 @@
 <script lang="ts">
   import { centerlineInput, dynamicInput } from '../../lib/store/dynamic-input';
+  import { engineStatus } from '../../lib/store/engine-status.svelte';
+  import { isWasmReady } from '../../lib/engine/wasm-solver';
   import { userSpectrumPointsInG } from '../../lib/engine/spectral-case';
   import { lateralPatternLoads } from '../../lib/engine/pushover-pattern';
   import { incrementalOutcome, convergedPercent } from '../../lib/engine/incremental-outcome';
@@ -25,7 +27,7 @@
   import { hasLoadCarrying3D } from '../../lib/engine/solver-service';
   import { plasticInput3D } from '../../lib/engine/plastic-moments';
   import {
-    withNotionalLoads, creepSteps, concreteMaterials, stagedLoadsByCase, stagedStagesPayload,
+    withNotionalLoads, notionalLoadsRefusal, creepSteps, concreteMaterials, stagedLoadsByCase, stagedStagesPayload,
     stagedRefusal, plasticForSolve, pushoverNonSteel,
   } from '../../lib/engine/advanced-analyses';
   import { caseSolverLoads3D } from '../../lib/engine/solver-service';
@@ -314,7 +316,12 @@
   /** Damping ratio for the modal combination (CQC correlation). The spectrum is the code's. */
   let spectralXi = $state(0.05);
   const fromProject = seismicSettings?.zone !== undefined;
-  const codeSpectrum = $derived(designSpectrum({ zone: seismicZone, site: siteClass }));
+  const codeSpectrum = $derived(
+    // The spectrum is the engine's: until it is loaded the code spectrum is refused, by name.
+    (engineStatus.ready || isWasmReady())
+      ? designSpectrum({ zone: seismicZone, site: siteClass })
+      : { blocked: { key: 'engine.unavailable' }, refs: [] },
+  );
 
   function handleSpectral() {
     solveError = null;
@@ -566,7 +573,11 @@
        * only, so a frame loaded along its members took a fraction of its sway force or none
        * (78 % short on the seven-storey building). The input with them is solved as it stands.
        */
-      const { input: withN, totalH } = withNotionalLoads(buildInput({ caseDisplacements: true }), imperfRatio, imperfDir);
+      const base = buildInput({ caseDisplacements: true });
+      // Loads that would move nothing are refused, not solved and shown as the imperfect structure.
+      const refusal = notionalLoadsRefusal(base, imperfRatio, imperfDir);
+      if (refusal) throw new Error(t(refusal === 'noGravity' ? 'adv.imperfNoGravity' : 'adv.imperfRestrained').replace('{dir}', imperfDir));
+      const { input: withN, totalH } = withNotionalLoads(base, imperfRatio, imperfDir);
       // Shown in this panel only; see `handleStaged` for why it is not published.
       imperfResult = { ...asModel(solve3D(withN)), notionalTotal: totalH };
     } catch (e: any) {
@@ -1330,6 +1341,7 @@
           {#if nlResult.isMechanism != null} — {nlResult.isMechanism ? t('pro.mechanism') : t('pro.stable')}{/if}
           {#if nlOutcome?.kind === 'converged'} — {t('pro.converged')}{/if}
           {#if nlResult.steps != null} — {nlResult.steps.length} {t('pro.steps')}{/if}
+          {#if nlType === 'pushover'}<div class="adv-hint" data-testid="known-issue-511">⚠ {t('knownIssue.PC-3D')} (#511)</div>{/if}
           {#if nlType === 'pushover' && nlAssumed.length > 0}<div class="adv-hint" data-testid="pushover-assumed">{tp('pro.pushoverAssumed', { names: nlAssumed.join(', ') })}</div>{/if}
           {#if nlDisplacements.length}
             — δmax={fmtNum(Math.max(...nlDisplacements.map((d: any) => Math.hypot(d.ux ?? 0, d.uy ?? 0, d.uz ?? 0))))} m

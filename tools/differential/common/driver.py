@@ -12,7 +12,9 @@ An adapter (tools/differential/<program>/adapter.py) provides:
   write_native(model, analysis, path) (optional): the native input file,
     written next to mismatch dumps.
 
-Statuses: ok, mismatch, unsupported, stabileo_failed, ill_conditioned,
+Statuses: ok, mismatch, unsupported, stabileo_failed, refused (stabileo
+refused a static model whose reference stiffness is singular too, kappa >
+1e12: a correct refusal), ill_conditioned,
 unstable (P-Delta beyond the first buckling load: no unique answer),
 reference_failed, unloaded, and three that point at stabileo's own
 singularity checks (dumped like mismatches):
@@ -67,10 +69,14 @@ def run_case(adapter, model, analysis, tol, n_modes=6, mode_tol=None):
     try:
         if analysis == "modal":
             # Mechanisms (rigid-body modes) have no well-defined mode order:
-            # require a nonsingular stiffness, checked with a unit load.
+            # require a nonsingular stiffness, checked with a load on every
+            # node (a load on one node misses a mechanism elsewhere: a member
+            # hinged at one end with a free tip, modal3d_lumped-744196).
+            # Unequal components, so that no mechanism is orthogonal to it.
             probe = dict(clean, loads=[{"type": "nodal", "data": {
-                "nodeId": min(n["id"] for n in clean["nodes"].values()),
-                "fx": 1.0, "fy": 1.0, "fz": 1.0, "mx": 0.0, "my": 0.0, "mz": 0.0}}])
+                "nodeId": n["id"], "fx": 1.0 + 0.37 * i, "fy": 1.0 - 0.23 * i, "fz": 0.5 + 0.11 * i,
+                "mx": 0.0, "my": 0.0, "mz": 0.0}}
+                for i, n in enumerate(sorted(clean["nodes"].values(), key=lambda n: n["id"]))])
             pres = M.normalize_static(M.stabileo(probe, "static"), dim)
             ill = sorted(set(pres["diags"]) & M.ILL_CONDITIONED)
             if ill:
@@ -88,6 +94,10 @@ def run_case(adapter, model, analysis, tol, n_modes=6, mode_tol=None):
         r = dict(status="stabileo_failed", why=[str(ex)[:200]])
         if analysis == "static":
             _cross_check(adapter, clean, dens, r, KAPPA_REGULAR, "false_reject")
+            if r["status"] == "stabileo_failed" and (r.get("kappa") or 0.0) > 1e12:
+                # The reference finds no unique answer either: a correct refusal.
+                r["status"] = "refused"
+                r["why"] = r["why"] + [f"reference kappa={r['kappa']:.1e}"]
         return r
     if analysis != "modal":
         ill = sorted(set(sres["diags"]) & M.ILL_CONDITIONED)
@@ -117,7 +127,10 @@ def run_case(adapter, model, analysis, tol, n_modes=6, mode_tol=None):
                 return dict(status="silent_singular", why=[f"kappa={kappa:.1e} min_pivot={rres.get('min_pivot')}"],
                             kappa=kappa, min_pivot=rres.get("min_pivot"))
             return dict(status="ill_conditioned", why=[f"kappa={kappa:.1e}"])
-        tol = max(tol, 100 * 2.2e-16 * (kappa or 0.0))
+        # kappa_solved: the condition number of the system the reference
+        # actually factored, when it differs from the model's (Frame3DD
+        # solves the nodalized model, common.model.nodalize).
+        tol = max(tol, 100 * 2.2e-16 * max(kappa or 0.0, rres.get("kappa_solved") or 0.0))
         bad, groups = R.static_compare(clean, sres, rres, tol)
         if bad is None:
             return dict(status="unloaded")
@@ -126,7 +139,18 @@ def run_case(adapter, model, analysis, tol, n_modes=6, mode_tol=None):
     if why:
         status = "known"
     return dict(status=status, known=why, max_err=groups, tol=tol, kappa=kappa, n_bad=len(bad),
-                worst=sorted(bad, key=lambda b: -b[5])[:8])
+                worst=sorted(bad, key=lambda b: -b[5])[:8], ref_scale=_ref_scale(rres, analysis))
+
+
+def _ref_scale(rres, analysis):
+    """Largest magnitude of the reference's reactions and end forces (static,
+    P-Delta) or frequencies (modal): what the shrinker keeps above round-off."""
+    if analysis == "modal":
+        vals = [abs(f) for f in rres.get("freqs", [])]
+    else:
+        vals = [abs(v) for r in rres.get("reac", {}).values() for v in r]
+        vals += [abs(v) for fd in rres.get("forces", {}).values() for v in fd.values()]
+    return max(vals, default=0.0)
 
 
 def _cross_check(adapter, clean, dens, r, limit, status):
@@ -212,10 +236,29 @@ def _worst(r):
     return max((w[5] for w in r.get("worst", [])), default=0.0)
 
 
+# The shrinker drops a candidate whose reference results are all below this
+# fraction of the original model's: its "mismatch" compares round-off with
+# round-off (frame3d-744293, issue #336, shrank to one unloaded bar whose
+# every result was ~1e-15 and whose normalized errors were ~0.5).
+SHRINK_FLOOR = 1e-8
+
+
+def _keeps(first, r, target):
+    """Whether candidate result r still shows the original discrepancy."""
+    if r["status"] != first["status"]:
+        return False
+    if r["status"] != "mismatch":
+        return True
+    if _worst(r) < target:
+        return False
+    return r.get("ref_scale", 0.0) > SHRINK_FLOOR * first.get("ref_scale", 0.0)
+
+
 def shrink(adapter, model, analysis, tol, n_modes=6, max_steps=400):
     """Greedy delta debugging: keep any smaller variant that still mismatches
     with at least half the original worst error (so that the search does
-    not drift to a different, smaller discrepancy)."""
+    not drift to a different, smaller discrepancy) and whose results are
+    not all round-off (SHRINK_FLOOR)."""
     first = run_case(adapter, model, analysis, tol, n_modes)
     target = 0.5 * _worst(first)
     cur, steps = model, 0
@@ -230,7 +273,7 @@ def shrink(adapter, model, analysis, tol, n_modes=6, max_steps=400):
                 r = run_case(adapter, c, analysis, tol, n_modes)
             except Exception:  # noqa: a candidate may break a translator
                 continue
-            if r["status"] == first["status"] and (r["status"] != "mismatch" or _worst(r) >= target):
+            if _keeps(first, r, target):
                 cur, changed = c, True
                 break
     return cur
@@ -291,7 +334,7 @@ def summarize(results, verbose=False, out=print):
     if g:
         out("max normalized error over compared models: " + json.dumps({k: f"{v:.2e}" for k, v in sorted(g.items())}))
     for st in ("known", "silent_singular", "false_reject", "false_warning", "unsupported", "reference_failed",
-               "stabileo_failed", "ill_conditioned", "unstable"):
+               "refused", "stabileo_failed", "ill_conditioned", "unstable"):
         reasons = Counter(w[:120] for r in results if r["status"] == st
                           for w in ([r["known"]] if st == "known" else r["why"]))
         if reasons:

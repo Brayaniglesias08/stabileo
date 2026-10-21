@@ -1,0 +1,66 @@
+name: Verification alert
+
+# A verification job that fails at night and that nobody looks at protects
+# nothing. After every run of the scheduled verification workflows, this opens
+# (or comments on) one GitHub issue per failed job, labelled
+# `verification-failure`, with the run link and the failing step
+# (.github/scripts/verification-alert.cjs). Only scheduled runs alert: manual
+# and PR runs have someone watching them.
+#
+# workflow_run always runs this file as it is on main. To re-alert for a
+# past run, or to try the script, use the manual trigger with its run id
+# (dry run by default).
+
+on:
+  workflow_run:
+    workflows:
+      - Nightly verification
+      - Verify
+      - Differential
+      - Mutation testing (TypeScript engine logic)
+      - Supply chain
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Workflow run id to alert for"
+        required: true
+      dry_run:
+        description: "Only print what would be opened or commented"
+        type: boolean
+        default: true
+      any_event:
+        description: "Alert even if that run was not scheduled"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  alert:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'schedule' &&
+       github.event.workflow_run.conclusion != 'success' &&
+       github.event.workflow_run.conclusion != 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          ALERT_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          ALERT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          ALERT_ANY_EVENT: ${{ github.event_name == 'workflow_dispatch' && inputs.any_event }}
+        with:
+          script: |
+            const alert = require('./.github/scripts/verification-alert.cjs');
+            await alert({ github, context, core });

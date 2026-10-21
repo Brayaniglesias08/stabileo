@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use super::constrained::{certify_constrained_system, rotate_back, to_rotated, ConstraintMap, KRef, Rotation};
+use super::finite::{self, Guarded};
 use super::deflection::{deflection_bounds_2d, deflection_bounds_3d, DeflectionBound};
 use super::forces::{force_bounds_2d, force_bounds_3d, shell_bounds_3d, ForceBound2D, ForceBound3D, ShellBound};
 use super::reactions::{reaction_bounds_2d, reaction_bounds_3d, ReactionBound2D, ReactionBound3D};
@@ -167,6 +168,51 @@ impl CertificateLevel {
     }
 }
 
+/// Withdraw an end-to-end claim that carries a non-finite number.
+fn guard_end_to_end(e2e: &mut EndToEnd) {
+    if !e2e.is_certified() {
+        return;
+    }
+    let bad = finite::undocumented_non_finite(&*e2e);
+    if !bad.is_empty() {
+        *e2e = EndToEnd::Uncertified { reason: format!("non-finite bound at {}", bad.join(", ")) };
+    }
+}
+
+impl CertifiedResults2D {
+    /// Withdraw the certificate and every bound derived from it when any of
+    /// them is not finite (outside the documented +∞ fields).
+    fn guard(&mut self) {
+        guard_end_to_end(&mut self.end_to_end);
+        if !self.certificate.is_certified() {
+            return;
+        }
+        let bad = finite::undocumented_non_finite(&(&self.certificate, &self.force_bounds, &self.shown));
+        if !bad.is_empty() {
+            self.certificate.downgrade(format!("non-finite bound at {}", bad.join(", ")));
+            self.force_bounds.clear();
+            self.shown = ShownBounds::default();
+        }
+    }
+}
+
+impl CertifiedResults3D {
+    /// As `CertifiedResults2D::guard`.
+    fn guard(&mut self) {
+        guard_end_to_end(&mut self.end_to_end);
+        if !self.certificate.is_certified() {
+            return;
+        }
+        let bad = finite::undocumented_non_finite(&(&self.certificate, &self.force_bounds, &self.shell_bounds, &self.shown));
+        if !bad.is_empty() {
+            self.certificate.downgrade(format!("non-finite bound at {}", bad.join(", ")));
+            self.force_bounds.clear();
+            self.shell_bounds.clear();
+            self.shown = ShownBounds::default();
+        }
+    }
+}
+
 /// `certify_linear_2d` plus per-member force bounds and the bounds on what the
 /// views show (diagrams, deflection curves, reactions).
 pub fn certify_linear_2d_full(input: &SolverInput) -> Result<CertifiedResults2D, String> {
@@ -174,8 +220,10 @@ pub fn certify_linear_2d_full(input: &SolverInput) -> Result<CertifiedResults2D,
     let force_bounds = certificate.abs_bound().map(|b| force_bounds_2d(input, b)).unwrap_or_default();
     let shown = certificate.abs_bound().map(|b| shown_bounds_2d(input, &input.loads, &results, b)).unwrap_or_default();
     let end_to_end = end_to_end_2d(input, &input.loads, &results);
-    let certificate_level = CertificateLevel::of(&certificate, &end_to_end);
-    Ok(CertifiedResults2D { results, certificate, force_bounds, shown, end_to_end, certificate_level })
+    let mut out = CertifiedResults2D { results, certificate, force_bounds, shown, end_to_end, certificate_level: CertificateLevel::None };
+    out.guard();
+    out.certificate_level = CertificateLevel::of(&out.certificate, &out.end_to_end);
+    Ok(out)
 }
 
 /// `certify_linear_3d` plus per-member force bounds and shell resultant bounds.
@@ -188,20 +236,28 @@ pub fn certify_linear_3d_full(input: &SolverInput3D) -> Result<CertifiedResults3
     };
     let shown = certificate.abs_bound().map(|b| shown_bounds_3d(input, &input.loads, &results, b)).unwrap_or_default();
     let end_to_end = end_to_end_3d(input, &input.loads, &results);
-    let certificate_level = CertificateLevel::of(&certificate, &end_to_end);
-    Ok(CertifiedResults3D { results, certificate, force_bounds, shell_bounds, shown, end_to_end, certificate_level })
+    let mut out = CertifiedResults3D { results, certificate, force_bounds, shell_bounds, shown, end_to_end, certificate_level: CertificateLevel::None };
+    out.guard();
+    out.certificate_level = CertificateLevel::of(&out.certificate, &out.end_to_end);
+    Ok(out)
 }
 
 /// Solve a 2D linear static model with `solve_2d` and certify its displacements.
+/// A non-finite number in the input or the results is an `Err`.
 pub fn certify_linear_2d(input: &SolverInput) -> Result<(AnalysisResults, Certificate), String> {
+    finite::check_input(input)?;
     let results = solve_2d(input)?;
+    finite::check_results(&results)?;
     let cert = certify_results_2d(input, &results);
     Ok((results, cert))
 }
 
 /// Solve a 3D linear static model with `solve_3d` and certify its displacements.
+/// A non-finite number in the input or the results is an `Err`.
 pub fn certify_linear_3d(input: &SolverInput3D) -> Result<(AnalysisResults3D, Certificate), String> {
+    finite::check_input(input)?;
     let results = solve_3d(input)?;
+    finite::check_results(&results)?;
     let cert = certify_results_3d(input, &results);
     Ok((results, cert))
 }
@@ -266,11 +322,18 @@ fn size_check(dof_num: &DofNumbering) -> Result<(), Certificate> {
 /// Certify given results of `solve_2d(input)` (the input the results came from).
 /// Models with constraints or inclined supports take the per-case general path;
 /// the rest certify K once through `certify_load_cases_2d`.
+/// Uncertified when the input, the results or the bound are not finite.
 pub fn certify_results_2d(input: &SolverInput, results: &AnalysisResults) -> Certificate {
-    if needs_general_2d(input) {
-        return certify_general_2d(input, results);
+    if let Err(e) = finite::check_input(input).and_then(|()| finite::check_results(results)) {
+        return Certificate::uncertified(e);
     }
-    certify_load_cases_2d(input, &[(&input.loads, results)]).pop().expect("one case")
+    let mut c = if needs_general_2d(input) {
+        certify_general_2d(input, results)
+    } else {
+        certify_load_cases_2d(input, &[(&input.loads, results)]).pop().expect("one case")
+    };
+    finite::guard(&mut c);
+    c
 }
 
 fn needs_general_2d(input: &SolverInput) -> bool {
@@ -412,7 +475,32 @@ fn rotated_candidate_2d(
 /// are ignored): case `i` is `cases[i].1`, claimed to solve the model with
 /// loads `cases[i].0`. The stiffness is assembled and its coercivity certified
 /// once; each case then costs one interval residual.
+/// A case whose loads or results carry a non-finite number, or whose bound
+/// is not finite, is uncertified.
 pub fn certify_load_cases_2d(input: &SolverInput, cases: &[(&[SolverLoad], &AnalysisResults)]) -> Vec<Certificate> {
+    if let Err(e) = finite::check_input(input) {
+        return vec![Certificate::uncertified(e); cases.len()];
+    }
+    let bad: Vec<Option<String>> =
+        cases.iter().map(|(l, r)| finite::check_input(l).and_then(|()| finite::check_results(r)).err()).collect();
+    let mut out = load_cases_2d(input, cases);
+    guard_cases(&mut out, bad);
+    out
+}
+
+/// Downgrade the certificates of cases with non-finite data or bounds.
+fn guard_cases(out: &mut [Certificate], bad: Vec<Option<String>>) {
+    for (c, b) in out.iter_mut().zip(bad) {
+        match b {
+            Some(e) => c.downgrade(e),
+            None => {
+                finite::guard(c);
+            }
+        }
+    }
+}
+
+fn load_cases_2d(input: &SolverInput, cases: &[(&[SolverLoad], &AnalysisResults)]) -> Vec<Certificate> {
     let all = |c: Certificate| vec![c; cases.len()];
     if needs_general_2d(input) {
         // Constraints / inclined supports: per case through the general path.
@@ -477,12 +565,19 @@ pub(super) fn gather_u_2d(dof_num: &DofNumbering, displacements: &[Displacement]
 }
 
 /// Certify given results of `solve_3d(input)` (the input the results came from).
+/// Uncertified when the input, the results or the bound are not finite.
 pub fn certify_results_3d(input: &SolverInput3D, results: &AnalysisResults3D) -> Certificate {
-    let expanded = expand_curved_beams_3d(input);
-    if needs_general_3d(&expanded) {
-        return certify_general_3d(input, results);
+    if let Err(e) = finite::check_input(input).and_then(|()| finite::check_results(results)) {
+        return Certificate::uncertified(e);
     }
-    certify_load_cases_3d(input, &[(&input.loads, results)]).pop().expect("one case")
+    let expanded = expand_curved_beams_3d(input);
+    let mut c = if needs_general_3d(&expanded) {
+        certify_general_3d(input, results)
+    } else {
+        certify_load_cases_3d(input, &[(&input.loads, results)]).pop().expect("one case")
+    };
+    finite::guard(&mut c);
+    c
 }
 
 /// Single 3D case with constraints and/or inclined supports.
@@ -593,6 +688,20 @@ fn rotated_candidate_3d(
 
 /// 3D version of `certify_load_cases_2d`.
 pub fn certify_load_cases_3d(
+    input: &SolverInput3D,
+    cases: &[(&[SolverLoad3D], &AnalysisResults3D)],
+) -> Vec<Certificate> {
+    if let Err(e) = finite::check_input(input) {
+        return vec![Certificate::uncertified(e); cases.len()];
+    }
+    let bad: Vec<Option<String>> =
+        cases.iter().map(|(l, r)| finite::check_input(l).and_then(|()| finite::check_results(r)).err()).collect();
+    let mut out = load_cases_3d(input, cases);
+    guard_cases(&mut out, bad);
+    out
+}
+
+fn load_cases_3d(
     input: &SolverInput3D,
     cases: &[(&[SolverLoad3D], &AnalysisResults3D)],
 ) -> Vec<Certificate> {

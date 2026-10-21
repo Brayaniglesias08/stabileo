@@ -7,9 +7,10 @@
 //! local y = (−sin, cos); E in MPa (×1000 → kN/m²), G = E/(2(1+ν)); shear area
 //! `asY` pairs with Iz; thermal α = 12e-6 /°C, section depth h = √(12·Iz/A),
 //! `dtGradient` = T(−y face) − T(+y face) (curvature +α·Δt/h); distributed
-//! loads act along local y between `a` (default 0) and `b` (default L), point
-//! loads `p` along local y, `px` along local x, `my` a counter-clockwise
-//! couple. Trusses and cables carry axial force only; their member loads reach
+//! loads act along local y between `a` (default 0) and `b` (default L), axial
+//! distributed loads along local x between `a` and `b` (`qI` at `a`, `qJ` at
+//! `b`, linear between), point loads `p` along local y, `px` along local x,
+//! `my` a counter-clockwise couple. Trusses and cables carry axial force only; their member loads reach
 //! the nodes as simply supported reactions.
 
 use std::collections::HashMap;
@@ -42,6 +43,7 @@ pub(super) fn build(input: &SolverInput, loads: &[SolverLoad]) -> Result<Model, 
             SolverLoad::Distributed(d) => d.element_id,
             SolverLoad::PointOnElement(p) => p.element_id,
             SolverLoad::Thermal(t) => t.element_id,
+            SolverLoad::AxialDistributed(d) => d.element_id,
             SolverLoad::Nodal(_) => continue,
         };
         by_elem.entry(id).or_default().push(ld);
@@ -130,6 +132,27 @@ pub(super) fn build(input: &SolverInput, loads: &[SolverLoad]) -> Result<Model, 
                         lvec_add(&mut f, 2, -m);
                         lvec_add(&mut f, 5, m);
                     }
+                }
+                SolverLoad::AxialDistributed(al) => {
+                    // Work of q(x), linear from qI at a to qJ at b, on the
+                    // axial shapes 1 − x/L and x/L: Fj = ∫ q x dx / L,
+                    // Fi = ∫ q dx − Fj. Nothing transverse, so releases leave it.
+                    let a = al.a.map(inp).unwrap_or(I::ZERO);
+                    let b = al.b.map(inp).unwrap_or(l);
+                    let s = b - a;
+                    if s.hi <= 0.0 {
+                        continue;
+                    }
+                    if s.lo <= 0.0 {
+                        return Err(format!("unsupported: element {}: axial load span of uncertain sign", el.id));
+                    }
+                    let (qi, qj) = (inp(al.q_i), inp(al.q_j));
+                    let half = s * c(0.5);
+                    let total = half * (qi + qj);
+                    let moment = half * (qi * (a + s.div(c(3.0))) + qj * (a + (s * c(2.0)).div(c(3.0))));
+                    let fj = moment.div(l);
+                    lvec_add(&mut f, 0, total - fj);
+                    lvec_add(&mut f, 3, fj);
                 }
                 SolverLoad::Nodal(_) => {}
             }
@@ -387,12 +410,17 @@ pub(super) fn constraints(input: &SolverInput, model: &Model, kin: &mut Kinemati
                 }
             }
             Constraint::Diaphragm(dia) => {
-                if dia.plane != "XY" {
+                // "XY" and "XZ" both name the model plane. Every slave moves
+                // with the master as one rigid body, its rotation included.
+                if dia.plane != "XY" && dia.plane != "XZ" {
                     return Err(format!("out of scope: 2D diaphragm in plane {}", dia.plane));
+                }
+                if dpn != 3 {
+                    return Err("unsupported: diaphragm in a model without rotations".into());
                 }
                 for &sn in &dia.slave_nodes {
                     let (ox, oz) = off(dia.master_node, sn)?;
-                    for d in [0, 1] {
+                    for d in [0, 1, 2] {
                         kin.equation(need(sn, d)?, rigid(dia.master_node, d, ox, oz)?);
                     }
                 }

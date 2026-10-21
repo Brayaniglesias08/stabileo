@@ -67,7 +67,7 @@ fn make_beam_2d_n(n_elem: usize) -> SolverInput {
         nodes, materials, sections, elements, supports, loads,
         constraints: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 
@@ -96,6 +96,8 @@ fn make_cantilever_3d() -> SolverInput3D {
         SolverSection3D {
             id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 2e-4,
             cw: None, as_y: None, as_z: None,
+            shear_center_y: None,
+            shear_center_z: None,
         },
     );
     let mut elements = HashMap::new();
@@ -148,7 +150,7 @@ fn make_cantilever_3d() -> SolverInput3D {
         curved_shells: HashMap::new(),
         curved_beams: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 
@@ -258,7 +260,7 @@ fn make_ss_plate_3d_n(n: usize) -> SolverInput3D {
         curved_shells: HashMap::new(),
         curved_beams: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 
@@ -315,7 +317,7 @@ fn make_truss_chain_2d() -> SolverInput {
         nodes, materials, sections, elements, supports, loads,
         constraints: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     }
 }
 
@@ -664,7 +666,7 @@ fn pcg_parity_prescribed_displacement_2d() {
 }
 
 #[test]
-fn invalid_method_string_warns_and_falls_back_to_auto() {
+fn invalid_method_string_is_refused() {
     // Small model (nf < sparse threshold): auto resolves to dense
     let mut nodes = HashMap::new();
     for i in 0..=4 {
@@ -703,23 +705,14 @@ fn invalid_method_string_warns_and_falls_back_to_auto() {
         nodes, materials, sections, elements, supports, loads,
         constraints: vec![],
         connectors: HashMap::new(),
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
     };
     set_opts_2d(&mut input, serde_json::json!({"method": "conjgate"}));
 
-    let r = linear::solve_2d(&input).unwrap();
-    assert_eq!(solver_path_2d(&r), "dense_lu");
-    // Validation runs at prepare time, so the warning reaches the structured
-    // channel even on the dense path (which never consults solver options).
-    assert!(
-        r.structured_diagnostics
-            .iter()
-            .any(|d| d.code == DiagnosticCode::UnknownSolverOption
-                && d.severity == Severity::Warning
-                && d.message.contains("conjgate")),
-        "expected unknown-method warning, got {:?}",
-        r.structured_diagnostics
-    );
+    // An unknown method used to be a warning with a fallback to 'auto'; it
+    // is now refused with the accepted values (no silent fallback).
+    let e = linear::solve_2d(&input).unwrap_err();
+    assert!(e.contains("conjgate") && e.contains("\"auto\"") && e.contains("\"pcg\""), "{e}");
 }
 
 #[test]

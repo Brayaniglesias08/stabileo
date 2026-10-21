@@ -445,7 +445,9 @@ fn lengths_of<'a>(forces: impl Iterator<Item = (usize, f64)> + 'a) -> HashMap<us
 /// Solve a 2D multi-case model (`solve_multi_case_2d`) and certify its cases,
 /// combinations and envelope.
 pub fn certify_multi_case_2d(input: &MultiCaseInput) -> Result<CertifiedMultiCase2D, String> {
+    super::finite::check_input(input)?;
     let results = solve_multi_case_2d(input)?;
+    super::finite::check_results(&results)?;
     Ok(certify_multi_case_results_2d(input, results))
 }
 
@@ -463,7 +465,9 @@ pub fn certify_multi_case_results_2d(input: &MultiCaseInput, results: MultiCaseR
         {
             return Err("combination results do not match the input combinations".into());
         }
-        Ok(())
+        // Nothing is certified on non-finite input or reported results.
+        super::finite::check_input(input)?;
+        super::finite::check_results(&results)
     }();
 
     let case_pairs: Vec<(&[SolverLoad], &AnalysisResults)> = input
@@ -481,7 +485,7 @@ pub fn certify_multi_case_results_2d(input: &MultiCaseInput, results: MultiCaseR
     let rows = station_rows_2d(&input.solver);
     let dfactors: HashMap<usize, f64> = deflection_factors_2d(&input.solver).into_iter().collect();
     let restrained = restrained_rows_2d(&input.solver);
-    let cases: Vec<CaseCertificate2D> = input
+    let mut cases: Vec<CaseCertificate2D> = input
         .load_cases
         .iter()
         .zip(&case_pairs)
@@ -515,6 +519,9 @@ pub fn certify_multi_case_results_2d(input: &MultiCaseInput, results: MultiCaseR
             }
         })
         .collect();
+    for c in &mut cases {
+        super::finite::guard(c);
+    }
     let data: Vec<CaseData<3, 3, 3, 3>> = cases
         .iter()
         .zip(&case_pairs)
@@ -555,7 +562,7 @@ pub fn certify_multi_case_results_2d(input: &MultiCaseInput, results: MultiCaseR
         })
         .collect();
 
-    let combinations = input
+    let mut combinations: Vec<CombinationCertificate2D> = input
         .combinations
         .iter()
         .enumerate()
@@ -566,9 +573,60 @@ pub fn certify_multi_case_results_2d(input: &MultiCaseInput, results: MultiCaseR
         })
         .collect();
     let env = envelope_aligned_2d(&results).and_then(|()| envelope_bounds(&bounds));
-    let envelope = combo_cert_2d("envelope", env.as_ref().map_err(|e| e.clone()), &dfactors, None);
+    let mut envelope = combo_cert_2d("envelope", env.as_ref().map_err(|e| e.clone()), &dfactors, None);
+    guard_combinations(&mut combinations, &mut envelope);
     CertifiedMultiCase2D { results, cases, combinations, envelope }
 }
+
+/// Withdraw a combination carrying a non-finite bound, and then the envelope
+/// too: it maximizes over the combinations, and `f64::max` drops NaN.
+fn guard_combinations<C: super::finite::Guarded>(combinations: &mut [C], envelope: &mut C) {
+    let mut any = false;
+    for c in combinations.iter_mut() {
+        any |= super::finite::guard(c);
+    }
+    if any && envelope.claims() {
+        envelope.downgrade("a combination has a non-finite bound".into());
+    } else {
+        super::finite::guard(envelope);
+    }
+}
+
+macro_rules! guarded_case {
+    ($($t:ident),*) => {$(
+        impl super::finite::Guarded for $t {
+            fn claims(&self) -> bool {
+                self.certificate.is_certified()
+            }
+            fn downgrade(&mut self, reason: String) {
+                self.certificate = Certificate::uncertified(reason);
+                self.force_bounds.clear();
+                self.shown = Default::default();
+            }
+        }
+    )*};
+}
+guarded_case!(CaseCertificate2D, CaseCertificate3D);
+
+macro_rules! guarded_combination {
+    ($($t:ident),*) => {$(
+        impl super::finite::Guarded for $t {
+            fn claims(&self) -> bool {
+                self.certified
+            }
+            fn downgrade(&mut self, reason: String) {
+                self.certified = false;
+                self.reason = Some(reason);
+                self.disp_abs_bound = None;
+                self.force_bounds.clear();
+                self.station_bounds.clear();
+                self.deflection_bounds.clear();
+                self.reaction_bounds.clear();
+            }
+        }
+    )*};
+}
+guarded_combination!(CombinationCertificate2D, CombinationCertificate3D);
 
 /// `compute_envelope` pairs entries by position; require identical id order.
 fn envelope_aligned_2d(results: &MultiCaseResult) -> Result<(), String> {
@@ -685,7 +743,9 @@ fn combo_cert_3d(
 /// Solve a 3D multi-case model (`solve_multi_case_3d`) and certify its cases,
 /// combinations and envelope.
 pub fn certify_multi_case_3d(input: &MultiCaseInput3D) -> Result<CertifiedMultiCase3D, String> {
+    super::finite::check_input(input)?;
     let results = solve_multi_case_3d(input)?;
+    super::finite::check_results(&results)?;
     Ok(certify_multi_case_results_3d(input, results))
 }
 
@@ -703,7 +763,9 @@ pub fn certify_multi_case_results_3d(input: &MultiCaseInput3D, results: MultiCas
         {
             return Err("combination results do not match the input combinations".into());
         }
-        Ok(())
+        // Nothing is certified on non-finite input or reported results.
+        super::finite::check_input(input)?;
+        super::finite::check_results(&results)
     }();
 
     let case_pairs: Vec<(&[SolverLoad3D], &AnalysisResults3D)> = input
@@ -720,7 +782,7 @@ pub fn certify_multi_case_results_3d(input: &MultiCaseInput3D, results: MultiCas
     let rows = station_rows_3d(&expanded);
     let dfactors: HashMap<usize, f64> = deflection_factors_3d(&expanded).into_iter().collect();
     let restrained = restrained_rows_3d(&expanded);
-    let cases: Vec<CaseCertificate3D> = input
+    let mut cases: Vec<CaseCertificate3D> = input
         .load_cases
         .iter()
         .zip(&case_pairs)
@@ -754,6 +816,9 @@ pub fn certify_multi_case_results_3d(input: &MultiCaseInput3D, results: MultiCas
             }
         })
         .collect();
+    for c in &mut cases {
+        super::finite::guard(c);
+    }
     let data: Vec<CaseData<6, 6, 6, 6>> = cases
         .iter()
         .zip(&case_pairs)
@@ -794,7 +859,7 @@ pub fn certify_multi_case_results_3d(input: &MultiCaseInput3D, results: MultiCas
         })
         .collect();
 
-    let combinations = input
+    let mut combinations: Vec<CombinationCertificate3D> = input
         .combinations
         .iter()
         .enumerate()
@@ -805,7 +870,8 @@ pub fn certify_multi_case_results_3d(input: &MultiCaseInput3D, results: MultiCas
         })
         .collect();
     let env = envelope_aligned_3d(&results).and_then(|()| envelope_bounds(&bounds));
-    let envelope = combo_cert_3d("envelope", env.as_ref().map_err(|e| e.clone()), &dfactors, None);
+    let mut envelope = combo_cert_3d("envelope", env.as_ref().map_err(|e| e.clone()), &dfactors, None);
+    guard_combinations(&mut combinations, &mut envelope);
     CertifiedMultiCase3D { results, cases, combinations, envelope }
 }
 

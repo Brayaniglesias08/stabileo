@@ -211,6 +211,13 @@ fn mp_3d(sec: &PlasticSectionData3D, fy: f64, over: Option<[f64; 2]>) -> Result<
 fn exact_axes(el: &SolverElement3D, d: &V3, l2: &Q, left_hand: bool) -> Result<(V3, V3), String> {
     let df = vf(d);
     let ex = crate::element::unit_direction(df[0], df[1], df[2]);
+    // The f64 direction only picks the reference axis; on overflow (huge
+    // coordinates) it is 0 or NaN and could pick an axis parallel to the
+    // member.
+    let n2: f64 = ex.iter().map(|x| x * x).sum();
+    if n2.is_nan() || n2 <= 0.5 {
+        return Err(format!("element {}: direction not representable in f64", el.id));
+    }
     let axis = |k: usize| {
         let mut v = v0();
         v[k] = Q::one();
@@ -254,6 +261,11 @@ fn exact_axes(el: &SolverElement3D, d: &V3, l2: &Q, left_hand: bool) -> Result<(
 
 /// Translate the solver input into the exact rigid-plastic model, or refuse.
 pub fn build_model_3d(input: &PlasticInput3D) -> Result<PlasticModel3, String> {
+    // Exact rational arithmetic: its cost grows with the bit length of the
+    // data, and an input value of ±1e300 or a subnormal made it run for
+    // minutes (issue #335 property tests). Models in any unit system stay far
+    // inside this range; outside it the certificate is refused, not slow.
+    super::finite::check_magnitudes(input, super::plastic::EXACT_MIN_ABS, super::plastic::EXACT_MAX_ABS)?;
     let s = &input.solver;
     if !s.constraints.is_empty() {
         return Err("constraints are not supported by the plastic certificate".into());
@@ -340,6 +352,9 @@ pub fn build_model_3d(input: &PlasticInput3D) -> Result<PlasticModel3, String> {
         }
         let (uy, uz) = exact_axes(el, &d, &l2, left_hand)?;
         let (ny, nz) = (dot(&uy, &uy), dot(&uz, &uz));
+        if ny.is_zero() || nz.is_zero() {
+            return Err(format!("element {}: degenerate local axes (reference axis parallel to the member)", el.id));
+        }
         let l = sqrt_exact(&l2);
         let frame = match (&l, sqrt_exact(&ny), sqrt_exact(&nz)) {
             (Some(l), Some(a), Some(b)) => Some([scale(&(Q::one() / l), &d), scale(&(Q::one() / &a), &uy), scale(&(Q::one() / &b), &uz)]),
@@ -1965,6 +1980,16 @@ pub struct CertifiedPlastic3D {
     pub certificate: PlasticCertificate3D,
 }
 
+impl super::finite::Guarded for PlasticCertificate3D {
+    fn claims(&self) -> bool {
+        self.certified || self.lambda_lower.is_some() || self.lambda_upper.is_some()
+    }
+
+    fn downgrade(&mut self, reason: String) {
+        *self = refused(reason, self.solver_collapse_factor.filter(|x| x.is_finite()));
+    }
+}
+
 fn refused(reason: String, solver: Option<f64>) -> PlasticCertificate3D {
     PlasticCertificate3D {
         certified: false,
@@ -1981,7 +2006,18 @@ fn refused(reason: String, solver: Option<f64>) -> PlasticCertificate3D {
 
 /// Certify the collapse load factor of a 3D plastic input (solver result
 /// optional, used as an extra static candidate and compared with the bounds).
+/// Withdrawn when the input, the solver result or a bound is not finite.
 pub fn certify_collapse_3d(input: &PlasticInput3D, solver: Option<&PlasticResult3D>) -> PlasticCertificate3D {
+    let sval = solver.map(|r| r.collapse_factor);
+    if let Err(e) = super::finite::check_input(input).and_then(|()| super::finite::check_results(&solver)) {
+        return refused(e, sval.filter(|x| x.is_finite()));
+    }
+    let mut c = collapse_3d(input, solver);
+    super::finite::guard(&mut c);
+    c
+}
+
+fn collapse_3d(input: &PlasticInput3D, solver: Option<&PlasticResult3D>) -> PlasticCertificate3D {
     let sval = solver.map(|r| r.collapse_factor);
     let model = match build_model_3d(input) {
         Ok(m) => m,
@@ -2029,7 +2065,9 @@ pub fn certify_collapse_3d(input: &PlasticInput3D, solver: Option<&PlasticResult
 
 /// Run the incremental 3D plastic solver and certify its collapse load factor.
 pub fn certify_plastic_3d(input: &PlasticInput3D) -> Result<CertifiedPlastic3D, String> {
+    super::finite::check_input(input)?;
     let results = solve_plastic_3d(input)?;
+    super::finite::check_results(&results)?;
     let certificate = certify_collapse_3d(input, Some(&results));
     Ok(CertifiedPlastic3D { results, certificate })
 }

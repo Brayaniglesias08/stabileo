@@ -21,6 +21,7 @@ never weaken a property to make a finding go away.
 | `json_dynamics` | same | modal, buckling, spectral, time history, harmonic, each with its certificate (2D/3D) |
 | `json_plastic` | same | incremental plastic collapse and the exact collapse certificate (2D/3D) |
 | `model_certify` | `arbitrary`-built model | linear solve, linear, buckling and modal certificates on small 2D/3D frames that always parse |
+| `metamorphic` | selector byte + model JSON | any model the linear solver accepts gives the same physical answer after a rigid motion, a renumbering and a unit change (`engine/src/metamorphic`, [METAMORPHIC.md](METAMORPHIC.md)) |
 
 The JSON targets go through the same `serde_json` deserialization as `engine/src/lib.rs`,
 so a malformed or hostile model file reaches the code exactly as it would from the web
@@ -30,7 +31,8 @@ stiffnesses over twelve decades, any support layout including none, releases, sp
 settlements and nodal, distributed and point loads, so the solver runs on every input
 instead of on the rare bytes that parse as JSON.
 
-The seed corpora come from the web app's template models (`engine/tests/fixtures`):
+The seed corpora come from the web app's template models (`engine/tests/fixtures`),
+plus the inputs of past findings, kept in git under `engine/fuzz/regressions/<target>/`:
 
     cd engine && cargo run --release --example fuzz_seeds   # writes fuzz/corpus/<target>/
 
@@ -43,10 +45,12 @@ Checked on every input by `engine/fuzz/src/lib.rs`:
    subdivisions, arrays over 512, objects over 96 entries) are skipped before solving,
    and libFuzzer's `-timeout` catches the rest.
 3. **Finite results.** Every number in an `Ok` result is finite, except fields that
-   document +∞ (`ALLOWED_NON_FINITE`: `relBound`, `omega2Upper`, `uniquenessRadius`,
-   `bimoment` of combined force bounds, `b2Factor` with `isStable: false`). The check
+   document +∞ (`ALLOWED_NON_FINITE` = `certify::finite::DOCUMENTED_INFINITE`:
+   `relBound`, `omega2Upper`, `uniquenessRadius`, `bimoment` of combined force bounds,
+   `b2Factor` with `isStable: false`), and those may only be +∞, never NaN. The check
    walks the result with a serde serializer, because `serde_json` writes NaN and ±∞ as
-   `null`.
+   `null`. The walker lives in the engine (`certify::finite`), where every certificate
+   entry point runs the same check at run time (CERTIFY.md, "Non-finite numbers").
 4. **Consistent certificates.** Every certified block has non-negative bounds, ordered
    enclosures (`lambdaLower ≤ lambdaUpper`, `omega2Lower ≤ omega2Upper`) that contain the
    solver's value, and a finite error bound.
@@ -63,6 +67,8 @@ Checked on every input by `engine/fuzz/src/lib.rs`:
 | `model_certify` | Several supports on one node: each listed the node's full reaction, so ΣR double-counted it and a certified result was out of equilibrium. The root cause: 2D DOF numbering kept only the highest-id support (`fixed` id 1 plus `pinned` id 2 silently gave a pinned end), 3D ORed the flags but took springs and the inclined flag from one support picked in hash order. | One reaction entry per node; plain rigid restraints on one node merge by OR in 2D and 3D; any other combination (springs, settlements, inclined directions) is rejected with an error naming the node (`validate_input_2d/3d`). The web app already keeps one support per node. | `duplicate_support_reactions.rs` |
 | `json_dynamics` | Harmonic certificate with a response DOF the load does not excite: the interval sum of squares had a −5e−324 lower end, its square root was NaN, and a "certified" result carried NaN enclosures. | Clamp the sum of squares at zero before the square root (sound: it is ≥ 0 exactly). | `fuzz_regressions.rs::harmonic_zero_response_is_finite` |
 | `json_dynamics` | Time-history certificate of a structure at rest: relative residuals divided by max‖u‖ = 0 and reported +∞. | Divide by `max(‖u‖, MIN_POSITIVE)`, and report 0 for a zero residual. | `fuzz_regressions.rs::time_history_zero_solution_residuals_are_finite` |
+| `json_dynamics` (#335) | `certify_spectral_3d` returned `Ok` with every displacement and element-force envelope NaN and the certificate `certified` with error bounds 0. A mode with ω < 0 made the CQC ratio ω_j/ω_i negative and r^1.5 NaN; `Enclosure::error_of` used `f64::max`, which drops NaN, so a NaN reported value got error 0 (only `reportedWithin` was false). | The spectral solver refuses ω ≤ 0 (it also silently dropped such a mode, S_d = 0), non-finite modal data, a non-finite or unsorted spectrum, ξ < 0 and non-positive factors, and checks its output. `error_of` is +∞ for a non-finite value; the certificate refuses non-finite reported values. All certificates: `certify::finite` guard (CERTIFY.md, "Non-finite numbers"). Input in `fuzz/regressions/json_dynamics/`. | `fuzz_regressions.rs::spectral_negative_omega_is_refused`, `certify_nonfinite.rs` (every kind) |
+| `certify_nonfinite.rs` (#335) | The 3D plastic certificate panicked (`denominator == 0` in `num-rational`) on a member with a coordinate of ±1e300: the f64 direction overflowed to 0, picked a reference axis parallel to the member, and an exact local axis of length 0 was inverted. | Refused: the f64 direction must be a unit vector, and an exact local axis must be non-zero. The same tests found the exact plastic certificates running for minutes on a value of ±1e300 or a subnormal (bignum work grows with bit length): input magnitudes outside [1e-30, 1e30] (zero excepted) are now refused (`plastic::EXACT_MIN_ABS`/`EXACT_MAX_ABS`). | `certify_nonfinite.rs::every_leaf_nan_or_inf_is_refused_or_finite`, `mutated_inputs_are_refused_or_finite` |
 
 Found while triaging surviving mutants (below), each with a regression test:
 
@@ -108,7 +114,7 @@ JSON), find the root cause, fix it, and keep the test. A timeout is a finding to
 the engine does unbounded work on that input (a bug), or the input is legitimately large,
 in which case record it under *Slow but correct* above and tighten the harness caps.
 
-CI (`.github/workflows/verify.yml`, job `fuzz`) runs each target for 30 minutes nightly
+CI (`.github/workflows/nightly.yml`, job `fuzz`) runs each target for 30 minutes nightly
 and on manual dispatch, seeded from the templates, and uploads failing inputs as an
 artifact.
 
@@ -125,15 +131,20 @@ would put a wrong number in front of an engineer:
 
     scripts/mutants.sh                                  # all scopes
     MUTANTS_SCOPE=certify scripts/mutants.sh --jobs 4   # one scope
-    scripts/mutants.sh --shard 3/8 --jobs 2             # extra arguments go to cargo-mutants
+    scripts/mutants.sh --shard 3/64 --jobs 2            # extra arguments go to cargo-mutants
     cargo mutants --package dedaliano-engine -f engine/src/certify/interval.rs -- --lib
 
 Each scope runs the library unit tests plus the integration tests that target it (listed
 in the script). The end-to-end certificate tests (`certify_end_to_end*`, CERTIFY.md) run
 in the `solver` and `element` scopes too: a mutant in an element kernel or in the
-assembly makes the engine's `K` or `f` disagree with the independent re-assembly. Results land in `mutants.out/`: `caught.txt`, `missed.txt`,
-`timeout.txt`, `unviable.txt`. CI (job `mutants`, sharded 8 ways) runs nightly and fails
-on any missed mutant.
+assembly makes the engine's `K` or `f` disagree with the independent re-assembly. Results
+land in `mutants.out/`: `caught.txt`, `missed.txt`,
+`timeout.txt`, `unviable.txt`. CI (`.github/workflows/nightly.yml`, job `mutants`) splits
+the ~23,000 mutants into 128 shards and runs 8 of them each night, rotating with the day, so
+every mutant is tested every 16 nights (docs/verification/NIGHTLY.md). A shard fails on any
+missed mutant, and fails loudly if it does not finish within its time budget;
+`scripts/mutants-summary.py` prints how far it got and the time per mutant. One shard by
+hand: `gh workflow run nightly.yml -f only=mutants -f mutants_shards='[5]'`.
 
 ### Triaging a surviving mutant
 
@@ -146,7 +157,11 @@ For each line of `missed.txt`:
 2. **Equivalent**: the mutant cannot change any output (for example `>` to `>=` where
    equality gives the same result, or a heuristic whose failure only makes a
    certificate fail, never wrong). Add it to `exclude_re` in `.cargo/mutants.toml` with a
-   one-line justification.
+   one-line justification. One class is excluded automatically: an operator inside an
+   index made only of integer literals whose mutated index has exactly the same value
+   (`k[0 * 6 + 0]` to `k[0 * 6 - 0]` or `k[0 / 6 + 0]`). `scripts/mutants-equivalent.py`
+   finds them on every run by evaluating both indices; a mutant that changes the index
+   is still tested.
 3. **Dead or diagnostics-only code**: timings, log text, diagnostics that do not gate a
    result. Exclude by name with the reason, or delete the code.
 

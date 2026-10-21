@@ -401,6 +401,7 @@ fn chain_2d(n_free_nodes: usize, extra: bool, fixed_nodes: usize) -> SolverInput
     let loads = vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: 3.0, fz: -10.0, my: 1.0 })];
     SolverInput {
         nodes,
+        masses: Default::default(),
         materials: HashMap::from([("1".into(), SolverMaterial { id: 1, e: 200000.0, nu: 0.3 })]),
         sections: HashMap::from([("1".into(), SolverSection { id: 1, a: 0.01, iz: 1e-4, as_y: None })]),
         elements, supports, loads, constraints: vec![], connectors: HashMap::new(), solver_options: None,

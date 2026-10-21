@@ -242,7 +242,8 @@ does, `none` otherwise. Wasm `certify_linear_2d` / `certify_linear_3d` return bo
 (linear), hinges and releases, local axes with reference vectors, roll angles and
 left-handed axes, supports with springs and settlements, inclined supports, rigid links,
 diaphragms, equal-DOF, eccentric connections, linear MPCs; nodal, distributed (full,
-partial, trapezoidal, axial), point and thermal member loads. **Out of scope**
+partial, trapezoidal, axial), axial span (`axialDistributed`), point and thermal member
+loads. **Out of scope**
 (`outOfScope`): shells and solids, connectors, curved beams, warping torsion (sections
 with `Cw > 0` on frames) and bimoment loads, several non-plain supports on one node.
 There are no rigid end offsets in the model format. Shells are next.
@@ -277,7 +278,7 @@ The differential models: `python3 tools/differential/dump_models.py DIR 200`, th
 `E2E_DIR=DIR cargo test --release --test certify_end_to_end e2e_dir -- --ignored --nocapture`.
 
 The stable generators cover every feature in scope: jittered multi-bay frames, braces,
-hinges and releases, shear areas, reference vectors, roll angles, left-handed axes,
+hinges and releases, shear areas, reference vectors, roll angles,
 springs (rotated), inclined supports with settlements, every member load type,
 diaphragms, rigid links, equal-DOF and MPCs.
 
@@ -300,15 +301,17 @@ lever rule with its ends swapped; the thermal α 12e-6 as 1.2e-6.
 
 **Findings** (`engine/tests/certify_end_to_end_findings.rs`):
 
-* A **3D diaphragm in the XZ plane** ties the slaves with the rotation `θy` of the wrong
-  sign (`u_x = u_x,m − Δz θy`, `u_z = u_z,m + Δx θy`; rigid-body motion about +y is
-  `+Δz θy`, `−Δx θy`). The XY and YZ planes, rigid links and eccentric connections are
-  right. The end-to-end check fails such results; not fixed here.
-* **2D, all members hinged at a node**: the engine holds the rotation with an artificial
-  spring (1e-10 × the largest diagonal) and refuses only rotations above 100 rad. A nodal
-  moment there (the model has no solution) is absorbed by the spring in a stiff model,
-  and the assembled-level certificate certifies it; 3D refuses such loads. A rigid link
-  from such a node hides a real mechanism the same way: the linked pair rotates freely,
+* A **3D diaphragm in the XZ plane** tied the slaves with the rotation `θy` of the wrong
+  sign, and the end-to-end check failed such results. Fixed with #342, which also ties
+  each slave's in-plane rotation to the master's (the re-assembly follows: a diaphragm
+  moves its slaves as one rigid body, rotation included). Before the re-assembly
+  followed, the random 3D frames with diaphragms still certified end to end, but with
+  bounds up to 80× the displacement: the check stays honest when the meaning of an input
+  changes, it just stops being useful until the conventions are updated.
+* **2D, all members hinged at a node**: a nodal moment there (the model has no solution)
+  used to be absorbed by the artificial spring (1e-10 × the largest diagonal) and
+  certified at the assembled level; the engine now refuses it before the solve. A rigid
+  link from such a node still hides a real mechanism: the linked pair rotates freely,
   the spring holds it, and the assembled-level certificate certifies a meaningless
   answer (`relBound` 2e-15). The end-to-end check reports `failed` / `uncertified`.
 * **Singular in exact arithmetic, regular in f64**: a node reached by one member released
@@ -317,11 +320,11 @@ lever rule with its ends swapped; the thermal α 12e-6 as 1.2e-6.
   regular, and the assembled-level certificate certifies its solve. The end-to-end check
   cannot bound the model (`uncertified`).
 * **`leftHand`**: with the local y negated the frame is improper (`det R = −1`) and the
-  engine transforms rotations like translations, so its member matrices annihilate the
-  *mirrored* rigid rotations (`u_j = t − θ × Δ`), while rigid links, diaphragms and
-  eccentric connections use `+θ × r`. Consistent if `leftHand` means a left-handed global
-  system, not if it only flips the section's local y. The re-assembly mirrors the engine
-  (the residual uses `s = det R`); needs a decision.
+  engine transformed rotations like translations, so its member matrices annihilated the
+  *mirrored* rigid rotations, while rigid links, diaphragms and eccentric connections use
+  `+θ × r`. Decided on `main`: the engine refuses `leftHand: true` before the solve, and the
+  stable generators no longer produce it. The re-assembly still models it (the residual
+  uses `s = det R`).
 
 ### What remains trusted
 
@@ -560,6 +563,9 @@ but caught by the hash check. The ignored test `export_large_bundles` writes the
 frame buildings above to `target/cert-bundles-large/`.
 
 ### What the Lean checker proves, and what remains trusted
+
+The full list of assumptions per certificate kind (rounding model, interval code, f64
+assembly, parsing, runtimes, Lean kernel) is [TRUSTED_BASE.md](TRUSTED_BASE.md).
 
 | result | checked in Lean (theorem) | still trusted |
 |---|---|---|
@@ -879,6 +885,7 @@ bound by the scaling's rounding), `certify_steel_multi_case_2d/3d`
 | ACI 318-19 (`rc_check`): RC flexure 22.2 (strain compatibility, rectangular singly / doubly, T-beam flange / web), P-M interaction 22.4 at the axial load, axial capacity 22.4.2.1 / 22.4.3.1, φ Table 21.2.2, shear 22.5.5.1 (Av,min switch, λs, √f'c ≤ 8.3, Vs,max) | **certified** |
 | NDS timber (`timber_check`): bending 3.3 (CL with the Table 3.3.3 effective span), compression 3.6 (CP), tension 3.8, shear 3.4, interaction 3.9.1 / 3.9.2 (FcE1 amplification, saturated at 99) | **certified** |
 | AISI S100 (`cfs_check`): compression E2 (weak-axis flexural buckling, local via Ae) / E4 distortional, tension D2, flexure F2.1 LTB / F4 distortional, weak-axis flexure, web shear G2.1 (three ranges), linear interaction H1.2 / H2 | **certified** |
+| CIRSOC 301 (`cirsoc301_check`): tension D.2, compression E.3–E.7, flexure F.2–F.6, shear G.2/G.4, interaction H.1 (see the bullet above) | **certified** |
 | masonry, connections, foundations, serviceability | not certified (f64 only) |
 
 Timber note: past buckling (`fc ≥ FcE1`) the f64 check saturates the 3.9.2 ratio at 99;
@@ -999,7 +1006,9 @@ Newton's method with double-double residuals. Not formalized in Lean.
 CQC with the solver's correlation coefficients), of the **exact lowest `m` modes** of the
 pencil `(K, M)` — `m` the number of modes in the input — with the spectrum evaluated at
 the exact periods. `K` and `M` are the f64 sparse assemblies (as in "Modal enclosures"),
-the influence vector `r` the solver's (unit translation in the direction), `Sa(T)` the
+`Mr` the solver's ground-motion load `(M·r)_f` — the full mass times the unit translation
+of every node in the direction, supports included, kept on the free rows (with a consistent
+mass the free DOFs carry the inertia coupled to the moving supports, `M_fr·r_r`) — `Sa(T)` the
 piecewise-linear interpolation of the spectrum points (constant beyond the ends), times
 `9.81` (when in g, the f64 constant) `× I / R` (exact real quotient). Nothing the input
 says about ω, periods, participation factors or effective masses is trusted; the mode
@@ -1052,8 +1061,10 @@ inside; the spectrum periods must be finite and strictly increasing (else refuse
 (`ρᵢᵢ = 1` exactly; refused if a denominator enclosure contains 0).
 
 * **Member forces**: per mode the solver's force recovery at `ũᵢ = mid(αᵢ)φ̃`, the error
-  bound `bᵢ = eᵢ + ‖αᵢφ̃ − ũᵢ‖` fed to the member force bounds (`max(|start|, |end|)` is
-  1-Lipschitz), then SRSS/CQC in intervals. As for member force bounds, rounding in the
+  bound `bᵢ = eᵢ + ‖αᵢφ̃ − ũᵢ‖` fed to the member force bounds (the bound of each component
+  holds at both ends), then SRSS/CQC in intervals of each end's **signed** value, and the
+  envelope of the two ends after combining — as the solver does. (Both used to combine the
+  per-mode `max(|start|, |end|)`, which made every CQC cross term non-negative.) As for member force bounds, rounding in the
   f64 force recovery is not included. The recovery is from the modal displacements
   alone, with no element loads: static member loads in the model (distributed, point,
   thermal) are not part of any mode's response, so their fixed-end forces enter neither
@@ -1061,8 +1072,9 @@ inside; the spectrum periods must be finite and strictly increasing (else refuse
   modal recovery added those fixed-end forces to every mode, and SRSS/CQC combined them
   as if dynamic; `validation_spectral_element_loads_do_not_leak` and its 3D twin pin the
   loaded and unloaded models to the same spectral member forces.)
-* **Base shear** (the solver always combines it by SRSS): `meffᵢ* = λᵢ‖Πᵢb‖²` with
-  `‖Πᵢb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθᵢ‖Mr‖/√σ_K`, times `Sa(Tᵢ)`, SRSS in intervals.
+* **Base shear**, combined by the requested rule like every other quantity (it used to be
+  SRSS whatever the rule, in the solver and here): `meffᵢ* = λᵢ‖Πᵢb‖²` with
+  `‖Πᵢb‖ ∈ |φ̃ᵀMr|/√(φ̃ᵀKφ̃) ± sinθᵢ‖Mr‖/√σ_K`, times `Sa(Tᵢ)`, SRSS or CQC in intervals.
 
 **Output.** Per mode: ω², period and `Sa` enclosures, `sinθ`, `eᵢ`; per node and member
 the enclosures of the combined values; the base-shear enclosure; bounds on
@@ -1394,6 +1406,39 @@ the dense, sparse, `_ex`, parallel and constrained paths assemble the same matri
 that the certificates' own reduced systems (`reduced_sparse_2d/3d`, `buckling_system_2d/3d`)
 equal them, is checked separately by the cross-path assembly oracle,
 [ASSEMBLY.md](ASSEMBLY.md).
+
+## Non-finite numbers
+
+A certificate never reports success on a NaN or an infinity (issue #335). `f64::max`,
+`min` and every comparison drop or misread NaN, so a single NaN can turn into an error
+bound of 0: the spectral certificate once reported `certified` with error 0 for results
+that were all NaN. `certify::finite` walks any input, result or certificate with a serde
+serializer (as the fuzz harness does, FUZZ_MUTANTS.md) and every entry point the WASM
+layer exposes uses it:
+
+- a non-finite number anywhere in the input, or in the solver's results, is an `Err`
+  (`check_input`, `check_results`); the solvers should refuse first, this is the
+  backstop;
+- the `certify_*_results` functions, which take results from the caller, return
+  `Uncertified` instead;
+- a certificate that claims anything while carrying a non-finite number is withdrawn
+  (`guard`): the enum certificates become `Uncertified`, the time-history certificate
+  drops its stability and residual claims, a plastic certificate its bounds, a design
+  member its utilization, a linear certificate its force, station, deflection and
+  reaction bounds, and a combination its bounds (and then the envelope too, since it
+  maximizes over the combinations);
+- the bundles are refused if they would carry one.
+
+The only exception is +∞ in a field that documents it (`DOCUMENTED_INFINITE`:
+`relBound`, `omega2Upper`, `uniquenessRadius`, the `bimoment` of combined force bounds,
+`b2Factor`); NaN is never allowed. `tests/certify_nonfinite.rs` sets every number of a
+valid input for each certificate kind to NaN and +∞, and random ones to NaN, ±∞, ±1e308,
+1e-300 or a subnormal, and requires an `Err` or a fully finite `Ok`.
+
+The exact plastic certificates also refuse input numbers whose magnitude is outside
+[1e-30, 1e30] (zero excepted): their rational arithmetic costs grow with the bit length
+of the data, and a value of 1e300 ran for minutes. That is a resource cap, not a
+soundness condition.
 
 ## Rounding model
 

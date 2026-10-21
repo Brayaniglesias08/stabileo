@@ -353,7 +353,7 @@ fn validation_ca_ssll107a_beam_on_winkler() {
     })];
 
     let solver_input = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes: nodes_map,
         materials: mats_map,
         sections: secs_map,

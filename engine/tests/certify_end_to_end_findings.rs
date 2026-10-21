@@ -34,25 +34,24 @@ fn xz_pair(constraint: &str) -> SolverInput3D {
 }
 
 /// A diaphragm in the XZ plane ties the slave's (ux, uz) to the master's
-/// translation and its rotation θy. Rigid-body kinematics about +y give
-/// u_x = u_x,m + Δz·θy and u_z = u_z,m − Δx·θy (θ × r); the engine writes
-/// u_x,m − Δz·θy and u_z,m + Δx·θy, the rotation with the wrong sign (the XY
-/// and YZ planes are right). The end-to-end check rejects the result: the
-/// returned displacements violate the model's constraint.
+/// translation and its rotation θy, and the slave's θy to the master's.
+/// The engine used to write the rotation with the wrong sign (u_x,m − Δz·θy,
+/// u_z,m + Δx·θy) and the end-to-end check rejected its result; since #342 it
+/// follows ω × r, and the diaphragm agrees end to end with the same tie
+/// written as a rigid link.
 #[test]
 fn diaphragm_xz_rotation_sign() {
-    let input = xz_pair(r#"{"type":"diaphragm","masterNode":2,"slaveNodes":[4],"plane":"XZ"}"#);
-    let out = certify_linear_3d_full(&input).unwrap();
-    assert!(out.certificate.is_certified());
-    match &out.end_to_end {
-        EndToEnd::Failed { reason } => assert!(reason.contains("violate the model's supports or constraints"), "{reason}"),
-        other => panic!("{other:?}"),
+    for c in [
+        r#"{"type":"diaphragm","masterNode":2,"slaveNodes":[4],"plane":"XZ"}"#,
+        r#"{"type":"rigidLink","masterNode":2,"slaveNode":4,"dofs":[0,2,4]}"#,
+    ] {
+        let out = certify_linear_3d_full(&xz_pair(c)).unwrap();
+        assert!(out.certificate.is_certified());
+        match &out.end_to_end {
+            EndToEnd::Certified { rel_bound, .. } => assert!(*rel_bound < 1e-6, "{c}: {rel_bound}"),
+            other => panic!("{c}: {other:?}"),
+        }
     }
-    // The same tie written as the rigid link's rigid-body kinematics (which
-    // the engine gets right) agrees end to end.
-    let link = xz_pair(r#"{"type":"rigidLink","masterNode":2,"slaveNode":4,"dofs":[0,2]}"#);
-    let out = certify_linear_3d_full(&link).unwrap();
-    assert!(out.end_to_end.is_certified(), "{:?}", out.end_to_end);
 }
 
 fn input_2d(json: &str) -> SolverInput {
@@ -60,14 +59,10 @@ fn input_2d(json: &str) -> SolverInput {
 }
 
 /// A nodal moment on a node where every member is hinged: nothing resists it,
-/// so the model has no solution. The 2D engine holds such a rotation with an
-/// artificial spring (1e-10 × the largest diagonal) and refuses the result
-/// only when the rotation exceeds 100 rad; a stiff model (here the spring is
-/// 0.24 kN·m/rad, the rotation 21 rad) passes, and the assembled-level
-/// certificate certifies the regularised system: the moment disappears into
-/// the spring and the reactions do not balance it. (3D refuses the load:
-/// `refuse_loads_on_orphan_dofs_3d`.) The end-to-end check says the model has
-/// no solution.
+/// so the model has no solution. The 2D engine used to hold such a rotation
+/// with an artificial spring, and the assembled-level certificate certified
+/// the regularised system while the end-to-end check said the model has no
+/// solution; the engine now refuses the load before the solve.
 #[test]
 fn moment_on_fully_hinged_node_2d() {
     let input = input_2d(
@@ -83,12 +78,8 @@ fn moment_on_fully_hinged_node_2d() {
       "loads": [{"type":"nodal","data":{"nodeId":2,"fx":0,"fz":-10,"my":5}}]
     }"#,
     );
-    let out = certify_linear_2d_full(&input).unwrap();
-    assert!(out.certificate.is_certified(), "{:?}", out.certificate);
-    match &out.end_to_end {
-        EndToEnd::Failed { reason } => assert!(reason.contains("nothing stiffens"), "{reason}"),
-        other => panic!("{other:?}"),
-    }
+    let e = certify_linear_2d_full(&input).err().expect("refused");
+    assert!(e.contains("Nodal moment at node 2 is not supported"), "{e}");
     // Without the moment the same model is certified end to end, the
     // hinged rotation excluded from the bound.
     let mut no_moment = input.clone();
@@ -169,11 +160,16 @@ fn hinged_moments(m2: f64, m4: Option<f64>) -> SolverInput {
 fn balanced_loads_on_an_unstiffened_rotation() {
     use dedaliano_engine::certify::reassembly::end_to_end_2d;
     use dedaliano_engine::solver::linear::solve_2d;
-    let not_failed = |input: &SolverInput, what: &str| {
-        let r = solve_2d(input).unwrap();
-        let e = end_to_end_2d(input, &input.loads, &r);
-        assert!(!matches!(e, EndToEnd::Failed { .. }), "{what}: {e:?}");
-        e
+    // The engine may refuse these models (a moment on a node no member or
+    // constraint stiffens is refused even when opposite moments cancel; tied
+    // unstiffened rotations are singular); a result it does return must not
+    // be failed.
+    let not_failed = |input: &SolverInput, what: &str| match solve_2d(input) {
+        Ok(r) => {
+            let e = end_to_end_2d(input, &input.loads, &r);
+            assert!(!matches!(e, EndToEnd::Failed { .. }), "{what}: {e:?}");
+        }
+        Err(e) => eprintln!("{what}: refused: {e}"),
     };
     // +5 and −5 on the same hinged node.
     let mut same_node = hinged_moments(5.0, None);
@@ -189,5 +185,39 @@ fn balanced_loads_on_an_unstiffened_rotation() {
             other => panic!("tied rotations, moments that add: {other:?}"),
         },
         Err(e) => eprintln!("the engine refuses it too: {e}"),
+    }
+}
+
+/// Axial span loads (`axialDistributed`, added with #437) re-assembled
+/// independently: on an inclined frame member over part of its length and on
+/// a truss over all of it, the engine's `f` agrees and the result is certified
+/// end to end.
+#[test]
+fn axial_distributed_loads_agree_end_to_end() {
+    let input = input_2d(
+        r#"{
+      "nodes": {"1": {"id":1,"x":0,"z":0}, "2": {"id":2,"x":3,"z":2}, "3": {"id":3,"x":6,"z":0}},
+      "materials": {"1": {"id":1,"e":200000,"nu":0.3}},
+      "sections": {"1": {"id":1,"a":0.01,"iz":0.0001}},
+      "elements": {
+        "1": {"id":1,"type":"frame","nodeI":1,"nodeJ":2,"materialId":1,"sectionId":1},
+        "2": {"id":2,"type":"frame","nodeI":2,"nodeJ":3,"materialId":1,"sectionId":1},
+        "3": {"id":3,"type":"truss","nodeI":1,"nodeJ":3,"materialId":1,"sectionId":1}
+      },
+      "supports": {"1": {"id":1,"nodeId":1,"type":"pinned"}, "2": {"id":2,"nodeId":3,"type":"rollerX"}},
+      "loads": [
+        {"type":"axialDistributed","data":{"elementId":1,"qI":-4,"qJ":-1.5,"a":0.4,"b":2.9}},
+        {"type":"axialDistributed","data":{"elementId":3,"qI":2,"qJ":2}},
+        {"type":"nodal","data":{"nodeId":2,"fx":0,"fz":-10,"my":0}}
+      ]
+    }"#,
+    );
+    let out = certify_linear_2d_full(&input).unwrap();
+    match &out.end_to_end {
+        EndToEnd::Certified { rel_bound, k_discrepancy, f_discrepancy, .. } => {
+            assert!(*k_discrepancy < 1e-10 && *f_discrepancy < 1e-10, "{k_discrepancy} {f_discrepancy}");
+            assert!(*rel_bound < 1e-6, "{rel_bound}");
+        }
+        other => panic!("{other:?}"),
     }
 }

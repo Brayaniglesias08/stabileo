@@ -72,8 +72,11 @@ export interface OtherCode {
     | { reading: CheckReading };
   /** One demand as the checker's force row. `data` is what `member` returned. */
   forces(ctx: MemberContext, d: GoverningDemand, data: Record<string, unknown>): Record<string, unknown>;
-  /** The engine call. Null when the checker is unavailable or refused the input. */
-  run(input: { members: unknown[]; forces: unknown[] }): unknown[] | null;
+  /**
+   * The engine call. Throws `EngineUnavailableError` when the checker is not loaded and
+   * `EngineCheckError` (with the engine's message) when it refused the input.
+   */
+  run(input: { members: unknown[]; forces: unknown[] }): unknown[];
   read(result: Record<string, unknown>): CheckReading;
   /**
    * The certified version of the check (docs/verification/CERTIFY.md, "Certified design checks"),
@@ -110,8 +113,10 @@ export type OtherCodeRow =
 export interface OtherCodeRun {
   code: OtherCodeId;
   rows: OtherCodeRow[];
-  /** Set when the checker itself could not run. */
+  /** Set when the checker itself could not run: no row of this run is verified. */
   errorKey?: string;
+  /** The engine's own message for that failure, shown with it. */
+  errorMessage?: string;
 }
 
 /** The governing check as the panel names it: a kind (i18n) and the code's clause. */

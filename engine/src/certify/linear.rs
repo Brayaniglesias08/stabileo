@@ -36,6 +36,8 @@ pub enum Certificate {
     Uncertified { reason: String },
 }
 
+super::finite::guarded_enum!(Certificate);
+
 impl Certificate {
     pub fn is_certified(&self) -> bool {
         matches!(self, Certificate::Certified { .. })

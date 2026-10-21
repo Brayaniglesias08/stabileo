@@ -107,6 +107,30 @@ pub fn frame_local_stiffness_2d(
     k
 }
 
+/// Timoshenko shear parameter of a 2D member, φ = 12·E·Iz/(G·As_y·L²) with
+/// G = E/(2(1+ν)); 0 (Euler–Bernoulli) without a shear area. `e` in kN/m².
+/// Shared by the linear force recovery and the fiber force correction so both
+/// subtract the same elastic stiffness.
+pub(crate) fn timoshenko_phi_2d(sec: &crate::types::SolverSection, e: f64, nu: f64, l: f64) -> f64 {
+    match sec.as_y {
+        Some(as_y) => {
+            let g = e / (2.0 * (1.0 + nu));
+            12.0 * e * sec.iz / (g * as_y * l * l)
+        }
+        None => 0.0,
+    }
+}
+
+/// Timoshenko shear parameters (φy, φz) of a 3D member: φy = 12·E·Iy/(G·as_y·L²)
+/// pairs `as_y` with `iy`, φz = 12·E·Iz/(G·as_z·L²); 0 without the shear area.
+pub(crate) fn timoshenko_phi_3d(sec: &crate::types::SolverSection3D, e: f64, g: f64, l: f64) -> (f64, f64) {
+    let l2 = l * l;
+    (
+        sec.as_y.map(|ay| 12.0 * e * sec.iy / (g * ay * l2)).unwrap_or(0.0),
+        sec.as_z.map(|az| 12.0 * e * sec.iz / (g * az * l2)).unwrap_or(0.0),
+    )
+}
+
 /// Per-axis release flags for a 3D frame element.
 /// A "hinge" in 3D releases ONE rotation (around the pin axis), not all of them.
 /// Each flag governs an independent local rotation/torsion DOF.

@@ -9,6 +9,7 @@
   import LandingProCalc from './landing/LandingProCalc.svelte';
   import LandingProDesign from './landing/LandingProDesign.svelte';
   import LandingAi from './landing/LandingAi.svelte';
+  import LandingVerification from './landing/LandingVerification.svelte';
   import LandingEducation from './landing/LandingEducation.svelte';
   import LandingBlog from './landing/LandingBlog.svelte';
   import LandingFooter from './landing/LandingFooter.svelte';
@@ -162,6 +163,7 @@
   <LandingProCalc />
   <LandingProDesign />
   <LandingAi />
+  <LandingVerification />
   <LandingEducation />
   <LandingPricing />
   <LandingBlog />
