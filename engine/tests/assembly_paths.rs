@@ -580,7 +580,11 @@ fn embed(input: &SolverInput, rot_sign: f64) -> SolverInput3D {
                 SolverLoad3D::Thermal(SolverThermalLoad3D {
                     element_id: tl.element_id, dt_uniform: tl.dt_uniform,
                     dt_gradient_y: -cy * tl.dt_gradient, dt_gradient_z: -cz * tl.dt_gradient,
-                    alpha: None, depth_y: None, depth_z: None,
+                    // The material's α, and the plane depth across whichever local axis the
+                    // plane's transverse direction became.
+                    alpha: tl.alpha,
+                    depth_y: tl.depth.filter(|_| cy != 0.0),
+                    depth_z: tl.depth.filter(|_| cz != 0.0),
                 })
             }
         })

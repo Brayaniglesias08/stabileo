@@ -3704,7 +3704,7 @@ const en: Record<string, string> = {
   'diag.elements': 'Members',
   'knownIssue.NL-5': 'Material-nonlinear results are approximate: the model is a whole-member secant rather than plasticity, so the response jumps at first yield, and in 3D the yield surface is less conservative than in 2D. Check the collapse load factor with plastic collapse',
   'knownIssue.SP-12': 'Cable tensions can be too low in statically indeterminate cable systems; check the governing cable and anchorage forces independently',
-  'thermalDefault.alpha': 'These temperature loads state no coefficient of thermal expansion, so α = 12·10⁻⁶ /°C (steel’s) was assumed; give the material its α (concrete about 10·10⁻⁶, aluminium 23·10⁻⁶)',
+  'thermalDefault.alpha': 'These temperature loads state no coefficient of thermal expansion, so α = 12·10⁻⁶ /°C (steel’s) was assumed; give the material its α (concrete about 10·10⁻⁶, aluminum 23·10⁻⁶)',
   'thermalDefault.depth': 'These temperature gradients state no section depth, so the depth of the equivalent solid rectangle, √(12·I/A), was assumed; that is exact only for a solid rectangle (for an IPE the gradient moment comes out about 30 % low): give the section its real depth',
   'knownIssue.SH-6': 'Curved shells report zero bending moments and their stresses ignore thermal strain: do not design from curved-shell moments or stresses',
   'knownIssue.SH-7': 'MITC9 elements on non-planar geometry carry spurious strains; refine the mesh or use flat elements',
