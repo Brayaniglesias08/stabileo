@@ -208,12 +208,12 @@
   margin-bottom: 0.6rem;
 }
 
-/* A narrow phone column: let long words (Spanish and Portuguese have many) break
-   rather than leave ragged gaps. The page language is set on <html>. */
+/* A phone column: 17px keeps about 40 characters a line (18 left 38). No
+   hyphenation: in Spanish it broke a word on nearly every line, worse than the
+   ragged edge it avoids. */
 @media (max-width: 640px) {
   .landing.blog .post-body {
-    hyphens: auto;
-    font-size: 1.0625rem; /* 17px: 18 left about 38 characters a line on a phone */
+    font-size: 1.0625rem;
   }
 }
 
