@@ -313,6 +313,7 @@ fn validation_nafems_t2_thermal_expansion_free_bar() {
             element_id: i,
             dt_uniform: delta_t,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         }));
     }
 

@@ -1,3 +1,4 @@
+import { migrateArcLocalAxes } from '../model/curved-member';
 import {
   defaultCodeSettings, migrateCodeSettings, type ProjectCodeSettings,
 } from '../codes/project-code-settings';
@@ -548,7 +549,16 @@ export interface Element extends Element3DMetadata {
    * See `lib/model/curved-member.ts`. Carries no analysis meaning: the solver
    * sees straight members and is not told about this.
    */
-  arc?: { id: number; spec: import('../model/curved-member').ArcSpec };
+  arc?: {
+    id: number; spec: import('../model/curved-member').ArcSpec;
+    /**
+     * 1: the member's local axes were set by the arc rule of #418 (`arcMemberLocalY`) — when it
+     * was built, or by the one-time read-migration of an arc saved before. Absent: an arc from
+     * before #418, which `migrateArcLocalAxes` migrates once. Never migrated again after that, so
+     * a member set back to automatic axes stays automatic through undo, redo and reopening.
+     */
+    axes?: 1;
+  };
   /**
    * Stated unbraced length for lateral-torsional buckling, m — where the member is braced
    * against it more often than its geometry shows. Replaces the deduced `Lb`, never `L`; see
@@ -2317,6 +2327,20 @@ function createModelStore() {
           }
         }
       }
+      // Arcs drawn before #418 (SP-15) left their members on the default local axes, which turn
+      // the near-vertical members of an arch by 90°: they take the arc's own orientation. Not a
+      // member any load or support refers to: its local data would change direction with it.
+      const referenced = new Set<number>();
+      for (const l of model.loads) {
+        const d = l.data as { elementId?: unknown; elementIds?: unknown } | undefined;
+        if (typeof d?.elementId === 'number') referenced.add(d.elementId);
+        if (Array.isArray(d?.elementIds)) for (const id of d.elementIds) if (typeof id === 'number') referenced.add(id);
+      }
+      for (const sp of model.supports.values()) {
+        const id = (sp as { dofLocalElementId?: unknown }).dofLocalElementId;
+        if (typeof id === 'number') referenced.add(id);
+      }
+      migrateArcLocalAxes(model.elements, model.nodes, (id) => referenced.has(id));
       model.loadCases = s.loadCases
         ? s.loadCases.map(c => ({ type: (c as any).type ?? inferLoadCaseType(c.name), ...c }))
         : [{ id: 1, type: 'D' as LoadCaseType, name: 'Dead Load' }, { id: 2, type: 'L' as LoadCaseType, name: 'Live Load' }, { id: 3, type: 'W' as LoadCaseType, name: 'Wind' }, { id: 4, type: 'E' as LoadCaseType, name: 'Earthquake' }];

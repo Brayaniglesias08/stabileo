@@ -3,10 +3,7 @@ use crate::linalg::*;
 use super::dof::DofNumbering;
 use super::assembly::{rotate_inclined_free_block, InclinedFrame, InclinedTransformData, InclinedTransformData2D};
 
-/// The expansion coefficient the load assembly uses for frame and truss members.
-const THERMAL_ALPHA: f64 = 12e-6;
-
-/// Σ ΔT_uniform of each element's thermal loads, plane.
+/// The (α, ΔT) of each element's uniform thermal loads, so its free thermal strain is α·ΔT.
 ///
 /// The P-Delta iteration reads a member's axial force back from its
 /// displacements, EA·Δu/L. That is the whole force only when nothing but the
@@ -14,22 +11,35 @@ const THERMAL_ALPHA: f64 = 12e-6;
 /// αΔT, and the force is EA·(Δu/L − αΔT). A heated member between restraints
 /// does not lengthen at all, so without this term its compression −EAαΔT never
 /// reached the geometric stiffness.
-fn uniform_dt_2d(input: &SolverInput) -> std::collections::HashMap<usize, f64> {
+///
+/// α is each load's own (`SolverThermalLoad::alpha`, the engine default when it states none).
+/// When an element's loads all share one α, the pair is (α, ΣΔT), as the load assembly sums
+/// them; when they differ, (1, Σα·ΔT), the same strain.
+fn combine_thermal(dt: &mut std::collections::HashMap<usize, (f64, f64)>, id: usize, alpha: f64, dt_uniform: f64) {
+    match dt.get_mut(&id) {
+        None => { dt.insert(id, (alpha, dt_uniform)); }
+        Some(e) if e.0 == alpha => e.1 += dt_uniform,
+        Some(e) => *e = (1.0, e.0 * e.1 + alpha * dt_uniform),
+    }
+}
+
+/// See [`combine_thermal`]: plane.
+fn uniform_dt_2d(input: &SolverInput) -> std::collections::HashMap<usize, (f64, f64)> {
     let mut dt = std::collections::HashMap::new();
     for load in &input.loads {
         if let SolverLoad::Thermal(tl) = load {
-            *dt.entry(tl.element_id).or_insert(0.0) += tl.dt_uniform;
+            combine_thermal(&mut dt, tl.element_id, tl.alpha(), tl.dt_uniform);
         }
     }
     dt
 }
 
-/// Σ ΔT_uniform of each element's thermal loads, space. See [`uniform_dt_2d`].
-fn uniform_dt_3d(input: &SolverInput3D) -> std::collections::HashMap<usize, f64> {
+/// See [`combine_thermal`]: space.
+fn uniform_dt_3d(input: &SolverInput3D) -> std::collections::HashMap<usize, (f64, f64)> {
     let mut dt = std::collections::HashMap::new();
     for load in &input.loads {
         if let SolverLoad3D::Thermal(tl) = load {
-            *dt.entry(tl.element_id).or_insert(0.0) += tl.dt_uniform;
+            combine_thermal(&mut dt, tl.element_id, tl.alpha(), tl.dt_uniform);
         }
     }
     dt
@@ -378,8 +388,8 @@ pub(crate) fn mean_axial_forces_2d(
         }
         let (c, s) = (dx / l, dz / l);
         let delta = (at(elem.node_j, 0) - at(elem.node_i, 0)) * c + (at(elem.node_j, 1) - at(elem.node_i, 1)) * s;
-        let dt = dt_by_elem.get(&elem.id).copied().unwrap_or(0.0);
-        out.insert(elem.id, mat.e * 1000.0 * sec.a * (delta / l - THERMAL_ALPHA * dt));
+        let (alpha, dt) = dt_by_elem.get(&elem.id).copied().unwrap_or((DEFAULT_FRAME_THERMAL_ALPHA, 0.0));
+        out.insert(elem.id, mat.e * 1000.0 * sec.a * (delta / l - alpha * dt));
     }
     out
 }
@@ -399,10 +409,10 @@ pub(crate) fn emit_geometric_stiffness_2d(
     let dt_by_elem = uniform_dt_2d(input);
 
     for elem in crate::ordered::values(&input.elements) {
-        let dt = dt_by_elem.get(&elem.id).copied().unwrap_or(0.0);
+        let (alpha, dt) = dt_by_elem.get(&elem.id).copied().unwrap_or((DEFAULT_FRAME_THERMAL_ALPHA, 0.0));
         if elem.elem_type == "truss" || elem.elem_type == "cable" {
             // Truss geometric stiffness
-            add_truss_kg_2d(&node_by_id, &mat_by_id, &sec_by_id, dof_num, elem, u, dt, emit);
+            add_truss_kg_2d(&node_by_id, &mat_by_id, &sec_by_id, dof_num, elem, u, (alpha, dt), emit);
             continue;
         }
 
@@ -425,7 +435,7 @@ pub(crate) fn emit_geometric_stiffness_2d(
         let u_local = transform_displacement(&u_global, &t, 6);
 
         // Axial deformation, less the free thermal strain → axial force
-        let axial_force = e * sec.a * ((u_local[3] - u_local[0]) / l - THERMAL_ALPHA * dt);
+        let axial_force = e * sec.a * ((u_local[3] - u_local[0]) / l - alpha * dt);
 
         let k_g_global = frame_kg_global_2d(axial_force, l, &t, elem);
 
@@ -504,9 +514,9 @@ pub(crate) fn frame_geometric_end_forces_2d(input: &SolverInput, dof_num: &DofNu
         let t = crate::element::frame_transform_2d(dx / l, dy / l);
         let u_global: Vec<f64> = dof_num.element_dofs(elem.node_i, elem.node_j).iter().map(|&d| u[d]).collect();
         let u_local = transform_displacement(&u_global, &t, 6);
-        let dt = dt_by_elem.get(&elem.id).copied().unwrap_or(0.0);
+        let (alpha, dt) = dt_by_elem.get(&elem.id).copied().unwrap_or((DEFAULT_FRAME_THERMAL_ALPHA, 0.0));
         let e = mat_by_id[&elem.material_id].e * 1000.0;
-        let axial_force = e * sec_by_id[&elem.section_id].a * ((u_local[3] - u_local[0]) / l - THERMAL_ALPHA * dt);
+        let axial_force = e * sec_by_id[&elem.section_id].a * ((u_local[3] - u_local[0]) / l - alpha * dt);
         out.push((elem.id, mat_vec(&frame_kg_local_2d(axial_force, l, elem.hinge_start, elem.hinge_end), &u_local)));
     }
     out
@@ -539,9 +549,9 @@ pub(crate) fn frame_geometric_end_forces_3d(input: &SolverInput3D, dof_num: &Dof
             elem_dofs.iter().map(|&d| u[d]).collect()
         };
         let u_local12 = transform_displacement(&u_12, &t12, 12);
-        let dt = dt_by_elem.get(&elem.id).copied().unwrap_or(0.0);
+        let (alpha, dt) = dt_by_elem.get(&elem.id).copied().unwrap_or((DEFAULT_FRAME_THERMAL_ALPHA, 0.0));
         let e = mat_by_id[&elem.material_id].e * 1000.0;
-        let axial_force = e * sec.a * ((u_local12[6] - u_local12[0]) / l - THERMAL_ALPHA * dt);
+        let axial_force = e * sec.a * ((u_local12[6] - u_local12[0]) / l - alpha * dt);
         let (kg, t, dofs) = frame_kg_local_and_transform_3d(axial_force, l, elem, sec, (&ex, &ey, &ez), dof_num);
         let nd = dofs.len();
         let u_local = if nd == 12 {
@@ -580,7 +590,7 @@ fn add_truss_kg_2d(
     dof_num: &DofNumbering,
     elem: &SolverElement,
     u: &[f64],
-    dt: f64,
+    (alpha, dt): (f64, f64),
     emit: &mut dyn FnMut(usize, usize, f64),
 ) {
     let node_i = node_by_id[&elem.node_i];
@@ -604,7 +614,7 @@ fn add_truss_kg_2d(
         dof_num.global_dof(elem.node_j, 1).map(|d| u[d]).unwrap_or(0.0),
     ];
     let delta = (uj[0] - ui[0]) * cos + (uj[1] - ui[1]) * sin;
-    let axial_force = e * sec.a * (delta / l - THERMAL_ALPHA * dt);
+    let axial_force = e * sec.a * (delta / l - alpha * dt);
 
     let k_g = truss_kg_2d(axial_force / l, cos, sin);
 
@@ -1012,15 +1022,14 @@ pub fn add_curved_shell_geometric_stiffness_3d(
         let mut u_arr = [0.0; 24];
         u_arr.copy_from_slice(&u_elem);
 
-        let s = crate::element::curved_shell::curved_shell_stresses(&coords, &dirs, &u_arr, e, nu, cs.thickness);
-        // Mechanical membrane strain at the mid-surface (SH-5): the free thermal strain
-        // α·ΔT_uniform is isotropic in the tangent plane, so it removes
+        // Mechanical membrane strain at the mid-surface (SH-5): `curved_shell_stresses`
+        // subtracts the free thermal strain α·ΔT_uniform (SH-6), which removes
         // E·α·ΔT/(1−ν) from σ11 and σ22 and nothing from σ12. The gradient has no
         // mid-surface part.
-        let (_, eps_th, _) = shell_thermal(input, ShellFamily::Curved, cs.id);
-        let s_th = e / (1.0 - nu) * eps_th;
-        let nxx = (s.sigma_xx - s_th) * cs.thickness;
-        let nyy = (s.sigma_yy - s_th) * cs.thickness;
+        let (alpha, eps_u, eps_g) = shell_thermal(input, ShellFamily::Curved, cs.id);
+        let s = crate::element::curved_shell::curved_shell_stresses(&coords, &dirs, &u_arr, e, nu, cs.thickness, alpha, eps_u, eps_g);
+        let nxx = s.sigma_xx * cs.thickness;
+        let nyy = s.sigma_yy * cs.thickness;
         let nxy = s.tau_xy * cs.thickness;
 
         let kg_elem = crate::element::curved_shell::curved_shell_geometric_stiffness(&coords, &dirs, cs.thickness, nxx, nyy, nxy);
@@ -1089,14 +1098,14 @@ pub(crate) fn emit_geometric_stiffness_3d(
         let dz = node_j.z - node_i.z;
         let l = (dx * dx + dy * dy + dz * dz).sqrt();
         let e = mat.e * 1000.0;
-        let dt = dt_by_elem.get(&elem.id).copied().unwrap_or(0.0);
+        let (alpha, dt) = dt_by_elem.get(&elem.id).copied().unwrap_or((DEFAULT_FRAME_THERMAL_ALPHA, 0.0));
 
         if elem.elem_type == "truss" || elem.elem_type == "cable" {
             let dir = [dx / l, dy / l, dz / l];
             let ui: Vec<f64> = (0..3).map(|i| dof_num.global_dof(elem.node_i, i).map(|d| u[d]).unwrap_or(0.0)).collect();
             let uj: Vec<f64> = (0..3).map(|i| dof_num.global_dof(elem.node_j, i).map(|d| u[d]).unwrap_or(0.0)).collect();
             let delta: f64 = (0..3).map(|i| (uj[i] - ui[i]) * dir[i]).sum();
-            let axial_force = e * sec.a * (delta / l - THERMAL_ALPHA * dt);
+            let axial_force = e * sec.a * (delta / l - alpha * dt);
             let kg_local = truss_kg_3d(axial_force / l, &dir);
             let truss_dofs: Vec<usize> = (0..3).map(|i| dof_num.global_dof(elem.node_i, i).unwrap())
                 .chain((0..3).map(|i| dof_num.global_dof(elem.node_j, i).unwrap()))
@@ -1125,7 +1134,7 @@ pub(crate) fn emit_geometric_stiffness_3d(
             let u_local = transform_displacement(&u_12, &t, 12);
 
             // Axial force from local displacements, less the free thermal strain
-            let axial_force = e * sec.a * ((u_local[6] - u_local[0]) / l - THERMAL_ALPHA * dt);
+            let axial_force = e * sec.a * ((u_local[6] - u_local[0]) / l - alpha * dt);
 
             // Bending, Wagner and shear-centre terms (14×14 on warping members).
             let (dofs, kg_global) = frame_kg_global_3d(axial_force, l, elem, sec, (&ex, &ey, &ez), dof_num);
@@ -1194,7 +1203,7 @@ pub fn geometric_stiffness_terms_2d(input: &SolverInput, dof_num: &DofNumbering)
     let dt_by_elem = uniform_dt_2d(input);
     let mut terms = Vec::new();
     for elem in crate::ordered::values(&input.elements) {
-        let dt = dt_by_elem.get(&elem.id).copied().unwrap_or(0.0);
+        let (alpha, dt) = dt_by_elem.get(&elem.id).copied().unwrap_or((DEFAULT_FRAME_THERMAL_ALPHA, 0.0));
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let mat = mat_by_id[&elem.material_id];
@@ -1220,7 +1229,7 @@ pub fn geometric_stiffness_terms_2d(input: &SolverInput, dof_num: &DofNumbering)
             let elongation = elongation_from_rows(&t, 6, 0, 3, &dofs);
             (dofs, frame_kg_global_2d(1.0, l, &t, elem), elongation)
         };
-        terms.push(KgAffineTerm { element_id: elem.id, dofs, g, elongation, e, a: sec.a, l, alpha: THERMAL_ALPHA, dt });
+        terms.push(KgAffineTerm { element_id: elem.id, dofs, g, elongation, e, a: sec.a, l, alpha, dt });
     }
     terms
 }
@@ -1272,7 +1281,7 @@ pub fn geometric_stiffness_terms_3d(input: &SolverInput3D, dof_num: &DofNumberin
         let dz = node_j.z - node_i.z;
         let l = (dx * dx + dy * dy + dz * dz).sqrt();
         let e = mat.e * 1000.0;
-        let dt = dt_by_elem.get(&elem.id).copied().unwrap_or(0.0);
+        let (alpha, dt) = dt_by_elem.get(&elem.id).copied().unwrap_or((DEFAULT_FRAME_THERMAL_ALPHA, 0.0));
         let (dofs, g, elongation) = if elem.elem_type == "truss" || elem.elem_type == "cable" {
             let dir = [dx / l, dy / l, dz / l];
             let dofs: Vec<usize> = (0..3)
@@ -1299,7 +1308,7 @@ pub fn geometric_stiffness_terms_3d(input: &SolverInput3D, dof_num: &DofNumberin
             let (dofs, g) = frame_kg_global_3d(1.0, l, elem, sec, (&ex, &ey, &ez), dof_num);
             (dofs, g, elongation)
         };
-        terms.push(KgAffineTerm { element_id: elem.id, dofs, g, elongation, e, a: sec.a, l, alpha: THERMAL_ALPHA, dt });
+        terms.push(KgAffineTerm { element_id: elem.id, dofs, g, elongation, e, a: sec.a, l, alpha, dt });
     }
     terms
 }

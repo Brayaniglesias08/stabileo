@@ -9,6 +9,7 @@ import type {
 } from './types';
 import { t } from '../i18n';
 import { solveAllowingNullModes } from './dense-solve';
+import { loadAlpha, loadDepth } from './thermal-alpha';
 import { axialEquivalentLoads } from './axial-span-2d';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -340,14 +341,15 @@ export function elementEquivalentLoads(
       f[3] += fJ;
     } else if (load.type === 'thermal' && (load.data as SolverThermalLoad).elementId === elemId) {
       const tl = load.data as SolverThermalLoad;
-      const alpha = 1.2e-5;
+      // The load's α and depth, as the analysis reads them (`thermal-alpha.ts`).
+      const alpha = loadAlpha(tl);
       if (Math.abs(tl.dtUniform) > 1e-10) {
         /* The bar wants to grow: its equivalent loads push its ends apart. */
         const nTh = eKn * secA * alpha * tl.dtUniform;
         f[0] -= nTh; f[3] += nTh;
       }
       if (Math.abs(tl.dtGradient) > 1e-10 && secIz > 0) {
-        const h = Math.sqrt(12 * secIz / secA);
+        const h = loadDepth(tl.depth, secA, secIz);
         const mTh = eKn * secIz * alpha * tl.dtGradient / h;
         addBending(0, -mTh, 0, mTh);
       }

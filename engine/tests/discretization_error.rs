@@ -568,11 +568,16 @@ fn convergence_scordelis_lo() {
             }
         }
         if fam == Fam::Mitc9 {
-            // On the model as drawn the energy identity holds against the refined sequence.
-            let w: Vec<f64> = seq.iter().map(|(m, r)| energy_norm_sq(m, r)).collect();
-            let theta = estimate(&seq[0].0, &seq[0].1).error_norm / (w[3] - w[0]).sqrt();
-            println!("   MITC9 level 0: θ = {theta:.3}");
-            assert!(theta > 0.8 && theta < 1.2);
+            // MITC9 elements are flat facets (with rigid links to the curved nodes, SH-7), so,
+            // as for MITC4, refinement changes the geometry and ‖u‖²_E − ‖u_h‖²_E is not the
+            // error: the energies are not monotone (2435.5, 2421.4, 2431.7, 2442.5 before the
+            // SH-7 fix, 2439.9, 2422.8, 2432.4, 2442.7 after), and the effectivity 0.99 that
+            // this check used to find against w₃ − w₀ was a coincidence (1.57 after the fix,
+            // with nearly the same displacements and estimates). Only the estimate's fall under
+            // the first refinements is checked; the MITC9 effectivity is checked on the plate.
+            let eta: Vec<f64> = seq.iter().map(|(m, r)| estimate(m, r).error_norm).collect();
+            println!("   MITC9 estimates: {eta:?}");
+            assert!(eta[0] > eta[1] && eta[1] > eta[2], "MITC9 Scordelis–Lo estimates {eta:?}");
         }
     }
 }
@@ -592,6 +597,26 @@ fn convergence_pinched_cylinder_and_hemisphere() {
         println!("{fam:?} hemisphere: {v:?} → {ext:.5} (p={p:?}), ref 0.093 (0.0924–0.094)");
         assert!(ext > 0.0924 * 0.98 && ext < 0.094 * 1.02, "{fam:?} hemisphere {ext:.5}");
     }
+}
+
+/// MITC9 on the curved benchmarks, 16 × 16 elements (33 × 33 nodes) on the quarter or eighth.
+/// Before SH-7 (#411) the curved elements were strained by rigid rotation and the hemisphere,
+/// whose elements rotate the most, came out 6.5 % stiff (0.9347 of 0.093; 0.50 at 8 × 8); with
+/// the rigid links it is 0.9755 (0.68 at 8 × 8). Scordelis–Lo and the pinched cylinder moved by
+/// less than 0.1 %.
+#[test]
+fn mitc9_curved_benchmarks_at_16x16() {
+    let n = 16;
+    let m = scordelis(Fam::Mitc9, n);
+    let sl = disp(&solve(&m.input), m.grid[0][n].0)[2].abs() / 0.3024;
+    let m = pinched_cylinder(Fam::Mitc9, n);
+    let pc = disp(&solve(&m.input), m.grid[0][0].0)[1].abs() / 1.8248e-5;
+    let m = hemisphere(Fam::Mitc9, n);
+    let hs = disp(&solve(&m.input), m.grid[0][0].0)[0].abs() / 0.093;
+    println!("MITC9 16×16: Scordelis–Lo {sl:.4}, pinched cylinder {pc:.4}, hemisphere {hs:.4}");
+    assert!((sl - 1.0).abs() < 0.01, "Scordelis–Lo {sl:.4}");
+    assert!((pc - 1.0).abs() < 0.015, "pinched cylinder {pc:.4}");
+    assert!((hs - 1.0).abs() < 0.03, "hemisphere {hs:.4}");
 }
 
 /// Plates: Morley's skew plate (DKT; the Mindlin elements are not in the asymptotic range on
@@ -1132,3 +1157,4 @@ fn richardson_roundoff_after_convergence_is_converged() {
     // A real reversal is still oscillating.
     assert_eq!(richardson(&[1.0, 1.001, 1.0005]).3, "oscillating");
 }
+

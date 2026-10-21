@@ -278,7 +278,7 @@ fn braced_portal() -> SolverInput {
             hinge_end: false,
         },
     );
-    input.loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 2, dt_uniform: 30.0, dt_gradient: 0.0 }));
+    input.loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 2, dt_uniform: 30.0, dt_gradient: 0.0, alpha: None, depth: None }));
     input
 }
 

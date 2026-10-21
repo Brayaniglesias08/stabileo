@@ -198,7 +198,7 @@ export function insertFragment(frag: Fragment, transforms: readonly Affine[], op
         if (arc) {
           if (!arcMap.has(arc.id)) arcMap.set(arc.id, nextArc++);
           const mp = (v: { x: number; y: number; z: number }) => { const q = applyPoint(T, [v.x, v.y, v.z]); return { x: q[0], y: q[1], z: q[2] }; };
-          patch.arc = { id: arcMap.get(arc.id)!, spec: { ...arc.spec, start: mp(arc.spec.start), through: mp(arc.spec.through), end: mp(arc.spec.end) } };
+          patch.arc = { ...arc, id: arcMap.get(arc.id)!, spec: { ...arc.spec, start: mp(arc.spec.start), through: mp(arc.spec.through), end: mp(arc.spec.end) } };
         }
         const eid = modelStore.addElement(i2, j2, e.type);
         modelStore.updateElement(eid, patch);

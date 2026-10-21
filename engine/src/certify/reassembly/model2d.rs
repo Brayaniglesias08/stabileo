@@ -5,7 +5,8 @@
 //! DOFs (ux, uz, θ) with θ counter-clockwise (θ = dv/dx in member axes), only
 //! (ux, uz) when the model has no frame member; member local x from i to j,
 //! local y = (−sin, cos); E in MPa (×1000 → kN/m²), G = E/(2(1+ν)); shear area
-//! `asY` pairs with Iz; thermal α = 12e-6 /°C, section depth h = √(12·Iz/A),
+//! `asY` pairs with Iz; thermal α = the load's `alpha`, else 12e-6 /°C; section
+//! depth h = the load's `depth`, else √(12·Iz/A),
 //! `dtGradient` = T(−y face) − T(+y face) (curvature +α·Δt/h); distributed
 //! loads act along local y between `a` (default 0) and `b` (default L), axial
 //! distributed loads along local x between `a` and `b` (`qI` at `a`, `qJ` at
@@ -123,12 +124,12 @@ pub(super) fn build(input: &SolverInput, loads: &[SolverLoad]) -> Result<Model, 
                     }
                 }
                 SolverLoad::Thermal(tl) => {
-                    let alpha = dec(ALPHA);
+                    let alpha = tl.alpha.map(inp).unwrap_or_else(|| dec(ALPHA));
                     let n = e * area * alpha * inp(tl.dt_uniform);
                     lvec_add(&mut f, 0, -n);
                     lvec_add(&mut f, 3, n);
                     if is_frame && tl.dt_gradient != 0.0 && sec.iz != 0.0 {
-                        let m = thermal_moment(e, iz, area, alpha, inp(tl.dt_gradient), el.id)?;
+                        let m = thermal_moment(e, iz, area, alpha, inp(tl.dt_gradient), tl.depth.map(inp), el.id)?;
                         lvec_add(&mut f, 2, -m);
                         lvec_add(&mut f, 5, m);
                     }
@@ -225,13 +226,14 @@ pub(super) fn check_member_load_ids(ids: impl Iterator<Item = usize>, members: &
     Ok(())
 }
 
-/// EI·α·Δt/h with h = √(12·I/A) (the depth of a rectangle with this A and I),
-/// or 0 when h ≤ 1e-12, as the model defines it.
-pub(super) fn thermal_moment(e: I, i: I, a: I, alpha: I, dt: I, id: usize) -> Result<I, String> {
-    let h = match decide_gt(a, 1e-15) {
-        Some(true) => (c(12.0) * i).div(a).sqrt(),
-        Some(false) => c(0.1),
-        None => return Err(format!("element {id}: thermal section depth ambiguous")),
+/// EI·α·Δt/h with h the depth the load states, else √(12·I/A) (the depth of a
+/// rectangle with this A and I), or 0 when h ≤ 1e-12, as the model defines it.
+pub(super) fn thermal_moment(e: I, i: I, a: I, alpha: I, dt: I, depth: Option<I>, id: usize) -> Result<I, String> {
+    let h = match (depth, decide_gt(a, 1e-15)) {
+        (Some(h), _) => h,
+        (None, Some(true)) => (c(12.0) * i).div(a).sqrt(),
+        (None, Some(false)) => c(0.1),
+        (None, None) => return Err(format!("element {id}: thermal section depth ambiguous")),
     };
     match decide_gt(h, 1e-12) {
         Some(true) => Ok((e * i * alpha * dt).div(h)),

@@ -4302,6 +4302,9 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
         if !finite {
             return Err("Load contains non-finite (NaN/Inf) values".to_string());
         }
+        if let SolverLoad::Thermal(l) = load {
+            crate::types::check_frame_thermal_inputs(l.element_id, l.alpha, &[("depth", l.depth)])?;
+        }
     }
 
     let node_ids: std::collections::HashSet<usize> =
@@ -4416,6 +4419,13 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
 /// point-load positions). Split from `validate_input_2d` so multi-case solves
 /// can validate each case's loads independently of the structure.
 pub(crate) fn validate_loads_2d(input: &SolverInput, loads: &[SolverLoad]) -> Result<(), String> {
+    // A load set solved on a prepared model (load cases, WASM load sessions) skips the model
+    // validation, so the thermal properties are checked here too (#407).
+    for load in loads {
+        if let SolverLoad::Thermal(l) = load {
+            crate::types::check_frame_thermal_inputs(l.element_id, l.alpha, &[("depth", l.depth)])?;
+        }
+    }
     let node_ids: std::collections::HashSet<usize> =
         crate::ordered::values(&input.nodes).map(|n| n.id).collect();
     let elem_ids: std::collections::HashSet<usize> =
@@ -4645,6 +4655,9 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
         };
         if !finite {
             return Err("Load contains non-finite (NaN/Inf) values".to_string());
+        }
+        if let SolverLoad3D::Thermal(l) = load {
+            crate::types::check_frame_thermal_inputs(l.element_id, l.alpha, &[("depthY", l.depth_y), ("depthZ", l.depth_z)])?;
         }
     }
     for e in crate::ordered::values(&input.elements) {
@@ -4889,6 +4902,12 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
 /// point-load positions). Split from `validate_input_3d` so multi-case solves
 /// can validate each case's loads independently of the structure.
 pub(crate) fn validate_loads_3d(input: &SolverInput3D, loads: &[SolverLoad3D]) -> Result<(), String> {
+    // As `validate_loads_2d`: prepared solves check the thermal properties here (#407).
+    for load in loads {
+        if let SolverLoad3D::Thermal(l) = load {
+            crate::types::check_frame_thermal_inputs(l.element_id, l.alpha, &[("depthY", l.depth_y), ("depthZ", l.depth_z)])?;
+        }
+    }
     let node_ids: std::collections::HashSet<usize> =
         crate::ordered::values(&input.nodes).map(|n| n.id).collect();
     let elem_ids: std::collections::HashSet<usize> =
@@ -4935,31 +4954,31 @@ pub(crate) fn validate_loads_3d(input: &SolverInput3D, loads: &[SolverLoad3D]) -
     let quad9_ids: std::collections::HashSet<usize> = crate::ordered::values(&input.quad9s).map(|q| q.id).collect();
     let solid_shell_ids: std::collections::HashSet<usize> = crate::ordered::values(&input.solid_shells).map(|s| s.id).collect();
     let curved_shell_ids: std::collections::HashSet<usize> = crate::ordered::values(&input.curved_shells).map(|c| c.id).collect();
+    // Each shell load is applied by its own family's assembly, so it must name an element of
+    // that family: ids are per family, and a load whose id belonged to another family was
+    // accepted and then dropped (a temperature on a curved shell sent as `quadThermal`
+    // analysed the shell unheated).
     for load in loads {
-        let (kind, eid) = match load {
-            SolverLoad3D::Pressure(l) => ("Plate pressure", l.element_id),
-            SolverLoad3D::PlateThermal(l) => ("Plate thermal", l.element_id),
-            SolverLoad3D::QuadPressure(l) => ("Quad pressure", l.element_id),
-            SolverLoad3D::QuadThermal(l) => ("Quad thermal", l.element_id),
-            SolverLoad3D::QuadEdge(l) => ("Quad edge", l.element_id),
-            SolverLoad3D::QuadSelfWeight(l) => ("Quad self-weight", l.element_id),
-            SolverLoad3D::Quad9Pressure(l) => ("Quad9 pressure", l.element_id),
-            SolverLoad3D::Quad9Thermal(l) => ("Quad9 thermal", l.element_id),
-            SolverLoad3D::Quad9Edge(l) => ("Quad9 edge", l.element_id),
-            SolverLoad3D::Quad9SelfWeight(l) => ("Quad9 self-weight", l.element_id),
-            SolverLoad3D::SolidShellPressure(l) => ("Solid shell pressure", l.element_id),
-            SolverLoad3D::SolidShellSelfWeight(l) => ("Solid shell self-weight", l.element_id),
-            SolverLoad3D::CurvedShellPressure(l) => ("Curved shell pressure", l.element_id),
-            SolverLoad3D::CurvedShellThermal(l) => ("Curved shell thermal", l.element_id),
-            SolverLoad3D::CurvedShellEdge(l) => ("Curved shell edge", l.element_id),
+        let (kind, eid, ids) = match load {
+            SolverLoad3D::Pressure(l) => ("Plate pressure", l.element_id, &plate_ids),
+            SolverLoad3D::PlateThermal(l) => ("Plate thermal", l.element_id, &plate_ids),
+            SolverLoad3D::QuadPressure(l) => ("Quad pressure", l.element_id, &quad_ids),
+            SolverLoad3D::QuadThermal(l) => ("Quad thermal", l.element_id, &quad_ids),
+            SolverLoad3D::QuadEdge(l) => ("Quad edge", l.element_id, &quad_ids),
+            SolverLoad3D::QuadSelfWeight(l) => ("Quad self-weight", l.element_id, &quad_ids),
+            SolverLoad3D::Quad9Pressure(l) => ("Quad9 pressure", l.element_id, &quad9_ids),
+            SolverLoad3D::Quad9Thermal(l) => ("Quad9 thermal", l.element_id, &quad9_ids),
+            SolverLoad3D::Quad9Edge(l) => ("Quad9 edge", l.element_id, &quad9_ids),
+            SolverLoad3D::Quad9SelfWeight(l) => ("Quad9 self-weight", l.element_id, &quad9_ids),
+            SolverLoad3D::SolidShellPressure(l) => ("Solid shell pressure", l.element_id, &solid_shell_ids),
+            SolverLoad3D::SolidShellSelfWeight(l) => ("Solid shell self-weight", l.element_id, &solid_shell_ids),
+            SolverLoad3D::CurvedShellPressure(l) => ("Curved shell pressure", l.element_id, &curved_shell_ids),
+            SolverLoad3D::CurvedShellThermal(l) => ("Curved shell thermal", l.element_id, &curved_shell_ids),
+            SolverLoad3D::CurvedShellEdge(l) => ("Curved shell edge", l.element_id, &curved_shell_ids),
+            SolverLoad3D::CurvedShellSelfWeight(l) => ("Curved shell self-weight", l.element_id, &curved_shell_ids),
             _ => continue,
         };
-        let found = plate_ids.contains(&eid)
-            || quad_ids.contains(&eid)
-            || quad9_ids.contains(&eid)
-            || solid_shell_ids.contains(&eid)
-            || curved_shell_ids.contains(&eid);
-        if !found {
+        if !ids.contains(&eid) {
             return Err(format!("{} load: element {} does not exist", kind, eid));
         }
     }
@@ -5173,8 +5192,7 @@ pub fn compute_internal_forces_2d_with_loads(
             for load in loads_by_elem.get(&elem.id).unwrap_or(&empty_loads) {
                 match load {
                     SolverLoad::Thermal(tl) if tl.element_id == elem.id => {
-                        let alpha = 12e-6;
-                        n_axial -= e * sec.a * alpha * tl.dt_uniform;
+                        n_axial -= e * sec.a * tl.alpha() * tl.dt_uniform;
                     }
                     // An axial point load, and an axial span load: their consistent end loads
                     // (f = K*u - FEF) make N vary along the bar, n_start = EAδ/L + f_i and
@@ -5288,8 +5306,8 @@ pub fn compute_internal_forces_2d_with_loads(
                         });
                     }
                     SolverLoad::Thermal(tl) if tl.element_id == elem.id => {
-                        let alpha = 12e-6;
-                        let h = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
+                        let alpha = tl.alpha();
+                        let h = tl.depth(sec.a, sec.iz);
                         let mut fef = crate::element::fef_thermal_2d(
                             e, sec.a, sec.iz, l,
                             tl.dt_uniform, tl.dt_gradient, alpha, h,
@@ -5408,8 +5426,7 @@ pub fn compute_internal_forces_3d_with_loads(
             for load in loads_by_elem.get(&elem.id).unwrap_or(&empty_loads) {
                 if let SolverLoad3D::Thermal(tl) = load {
                     if tl.element_id == elem.id {
-                        let alpha = 12e-6;
-                        n_axial -= e * sec.a * alpha * tl.dt_uniform;
+                        n_axial -= e * sec.a * tl.alpha() * tl.dt_uniform;
                     }
                 }
             }
@@ -5592,9 +5609,9 @@ pub fn compute_internal_forces_3d_with_loads(
                     pt_loads_z.push(PointLoadInfo3D { a: pl.a, p: pl.pz });
                 }
                 SolverLoad3D::Thermal(tl) if tl.element_id == elem.id => {
-                    let alpha = 12e-6;
-                    let hy = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
-                    let hz = if sec.a > 1e-15 { (12.0 * sec.iy / sec.a).sqrt() } else { 0.1 };
+                    let alpha = tl.alpha();
+                    let hy = tl.depth_y(sec.a, sec.iz);
+                    let hz = tl.depth_z(sec.a, sec.iy);
                     let mut fef12 = element::fef_thermal_3d(
                         e, sec.a, sec.iy, sec.iz, l,
                         tl.dt_uniform, tl.dt_gradient_y, tl.dt_gradient_z,
@@ -5739,8 +5756,19 @@ pub fn expand_curved_beams_3d(input: &SolverInput3D) -> SolverInput3D {
             }
         }
 
-        // Add frame elements (remapping snapped node ID)
-        for &(eid, ni, nj, mat_id, sec_id, hs, he) in &expansion.new_elements {
+        // Add frame elements (remapping snapped node ID). Every segment takes its
+        // section orientation from the arc, not from the default rule (#418, SP-15).
+        let xyz_of = |id: usize| result.nodes.get(&id.to_string()).map(|n| [n.x, n.y, n.z]);
+        let mut segment_local_y = Vec::with_capacity(expansion.new_elements.len());
+        for &(_, ni, nj, ..) in &expansion.new_elements {
+            let actual_ni = if snap_from == Some(ni) { mid_id } else { ni };
+            let actual_nj = if snap_from == Some(nj) { mid_id } else { nj };
+            segment_local_y.push(match (expansion.section_frame, xyz_of(actual_ni), xyz_of(actual_nj)) {
+                (Some(f), Some(pi), Some(pj)) => Some(f.local_y(pi, pj)),
+                _ => None,
+            });
+        }
+        for (&(eid, ni, nj, mat_id, sec_id, hs, he), ly) in expansion.new_elements.iter().zip(segment_local_y) {
             let actual_ni = if snap_from == Some(ni) { mid_id } else { ni };
             let actual_nj = if snap_from == Some(nj) { mid_id } else { nj };
             result.elements.insert(eid.to_string(), SolverElement3D {
@@ -5756,9 +5784,9 @@ pub fn expand_curved_beams_3d(input: &SolverInput3D) -> SolverInput3D {
                 release_mz_end: he,
                 release_t_start: false,
                 release_t_end: false,
-                local_yx: None,
-                local_yy: None,
-                local_yz: None,
+                local_yx: ly.map(|v| v[0]),
+                local_yy: ly.map(|v| v[1]),
+                local_yz: ly.map(|v| v[2]),
                 roll_angle: None,
             });
             if eid >= next_elem_id {
@@ -5878,6 +5906,8 @@ pub(crate) fn compute_quad_stresses(
     let loads_ref = loads.unwrap_or(&input.loads);
     let mut thermal_by_elem: std::collections::HashMap<(bool, usize), (f64, f64, f64)> =
         std::collections::HashMap::new();
+    let mut curved_thermal: std::collections::HashMap<usize, (f64, f64, f64)> =
+        std::collections::HashMap::new();
     for load in loads_ref {
         match load {
             // Summed as free strains, (1, Σα·ΔTu, Σα·ΔTg): an insert kept only the last
@@ -5888,6 +5918,13 @@ pub(crate) fn compute_quad_stresses(
                 let alpha = tl.alpha.unwrap_or(1.2e-5);
                 let key = (matches!(load, SolverLoad3D::Quad9Thermal(_)), tl.element_id);
                 let e = thermal_by_elem.entry(key).or_insert((1.0, 0.0, 0.0));
+                e.1 += alpha * tl.dt_uniform;
+                e.2 += alpha * tl.dt_gradient;
+            }
+            // Curved shells (their own id space), summed the same way (SH-6, #410).
+            SolverLoad3D::CurvedShellThermal(tl) => {
+                let alpha = tl.alpha.unwrap_or(1.2e-5);
+                let e = curved_thermal.entry(tl.element_id).or_insert((1.0, 0.0, 0.0));
                 e.1 += alpha * tl.dt_uniform;
                 e.2 += alpha * tl.dt_gradient;
             }
@@ -6017,8 +6054,9 @@ pub(crate) fn compute_quad_stresses(
         let u_elem: Vec<f64> = cs_dofs.iter().map(|&d| u[d]).collect();
         let mut u_arr = [0.0; 24];
         u_arr.copy_from_slice(&u_elem);
-        let s = crate::element::curved_shell::curved_shell_stresses(&coords, &dirs, &u_arr, e, nu, cs.thickness);
-        let nodal_vm = crate::element::curved_shell::curved_shell_nodal_von_mises(&coords, &dirs, &u_arr, e, nu, cs.thickness);
+        let (alpha, dt_uniform, dt_gradient) = curved_thermal.get(&cs.id).copied().unwrap_or((0.0, 0.0, 0.0));
+        let s = crate::element::curved_shell::curved_shell_stresses(&coords, &dirs, &u_arr, e, nu, cs.thickness, alpha, dt_uniform, dt_gradient);
+        let nodal_vm = crate::element::curved_shell::curved_shell_nodal_von_mises(&coords, &dirs, &u_arr, e, nu, cs.thickness, alpha, dt_uniform);
         stresses.push(QuadStress {
             element_id: cs.id,
             sigma_xx: s.sigma_xx,

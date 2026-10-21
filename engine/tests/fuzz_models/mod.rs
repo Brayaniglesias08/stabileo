@@ -676,6 +676,8 @@ pub fn random_2d_model_rich(seed: u64) -> (SolverInput, HashMap<String, f64>) {
             })),
             _ => loads.push(SolverLoad::Thermal(SolverThermalLoad {
                 element_id: eid, dt_uniform: rng.gen_range(-40.0..40.0), dt_gradient: rng.gen_range(-20.0..20.0),
+                // Some members state α and depth (#407), without drawing from the RNG.
+                alpha: if eid % 2 == 0 { Some(23e-6) } else { None }, depth: if eid % 3 == 0 { Some(0.3) } else { None },
             })),
         }
     }
@@ -1009,6 +1011,8 @@ pub fn random_3d_model_rich(seed: u64) -> (SolverInput3D, HashMap<String, f64>) 
             3 => loads.push(SolverLoad3D::Thermal(SolverThermalLoad3D {
                 element_id: eid, dt_uniform: rng.gen_range(-40.0..40.0),
                 dt_gradient_y: rng.gen_range(-20.0..20.0), dt_gradient_z: rng.gen_range(-20.0..20.0),
+                alpha: if eid % 2 == 0 { Some(23e-6) } else { None },
+                depth_y: if eid % 3 == 0 { Some(0.15) } else { None }, depth_z: if eid % 3 != 1 { Some(0.3) } else { None },
             })),
             _ if warping => loads.push(SolverLoad3D::Bimoment(SolverBimomentLoad {
                 node_id: rng.gen_range(1..=n_nodes), bimoment: q(&mut rng),

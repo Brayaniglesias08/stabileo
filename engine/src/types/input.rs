@@ -134,6 +134,60 @@ pub struct SolverThermalLoad {
     pub element_id: usize,
     pub dt_uniform: f64,
     pub dt_gradient: f64,
+    /// The member material's coefficient of thermal expansion, 1/°C. Omitted: the engine's
+    /// default [`DEFAULT_FRAME_THERMAL_ALPHA`] (steel's 12·10⁻⁶), and the result says so
+    /// (`known_issues::FR-4`). Concrete is about 10·10⁻⁶, aluminium 23·10⁻⁶.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha: Option<f64>,
+    /// The section's real depth across which `dt_gradient` acts (along local y, the depth
+    /// bent with `iz`). Omitted: the depth of the section's equivalent solid rectangle,
+    /// √(12·Iz/A), which is exact only for a solid rectangle, and the result says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<f64>,
+}
+
+/// The coefficient of thermal expansion a frame or truss thermal load is solved with when it
+/// states none (1/°C): steel's. Kept so that a load without `alpha` gives today's result.
+pub const DEFAULT_FRAME_THERMAL_ALPHA: f64 = 12e-6;
+
+/// The depth of a section's equivalent solid rectangle, √(12·I/A), the depth a thermal
+/// gradient acts across when the load states none. 0.1 when the section has no area (as
+/// before: such a member carries no stiffness to load anyway).
+pub fn equivalent_rectangle_depth(a: f64, i: f64) -> f64 {
+    if a > 1e-15 { (12.0 * i / a).sqrt() } else { 0.1 }
+}
+
+/// Rejects a stated α or depth no member can have: α must be finite, ≥ 0 and below 10⁻³ /°C
+/// (every structural material is below 3·10⁻⁴; a larger value is a unit slip, such as 12 for
+/// 12·10⁻⁶), and a depth finite and positive.
+pub fn check_frame_thermal_inputs(element_id: usize, alpha: Option<f64>, depths: &[(&str, Option<f64>)]) -> Result<(), String> {
+    if let Some(a) = alpha {
+        if !(a.is_finite() && (0.0..1e-3).contains(&a)) {
+            return Err(format!(
+                "Thermal load on element {element_id}: alpha = {a} is not a coefficient of thermal expansion in 1/°C (expected 0 <= alpha < 1e-3, e.g. 1.2e-5 for steel)"
+            ));
+        }
+    }
+    for (name, d) in depths {
+        if let Some(h) = d {
+            if !(h.is_finite() && *h > 0.0) {
+                return Err(format!("Thermal load on element {element_id}: {name} = {h} must be a positive, finite section depth"));
+            }
+        }
+    }
+    Ok(())
+}
+
+impl SolverThermalLoad {
+    /// α the load is solved with: its own, else [`DEFAULT_FRAME_THERMAL_ALPHA`].
+    pub fn alpha(&self) -> f64 {
+        self.alpha.unwrap_or(DEFAULT_FRAME_THERMAL_ALPHA)
+    }
+    /// The depth the gradient acts across: the load's own, else √(12·Iz/A) of the section
+    /// it is applied to.
+    pub fn depth(&self, a: f64, iz: f64) -> f64 {
+        self.depth.unwrap_or_else(|| equivalent_rectangle_depth(a, iz))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -420,6 +474,33 @@ pub struct SolverThermalLoad3D {
     pub dt_uniform: f64,
     pub dt_gradient_y: f64,
     pub dt_gradient_z: f64,
+    /// The member material's coefficient of thermal expansion, 1/°C. Omitted:
+    /// [`DEFAULT_FRAME_THERMAL_ALPHA`], and the result says so (`known_issues::FR-4`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha: Option<f64>,
+    /// The section's real depth along local y, across which `dt_gradient_y` acts (bent with
+    /// `iz`). Omitted: √(12·Iz/A), and the result says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth_y: Option<f64>,
+    /// The section's real depth along local z, across which `dt_gradient_z` acts (bent with
+    /// `iy`). Omitted: √(12·Iy/A), and the result says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth_z: Option<f64>,
+}
+
+impl SolverThermalLoad3D {
+    /// α the load is solved with: its own, else [`DEFAULT_FRAME_THERMAL_ALPHA`].
+    pub fn alpha(&self) -> f64 {
+        self.alpha.unwrap_or(DEFAULT_FRAME_THERMAL_ALPHA)
+    }
+    /// The depth along local y the y gradient acts across: the load's own, else √(12·Iz/A).
+    pub fn depth_y(&self, a: f64, iz: f64) -> f64 {
+        self.depth_y.unwrap_or_else(|| equivalent_rectangle_depth(a, iz))
+    }
+    /// The depth along local z the z gradient acts across: the load's own, else √(12·Iy/A).
+    pub fn depth_z(&self, a: f64, iy: f64) -> f64 {
+        self.depth_z.unwrap_or_else(|| equivalent_rectangle_depth(a, iy))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

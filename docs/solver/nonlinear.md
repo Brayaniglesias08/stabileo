@@ -331,7 +331,7 @@ each end is tested with the **elastic** end forces of the linear recovery
 
 $$
 \text{2D: } \Bigl(\frac{N}{N_p}\Bigr)^2 + \frac{\lvert M\rvert}{M_p} > 1,\qquad
-\text{3D: } \Bigl(\frac{N}{N_p}\Bigr)^2 + \Bigl(\frac{M_y}{M_{py}}\Bigr)^2 + \Bigl(\frac{M_z}{M_{pz}}\Bigr)^2 > 1 .
+\text{3D: } \Bigl(\frac{N}{N_p}\Bigr)^2 + \frac{\lvert M_y\rvert}{M_{py}} + \frac{\lvert M_z\rvert}{M_{pz}} > 1 .
 $$
 
 If either end yields, the **whole member** gets $I \to \alpha I$ (both $I_y$ and $I_z$ in 3D), with
@@ -345,7 +345,7 @@ This is a nonlinear-elastic secant model, not plasticity:
 - the flags are set from the elastic $K_\text{el}u$, which grows by $1/\alpha$ once the member has
   softened, so a member never returns to elastic.
 
-### 6.2 Consequences (open, see NL-4..6)
+### 6.2 Consequences (see NL-4..6)
 
 - The load–deflection curve jumps at first yield. Just past it, the deflection grows by roughly
   $1/\alpha$: ×59 for a 1% load step across yield on a cantilever
@@ -354,9 +354,10 @@ This is a nonlinear-elastic secant model, not plasticity:
 - Reported member forces are $K_\text{el}u$, not the forces in equilibrium. A determinate
   cantilever reports $M = 100\,PL$ at the base, while the reactions (from $K(\text{flags})u$) give
   $PL$ (`nl_material_2d_member_forces_balance_the_reactions`).
-- 2D and 3D use different surfaces for the same planar state (`nl_material_2d_and_3d_use_the_same_yield_surface`).
-  At $N = 0.5N_p$, $M = 0.7M_p$ the 2D utilization is 0.95 and the 3D one is 0.74. For the
-  rectangle, the exact surface is the 2D one. The 3D circle is unconservative against it.
+- 2D and 3D used different surfaces for the same planar state (NL-6, fixed): at $N = 0.5N_p$,
+  $M = 0.7M_p$ the 2D utilization was 0.95 and the 3D one 0.74. 3D now adds the two moment terms
+  linearly, so it is the 2D surface for bending about one axis
+  (`nl_material_2d_and_3d_use_the_same_yield_surface`).
 
 `plastic_rotation_*` in `element_status` is reported, but the formulation has no plastic rotation
 behind it.
@@ -602,13 +603,30 @@ Neither is called by any solver. They are library utilities, tested only in
   collapse-load bracketing?
 - *Test.* `nl_material_2d_response_is_continuous_at_first_yield` (ignored).
 
-**NL-6. 2D and 3D material-nonlinear yield surfaces differ. OPEN.**
+**NL-6. 2D and 3D material-nonlinear yield surfaces differ. FIXED (#429).**
 
-- *Problem.* 2D uses $(N/N_p)^2 + \lvert M\rvert/M_p$ and 3D uses
-  $(N/N_p)^2 + (M_y/M_{py})^2 + (M_z/M_{pz})^2$. The same planar state gives 0.95 in 2D and 0.74
-  in 3D.
-- *Effect.* The 3D surface is unconservative against the rectangle's exact interaction.
-- *Test.* `nl_material_2d_and_3d_use_the_same_yield_surface` (ignored).
+- *Problem.* 2D uses $(N/N_p)^2 + \lvert M\rvert/M_p$ and 3D used
+  $(N/N_p)^2 + (M_y/M_{py})^2 + (M_z/M_{pz})^2$. The same planar state gave 0.95 in 2D and 0.74
+  in 3D. Under $N = 0.5N_p$ a 3D member bent about one axis yielded at $\sqrt{0.75}\,M_p$ instead
+  of $0.75\,M_p$ (15% later; the ratio $1/\sqrt{1-n^2}$ grows without bound as $n \to 1$), and
+  under equal biaxial moments it yielded at $0.71\,M_p$ about each axis instead of $0.5\,M_p$.
+- *Effect.* The 3D surface was unconservative against the rectangle's exact interaction.
+- *Fix.* 3D uses $(N/N_p)^2 + \lvert M_y\rvert/M_{py} + \lvert M_z\rvert/M_{pz} \le 1$, in
+  yield detection and in the reported utilization (from the reported secant forces, NL-4). For
+  bending about one axis it is the 2D surface. For a given $N$ it is the straight chord between
+  the two uniaxial points $(1-n^2)M_{py}$ and $(1-n^2)M_{pz}$, which lies inside any convex
+  section interaction through those points, so it yields no later than either uniaxial limit
+  implies. For the rectangle the uniaxial points are exact and the exact biaxial interaction is
+  convex, so the surface is inside or on it.
+- *Still open (2D and 3D alike).* The axial term $(N/N_p)^2$ is the rectangle's. For the strong
+  axis of an I-section the exact interaction is close to $M/M_p = 1.18(1-n)$, below
+  $1 - n^2$ for $n \gtrsim 0.18$ (0.59 against 0.75 at $n = 0.5$), so with high axial force both
+  solvers yield later than an I-section does. Making the surface section-dependent is a change to
+  both solvers, not part of this fix.
+- *Tests.* `nl_material_2d_and_3d_use_the_same_yield_surface`,
+  `nl_material_3d_uniaxial_yields_at_the_2d_load`,
+  `nl_material_3d_biaxial_yields_no_later_than_the_uniaxial_limits`,
+  `nl_material_3d_utilization_matches_hand_calculation` (`engine/tests/derivation_nonlinear.rs`).
 
 **NL-7. SYMBOLIC.md item 5, 3D co-rotational on pin-ended members. FIXED at this revision (not by this work).**
 

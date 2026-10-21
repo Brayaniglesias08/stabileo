@@ -33,6 +33,7 @@ fn validation_thermal_ss_uniform_free_expansion() {
     let input = make_beam(8, L, E, A, IZ, "pinned", Some("rollerX"),
         (0..8).map(|i| SolverLoad::Thermal(SolverThermalLoad {
             element_id: i + 1, dt_uniform: dt, dt_gradient: 0.0,
+            alpha: None, depth: None,
         })).collect());
     let results = linear::solve_2d(&input).unwrap();
 
@@ -65,6 +66,7 @@ fn validation_thermal_fixed_fixed_uniform() {
     let input = make_beam(8, L, E, A, IZ, "fixed", Some("fixed"),
         (0..8).map(|i| SolverLoad::Thermal(SolverThermalLoad {
             element_id: i + 1, dt_uniform: dt, dt_gradient: 0.0,
+            alpha: None, depth: None,
         })).collect());
     let results = linear::solve_2d(&input).unwrap();
 
@@ -99,6 +101,7 @@ fn validation_thermal_ss_gradient() {
     let input = make_beam(8, L, E, A, IZ, "pinned", Some("rollerX"),
         (0..8).map(|i| SolverLoad::Thermal(SolverThermalLoad {
             element_id: i + 1, dt_uniform: 0.0, dt_gradient: dt_grad,
+            alpha: None, depth: None,
         })).collect());
     let results = linear::solve_2d(&input).unwrap();
 
@@ -131,6 +134,7 @@ fn validation_thermal_cantilever_gradient() {
     let input = make_beam(8, L, E, A, IZ, "fixed", None,
         (0..8).map(|i| SolverLoad::Thermal(SolverThermalLoad {
             element_id: i + 1, dt_uniform: 0.0, dt_gradient: dt_grad,
+            alpha: None, depth: None,
         })).collect());
     let results = linear::solve_2d(&input).unwrap();
 
@@ -153,6 +157,7 @@ fn validation_thermal_fixed_fixed_gradient() {
     let input = make_beam(8, L, E, A, IZ, "fixed", Some("fixed"),
         (0..8).map(|i| SolverLoad::Thermal(SolverThermalLoad {
             element_id: i + 1, dt_uniform: 0.0, dt_gradient: dt_grad,
+            alpha: None, depth: None,
         })).collect());
     let results = linear::solve_2d(&input).unwrap();
 
@@ -341,6 +346,7 @@ fn validation_thermal_equilibrium() {
     let input = make_beam(8, L, E, A, IZ, "fixed", Some("fixed"),
         (0..8).map(|i| SolverLoad::Thermal(SolverThermalLoad {
             element_id: i + 1, dt_uniform: dt, dt_gradient: 20.0,
+            alpha: None, depth: None,
         })).collect());
     let results = linear::solve_2d(&input).unwrap();
 
@@ -371,6 +377,7 @@ fn validation_thermal_settlement_superposition() {
         let loads: Vec<SolverLoad> = if thermal {
             (0..n).map(|i| SolverLoad::Thermal(SolverThermalLoad {
                 element_id: i + 1, dt_uniform: dt, dt_gradient: 0.0,
+                alpha: None, depth: None,
             })).collect()
         } else {
             vec![]

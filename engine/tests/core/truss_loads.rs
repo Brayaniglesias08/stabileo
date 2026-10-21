@@ -183,7 +183,7 @@ fn the_parallel_3d_load_vector_carries_the_same_truss_member_loads() {
             a: Some(0.5), b: Some(3.0),
         }),
         SolverLoad3D::PointOnElement(SolverPointLoad3D { element_id: 1, a: 1.0, py: -8.0, pz: 5.0 }),
-        SolverLoad3D::Thermal(SolverThermalLoad3D { element_id: 1, dt_uniform: 15.0, dt_gradient_y: 0.0, dt_gradient_z: 0.0 }),
+        SolverLoad3D::Thermal(SolverThermalLoad3D { element_id: 1, dt_uniform: 15.0, dt_gradient_y: 0.0, dt_gradient_z: 0.0, alpha: None, depth_y: None, depth_z: None }),
     ]);
     let dof = DofNumbering::build_3d(&input);
     let dense = assemble_load_vector_3d_dense(&input, &input.loads, &dof, &[]);

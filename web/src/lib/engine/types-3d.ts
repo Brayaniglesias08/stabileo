@@ -175,8 +175,14 @@ export interface SolverPointLoad3D {
 export interface SolverThermalLoad3D {
   elementId: number;
   dtUniform: number;    // °C → axial (E·A·α·ΔT)
-  dtGradientY: number;  // °C → My (E·Iy·α·ΔTy/hy)
-  dtGradientZ: number;  // °C → Mz (E·Iz·α·ΔTz/hz)
+  dtGradientY: number;  // °C across local y → Mz (E·Iz·α·ΔTy/hy)
+  dtGradientZ: number;  // °C across local z → My (E·Iy·α·ΔTz/hz)
+  /** The material's α, 1/°C. Absent: the engine's 12·10⁻⁶, with a warning (#407). */
+  alpha?: number;
+  /** The section's real depth along local y (hy). Absent: √(12·Iz/A), with a warning. */
+  depthY?: number;
+  /** The section's real depth along local z (hz). Absent: √(12·Iy/A), with a warning. */
+  depthZ?: number;
 }
 
 export type SolverLoad3D =

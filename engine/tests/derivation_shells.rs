@@ -6,12 +6,14 @@
 
 use dedaliano_engine::element::curved_shell::{
     compute_element_directors, curved_shell_consistent_mass, curved_shell_pressure_load, curved_shell_stiffness,
-    curved_shell_stiffness_covariant, curved_shell_stiffness_no_ans, curved_shell_stresses,
+    curved_shell_stiffness_covariant, curved_shell_stiffness_no_ans, curved_shell_stresses, curved_shell_nodal_von_mises,
 };
 use dedaliano_engine::element::quad::{
     mitc4_local_stiffness, quad_geometric_stiffness, quad_pressure_load,
 };
-use dedaliano_engine::element::quad9::{mitc9_local_stiffness, quad9_transform_3d};
+use dedaliano_engine::element::quad9::{
+    mitc9_local_stiffness, quad9_nodal_von_mises, quad9_stress_at_nodes, quad9_stresses, quad9_transform_3d,
+};
 use dedaliano_engine::element::{
     plate_geometric_stiffness, plate_local_stiffness, plate_local_stiffness_thick,
     plate_stress_at_nodes_thermal, plate_stress_recovery,
@@ -349,12 +351,11 @@ fn sh5_free_thermal_expansion_carries_no_geometric_stiffness() {
 
 // ───────────────────── SH-6: curved-shell moment recovery ─────────────────────
 
-/// SH-6 (OPEN). `curved_shell_stresses` returns mx = my = mxy = 0 whatever the
-/// displacement (only the mid-surface membrane stresses are computed), and the solver
-/// reports those zeros as the element's moments. A flat curved-shell element in pure
+/// SH-6 (FIXED). `curved_shell_stresses` returned mx = my = mxy = 0 whatever the
+/// displacement (only the mid-surface membrane stresses were computed), and the solver
+/// reported those zeros as the element's moments. A flat curved-shell element in pure
 /// bending (θy = κx, w = −κx²/2) must report |mx| = D·κ.
 #[test]
-#[ignore = "open question SH-6: curved-shell stress recovery reports zero bending moments"]
 fn sh6_curved_shell_reports_bending_moments() {
     let (nu, h, kappa) = (0.3, 0.1, 1e-3);
     let mut u = [0.0; 24];
@@ -363,19 +364,242 @@ fn sh6_curved_shell_reports_bending_moments() {
         u[i * 6 + 2] = -0.5 * kappa * x * x;
         u[i * 6 + 4] = kappa * x;
     }
-    let s = curved_shell_stresses(&FLAT_SQUARE, &EZ_DIRS, &u, E, nu, h);
+    let s = curved_shell_stresses(&FLAT_SQUARE, &EZ_DIRS, &u, E, nu, h, 0.0, 0.0, 0.0);
     let d = E * h.powi(3) / (12.0 * (1.0 - nu * nu));
     assert!(s.mx.abs() > 0.5 * d * kappa, "mx = {} for D·κ = {}", s.mx, d * kappa);
+    // The flat curved shell reports what the flat MITC4 reports, sign included.
+    let mut ul = [0.0; 24];
+    ul.copy_from_slice(&u);
+    let q = dedaliano_engine::element::quad::quad_stresses(&FLAT_SQUARE, &ul, E, nu, h, 0.0, 0.0, 0.0);
+    for (name, c, m) in [("mx", s.mx, q.mx), ("my", s.my, q.my), ("mxy", s.mxy, q.mxy)] {
+        assert!((c - m).abs() <= 1e-6 * (d * kappa), "{name}: curved {c} vs MITC4 {m}");
+    }
+    // A twisting field, w = κ·x·y (θx = ∂w/∂y, θy = −∂w/∂x): the twisting moment too.
+    let mut t = [0.0; 24];
+    for i in 0..4 {
+        let (x, y) = (FLAT_SQUARE[i][0], FLAT_SQUARE[i][1]);
+        t[i * 6 + 2] = kappa * x * y;
+        t[i * 6 + 3] = kappa * x;
+        t[i * 6 + 4] = -kappa * y;
+    }
+    let st = curved_shell_stresses(&FLAT_SQUARE, &EZ_DIRS, &t, E, nu, h, 0.0, 0.0, 0.0);
+    let qt = dedaliano_engine::element::quad::quad_stresses(&FLAT_SQUARE, &t, E, nu, h, 0.0, 0.0, 0.0);
+    assert!(qt.mxy.abs() > 0.1 * d * kappa, "the twisting field twists: MITC4 mxy {}", qt.mxy);
+    for (name, c, m) in [("mx", st.mx, qt.mx), ("my", st.my, qt.my), ("mxy", st.mxy, qt.mxy)] {
+        assert!((c - m).abs() <= 1e-6 * (d * kappa), "twist {name}: curved {c} vs MITC4 {m}");
+    }
+}
+
+/// SH-6 (FIXED), the advisory's case (SA-2026-013). A cantilever strip of curved shells,
+/// 4 m × 1 m × 0.2 m, clamped at x = 0, 10 kN down at the tip: statics gives the moment
+/// P·(L − x)/b at each element centre, 35 kN·m/m at the root element (x = 0.5 m). It was
+/// reported as 0.
+#[test]
+fn sh6_curved_shell_cantilever_reports_the_static_moment() {
+    let mut pts = vec![];
+    for j in 0..2 {
+        for i in 0..5 {
+            pts.push([i as f64, j as f64, 0.0]);
+        }
+    }
+    let mut s = with_nodes(0.3, &pts);
+    for i in 0..4 {
+        let id = i + 1;
+        s.curved_shells.insert(id.to_string(), SolverCurvedShellElement { id, nodes: [i + 1, i + 2, i + 7, i + 6], material_id: 1, thickness: 0.2, normals: None });
+    }
+    fix(&mut s, 1);
+    fix(&mut s, 6);
+    nodal(&mut s, 5, -5.0);
+    nodal(&mut s, 10, -5.0);
+    let r = solve_3d(&s).unwrap();
+    for q in &r.quad_stresses {
+        let x = q.element_id as f64 - 0.5;
+        let m = 10.0 * (4.0 - x);
+        assert!((q.mx.abs() - m).abs() < 0.02 * m, "element {}: mx = {} vs statics {m}", q.element_id, q.mx);
+        assert!(q.my.abs() < 0.35 * m, "element {}: my = {}", q.element_id, q.my);
+    }
+    eprintln!("root element: {:?}", r.quad_stresses.iter().find(|q| q.element_id == 1).unwrap());
+}
+
+/// SH-6 (FIXED), thermal part. Stresses and moments come from the mechanical strain
+/// ε − α·(ΔT + ζ·ΔTg/2). A free curved shell under a temperature load (uniform, gradient,
+/// two loads on one element) is stress-free; the recovery kept the free strain and
+/// reported σ = E·α·ΔT/(1−ν) and the matching moment for unrestrained expansion.
+/// A flat element reaches the free state exactly. Where the directors vary (the cylinder's
+/// radial normals, a twisted element) the inextensible directors cannot follow a free
+/// expansion exactly, so one element keeps a discretization residual (0.5 to 2 % of the
+/// restrained value here; on the cylinder it shrinks ≈ angle² for ΔT with the element); it is
+/// held under 5 % of the restrained value, which the recovery reported in full before.
+#[test]
+fn sh6_free_heated_curved_shell_is_stress_free() {
+    let (nu, t) = (0.3, 0.2);
+    let scale = E * 1e-5 * 20.0 / (1.0 - nu);
+    let m_scale = scale * t * t / 6.0;
+    // A flat element; a cylindrical patch (R = 3, the nodes on the cylinder at angles 0 and
+    // 0.1, with the cylinder's radial normals as directors, so the directors vary and the
+    // Jacobian depends on ζ); a twisted (saddle) element with its computed nodal directors.
+    let r = 3.0f64;
+    let cyl = |a: f64, y: f64| [r * a.sin(), y, r * (1.0 - a.cos())];
+    let radial = |a: f64| [-a.sin(), 0.0, a.cos()];
+    let flat = [[0.0, 0.0, 0.0], [2.0, 0.1, 0.0], [2.2, 1.5, 0.0], [-0.1, 1.2, 0.0]];
+    let curved = [cyl(0.0, 0.0), cyl(0.1, 0.0), cyl(0.1, 1.5), cyl(0.0, 1.5)];
+    let cyl_dirs = [radial(0.0), radial(0.1), radial(0.1), radial(0.0)];
+    let twisted = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.3], [2.0, 1.5, 0.0], [0.0, 1.5, 0.3]];
+    for (name, pts, normals) in [("flat", flat, None), ("cylindrical", curved, Some(cyl_dirs)), ("twisted", twisted, None)] {
+        if name == "twisted" {
+            let d = compute_element_directors(&pts);
+            assert!((0..3).map(|k| (d[0][k] - d[1][k]).abs()).sum::<f64>() > 0.05, "the twisted element's directors vary: {d:?}");
+        }
+        for loads in [vec![(20.0, 0.0)], vec![(0.0, 20.0)], vec![(10.0, 5.0), (10.0, 5.0)]] {
+            let mut s = with_nodes(nu, &pts);
+            s.curved_shells.insert("1".into(), SolverCurvedShellElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: t, normals });
+            fix(&mut s, 1);
+            for &(du, dg) in &loads {
+                s.loads.push(SolverLoad3D::CurvedShellThermal(thermal(1, du, dg)));
+            }
+            let res = solve_3d(&s).unwrap();
+            let q = &res.quad_stresses[0];
+            let tol = if name == "flat" { 1e-6 } else { 0.05 };
+            for v in [q.sigma_xx, q.sigma_yy, q.tau_xy, q.von_mises] {
+                assert!(v.abs() < tol * scale, "{name} {loads:?}: σ {q:?} (scale {scale})");
+            }
+            for v in [q.mx, q.my, q.mxy] {
+                assert!(v.abs() < tol * m_scale, "{name} {loads:?}: m {q:?} (scale {m_scale})");
+            }
+            for v in &q.nodal_von_mises {
+                assert!(v.abs() < tol * scale, "{name} {loads:?}: nodal σvm {v}");
+            }
+        }
+    }
+}
+
+/// SH-6 (FIXED), thermal part. Fully restrained, the element reports the thermal stress
+/// −E·α·ΔT/(1−ν) and the restrained gradient moment, the values the flat MITC4 reports;
+/// and a partly restrained flat mesh of curved shells reports the stresses and moments of
+/// the same mesh of MITC4s.
+#[test]
+fn sh6_restrained_heated_curved_shell_matches_mitc4() {
+    let (nu, h, alpha, du, dg) = (0.3, 0.2, 1e-5, 20.0, 10.0);
+    let u0 = [0.0; 24];
+    let c = curved_shell_stresses(&FLAT_SQUARE, &EZ_DIRS, &u0, E, nu, h, alpha, du, dg);
+    let q = dedaliano_engine::element::quad::quad_stresses(&FLAT_SQUARE, &u0, E, nu, h, alpha, du, dg);
+    let s_th = -E * alpha * du / (1.0 - nu);
+    let m_th = E * h * h * alpha * dg / (12.0 * (1.0 - nu));
+    assert!((c.sigma_xx - s_th).abs() < 1e-9 * s_th.abs() && (c.sigma_yy - s_th).abs() < 1e-9 * s_th.abs(), "{c:?}");
+    assert!(c.tau_xy.abs() < 1e-9 * s_th.abs(), "{c:?}");
+    assert!((c.mx.abs() - m_th).abs() < 1e-9 * m_th && (c.my.abs() - m_th).abs() < 1e-9 * m_th, "{c:?} vs |m| {m_th}");
+    for (name, a, b, sc) in [("σxx", c.sigma_xx, q.sigma_xx, s_th.abs()), ("σyy", c.sigma_yy, q.sigma_yy, s_th.abs()),
+        ("mx", c.mx, q.mx, m_th), ("my", c.my, q.my, m_th), ("mxy", c.mxy, q.mxy, m_th)] {
+        assert!((a - b).abs() < 1e-9 * sc, "restrained {name}: curved {a} vs MITC4 {b}");
+    }
+    let vm = curved_shell_nodal_von_mises(&FLAT_SQUARE, &EZ_DIRS, &u0, E, nu, h, alpha, du);
+    for v in vm {
+        assert!((v - s_th.abs()).abs() < 1e-9 * s_th.abs(), "restrained nodal σvm {v} vs {}", s_th.abs());
+    }
+
+    // A 2×2 flat mesh, one edge clamped and every node on a y-roller, heated: curved shells
+    // vs MITC4. Membrane: ε_yy = 0, σ_xx = 0, so σ_yy = −E·α·ΔT exactly for both.
+    let mut pts = vec![];
+    for j in 0..3 {
+        for i in 0..3 {
+            pts.push([i as f64, 0.75 * j as f64, 0.0]);
+        }
+    }
+    let elems = [[1, 2, 5, 4], [2, 3, 6, 5], [4, 5, 8, 7], [5, 6, 9, 8]];
+    let build = |curved: bool| {
+        let mut s = with_nodes(nu, &pts);
+        for (k, n) in elems.iter().enumerate() {
+            let id = k + 1;
+            if curved {
+                s.curved_shells.insert(id.to_string(), SolverCurvedShellElement { id, nodes: *n, material_id: 1, thickness: h, normals: None });
+                s.loads.push(SolverLoad3D::CurvedShellThermal(thermal(id, du, dg)));
+            } else {
+                s.quads.insert(id.to_string(), SolverQuadElement { id, nodes: *n, material_id: 1, thickness: h });
+                s.loads.push(SolverLoad3D::QuadThermal(thermal(id, du, dg)));
+            }
+        }
+        for n in 1..=9 {
+            fix(&mut s, n);
+            if ![1, 4, 7].contains(&n) {
+                let sup = s.supports.get_mut(&n.to_string()).unwrap();
+                (sup.rx, sup.rz, sup.rrx, sup.rry, sup.rrz) = (false, false, false, false, false);
+            }
+        }
+        solve_3d(&s).unwrap()
+    };
+    let (rc, rq) = (build(true), build(false));
+    let by_id = |r: &AnalysisResults3D, id: usize| r.quad_stresses.iter().find(|q| q.element_id == id).unwrap().clone();
+    for id in 1..=4 {
+        let (a, b) = (by_id(&rc, id), by_id(&rq, id));
+        let s_y = -E * alpha * du;
+        for (name, x, y, sc) in [("σxx", a.sigma_xx, 0.0, s_th.abs()), ("σyy", a.sigma_yy, s_y, s_th.abs()),
+            ("τxy", a.tau_xy, 0.0, s_th.abs()), ("MITC4 σyy", b.sigma_yy, s_y, s_th.abs()),
+            ("mx", a.mx, b.mx, m_th), ("my", a.my, b.my, m_th), ("mxy", a.mxy, b.mxy, m_th)] {
+            assert!((x - y).abs() < 1e-6 * sc, "mesh element {id} {name}: curved {x} vs {y}\n curved {a:?}\n MITC4 {b:?}");
+        }
+    }
+    let my_max = rc.quad_stresses.iter().map(|q| q.my.abs()).fold(0.0, f64::max);
+    assert!(my_max > 0.1 * m_th, "the clamped edge restrains the gradient: max |my| {my_max}");
+}
+
+/// A shell load names an element of its own family: a `quadThermal` on a curved shell's id
+/// was accepted (the id existed, as a curved shell) and dropped by the quad assembly, so the
+/// shell was analysed unheated. Refused now; the curved shell's own load applies.
+#[test]
+fn shell_loads_must_name_their_own_family() {
+    let pts = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 1.5, 0.0], [0.0, 1.5, 0.0]];
+    let mut s = with_nodes(0.3, &pts);
+    s.curved_shells.insert("1".into(), SolverCurvedShellElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2, normals: None });
+    fix(&mut s, 1);
+    let mut wrong = s.clone();
+    wrong.loads.push(SolverLoad3D::QuadThermal(thermal(1, 20.0, 0.0)));
+    let err = solve_3d(&wrong).err().expect("a quad load on a curved shell is refused");
+    assert!(err.contains("Quad thermal load: element 1"), "{err}");
+    s.loads.push(SolverLoad3D::CurvedShellThermal(thermal(1, 20.0, 0.0)));
+    let r = solve_3d(&s).unwrap();
+    let ux = r.displacements.iter().find(|d| d.node_id == 2).unwrap().ux;
+    assert!((ux - 1e-5 * 20.0 * 2.0).abs() < 1e-9, "the heated curved shell expands: ux = {ux}");
+}
+
+/// The discretization-error samples sum the thermal loads on an element as the load vector
+/// does (SH-11): they kept only the last one, so two ΔT = 10 loads on a free shell left a
+/// spurious E·α·10/(1−ν) in every sample, read as discretization error.
+#[test]
+fn discretization_samples_sum_the_thermal_loads_on_a_free_shell() {
+    use dedaliano_engine::postprocess::discretization::samples::sample_elements;
+    let pts = [[0.0, 0.0, 0.0], [2.0, 0.1, 0.0], [2.2, 1.5, 0.0], [-0.1, 1.2, 0.0]];
+    let scale = E * 1e-5 * 20.0 / 0.7;
+    for curved in [false, true] {
+        let mut s = with_nodes(0.3, &pts);
+        if curved {
+            s.curved_shells.insert("1".into(), SolverCurvedShellElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2, normals: None });
+            s.loads.push(SolverLoad3D::CurvedShellThermal(thermal(1, 10.0, 5.0)));
+            s.loads.push(SolverLoad3D::CurvedShellThermal(thermal(1, 10.0, 5.0)));
+        } else {
+            s.quads.insert("1".into(), SolverQuadElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2 });
+            s.loads.push(SolverLoad3D::QuadThermal(thermal(1, 10.0, 5.0)));
+            s.loads.push(SolverLoad3D::QuadThermal(thermal(1, 10.0, 5.0)));
+        }
+        fix(&mut s, 1);
+        let r = solve_3d(&s).unwrap();
+        for el in sample_elements(&s, &r).unwrap() {
+            for smp in &el.samples {
+                for v in smp.sigma {
+                    assert!(v.abs() < 1e-6 * scale, "curved {curved}: sample σ {:?}", smp.sigma);
+                }
+            }
+        }
+    }
 }
 
 // ───────────────────── SH-7: curved (non-planar) MITC9 ─────────────────────
 
-/// SH-7 (OPEN). The MITC9 projects its nine nodes onto the corner-diagonal plane and has
-/// no rigid-link (warping) correction, unlike the MITC4. With the midside and centre nodes
-/// off that plane — any curved 9-node shell — a rigid rotation about an in-plane axis
-/// strains the flat element.
+/// SH-7 (FIXED, #411). The MITC9 projects its nine nodes onto the plane normal to the
+/// corner-diagonal `ez` and had no rigid-link (warping) correction, unlike the MITC4. With
+/// the midside and centre nodes off that plane (any curved 9-node shell) a rigid rotation
+/// about an in-plane axis strained the flat element: relative K·r residual 0.11 on this
+/// cylindrical patch. Each node is now tied to its projection by a rigid link (K ← WᵀKW).
 #[test]
-#[ignore = "open question SH-7: MITC9 with non-planar (curved) nodes does not annihilate rigid rotations"]
 fn sh7_curved_mitc9_annihilates_rigid_motions() {
     let s = 0.2; // sag of a cylindrical patch, curvature along x
     let c: [[f64; 3]; 9] = [
@@ -385,6 +609,55 @@ fn sh7_curved_mitc9_annihilates_rigid_motions() {
     let k = to_global(&mitc9_local_stiffness(&c, E, 0.3, 0.05), &quad9_transform_3d(&c), 54);
     let res = rigid_residual(&k, &c);
     assert!(res < 1e-10, "curved MITC9: K·r ≠ 0 for a rigid motion, relative residual {res:.3e}");
+}
+
+/// A doubly curved, distorted nine-node patch with warped (non-coplanar) corners, tilted
+/// out of every coordinate plane: all six rigid motions are annihilated.
+const WARPED_Q9: [[f64; 3]; 9] = [
+    [0.0, 0.0, 0.05], [2.1, 0.2, -0.04], [2.3, 1.9, 0.06], [-0.1, 1.7, -0.03],
+    [1.05, 0.05, 0.22], [2.25, 1.0, 0.18], [1.1, 1.85, 0.25], [-0.05, 0.85, 0.15], [1.0, 0.95, 0.35],
+];
+
+fn tilt(c: &[[f64; 3]; 9]) -> [[f64; 3]; 9] {
+    // A fixed rotation (about (1, 2, 3), 0.7 rad), so that no axis is special.
+    let a = { let n = (1.0f64 + 4.0 + 9.0).sqrt(); [1.0 / n, 2.0 / n, 3.0 / n] };
+    let (sn, cs) = 0.7f64.sin_cos();
+    c.map(|p| {
+        let d = a[0] * p[0] + a[1] * p[1] + a[2] * p[2];
+        let x = [a[1] * p[2] - a[2] * p[1], a[2] * p[0] - a[0] * p[2], a[0] * p[1] - a[1] * p[0]];
+        std::array::from_fn(|k| p[k] * cs + x[k] * sn + a[k] * d * (1.0 - cs))
+    })
+}
+
+#[test]
+fn sh7_warped_doubly_curved_mitc9_annihilates_rigid_motions() {
+    let c = tilt(&WARPED_Q9);
+    let k = to_global(&mitc9_local_stiffness(&c, E, 0.3, 0.05), &quad9_transform_3d(&c), 54);
+    let res = rigid_residual(&k, &c);
+    assert!(res < 1e-10, "warped MITC9: relative residual {res:.3e}");
+}
+
+/// The stress recovery sees the same rigid-link-corrected displacements as the stiffness: a
+/// rigid motion of a curved MITC9 reports no membrane stress and no moment, at the centroid
+/// and at the nodes. Before the fix a 1 mrad rotation of this patch reported a membrane
+/// stress of 107 MPa (steel, E = 200 GPa).
+#[test]
+fn sh7_curved_mitc9_rigid_motion_is_stress_free() {
+    let c = tilt(&WARPED_Q9);
+    let t = quad9_transform_3d(&c);
+    let (nu, h) = (0.3, 0.05);
+    for (m, r) in rigid_modes(&c).iter().enumerate() {
+        let r: Vec<f64> = r.iter().map(|v| 1e-3 * v).collect();
+        let ul: Vec<f64> = (0..54).map(|i| (0..54).map(|j| t[i * 54 + j] * r[j]).sum()).collect();
+        let sc = quad9_stresses(&c, &ul, E, nu, h, 0.0, 0.0, 0.0);
+        let mut v = vec![sc.sigma_xx, sc.sigma_yy, sc.tau_xy, sc.mx / (h * h), sc.my / (h * h), sc.mxy / (h * h)];
+        for ns in quad9_stress_at_nodes(&c, &ul, E, nu, h, 0.0, 0.0, 0.0) {
+            v.extend([ns.sigma_xx, ns.sigma_yy, ns.tau_xy, ns.mx / (h * h), ns.my / (h * h), ns.mxy / (h * h)]);
+        }
+        v.extend(quad9_nodal_von_mises(&c, &ul, E, nu, h, 0.0, 0.0));
+        let worst = max_abs(&v);
+        assert!(worst < 1e-9 * E * 1e-3, "rigid mode {m}: stress {worst:e} (scale E·1e-3 = {:e})", E * 1e-3);
+    }
 }
 
 // ───────────────────── SH-9: solid-shell Poisson thickness locking ─────────────────────
@@ -854,3 +1127,4 @@ fn shell_time_history_initial_acceleration_is_rotation_invariant() {
         }
     }
 }
+

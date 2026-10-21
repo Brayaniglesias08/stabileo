@@ -522,14 +522,13 @@ fn catenary_ordinate_and_length() {
     assert!(rel(s, ex) < 1e-10, "inclined S = {s} vs {ex}");
 }
 
-/// SP-11 (OPEN). Ernst's modulus is itself the TANGENT of the chord-tension
+/// SP-11 (FIXED, #415). Ernst's modulus is itself the TANGENT of the chord-tension
 /// law: the chord of an elastic cable of weight w per unit length satisfies
 /// ε(T) = T/EA − (w·l_h)²/(24T²) + const, so dT/dε = E·A/(1 + (w·l_h)²EA/(12T³)),
 /// which is `ernst_equivalent_modulus`. `ernst_tangent_modulus` returns
-/// E(1 + α(1 − 3α/(1+α)))/(1+α)² instead, which no derivation here reproduces.
-/// Unused by any solver; pinned by cable_advanced_ext_ernst_tangent_modulus.
+/// that derivative now; it used to return E(1 + α(1 − 3α/(1+α)))/(1+α)², which no
+/// derivation reproduces and which is negative here (−7.77e6 against 6.20e7 kN/m²).
 #[test]
-#[ignore = "open question SP-11: ernst_tangent_modulus is not the derivative of the chord-tension law"]
 fn ernst_tangent_modulus_is_the_chord_law_derivative() {
     let (e, a, w, lh, t): (f64, f64, f64, f64, f64) = (160e6, 2e-3, 0.2, 200.0, 300.0);
     let eps = |t: f64| t / (e * a) - (w * lh).powi(2) / (24.0 * t * t);
@@ -540,17 +539,18 @@ fn ernst_tangent_modulus_is_the_chord_law_derivative() {
         "ernst_tangent_modulus {} vs dT/dε/A {tangent}", ernst_tangent_modulus(e, a, w, lh, t));
 }
 
-/// SP-12 (OPEN). The cable solver recovers the tension with the Ernst modulus
-/// as a SECANT from the node geometry: T = E_eq(T)·A·ε, i.e.
+/// SP-12 (FIXED, #416). The cable solver used to recover the tension with the Ernst
+/// modulus as a SECANT from the node geometry: T = E_eq(T)·A·ε, i.e.
 /// ε = T/EA + (w·l_h)²/(12T²). The elastic-catenary chord law with the
 /// unstressed length equal to the chord is ε = T/EA − (w·l_h)²/(24T²): sag takes
 /// up chord length, so the elastic strain (and T) for a given chord strain is
 /// LARGER than EA·ε, not smaller. Statically determinate cables are unaffected
 /// (equilibrium fixes T); in an indeterminate system the cable is assigned too
 /// little tension. Here a horizontal steel cable shares a horizontal load with
-/// a parallel spring; the check is the chord law at the converged state.
+/// a parallel spring; the check is the chord law at the converged state and the
+/// closed form (spring and chord law re-solved by bisection): T = 9.5878 kN,
+/// where the secant law gave 9.3905 kN.
 #[test]
-#[ignore = "open question SP-12: cable tension uses Ernst's tangent modulus as a secant from the chord"]
 fn cable_tension_follows_the_elastic_catenary_chord_law() {
     let (l, a, rho) = (50.0, 1e-4, 7850.0);
     let mut input = common::make_input(
@@ -570,7 +570,104 @@ fn cable_tension_follows_the_elastic_catenary_chord_law() {
     let w = rho / 1000.0 * a * 9.80665;
     let ea = 200e6 * a;
     let chord_law = t / ea - (w * l).powi(2) / (24.0 * t * t);
-    assert!(rel(chord_law, ux / l) < 1e-3, "T = {t}: chord law ε = {chord_law}, solved ε = {}", ux / l);
+    assert!(rel(chord_law, ux / l) < 1e-9, "T = {t}: chord law ε = {chord_law}, solved ε = {}", ux / l);
+    // Independent re-solve: 20·u + T = 10 with u/l = T/EA − (w·l)²/(24T²).
+    let t_ref = bisect(|t| t / ea - (w * l).powi(2) / (24.0 * t * t) - (10.0 - t) / 20.0 / l, 1e-6, 10.0);
+    assert!(rel(t, t_ref) < 1e-9, "T = {t}, closed form {t_ref}");
+    assert!((t_ref - 9.587766).abs() < 1e-5, "closed form {t_ref}");
+    // Equilibrium at the roller: spring plus cable carry the load.
+    let rx: f64 = r.results.reactions.iter().map(|x| x.rx).sum();
+    assert!((rx + 10.0).abs() < 1e-9, "ΣRx = {rx}");
+    assert!(r.iterations < 15, "Newton on the chord law: {} passes", r.iterations);
+}
+
+/// Root of an increasing function on [lo, hi] by bisection.
+fn bisect(f: impl Fn(f64) -> f64, mut lo: f64, mut hi: f64) -> f64 {
+    for _ in 0..200 {
+        let m = 0.5 * (lo + hi);
+        if f(m) > 0.0 { hi = m } else { lo = m }
+    }
+    0.5 * (lo + hi)
+}
+
+/// SP-12 in 3D: the same horizontal cable and spring, along a skew horizontal
+/// direction (l_h is the XY projection), against the same closed form.
+#[test]
+fn cable_tension_follows_the_chord_law_in_3d() {
+    let (l, a, rho, k) = (50.0, 1e-4, 7850.0, 20.0);
+    let (cx, cy) = (0.6, 0.8);
+    let mut input = make_3d_input(
+        vec![(1, 0.0, 0.0, 3.0), (2, l * cx, l * cy, 3.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, a, 1e-8, 1e-8, 1e-8)],
+        vec![(1, "cable", 1, 2, 1, 1)],
+        vec![(1, vec![true; 6]), (2, vec![false, false, true, true, true, true])],
+        vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: 10.0 * cx, fy: 10.0 * cy, fz: 0.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None })],
+    );
+    let s = input.supports.get_mut("2").unwrap();
+    s.kx = Some(k);
+    s.ky = Some(k);
+    let dens = HashMap::from([("1".to_string(), rho)]);
+    let r = cable::solve_cable_3d(&input, &dens, 200, 1e-12).unwrap();
+    assert!(r.converged);
+    let t = r.cable_forces[0].tension;
+    let ea = 200e6 * a;
+    let w = rho / 1000.0 * a * 9.80665;
+    let t_ref = bisect(|t| t / ea - (w * l).powi(2) / (24.0 * t * t) - (10.0 - t) / k / l, 1e-6, 10.0);
+    assert!(rel(t, t_ref) < 1e-6, "T = {t}, closed form {t_ref}");
+    let d = r.results.displacements.iter().find(|d| d.node_id == 2).unwrap();
+    let u = d.ux * cx + d.uy * cy;
+    assert!(rel(u, (10.0 - t_ref) / k) < 1e-6, "u = {u}");
+}
+
+/// Without weight the chord law is the taut string T = EA·ε: cable and spring
+/// share the load by stiffness, exactly as the linear solver shares it.
+#[test]
+fn weightless_cable_and_spring_share_by_stiffness() {
+    let (l, a, k) = (50.0, 1e-4, 20.0);
+    let mut input = common::make_input(
+        vec![(1, 0.0, 0.0), (2, l, 0.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, a, 1e-8)],
+        vec![(1, "cable", 1, 2, 1, 1, false, false)],
+        vec![(1, 1, "pinned"), (2, 2, "rollerX")],
+        vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: 10.0, fz: 0.0, my: 0.0 })],
+    );
+    input.supports.get_mut("2").unwrap().kx = Some(k);
+    let r = cable::solve_cable_2d(&input, &HashMap::new(), 50, 1e-12).unwrap();
+    assert!(r.converged);
+    let kc = 200e6 * a / l;
+    let t_ref = 10.0 * kc / (kc + k);
+    assert!(rel(r.cable_forces[0].tension, t_ref) < 1e-9, "T = {}, {t_ref}", r.cable_forces[0].tension);
+}
+
+/// The unstressed length is the modelled chord, so a cable with weight between
+/// two fixed points hangs at the tension that makes its sag fit: with no load,
+/// T³ = EA·(w·l_h)²/24. Here its far end rides on a roller held by a strut of two
+/// frame bars, which the cable compresses.
+#[test]
+fn unloaded_heavy_cable_hangs_at_the_chord_law_tension() {
+    let (l, a, rho) = (40.0, 5e-4, 7850.0);
+    let input = common::make_input(
+        vec![(1, 0.0, 0.0), (2, l / 2.0, 0.0), (3, l, 0.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, a, 1e-8)],
+        vec![(1, "cable", 1, 3, 1, 1, false, false), (2, "frame", 1, 2, 1, 1, false, false), (3, "frame", 2, 3, 1, 1, false, false)],
+        vec![(1, 1, "pinned"), (2, 3, "rollerX")],
+        vec![],
+    );
+    let dens = HashMap::from([("1".to_string(), rho)]);
+    let r = cable::solve_cable_2d(&input, &dens, 50, 1e-12).unwrap();
+    assert!(r.converged);
+    let w = rho / 1000.0 * a * 9.80665;
+    let ea = 200e6 * a;
+    let t_ref = (ea * (w * l).powi(2) / 24.0).cbrt();
+    // The parallel frame bars (EA/L each) shorten under the pull, so the chord
+    // shortens a little and the cable slackens a little: solve that too.
+    let k_bars = 200e6 * a / l; // two bars of EA/(l/2) in series
+    let t_sys = bisect(|t| t / ea - (w * l).powi(2) / (24.0 * t * t) + t / k_bars / l, 1e-6, 10.0 * t_ref);
+    let t = r.cable_forces[0].tension;
+    assert!(rel(t, t_sys) < 1e-9, "T = {t}, chord law with the bars {t_sys} (alone {t_ref})");
 }
 
 /// SP-13 (DOCUMENTED-CHOICE, pinned). The cable solver uses the cable density
@@ -703,15 +800,15 @@ fn curved_beam_nodes_on_circle_through_mid_point() {
     }
 }
 
-/// SP-15 (OPEN). Segment local axes. The expansion leaves local_y unset, so
-/// each straight segment takes the default Z-up axes; a segment within 2.56° of
-/// vertical (|ex·Z| > 0.999) switches to the global-X reference. In an arch in
-/// the X–Z plane both references keep local z in the arch plane, but in any
-/// other vertical plane the near-vertical segments get local z NORMAL to the
-/// plane: Iy and Iz swap on them. The same semicircular arch, rotated 90° about
-/// Z, must give the same (rotated) crown deflection.
+/// SP-15 (FIXED, #418). Segment local axes. The expansion left local_y unset,
+/// so each straight segment took the default Z-up axes; a segment within 2.56°
+/// of vertical (|ex·Z| > 0.999) switched to the global-X reference. In an arch
+/// in the X–Z plane both references keep local z in the arch plane, but in any
+/// other vertical plane the near-vertical segments got local z NORMAL to the
+/// plane: Iy and Iz swapped on them. Every segment now takes its axes from the
+/// arc (`ArcSectionFrame`). The same semicircular arch, rotated 90° about Z,
+/// must give the same (rotated) crown deflection.
 #[test]
-#[ignore = "open question SP-15: near-vertical curved-beam segments swap strong/weak axes outside the X-Z plane"]
 fn curved_beam_arch_is_invariant_under_plan_rotation() {
     let crown = |in_yz: bool| {
         let (r, n) = (5.0, 40);
@@ -731,6 +828,183 @@ fn curved_beam_arch_is_invariant_under_plan_rotation() {
     };
     let (xz, yz) = (crown(false), crown(true));
     assert!(rel(yz, xz) < 1e-6, "crown uz: arch in X–Z {xz}, same arch in Y–Z {yz}");
+}
+
+/// A semicircular arch of radius `r` springing from (±r, 0, 0) rotated by `phi` about Z, with
+/// `n` segments, fixed at both springings, Iy ≠ Iz, under a vertical and an in-plane horizontal
+/// load at the crown (node 2). Either as a curved beam, or as explicit straight members (`explicit`)
+/// whose local y is `local_y(ex)` (None: the default rule).
+fn sp15_arch(phi: f64, n: usize, explicit: Option<&dyn Fn([f64; 3]) -> Option<[f64; 3]>>) -> SolverInput3D {
+    let r = 5.0;
+    let (c, s) = (phi.cos(), phi.sin());
+    let rot = |x: f64, z: f64| (x * c, x * s, z);
+    let pt = |k: usize| {
+        let th = std::f64::consts::PI * (1.0 - k as f64 / n as f64);
+        rot(r * th.cos(), r * th.sin())
+    };
+    let (a, b, e) = (pt(0), pt(n / 2), pt(n));
+    // In-plane horizontal load along the arch's own axis, plus gravity.
+    let loads = vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: 3.0 * c, fy: 3.0 * s, fz: -10.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None })];
+    let sec = vec![(1, 0.02, 1e-5, 1e-3, 1e-4)];
+    let sups = vec![(1, vec![true; 6]), (3, vec![true; 6])];
+    match explicit {
+        None => {
+            let mut input = make_3d_input(
+                vec![(1, a.0, a.1, a.2), (2, b.0, b.1, b.2), (3, e.0, e.1, e.2)],
+                vec![(1, 200_000.0, 0.3)], sec, vec![], sups, loads,
+            );
+            input.curved_beams = vec![CurvedBeamInput { node_start: 1, node_mid: 2, node_end: 3, material_id: 1, section_id: 1, num_segments: n, hinge_start: false, hinge_end: false }];
+            input
+        }
+        Some(local_y) => {
+            // Node ids: 1 start, 2 crown, 3 end, 10+k the others.
+            let id = |k: usize| if k == 0 { 1 } else if k == n / 2 { 2 } else if k == n { 3 } else { 10 + k };
+            let nodes = (0..=n).map(|k| { let p = pt(k); (id(k), p.0, p.1, p.2) }).collect();
+            let elems = (0..n).map(|k| (100 + k, "frame", id(k), id(k + 1), 1, 1)).collect();
+            let mut input = make_3d_input(nodes, vec![(1, 200_000.0, 0.3)], sec, elems, sups, loads);
+            for k in 0..n {
+                let (p, q) = (pt(k), pt(k + 1));
+                let d = [q.0 - p.0, q.1 - p.1, q.2 - p.2];
+                let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                if let Some(v) = local_y([d[0] / l, d[1] / l, d[2] / l]) {
+                    let el = input.elements.get_mut(&(100 + k).to_string()).unwrap();
+                    (el.local_yx, el.local_yy, el.local_yz) = (Some(v[0]), Some(v[1]), Some(v[2]));
+                }
+            }
+            input
+        }
+    }
+}
+
+/// Crown displacement (ux, uy, uz, rx, ry, rz) of an `sp15_arch`, turned back by `phi` about Z.
+fn sp15_crown(input: &SolverInput3D, phi: f64) -> [f64; 6] {
+    let res = solve_3d(input).unwrap();
+    let d = res.displacements.iter().find(|d| d.node_id == 2).unwrap();
+    let (c, s) = (phi.cos(), phi.sin());
+    [c * d.ux + s * d.uy, -s * d.ux + c * d.uy, d.uz, c * d.rx + s * d.ry, -s * d.rx + c * d.ry, d.rz]
+}
+
+/// SP-15 (#418). An arch with Iy ≠ Iz under in-plane loads gives what the same arch gives modelled
+/// with explicit straight members whose local y is the plane normal on every one, in any plan
+/// orientation; and the same members on the default rule (what the expansion did before) do not.
+#[test]
+fn curved_beam_arch_matches_explicit_members_with_plane_normal_axes() {
+    let n = 40;
+    for deg in [0.0f64, 30.0, 90.0, 137.0] {
+        let phi = deg.to_radians();
+        let normal = [-phi.sin(), phi.cos(), 0.0];
+        let curved = sp15_crown(&sp15_arch(phi, n, None), phi);
+        let explicit = sp15_crown(&sp15_arch(phi, n, Some(&|_| Some(normal))), phi);
+        let scale = curved.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        for i in 0..6 {
+            assert!((curved[i] - explicit[i]).abs() < 1e-9 * scale, "{deg}°, dof {i}: curved {curved:?} vs explicit {explicit:?}");
+        }
+    }
+    // Before the fix: default axes on every segment. At 90° the near-vertical
+    // springing segments had Iy and Iz swapped, so the crown moved less.
+    let phi = 90f64.to_radians();
+    let default = sp15_crown(&sp15_arch(phi, n, Some(&|_| None)), phi);
+    let fixed = sp15_crown(&sp15_arch(phi, n, None), phi);
+    let xz = sp15_crown(&sp15_arch(0.0, n, None), 0.0);
+    let xz_default = sp15_crown(&sp15_arch(0.0, n, Some(&|_| None)), 0.0);
+    eprintln!("crown (in-plane u, out-of-plane, uz): X–Z fixed {xz:?}, X–Z default {xz_default:?}, Y–Z default {default:?}, Y–Z fixed {fixed:?}");
+    assert!(rel(default[2], fixed[2]) > 0.05, "default-axes crown uz {} vs fixed {}", default[2], fixed[2]);
+}
+
+/// SP-15 (#418). The whole arch rotated about the vertical gives the same displacements, reactions
+/// and member end forces (in the members' own axes) whatever the angle.
+#[test]
+fn curved_beam_arch_results_are_invariant_under_rotation_about_vertical() {
+    let n = 40;
+    let solve = |deg: f64| solve_3d(&sp15_arch(deg.to_radians(), n, None)).unwrap();
+    let base = solve(0.0);
+    let crown0 = sp15_crown(&sp15_arch(0.0, n, None), 0.0);
+    for deg in [17.0f64, 45.0, 90.0, 180.0, 251.0] {
+        let phi = deg.to_radians();
+        let crown = sp15_crown(&sp15_arch(phi, n, None), phi);
+        let scale = crown0.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        for i in 0..6 {
+            assert!((crown[i] - crown0[i]).abs() < 1e-9 * scale, "{deg}°, dof {i}: {crown:?} vs {crown0:?}");
+        }
+        let res = solve(deg);
+        let fmax = base.element_forces.iter().map(|f| f.my_start.abs().max(f.mz_start.abs())).fold(0.0, f64::max);
+        for f0 in &base.element_forces {
+            let f = res.element_forces.iter().find(|f| f.element_id == f0.element_id).unwrap();
+            for (a, b, what) in [
+                (f.n_start, f0.n_start, "N"), (f.vy_start, f0.vy_start, "Vy"), (f.vz_start, f0.vz_start, "Vz"),
+                (f.my_start, f0.my_start, "My"), (f.mz_start, f0.mz_start, "Mz"), (f.my_end, f0.my_end, "My end"),
+                (f.mz_end, f0.mz_end, "Mz end"), (f.mx_start, f0.mx_start, "T"),
+            ] {
+                assert!((a - b).abs() < 1e-7 * fmax.max(1.0), "{deg}°, element {}: {what} {a} vs {b}", f0.element_id);
+            }
+        }
+    }
+}
+
+/// SP-15 (#418). A plan curve keeps the axes it had: local z vertical on every segment, the same
+/// as straight members on the default rule.
+#[test]
+fn curved_beam_plan_curve_keeps_default_axes() {
+    let (r, n) = (6.0, 12);
+    let pt = |k: usize| { let th = std::f64::consts::FRAC_PI_2 * k as f64 / n as f64; (r * th.cos(), r * th.sin(), 3.0) };
+    let sec = vec![(1, 0.02, 1e-5, 1e-3, 1e-4)];
+    let sups = vec![(1, vec![true; 6]), (3, vec![true; 6])];
+    let loads = vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: 2.0, fy: -1.0, fz: -10.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None })];
+    let (a, b, e) = (pt(0), pt(n / 2), pt(n));
+    let mut curved = make_3d_input(vec![(1, a.0, a.1, a.2), (2, b.0, b.1, b.2), (3, e.0, e.1, e.2)], vec![(1, 200_000.0, 0.3)], sec.clone(), vec![], sups.clone(), loads.clone());
+    curved.curved_beams = vec![CurvedBeamInput { node_start: 1, node_mid: 2, node_end: 3, material_id: 1, section_id: 1, num_segments: n, hinge_start: false, hinge_end: false }];
+    let id = |k: usize| if k == 0 { 1 } else if k == n / 2 { 2 } else if k == n { 3 } else { 10 + k };
+    let explicit = make_3d_input(
+        (0..=n).map(|k| { let p = pt(k); (id(k), p.0, p.1, p.2) }).collect(),
+        vec![(1, 200_000.0, 0.3)], sec,
+        (0..n).map(|k| (100 + k, "frame", id(k), id(k + 1), 1, 1)).collect(),
+        sups, loads,
+    );
+    let d = |i: &SolverInput3D| { let r = solve_3d(i).unwrap(); let d = r.displacements.iter().find(|d| d.node_id == 2).unwrap().clone(); [d.ux, d.uy, d.uz, d.rx, d.ry, d.rz] };
+    let (c, x) = (d(&curved), d(&explicit));
+    let scale = x.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+    for i in 0..6 {
+        assert!((c[i] - x[i]).abs() < 1e-10 * scale, "dof {i}: curved {c:?} vs default-axis members {x:?}");
+    }
+    // And every expanded segment has local z = +Z.
+    let ex = dedaliano_engine::solver::linear::expand_curved_beams_3d(&curved);
+    for el in ex.elements.values() {
+        let (ni, nj) = (&ex.nodes[&el.node_i.to_string()], &ex.nodes[&el.node_j.to_string()]);
+        let (_, _, ez) = dedaliano_engine::element::compute_local_axes_3d(ni.x, ni.y, ni.z, nj.x, nj.y, nj.z, el.local_yx, el.local_yy, el.local_yz, el.roll_angle, false);
+        assert!((ez[2] - 1.0).abs() < 1e-12, "element {}: ez {ez:?}", el.id);
+    }
+}
+
+/// SP-15 (#418). In a tilted plane the section does not roll along the arc: local y makes the same
+/// angle with the plane normal on every segment, near-vertical ones included.
+#[test]
+fn curved_beam_section_does_not_roll_along_a_tilted_arc() {
+    for tilt in [0.0f64, 20.0, 60.0, 89.0] {
+        let t = tilt.to_radians();
+        // Plane spanned by u = (cos t·cos 35°, cos t·sin 35°, sin t)... built from a vertical arch tilted about its chord.
+        let (cphi, sphi) = (35f64.to_radians().cos(), 35f64.to_radians().sin());
+        let chord = [cphi, sphi, 0.0];
+        let up = [-t.sin() * -sphi, -t.sin() * cphi, t.cos()]; // the vertical tilted by t about the chord
+        let r = 4.0;
+        let p = |th: f64| [r * th.cos() * chord[0] + r * th.sin() * up[0], r * th.cos() * chord[1] + r * th.sin() * up[1], 2.0 + r * th.cos() * chord[2] + r * th.sin() * up[2]];
+        let (a, b, e) = (p(std::f64::consts::PI), p(std::f64::consts::FRAC_PI_2), p(0.0));
+        let mut input = make_3d_input(
+            vec![(1, a[0], a[1], a[2]), (2, b[0], b[1], b[2]), (3, e[0], e[1], e[2])],
+            vec![(1, 200_000.0, 0.3)], vec![(1, 0.02, 1e-5, 1e-3, 1e-4)], vec![],
+            vec![(1, vec![true; 6]), (3, vec![true; 6])], vec![],
+        );
+        input.curved_beams = vec![CurvedBeamInput { node_start: 1, node_mid: 2, node_end: 3, material_id: 1, section_id: 1, num_segments: 40, hinge_start: false, hinge_end: false }];
+        let normal = { let c = [chord[1] * up[2] - chord[2] * up[1], chord[2] * up[0] - chord[0] * up[2], chord[0] * up[1] - chord[1] * up[0]]; c };
+        let ex = dedaliano_engine::solver::linear::expand_curved_beams_3d(&input);
+        let mut cosines = Vec::new();
+        for el in ex.elements.values() {
+            let (ni, nj) = (&ex.nodes[&el.node_i.to_string()], &ex.nodes[&el.node_j.to_string()]);
+            let (_, ey, _) = dedaliano_engine::element::compute_local_axes_3d(ni.x, ni.y, ni.z, nj.x, nj.y, nj.z, el.local_yx, el.local_yy, el.local_yz, el.roll_angle, false);
+            cosines.push(ey[0] * normal[0] + ey[1] * normal[1] + ey[2] * normal[2]);
+        }
+        let (lo, hi) = cosines.iter().fold((f64::MAX, f64::MIN), |(l, h), &c| (l.min(c), h.max(c)));
+        assert!(hi - lo < 1e-9, "tilt {tilt}°: ey·n ranges over [{lo}, {hi}]");
+    }
 }
 
 // ═════════════════════════════ CONNECTORS ══════════════════════════════════
@@ -792,4 +1066,112 @@ fn non_positive_shear_areas_are_refused() {
         s3.sections.get_mut("1").unwrap().as_z = Some(v);
         assert!(solve_3d(&s3).unwrap_err().contains("shear area"));
     }
+}
+
+/// SP-12, the advisory case (SA-2026-015): a 20 m mast fixed at its base, guyed
+/// from its top to an anchor 20 m out, 5 kN at the top away from the anchor.
+/// Mast and guy share the load, so the guy's tension depends on its law. The
+/// closed form condenses the mast to its top (3EI/L³ sideways, EA/L axially) and
+/// solves the chord law by bisection: T = 5.183 kN. The secant law gave
+/// 4.340 kN (16 % low, after 28 passes) and, at 2 kN, did not converge.
+#[test]
+fn guyed_mast_cable_tension_matches_the_chord_law() {
+    for (p, t_expected) in [(5.0, Some(5.1827)), (2.0, None)] {
+        let (a_c, rho, e) = (1e-4, 7850.0, 200e6);
+        let input = common::make_input(
+            vec![(1, 0.0, 0.0), (2, 0.0, 20.0), (3, 20.0, 0.0)],
+            vec![(1, 200_000.0, 0.3), (2, 200_000.0, 0.3)],
+            vec![(1, 5e-2, 2e-3), (2, a_c, 1e-10)],
+            vec![(1, "frame", 1, 2, 1, 1, false, false), (2, "cable", 2, 3, 2, 2, false, false)],
+            vec![(1, 1, "fixed"), (2, 3, "pinned")],
+            vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: -p, fz: 0.0, my: 0.0 })],
+        );
+        let dens = HashMap::from([("2".to_string(), rho)]);
+        let r = cable::solve_cable_2d(&input, &dens, 50, 1e-10).unwrap();
+        assert!(r.converged, "P = {p}: {} passes", r.iterations);
+        let (s2, l) = (std::f64::consts::SQRT_2, 20.0 * std::f64::consts::SQRT_2);
+        let (kh, kv, ea) = (3.0 * e * 2e-3 / 8000.0, e * 5e-2 / 20.0, e * a_c);
+        let w = rho / 1000.0 * a_c * 9.80665;
+        let t_ref = bisect(|t| {
+            let (ux, uz) = ((t / s2 - p) / kh, -t / s2 / kv);
+            t / ea - (w * 20.0).powi(2) / (24.0 * t * t) - (uz - ux) / s2 / l
+        }, 1e-6, 20.0);
+        if let Some(te) = t_expected { assert!((t_ref - te).abs() < 1e-4, "closed form {t_ref}"); }
+        let t = r.cable_forces[0].tension;
+        // Small-displacement closed form against the solver's deformed-chord strain.
+        assert!(rel(t, t_ref) < 1e-4, "P = {p}: T = {t}, closed form {t_ref}");
+        // The base reaction balances the load and the guy.
+        let rx: f64 = r.results.reactions.iter().map(|x| x.rx).sum();
+        assert!((rx - p).abs() < 1e-8 * p, "ΣRx = {rx}");
+    }
+}
+
+/// `cable_chord_tension` solves the chord law over the whole range of strains,
+/// including roots many orders of magnitude below the sag scale, without
+/// under- or overflow, and refuses an invalid strain rather than returning a
+/// plausible tension.
+#[test]
+fn cable_chord_tension_is_robust() {
+    use dedaliano_engine::element::cable_chord_tension;
+    let law = |ea: f64, w: f64, lh: f64, t: f64| t / ea - (w * lh).powi(2) / (24.0 * t * t);
+    for &(ea, w, lh) in &[(2e4, 7.7e-3, 50.0), (1.0, 1.0, 1.0), (1e6, 0.5, 300.0)] {
+        for &eps in &[-1e3, -1.0, -1e-3, -1e-9, 0.0, 1e-9, 1e-3, 1.0, 1e3] {
+            let t = cable_chord_tension(ea, w, lh, eps);
+            assert!(t > 0.0 && t.is_finite(), "T({eps}) = {t}");
+            let back = law(ea, w, lh, t);
+            let scale = eps.abs().max(t / ea).max((w * lh).powi(2) / (24.0 * t * t));
+            assert!((back - eps).abs() <= 1e-12 * scale, "ε({t}) = {back} vs {eps}");
+        }
+    }
+    // A root 40 orders of magnitude below the sag scale.
+    let t = cable_chord_tension(1.0, 1.0, 1.0, -1e200);
+    assert!(rel(t, (1.0 / 24.0 / 1e200f64).sqrt()) < 1e-12, "tiny root {t}");
+    // Huge and tiny scales: no under/overflow.
+    assert!(rel(cable_chord_tension(1e200, 1e-200, 1.0, 0.0), (1e200f64 / 24.0).cbrt() * 1e-200f64.cbrt().powi(2)) < 1e-12);
+    assert!(rel(cable_chord_tension(1e200, 1e60, 1.0, 0.0), (1e200f64 / 24.0).cbrt() * 1e60f64.cbrt().powi(2)) < 1e-12);
+    // Extreme scales that overflow intermediate products (Codex review).
+    assert!(rel(cable_chord_tension(24.0, 1e-150, 1.0, 4e206), 24.0 * 4e206) < 1e-12);
+    assert!(rel(cable_chord_tension(1e300, 1e-200, 1.0, -1.0), 1e-200 / 24f64.sqrt()) < 1e-9);
+    assert!(rel(cable_chord_tension(1e-300, 1e200, 1e200, 0.0), 10f64.powf(500.0 / 3.0) / 24f64.cbrt()) < 1e-9);
+    // Weightless: the taut string.
+    assert_eq!(cable_chord_tension(2e4, 0.0, 50.0, 1e-3), 20.0);
+    assert_eq!(cable_chord_tension(2e4, 0.0, 50.0, -1e-3), 0.0);
+    assert!(cable_chord_tension(1.0, 1.0, 1.0, f64::NAN).is_nan());
+    // Beyond the floating-point range: refused, never a plausible zero.
+    assert!(cable_chord_tension(1e308, 1e308, 12.5, -1.0).is_nan());
+    assert!(cable_chord_tension(1e200, 1.0, 1.0, -1e200).is_nan());
+}
+
+/// A cable ending on an inclined roller: the tangent correction and the chord-law
+/// forces are rotated with the support (they used to be added unrotated, so the
+/// iteration could stop away from equilibrium). The roller node is also held by a
+/// soft bar, so the cable law decides the share; closed form by bisection along
+/// the roller's free direction.
+#[test]
+fn cable_on_an_inclined_roller_follows_the_chord_law() {
+    let (l, a, rho, p, theta, a_bar) = (50.0, 1e-4, 7850.0, 10.0, 0.5_f64, 2e-6);
+    let mut input = common::make_input(
+        vec![(1, 0.0, 0.0), (2, l, 0.0), (3, l, -5.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, a, 1e-8), (2, a_bar, 1e-12)],
+        vec![(1, "cable", 1, 2, 1, 1, false, false), (2, "truss", 2, 3, 1, 2, false, false)],
+        vec![(1, 1, "pinned"), (2, 2, "inclinedRoller"), (3, 3, "pinned")],
+        vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: p, fz: 0.0, my: 0.0 })],
+    );
+    input.supports.get_mut("2").unwrap().angle = Some(theta);
+    let dens = HashMap::from([("1".to_string(), rho)]);
+    let r = cable::solve_cable_2d(&input, &dens, 100, 1e-12).unwrap();
+    assert!(r.converged);
+    let (tx, tz) = (-theta.cos(), theta.sin()); // the roller's free direction
+    let (ea, kb) = (200e6 * a, 200e6 * a_bar / 5.0);
+    let w = rho / 1000.0 * a * 9.80665;
+    let t_ref = bisect(|t| t / ea - (w * l).powi(2) / (24.0 * t * t) - tx * tx * (p - t) / (kb * tz * tz * l), 1e-6, p);
+    let t = r.cable_forces[0].tension;
+    assert!(rel(t, t_ref) < 1e-4, "T = {t}, closed form {t_ref}");
+    // The node moves along the roller only, and the statics close.
+    let d = r.results.displacements.iter().find(|d| d.node_id == 2).unwrap();
+    assert!((d.ux * theta.sin() + d.uz * theta.cos()).abs() < 1e-12, "normal displacement {d:?}");
+    let rx: f64 = r.results.reactions.iter().map(|x| x.rx).sum();
+    let rz: f64 = r.results.reactions.iter().map(|x| x.rz).sum();
+    assert!((rx + p).abs() < 1e-6 * p && rz.abs() < 1e-6 * p, "ΣR = ({rx}, {rz})");
 }

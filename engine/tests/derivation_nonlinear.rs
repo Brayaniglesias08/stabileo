@@ -385,7 +385,7 @@ fn nl_material_2d_member_forces_keep_the_assembled_thermal_loads() {
     let (l, p) = (4.0, 1.2 * MP / 4.0);
     let mut loads = vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 5, fx: 0.0, fz: -p, my: 0.0 })];
     for e in 1..=4 {
-        loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: e, dt_uniform: 0.0, dt_gradient: 40.0 }));
+        loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: e, dt_uniform: 0.0, dt_gradient: 40.0, alpha: None, depth: None }));
     }
     let solver = make_beam(4, l, E, A_SEC, IZ_SEC, "fixed", None, loads);
     let r = dedaliano_engine::solver::material_nonlinear::solve_nonlinear_material_2d(&material_nl_2d(solver, 10)).unwrap();
@@ -418,10 +418,9 @@ fn nl_material_2d_response_is_continuous_at_first_yield() {
 
 /// The same section, the same planar forces (N = 0.5·Np, M = 0.7·Mp, both
 /// below the yield surface) must give the same utilization in the 2D and in
-/// the 3D solver. 2D uses (N/Np)² + |M|/Mp (= 0.95), 3D uses
-/// (N/Np)² + (My/Mpy)² + (Mz/Mpz)² (= 0.74).
+/// the 3D solver. 2D uses (N/Np)² + |M|/Mp (= 0.95); 3D used
+/// (N/Np)² + (My/Mpy)² + (Mz/Mpz)² (= 0.74) until NL-6 (#429).
 #[test]
-#[ignore = "open question NL-6: 2D and 3D material-nonlinear yield surfaces differ ((N/Np)^2+|M|/Mp vs (N/Np)^2+(M/Mp)^2)"]
 fn nl_material_2d_and_3d_use_the_same_yield_surface() {
     let (n, m) = (0.5 * NP, 0.7 * MP);
     let s2 = make_input(vec![(1, 0.0, 0.0), (2, 2.0, 0.0)], vec![(1, E, 0.3)], vec![(1, A_SEC, IZ_SEC)],
@@ -441,6 +440,89 @@ fn nl_material_2d_and_3d_use_the_same_yield_surface() {
     let (u2, u3) = (r2.element_status[0].utilization, r3.element_status[0].utilization);
     close(u2, 0.25 + 0.7, 1e-6, "2D utilization");
     close(u3, u2, 1e-6, "3D utilization vs 2D");
+}
+
+/// 3D material-nonlinear cantilever along x (L = 4 m, 4 members, Iy = Iz,
+/// Mpy = Mpz = Mp) with a tip load. Determinate, so the base moment is the
+/// load times L whatever the stiffness.
+fn material_nl_3d_cantilever(fy: f64, fz: f64, fx: f64, my: f64, mz: f64, n_increments: usize) -> NonlinearMaterialResult3D {
+    let l = 4.0;
+    let nodes: Vec<_> = (0..=4).map(|i| (i + 1, i as f64 * l / 4.0, 0.0, 0.0)).collect();
+    let elems: Vec<_> = (1..=4).map(|i| (i, "frame", i, i + 1, 1, 1)).collect();
+    let s3 = make_3d_input(nodes, vec![(1, E, 0.3)], vec![(1, A_SEC, IZ_SEC, IZ_SEC, 2.0 * IZ_SEC)], elems,
+        vec![(1, vec![true; 6])],
+        vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 5, fx, fy, fz, mx: 0.0, my, mz, bw: None })]);
+    let input = NonlinearMaterialInput3D {
+        solver: s3,
+        material_models: HashMap::from([("1".into(), MaterialModel { model_type: "elastic_perfectly_plastic".into(), fy: 250.0, alpha: Some(0.01) })]),
+        section_capacities: HashMap::from([("1".into(), SectionCapacity3D { np: NP, mpy: MP, mpz: MP, mpx: None })]),
+        max_iter: 50, tolerance: 1e-8, n_increments,
+    };
+    let r = dedaliano_engine::solver::material_nonlinear::solve_nonlinear_material_3d(&input).unwrap();
+    assert!(r.converged);
+    r
+}
+
+fn status3(r: &NonlinearMaterialResult3D, id: usize) -> &ElementPlasticStatus3D {
+    r.element_status.iter().find(|s| s.element_id == id).unwrap()
+}
+
+/// A 3D cantilever bent about either axis under an axial force N = 0.5·Np
+/// yields at the load the 2D cantilever does: P·L = (1 − 0.25)·Mp, so
+/// Py = 0.75·Mp/L. At 0.99·Py the base member is elastic in both, at 1.01·Py
+/// it has yielded in both, and the base utilization is 0.25 + 0.75·P/Py in
+/// both. The circle yielded at P·L = √0.75·Mp, 15% later.
+#[test]
+fn nl_material_3d_uniaxial_yields_at_the_2d_load() {
+    let l = 4.0;
+    let n = 0.5 * NP;
+    let py = 0.75 * MP / l;
+    for f in [0.99, 1.01] {
+        let p = f * py;
+        let s2 = make_beam(4, l, E, A_SEC, IZ_SEC, "fixed", None,
+            vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 5, fx: -n, fz: -p, my: 0.0 })]);
+        let r2 = dedaliano_engine::solver::material_nonlinear::solve_nonlinear_material_2d(&material_nl_2d(s2, 1)).unwrap();
+        assert!(r2.converged);
+        let st2 = r2.element_status.iter().find(|s| s.element_id == 1).unwrap();
+        close(st2.utilization, 0.25 + 0.75 * f, 1e-6, "2D base utilization");
+        assert_eq!(st2.state == "elastic", f < 1.0, "2D state {} at {f}·Py", st2.state);
+        for (fy, fz) in [(0.0, -p), (-p, 0.0)] {
+            let r3 = material_nl_3d_cantilever(fy, fz, -n, 0.0, 0.0, 1);
+            let st3 = status3(&r3, 1);
+            close(st3.utilization, st2.utilization, 1e-6, &format!("3D (fy {fy}, fz {fz}) vs 2D utilization at {f}·Py"));
+            assert_eq!(st3.state == "elastic", st2.state == "elastic",
+                "3D (fy {fy}, fz {fz}) is {} and 2D is {} at {f}·Py", st3.state, st2.state);
+        }
+    }
+}
+
+/// Biaxial bending yields no later than the uniaxial limits imply: a tip
+/// moment of 0.6·Mp about each axis is 1.2 of the chord between the two
+/// uniaxial plastic moments and must yield. The circle
+/// (My/Mpy)² + (Mz/Mpz)² gave 0.72 and kept it elastic.
+#[test]
+fn nl_material_3d_biaxial_yields_no_later_than_the_uniaxial_limits() {
+    let m = 0.6 * MP;
+    let r = material_nl_3d_cantilever(0.0, 0.0, 0.0, m, m, 1);
+    for id in 1..=4 {
+        let st = status3(&r, id);
+        assert_ne!(st.state, "elastic", "member {id} under My = Mz = 0.6·Mp");
+        close(st.utilization, 1.2, 1e-6, &format!("member {id} utilization |My|/Mpy + |Mz|/Mpz"));
+    }
+}
+
+/// Hand calculation of the reported utilization with all three resultants:
+/// N = 0.3·Np, My = 0.4·Mp, Mz = 0.2·Mp at every section of a cantilever
+/// under an end axial force and end moments:
+/// (0.3)² + 0.4 + 0.2 = 0.69, elastic.
+#[test]
+fn nl_material_3d_utilization_matches_hand_calculation() {
+    let r = material_nl_3d_cantilever(0.0, 0.0, 0.3 * NP, 0.4 * MP, 0.2 * MP, 1);
+    for id in 1..=4 {
+        let st = status3(&r, id);
+        assert_eq!(st.state, "elastic", "member {id}");
+        close(st.utilization, 0.09 + 0.4 + 0.2, 1e-6, &format!("member {id} utilization"));
+    }
 }
 
 // ======================================================================

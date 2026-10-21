@@ -255,6 +255,7 @@ fn validation_strand7_bm3_fixed_fixed_thermal() {
                 element_id: i + 1,
                 dt_uniform,
                 dt_gradient,
+                alpha: None, depth: None,
             })
         })
         .collect();

@@ -957,8 +957,9 @@ struct ElementState3D {
 /// Solve a 3D nonlinear material analysis using incremental load-stepping
 /// with Newton-Raphson equilibrium iterations at each increment.
 ///
-/// The yield criterion is a resultant-based biaxial interaction:
-///   (N/Np)^2 + (My/Mpy)^2 + (Mz/Mpz)^2 <= 1.0
+/// The yield criterion is a resultant-based biaxial interaction that reduces to the 2D one for
+/// bending about a single axis:
+///   (N/Np)^2 + |My|/Mpy + |Mz|/Mpz <= 1.0
 ///
 /// When an element yields at an end, its flexural stiffness is reduced to
 /// alpha * EI (bilinear hardening).
@@ -1625,14 +1626,20 @@ fn compute_global_internal_forces_3d(
 }
 
 // ---------------------------------------------------------------------------
-// 3D yield interaction criterion: (N/Np)^2 + (My/Mpy)^2 + (Mz/Mpz)^2
+// 3D yield interaction criterion: (N/Np)^2 + |My|/Mpy + |Mz|/Mpz
 // ---------------------------------------------------------------------------
 
+/// The 2D surface `(N/Np)^2 + |M|/Mp` with the two moments added linearly. For bending about one
+/// axis it is exactly `yield_utilization`, so a 3D member yields at the same load as the same 2D
+/// member. Between the axes it is the chord between the two uniaxial points at the same N, which
+/// lies inside any convex section interaction through them (the exact rectangle interaction is
+/// convex), so it never yields later than either uniaxial limit implies. It replaced
+/// `(N/Np)^2 + (My/Mpy)^2 + (Mz/Mpz)^2`, which gave 0.74 where 2D gives 0.95 (NL-6, #429).
 fn yield_utilization_3d(n: f64, my: f64, mz: f64, np: f64, mpy: f64, mpz: f64) -> f64 {
     let axial_ratio = if np > 1e-20 { n / np } else { 0.0 };
-    let my_ratio = if mpy > 1e-20 { my / mpy } else { 0.0 };
-    let mz_ratio = if mpz > 1e-20 { mz / mpz } else { 0.0 };
-    axial_ratio * axial_ratio + my_ratio * my_ratio + mz_ratio * mz_ratio
+    let my_ratio = if mpy > 1e-20 { my.abs() / mpy } else { 0.0 };
+    let mz_ratio = if mpz > 1e-20 { mz.abs() / mpz } else { 0.0 };
+    axial_ratio * axial_ratio + my_ratio + mz_ratio
 }
 
 // ---------------------------------------------------------------------------

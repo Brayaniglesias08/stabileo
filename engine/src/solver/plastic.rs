@@ -433,8 +433,8 @@ fn released_end_rotations(input: &SolverInput, key: &str, disp: &HashMap<usize, 
                 crate::element::fef_point_load_2d(pl.p, pl.px.unwrap_or(0.0), pl.my.unwrap_or(0.0), pl.a, l, phi)
             }
             SolverLoad::Thermal(tl) if tl.element_id == el.id => {
-                let h = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
-                crate::element::fef_thermal_2d(e, sec.a, sec.iz, l, tl.dt_uniform, tl.dt_gradient, 12e-6, h)
+                let h = tl.depth(sec.a, sec.iz);
+                crate::element::fef_thermal_2d(e, sec.a, sec.iz, l, tl.dt_uniform, tl.dt_gradient, tl.alpha(), h)
             }
             _ => continue,
         };

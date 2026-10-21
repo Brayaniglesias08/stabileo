@@ -4,6 +4,101 @@
   "currentResultsVersion": 1,
   "changes": [
     {
+      "id": "curved-shell-moments-and-thermal",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [522],
+      "area": "analysis",
+      "when": { "any": ["curvedShells"] },
+      "title": {
+        "en": "Curved shells report their bending moments and their thermal stresses",
+        "es": "Las láminas curvas informan sus momentos flectores y sus tensiones térmicas",
+        "pt": "As cascas curvas informam seus momentos fletores e suas tensões térmicas"
+      },
+      "explanation": {
+        "en": "Curved shells (quads marked as curved) reported zero bending and twisting moments, so contours, the Pro results and report, and any slab design read from them saw no bending; under a temperature load their stresses kept the free thermal strain, and a temperature on a curved quad was not applied at all (SA-2026-013).",
+        "es": "Las láminas curvas (cuadriláteros marcados como curvos) informaban momentos flectores y torsores nulos, así que las curvas de nivel, los resultados y el informe de Pro y cualquier diseño de losa leído de ellos no veían flexión; bajo una carga de temperatura sus tensiones conservaban la deformación térmica libre, y una temperatura sobre un cuadrilátero curvo no se aplicaba (SA-2026-013).",
+        "pt": "As cascas curvas (quadriláteros marcados como curvos) informavam momentos fletores e torçores nulos, então as curvas de nível, os resultados e o relatório do Pro e qualquer dimensionamento de laje lido deles não viam flexão; sob uma carga de temperatura suas tensões mantinham a deformação térmica livre, e uma temperatura num quadrilátero curvo não era aplicada (SA-2026-013)."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-013-curved-shell-moments-and-thermal.md", "heading": "SA-2026-013: curved shells reported zero bending moments, and their stresses kept the free thermal strain" }
+    },
+    {
+      "id": "arc-member-local-axes",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [523],
+      "area": "analysis",
+      "when": { "any": ["arcMembers"] },
+      "title": {
+        "en": "Arcs: every member keeps the same section orientation along the curve",
+        "es": "Arcos: todas las barras mantienen la misma orientación de la sección a lo largo de la curva",
+        "pt": "Arcos: todas as barras mantêm a mesma orientação da seção ao longo da curva"
+      },
+      "explanation": {
+        "en": "Members drawn as an arc took the default local axes, which turn the near-vertical members at an arch's springings by 90° outside the X–Z plane, swapping Iy and Iz there (a 40-segment semicircle: crown deflection 15 % low). They now take the arc's own orientation, also in projects saved before; arcs in tilted planes change slightly (SA-2026-016).",
+        "es": "Las barras dibujadas como arco tomaban los ejes locales por defecto, que fuera del plano X–Z giran 90° las barras casi verticales de los arranques de un arco e intercambian ahí Iy e Iz (semicírculo de 40 tramos: descenso de la clave un 15 % bajo). Ahora toman la orientación del arco, también en los proyectos guardados antes; los arcos en planos inclinados cambian levemente (SA-2026-016).",
+        "pt": "As barras desenhadas como arco tomavam os eixos locais padrão, que fora do plano X–Z giram em 90° as barras quase verticais dos arranques de um arco e trocam ali Iy e Iz (semicírculo de 40 trechos: deslocamento do fecho 15 % baixo). Agora tomam a orientação do arco, também nos projetos salvos antes; arcos em planos inclinados mudam levemente (SA-2026-016)."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-016-curved-member-axes.md", "heading": "SA-2026-016: curved members: section axes turned by 90° on near-vertical segments of arches" }
+    },
+    {
+      "id": "plastic-3d-element-order",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [524],
+      "area": "analysis",
+      "when": { "allOf": [["members"], ["analysis:plastic"]] },
+      "title": {
+        "en": "3D plastic collapse no longer depends on element numbering",
+        "es": "El colapso plástico 3D ya no depende de la numeración de las barras",
+        "pt": "O colapso plástico 3D não depende mais da numeração das barras"
+      },
+      "explanation": {
+        "en": "When the hinge reversal checks cycled under biaxial bending, the solver went on from a state chosen by the element order and could report up to 2.4 times the collapse load. It now stops at the last consistent state and reports that factor as a lower bound, the same for any numbering (SA-2026-014).",
+        "es": "Cuando los controles de inversión de rótulas entraban en ciclo con flexión biaxial, el solver seguía desde un estado elegido por el orden de las barras y podía informar hasta 2,4 veces la carga de colapso. Ahora se detiene en el último estado consistente e informa ese factor como cota inferior, el mismo con cualquier numeración (SA-2026-014).",
+        "pt": "Quando as verificações de inversão de rótulas entravam em ciclo com flexão biaxial, o solver seguia a partir de um estado escolhido pela ordem das barras e podia informar até 2,4 vezes a carga de colapso. Agora para no último estado consistente e informa esse fator como limite inferior, o mesmo com qualquer numeração (SA-2026-014)."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-014-plastic-3d-element-order.md", "heading": "SA-2026-014: 3D plastic collapse factor depended on element numbering (up to 2.4× the collapse load)" }
+    },
+    {
+      "id": "cable-tension-chord-law",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [525],
+      "area": "analysis",
+      "when": { "any": ["members"] },
+      "title": {
+        "en": "Cables with self-weight carry the tension of their sag",
+        "es": "Los cables con peso propio llevan la tracción de su flecha",
+        "pt": "Os cabos com peso próprio levam a tração da sua flecha"
+      },
+      "explanation": {
+        "en": "Members with the cable behaviour whose material has a density got too little tension where they share the load with other members (a guyed mast: 4.34 kN instead of 5.18 kN), and the members next to them too much; the iteration could also fail to converge (SA-2026-015). It concerns 3D models with cable members.",
+        "es": "Las barras con comportamiento de cable cuyo material tiene densidad quedaban con tracción baja donde comparten la carga con otras barras (un mástil arriostrado: 4,34 kN en lugar de 5,18 kN), y las barras vecinas con esfuerzo de más; además la iteración podía no converger (SA-2026-015). Afecta a modelos 3D con barras cable.",
+        "pt": "As barras com comportamento de cabo cujo material tem densidade ficavam com tração baixa onde dividem a carga com outras barras (um mastro estaiado: 4,34 kN em vez de 5,18 kN), e as barras vizinhas com esforço a mais; além disso a iteração podia não convergir (SA-2026-015). Afeta modelos 3D com barras cabo."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-015-cable-tension-chord-law.md", "heading": "SA-2026-015: cable analysis gave cables with self-weight too little tension in statically indeterminate structures" }
+    },
+    {
+      "id": "soil-curves-references",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [526],
+      "area": "analysis",
+      "when": { "allOf": [["members"], ["analysis:ssi"]] },
+      "title": {
+        "en": "Soil-structure interaction: p-y curves follow their references",
+        "es": "Interacción suelo-estructura: las curvas p-y siguen sus referencias",
+        "pt": "Interação solo-estrutura: as curvas p-y seguem suas referências"
+      },
+      "explanation": {
+        "en": "The soft-clay curve omitted Matlock's J term (ultimate soil resistance a third to a half low near the surface), sand always used the cyclic factor A = 0.9 and a stepped k table, and the stiff-clay curve jumped from half to full resistance at y50 and fell to 70 % beyond (SA-2026-017). It concerns models solved with soil springs in PRO Advanced; re-run them.",
+        "es": "La curva de arcilla blanda omitía el término J de Matlock (resistencia última del suelo entre un tercio y la mitad baja cerca de la superficie), la arena usaba siempre el factor cíclico A = 0,9 y una tabla de k escalonada, y la curva de arcilla rígida saltaba de la mitad a la resistencia total en y50 y caía al 70 % después (SA-2026-017). Afecta a modelos resueltos con resortes de suelo en PRO Avanzado; vuelva a resolverlos.",
+        "pt": "A curva de argila mole omitia o termo J de Matlock (resistência última do solo entre um terço e a metade baixa perto da superfície), a areia usava sempre o fator cíclico A = 0,9 e uma tabela de k em degraus, e a curva de argila rígida saltava da metade para a resistência total em y50 e caía a 70 % depois (SA-2026-017). Afeta modelos resolvidos com molas de solo no PRO Avançado; resolva-os novamente."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-017-soil-curves.md", "heading": "SA-2026-017: Soil-structure interaction p-y, t-z and q-z curves departed from their references" }
+    },
+    {
       "id": "spectral-cqc-and-participation",
       "resultsVersion": 1,
       "date": "2026-10-21",

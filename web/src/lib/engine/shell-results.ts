@@ -44,7 +44,7 @@ export interface ShellCentreRow {
   thickness: number;
   /** Membrane stresses, kN/m², in local axes. */
   sigmaXx: number; sigmaYy: number; tauXy: number;
-  /** Moments, kN·m/m; unavailable for curved shells (the engine returns placeholders). */
+  /** Moments, kN·m/m; left out for curved shells, whose moments are in the engine's own centre frame (along ∂x/∂ξ), not reproduced here. */
   mx?: number; my?: number; mxy?: number;
   /** Transverse shears, kN/m, local: MITC4 quads only. */
   qx?: number; qy?: number;

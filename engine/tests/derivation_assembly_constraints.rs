@@ -263,9 +263,9 @@ fn moment_on_all_hinged_node_is_refused() {
 
 // ─── Load assembly (section 5) ─────────────────────────────────────────────
 
-/// AC-8 (DOCUMENTED-CHOICE): frame and truss thermal loads use α = 12e-6 /°C
-/// whatever the material; the web scales ΔT to the material's α before the
-/// call. A fixed–fixed member under ΔT carries N = −E·A·α·ΔT.
+/// AC-8 / FR-4 (FIXED, #407): a frame or truss thermal load takes its
+/// material's α (`alpha`); without one it keeps α = 12e-6 /°C and says so
+/// (`ThermalDefaultAssumed`). A fixed–fixed member under ΔT carries N = −E·A·α·ΔT.
 #[test]
 fn thermal_load_uses_fixed_alpha() {
     let input = in2(json!({
@@ -279,6 +279,14 @@ fn thermal_load_uses_fixed_alpha() {
     let r = solve_2d(&input).unwrap();
     let rx2 = r.reactions.iter().find(|x| x.node_id == 2).unwrap().rx;
     close("end reaction", rx2.abs(), E * 0.01 * 12e-6 * 20.0, 1e-9);
+    assert!(r.structured_diagnostics.iter().any(|d| d.code == DiagnosticCode::ThermalDefaultAssumed));
+    let mut stated = input.clone();
+    if let SolverLoad::Thermal(t) = &mut stated.loads[0] {
+        t.alpha = Some(23e-6);
+    }
+    let r = solve_2d(&stated).unwrap();
+    let rx2 = r.reactions.iter().find(|x| x.node_id == 2).unwrap().rx;
+    close("end reaction, aluminium", rx2.abs(), E * 0.01 * 23e-6 * 20.0, 1e-9);
 }
 
 // ─── Constraints (section 6) ───────────────────────────────────────────────
@@ -615,35 +623,42 @@ fn py_sand_ultimate_matches_api_coefficients() {
         let pus = (c1 * depth + c2 * d) * gamma * depth;
         let pud = c3 * d * gamma * depth;
         let pu = pus.min(pud);
-        // y large: tanh → 1, p → A·p_u with the engine's A = 0.9.
-        let (p, _) = soil_curves::py_sand(phi_deg, gamma, d, depth, 5.0);
-        close(&format!("A·p_u at z = {depth}"), p, 0.9 * pu, 1e-9);
+        // y large: tanh → 1, p → A·p_u; cyclic A = 0.9, static A = max(3 − 0.8 z/D, 0.9).
+        let (p, _) = soil_curves::py_sand(phi_deg, gamma, d, depth, soil_curves::SandLoading::Cyclic, 5.0).unwrap();
+        close(&format!("cyclic A·p_u at z = {depth}"), p, 0.9 * pu, 1e-9);
+        let a_static = (3.0 - 0.8 * depth / d).max(0.9);
+        let (p, _) = soil_curves::py_sand(phi_deg, gamma, d, depth, soil_curves::SandLoading::Static, 50.0).unwrap();
+        close(&format!("static A·p_u at z = {depth}"), p, a_static * pu, 1e-9);
     }
 }
 
-/// AC-12 (OPEN): Matlock (1970) soft clay p_u = min(3 + γ'z/c + J z/D, 9)·c·D
-/// with J = 0.25–0.5; the engine omits the J·z/D term (J = 0), so p_u is low
-/// between the surface and the depth where it reaches 9cD.
+/// AC-12 (FIXED): Matlock (1970) soft clay p_u = min(3 + γ'z/c + J z/D, 9)·c·D
+/// with J = 0.25–0.5 (now a required input); the engine omitted the J·z/D
+/// term (J = 0), so p_u was low (84 vs 124 kN/m here) between the surface and
+/// the depth where it reaches 9cD.
 #[test]
-#[ignore = "open question AC-12: soft-clay p_u omits Matlock's J·z/D term"]
 fn py_soft_clay_ultimate_includes_j_term() {
     let (su, gamma, d, z, eps50): (f64, f64, f64, f64, f64) = (20.0, 6.0, 1.0, 4.0, 0.01);
     let j = 0.5;
     let pu = ((3.0 * su + gamma * z + j * su * z / d).min(9.0 * su)) * d;
-    let (p, _) = soil_curves::py_soft_clay(su, gamma, d, z, eps50, 1.0);
+    let (p, _) = soil_curves::py_soft_clay(su, gamma, d, z, eps50, j, 1.0);
     close("p_u", p, pu, 1e-9);
 }
 
-/// AC-13 (OPEN): the "stiff clay" curve jumps from 0.5·p_u to p_u at y = y50
-/// (the two branches do not meet), and it is not Reese's stiff-clay curve.
+/// AC-13 (FIXED): the "stiff clay" curve jumped from 0.5·p_u to p_u at y = y50
+/// (the two branches did not meet), and it was not Reese's stiff-clay curve.
+/// Now Welch & Reese (1972) stiff clay without free water:
+/// p = 0.5 p_u (y/y50)^(1/4) up to 16 y50, p_u beyond (sampled at y/y50 = 0.1,
+/// 0.3, 1, 3, 8, 16, linear between) — continuous at both.
 #[test]
-#[ignore = "open question AC-13: stiff-clay p-y curve is discontinuous at y50"]
 fn py_stiff_clay_is_continuous() {
-    let (su, gamma, d, z, eps50) = (100.0, 9.0, 1.0, 3.0, 0.005);
+    let (su, gamma, d, z, eps50, j) = (100.0, 9.0, 1.0, 3.0, 0.005, 0.5);
     let y50 = 2.5 * eps50 * d;
-    let (pa, _) = soil_curves::py_stiff_clay(su, gamma, d, z, eps50, y50 * (1.0 - 1e-9));
-    let (pb, _) = soil_curves::py_stiff_clay(su, gamma, d, z, eps50, y50 * (1.0 + 1e-9));
-    close("p at y50", pa, pb, 1e-6);
+    for y in [y50, 16.0 * y50] {
+        let (pa, _) = soil_curves::py_stiff_clay(su, gamma, d, z, eps50, j, y * (1.0 - 1e-9));
+        let (pb, _) = soil_curves::py_stiff_clay(su, gamma, d, z, eps50, j, y * (1.0 + 1e-9));
+        close(&format!("p at {}·y50", y / y50), pa, pb, 1e-6);
+    }
 }
 
 /// AC-14 (FIXED): a 3D "XZ" diaphragm writes u_s = u_m + θy·ŷ × r in the XZ

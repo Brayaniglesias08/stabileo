@@ -9,6 +9,18 @@ It should capture what changed, not what should be built next.
 
 ## Unreleased
 
+### Fixed
+
+#### Frame and truss temperature loads take the material's α and the section's depth (#407, FR-4)
+
+Member thermal loads were computed with α = 12·10⁻⁶ /°C and the depth √(12·I/A) of the
+equivalent solid rectangle, whatever the material and section (an IPE's gradient moment 30 %
+low; aluminium's thermal force about half). A `thermal` load now takes `alpha` and the section
+depth (`depth` in 2D, `depthY`/`depthZ` in 3D), and the app sends them instead of scaling the
+load; a load without them is solved with the old defaults and carries a
+`thermal_default_assumed` warning. The end-to-end certificate re-assembles thermal loads with the
+same inputs. Advisory SA-2026-019.
+
 ### Added
 
 #### End-to-end certificates for frames and trusses (2026-10-18)
@@ -176,6 +188,99 @@ structures and modal frequencies shift too). Re-run solid-shell models.
   lacked the series' alternating sign (5.7 % high), and the solid-shell hemisphere tests pulled
   both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
 ### Fixed
+
+#### Curved shells report their bending moments and thermal stresses (SH-6, #410, 2026-10-21)
+
+**BREAKING (results), advisory SA-2026-013.** `curved_shell_stresses` returned
+mx = my = mxy = 0 whatever the bending; the moments are now the in-plane stresses integrated
+through the thickness (two Gauss points in ζ, sign as the flat MITC4, which a flat curved shell
+matches to 1e-6). Under `curvedShellThermal` the stresses, moments and corner Von Mises kept the
+free thermal strain; they now use ε − α·(ΔT + ζ·ΔTg/2), summed over the element's temperature
+loads and per load case (the curved-shell Kg takes its membrane stress from the same recovery).
+The app sent a curved quad's temperature as `quadThermal`, which named no flat quad and was
+dropped, so the shell was analysed unheated; it is sent as `curvedShellThermal`, and the engine
+refuses a shell load naming an element of another family. A cantilever strip of curved shells
+reports the static root moment, 35 kN·m/m (was 0); a free heated curved shell reports zero
+stress (was E·α·ΔT/(1−ν)). The SH-6 known-issue warning is removed.
+#### Curved members keep one section orientation along the arc (#418, #523, SA-2026-016)
+
+The straight segments of an arc took the default local axes of a straight member, which switch to
+a global-X reference within 2.56° of vertical. In an arch outside the X–Z plane the near-vertical
+segments at the springings so had Iy and Iz swapped: a 40-segment semicircle in the Y–Z plane
+gave a crown deflection 15 % lower (−6.18 mm instead of −7.29 mm) than the same arch in the X–Z
+plane. Every segment now takes local y = a·n + b·(n × x) from the arc's plane normal n, with (a, b)
+those of the default rule at the middle of the arc: plan curves keep local z vertical as before,
+arches keep local y normal to their plane, tilted arcs no longer roll. Engine curved beams
+(`expand_curved_beams_3d`, `ArcSectionFrame`) and the app's arc tool both apply it, and arcs
+saved before take it when the project opens (re-check notice `arc-member-local-axes`). The SP-15
+known-issue warning is removed. Tests: `engine/tests/derivation_special_elements.rs` (explicit
+members, rotation about the vertical, plan curves, tilted arcs) and
+`web/src/lib/model/__tests__/curved-member.test.ts`.
+#### 3D plastic collapse factor no longer depends on element numbering (2026-10-21)
+
+**BREAKING (results)** (#511, SA-2026-014). When the hinge reversal checks of
+`solve_plastic_3d` cycled under biaxial bending, the solver went on from whichever state of the
+cycle the element order left it in and pushed a closed section through the yield surface: the
+same structure, renumbered, reported 75.9 to 424.3 against a certified collapse factor of 176.5.
+It now stops at the last consistent state and reports that factor with a warning and
+`isMechanism = false` (a lower bound, static theorem); choices among hinges go by rate, not by
+element number; and a span peak within 0.1 % of the member length of a hinge of the member does
+not form a sliver hinge. The PC-3D known-issue notice is removed.
+#### Cable tension follows the elastic-catenary chord law (2026-10-21, #416, #415, #525)
+
+**BREAKING (results): cables with self-weight in statically indeterminate structures carry more
+tension.** The cable solve used Ernst's modulus (the tangent of the chord law) as a secant from the
+straight chord, ε = T/EA + (w·l_h)²/(12T²) instead of T/EA − (w·l_h)²/(24T²), so a cable that
+shares its load got too little tension (guyed mast: 4.34 kN instead of 5.18 kN) and the iteration
+often oscillated. It now runs Newton on the chord law (`element::cable_chord_tension`), with Ernst's
+modulus as the tangent and the rest of the linearised law as nodal forces, so the converged state
+satisfies the law exactly; reactions balance the reported tensions. With the unstressed length equal
+to the modelled chord, a cable with weight hangs at T₀³ = EA·(w·l_h)²/24 with no load and no longer
+goes exactly slack; a vertical cable has no sag term. `ernst_tangent_modulus` now returns the
+chord-law derivative (it was negative for moderate α). Known issue SP-12 removed. Advisory
+SA-2026-015.
+#### Soil curves follow their references (2026-10-21, #421, #422, #423, PR #526, SA-2026-017)
+
+The SSI soil curves departed from the references they cited. Soft clay omitted Matlock's
+J·c·z/D term (p_u 84 instead of 124 kN/m in the test); it is now API RP 2A's tabulation of
+Matlock's static curve with J a required input (0.25–0.5). Sand always used the cyclic A = 0.9
+and a step k table; it now takes `loading` (static A = max(3 − 0.8 z/D, 0.9), or cyclic) and
+interpolates k in API RP 2GEO Table 5, refusing φ outside 25–40°. The "stiff clay" curve jumped
+from 0.5·p_u to p_u at y50; it is now Welch & Reese (1972) stiff clay without free water,
+continuous (`free_water: true` is refused). t-z and q-z returned stresses: t-z now needs the
+shaft perimeter and q-z the tip area (kN/m and kN), q-z follows API's table, and the q-z tip
+spring is no longer multiplied by a tributary length and bears only in compression. Springs on
+missing nodes or along rotations are refused. Missing inputs are refused, never assumed.
+The app's SSI panel asks for J and the sand loading. Known-issue warnings AC-12, AC-13 and
+AC-16 removed. Tests: `engine/tests/soil_curves_references.rs`.
+#### MITC9 on curved geometry reproduces rigid-body motion (SH-7, #411, SA-2026-018) (2026-10-21)
+
+**Results change for curved MITC9 meshes (engine/WASM only; the app creates no MITC9).** The
+MITC9 projected its nine nodes onto the corner-diagonal plane with no rigid-link correction, so a
+rigid rotation strained any curved or warped element (relative K·r residual 0.11 on a 2 × 2 m
+patch with 0.2 m sag; 101 MPa of nodal von Mises stress for a 1 mrad rigid rotation, steel,
+t = 50 mm). Each node is now tied to its projection by a rigid link (the MITC4 warp correction on
+all nine nodes) in the stiffness, the stress recovery and the thermal load.
+Flat MITC9 elements are unchanged. Pinched hemisphere (MacNeal–Harder) at 16 × 16: 0.935 → 0.976
+of 0.093 (0.504 → 0.681 at 8 × 8); Scordelis–Lo and the pinched cylinder move by less than 0.1 %.
+The element is documented as a flat facet (curvature from the mesh). The `SH-7` known-issue warning
+is removed. The Scordelis–Lo MITC9 effectivity check against w₃ − w₀ is dropped: the faceted
+energies are not monotone under refinement, so that difference is not the error (θ was 0.99 by
+coincidence, 1.57 after the fix with the same displacements).
+#### 3D material-nonlinear yield surface matches 2D (2026-10-21, #429, NL-6, SA-2026-020)
+
+**BREAKING (results): 3D material-nonlinear members with axial force or biaxial bending yield
+earlier and report a higher utilization.** The 3D solver yielded at
+(N/Np)² + (My/Mpy)² + (Mz/Mpz)² > 1; squaring the moment ratios made a 3D member yield later
+than the same member in 2D ((N/Np)² + |M|/Mp): 15 % later about one axis at N = 0.5·Np,
+0.74 against 0.95 for the same planar state, and a tip moment of 0.6·Mp about each axis stayed
+elastic. It now uses (N/Np)² + |My|/Mpy + |Mz|/Mpz, in yield detection and in the utilization
+(from the reported secant forces): the 2D surface for bending about one axis, and between the
+axes the chord between the uniaxial limits. Engine and WASM API only; no app screen calls the
+solver. The NL-5 warning no longer mentions NL-6. Tests in `engine/tests/derivation_nonlinear.rs`;
+advisory `docs/advisories/SA-2026-020-material-nonlinear-3d-yield-surface.md`. Still open for 2D
+and 3D: the (N/Np)² term is the rectangle's and is unconservative for the strong axis of an
+I-section at high axial force.
 
 #### Silent errors from the element-derivations review: 2D-in-3D signs, settlements, Winkler, imperfections, constraints (2026-10-18)
 

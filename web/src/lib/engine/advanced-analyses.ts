@@ -213,7 +213,7 @@ export function shrinkageInput(input: SolverInput3D, phiOf: Map<number, number>,
   for (const e of input.elements.values()) {
     const eps = epsOf.get(e.materialId);
     if (!eps) continue;
-    loads.push({ type: 'thermal', data: { elementId: e.id, dtUniform: -eps / ENGINE_ALPHA, dtGradientY: 0, dtGradientZ: 0 } });
+    loads.push({ type: 'thermal', data: { elementId: e.id, dtUniform: -eps / ENGINE_ALPHA, dtGradientY: 0, dtGradientZ: 0, alpha: ENGINE_ALPHA } });
   }
   return { ...input, materials, loads };
 }

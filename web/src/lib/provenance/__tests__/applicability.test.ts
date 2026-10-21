@@ -47,6 +47,16 @@ describe('which registered changes concern a model', () => {
     expect(ids(ec3)).toContain('ec3-aisc-ltb-and-slender');
   });
 
+  it('shows the arc local-axes change only for models with members drawn as an arc (#418)', () => {
+    const spec = { start: { x: -5, y: 0, z: 0 }, through: { x: 0, y: 0, z: 5 }, end: { x: 5, y: 0, z: 0 }, segments: 8 };
+    const arch = model({ elements: [member(1, 1, 'frame', { arc: { id: 1, spec } })] });
+    expect(modelFeatures(arch).has('arcMembers')).toBe(true);
+    expect(ids(arch)).toContain('arc-member-local-axes');
+    const straight = model({ elements: [member(1, 1, 'frame')] });
+    expect(modelFeatures(straight).has('arcMembers')).toBe(false);
+    expect(ids(straight)).not.toContain('arc-member-local-axes');
+  });
+
   it('names the ACI change for an ACI-bound concrete model and not the CIRSOC 201 one', () => {
     const aci = model({ elements: [member(1, 2, 'frame')], regulations: { roles: { concrete: { adapterId: 'aci-aisc' } } } });
     expect(ids(aci)).toContain('aci318-strain-and-axial');
@@ -119,6 +129,8 @@ describe('versions and recorded analyses (a later registry)', () => {
   it('counts the analyses the stamp cannot see as run', () => {
     const f = modelFeatures(steel, { analysesRun: ['linear'] });
     expect(f.has('analysis:timeHistory')).toBe(true);
+    // Soil-structure interaction is solved in the PRO panel from springs a file never carries.
+    expect(f.has('analysis:ssi')).toBe(true);
     expect(f.has('analysis:modal')).toBe(false);
   });
 });

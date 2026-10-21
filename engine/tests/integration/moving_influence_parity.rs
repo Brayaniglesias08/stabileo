@@ -96,7 +96,7 @@ fn make_beam_2d_inclined() -> SolverInput {
         SolverLoad::Distributed(SolverDistributedLoad {
             element_id: 1, q_i: -2.0, q_j: -2.0, a: None, b: None,
         }),
-        SolverLoad::Thermal(SolverThermalLoad { element_id: 2, dt_uniform: 5.0, dt_gradient: 0.0 }),
+        SolverLoad::Thermal(SolverThermalLoad { element_id: 2, dt_uniform: 5.0, dt_gradient: 0.0, alpha: None, depth: None }),
     ];
 
     SolverInput {
