@@ -11,7 +11,9 @@ use dedaliano_engine::element::curved_shell::{
 use dedaliano_engine::element::quad::{
     mitc4_local_stiffness, quad_geometric_stiffness, quad_pressure_load,
 };
-use dedaliano_engine::element::quad9::{mitc9_local_stiffness, quad9_transform_3d};
+use dedaliano_engine::element::quad9::{
+    mitc9_local_stiffness, quad9_nodal_von_mises, quad9_stress_at_nodes, quad9_stresses, quad9_transform_3d,
+};
 use dedaliano_engine::element::{
     plate_geometric_stiffness, plate_local_stiffness, plate_local_stiffness_thick,
     plate_stress_at_nodes_thermal, plate_stress_recovery,
@@ -370,12 +372,12 @@ fn sh6_curved_shell_reports_bending_moments() {
 
 // ───────────────────── SH-7: curved (non-planar) MITC9 ─────────────────────
 
-/// SH-7 (OPEN). The MITC9 projects its nine nodes onto the corner-diagonal plane and has
-/// no rigid-link (warping) correction, unlike the MITC4. With the midside and centre nodes
-/// off that plane — any curved 9-node shell — a rigid rotation about an in-plane axis
-/// strains the flat element.
+/// SH-7 (FIXED, #411). The MITC9 projects its nine nodes onto the plane normal to the
+/// corner-diagonal `ez` and had no rigid-link (warping) correction, unlike the MITC4. With
+/// the midside and centre nodes off that plane (any curved 9-node shell) a rigid rotation
+/// about an in-plane axis strained the flat element: relative K·r residual 0.11 on this
+/// cylindrical patch. Each node is now tied to its projection by a rigid link (K ← WᵀKW).
 #[test]
-#[ignore = "open question SH-7: MITC9 with non-planar (curved) nodes does not annihilate rigid rotations"]
 fn sh7_curved_mitc9_annihilates_rigid_motions() {
     let s = 0.2; // sag of a cylindrical patch, curvature along x
     let c: [[f64; 3]; 9] = [
@@ -385,6 +387,55 @@ fn sh7_curved_mitc9_annihilates_rigid_motions() {
     let k = to_global(&mitc9_local_stiffness(&c, E, 0.3, 0.05), &quad9_transform_3d(&c), 54);
     let res = rigid_residual(&k, &c);
     assert!(res < 1e-10, "curved MITC9: K·r ≠ 0 for a rigid motion, relative residual {res:.3e}");
+}
+
+/// A doubly curved, distorted nine-node patch with warped (non-coplanar) corners, tilted
+/// out of every coordinate plane: all six rigid motions are annihilated.
+const WARPED_Q9: [[f64; 3]; 9] = [
+    [0.0, 0.0, 0.05], [2.1, 0.2, -0.04], [2.3, 1.9, 0.06], [-0.1, 1.7, -0.03],
+    [1.05, 0.05, 0.22], [2.25, 1.0, 0.18], [1.1, 1.85, 0.25], [-0.05, 0.85, 0.15], [1.0, 0.95, 0.35],
+];
+
+fn tilt(c: &[[f64; 3]; 9]) -> [[f64; 3]; 9] {
+    // A fixed rotation (about (1, 2, 3), 0.7 rad), so that no axis is special.
+    let a = { let n = (1.0f64 + 4.0 + 9.0).sqrt(); [1.0 / n, 2.0 / n, 3.0 / n] };
+    let (sn, cs) = 0.7f64.sin_cos();
+    c.map(|p| {
+        let d = a[0] * p[0] + a[1] * p[1] + a[2] * p[2];
+        let x = [a[1] * p[2] - a[2] * p[1], a[2] * p[0] - a[0] * p[2], a[0] * p[1] - a[1] * p[0]];
+        std::array::from_fn(|k| p[k] * cs + x[k] * sn + a[k] * d * (1.0 - cs))
+    })
+}
+
+#[test]
+fn sh7_warped_doubly_curved_mitc9_annihilates_rigid_motions() {
+    let c = tilt(&WARPED_Q9);
+    let k = to_global(&mitc9_local_stiffness(&c, E, 0.3, 0.05), &quad9_transform_3d(&c), 54);
+    let res = rigid_residual(&k, &c);
+    assert!(res < 1e-10, "warped MITC9: relative residual {res:.3e}");
+}
+
+/// The stress recovery sees the same rigid-link-corrected displacements as the stiffness: a
+/// rigid motion of a curved MITC9 reports no membrane stress and no moment, at the centroid
+/// and at the nodes. Before the fix a 1 mrad rotation of this patch reported a membrane
+/// stress of 107 MPa (steel, E = 200 GPa).
+#[test]
+fn sh7_curved_mitc9_rigid_motion_is_stress_free() {
+    let c = tilt(&WARPED_Q9);
+    let t = quad9_transform_3d(&c);
+    let (nu, h) = (0.3, 0.05);
+    for (m, r) in rigid_modes(&c).iter().enumerate() {
+        let r: Vec<f64> = r.iter().map(|v| 1e-3 * v).collect();
+        let ul: Vec<f64> = (0..54).map(|i| (0..54).map(|j| t[i * 54 + j] * r[j]).sum()).collect();
+        let sc = quad9_stresses(&c, &ul, E, nu, h, 0.0, 0.0, 0.0);
+        let mut v = vec![sc.sigma_xx, sc.sigma_yy, sc.tau_xy, sc.mx / (h * h), sc.my / (h * h), sc.mxy / (h * h)];
+        for ns in quad9_stress_at_nodes(&c, &ul, E, nu, h, 0.0, 0.0, 0.0) {
+            v.extend([ns.sigma_xx, ns.sigma_yy, ns.tau_xy, ns.mx / (h * h), ns.my / (h * h), ns.mxy / (h * h)]);
+        }
+        v.extend(quad9_nodal_von_mises(&c, &ul, E, nu, h, 0.0, 0.0));
+        let worst = max_abs(&v);
+        assert!(worst < 1e-9 * E * 1e-3, "rigid mode {m}: stress {worst:e} (scale E·1e-3 = {:e})", E * 1e-3);
+    }
 }
 
 // ───────────────────── SH-9: solid-shell Poisson thickness locking ─────────────────────
