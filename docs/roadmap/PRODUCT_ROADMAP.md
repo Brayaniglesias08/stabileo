@@ -200,6 +200,33 @@ Closing the gap between "proven" and "right".
 
 **Metrics** (on the [dashboard](../verification/DASHBOARD.md)): Rust mutation score (cargo-mutants) and the share of mutants tested; engine line and branch coverage; Lean theorems, Kani harnesses and engine tests; element families by maturity level; `roadmap:solver-proofs` issues closed.
 
+### Soundness multipliers
+
+The step changes in what a result can be trusted for, beyond more tests of the same kind. Each
+builds on what exists: metamorphic testing on the corpus (Trust item 5), discretization estimates
+(Trust item 3), independent clause implementations (Trust item 7), Rust–Lean correspondence in
+general terms (Trust item 11), end-to-end certificates and a second checker (Solver and proof
+depth items 1 and 3), design-check properties (item 4) and validation against experiments (item 5).
+
+1. **Check the user's own model on every solve.** [#498](https://github.com/lambdaclass/stabileo/issues/498) Verification runs on our corpus; the bugs that hurt live in users' models. After each solve, in the background: global equilibrium recomputed from the model's loads, not from `K`; a rotated and renumbered twin of the model, solved and compared (the check that found [#488](https://github.com/lambdaclass/stabileo/issues/488) and the batch-3 interactions); an independent re-assembly of `K` and `f` ([#403](https://github.com/lambdaclass/stabileo/pull/403)) compared entry by entry. On any disagreement the result is not shown as verified, and the reason is. "We tested similar models" becomes "this model was cross-checked".
+2. **Proof-carrying results.** [#499](https://github.com/lambdaclass/stabileo/issues/499) Every certified result and report carries a certificate bundle, and the Lean checker (`certcheck`) runs in the browser as WASM: a reviewer or an authority presses "verify this report" and checks it offline, without trusting the solver. The trusted base shrinks to the checker and the bundle parser.
+3. **The Rust kernels proved against the Lean algorithm.** [#500](https://github.com/lambdaclass/stabileo/issues/500) The main unproved link in [TRUSTED_BASE.md](../verification/TRUSTED_BASE.md): translate the critical kernels (element matrices, transformations, fixed-end forces, certificate checks) to Lean with Aeneas/Charon and prove them, starting with the frame element and the linear certificate.
+4. **Guaranteed bounds on discretization error.** [#501](https://github.com/lambdaclass/stabileo/issues/501) For shells, plates and solids the mesh error dominates and only estimates exist. Equilibrated-residual estimators give guaranteed upper bounds on the energy-norm error in linear elasticity: "the true solution is within ±x", not only "the discrete solve is accurate".
+5. **Certificates for nonlinear analyses.** [#502](https://github.com/lambdaclass/stabileo/issues/502) Co-rotational, material-nonlinear and fiber analyses are Benchmarked only; certify the converged equilibrium state (residual inclusion with an interval tangent, Newton–Kantorovich as for P-Delta).
+6. **The remaining certificate kinds formalized in Lean.** [#503](https://github.com/lambdaclass/stabileo/issues/503) P-Delta, response-spectrum propagation, harmonic, time history, the constraint mapping and the modal positivity hypothesis, all certified today but not formalized.
+7. **Contradictory input refused, never resolved silently.** [#504](https://github.com/lambdaclass/stabileo/issues/504) A rigid restraint and a spring on the same DOF made the engine pick the spring ([#488](https://github.com/lambdaclass/stabileo/issues/488)); every such pair of fields in the input is refused by name.
+8. **A public bug bounty for wrong results.** [#505](https://github.com/lambdaclass/stabileo/issues/505) Paid, reproducible wrong or unconservative results, by the severity scale of [SAFETY_ADVISORIES.md](../SAFETY_ADVISORIES.md); each accepted report gets a regression test, a postmortem and, where it applies, an advisory. Alongside the independent licensed engineer's review of defined workflows (findings published) and the corpus of real anonymised projects (Trust backlog, "Beyond software").
+
+**Exit criteria (Soundness multipliers).**
+- Every linear static and modal solve in the app runs the per-model cross-checks (item 1); disagreements are 0 on the example and acceptance corpus, and each one seen in the field is a triaged issue.
+- Every certified result can be exported as a bundle and verified in the browser by the Lean checker (item 2).
+- The frame element and the linear certificate are proved in Lean through Aeneas (item 3); every certificate kind in TRUSTED_BASE.md is formalized or listed with the step that is not (item 6).
+- Guaranteed discretization bounds are shown for linear MITC4/MITC9 plates and shells (item 4).
+- Co-rotational analysis is Certified in MATURITY.md (item 5).
+- The engine refuses every contradictory field pair found by the input audit (item 7); the bug bounty is published with its scope and rules (item 8).
+
+**Metrics** (on the [dashboard](../verification/DASHBOARD.md)): share of solves with per-model cross-checks and their disagreements; certified results exportable as bundles; kernels proved through Aeneas; certificate kinds formalized; bug-bounty reports received, accepted and fixed.
+
 ### Release safety
 
 Pushes to main deploy straight to users (GitHub Pages), so a merge is a release.
