@@ -246,7 +246,7 @@ $\gamma=Gh/1000$ (SH-2: it was integrated over the volume, giving $Gh^2/1000$).
 - **Thermal**: $\int B^{\mathsf T}\boldsymbol\sigma_{th}dV$, $\sigma_{11}=\sigma_{22}=\frac{E}{1-\nu}\alpha(\Delta T_u+\zeta\Delta T_g/2)$.
 - **Edge load**: 2-point Gauss, outward $\widehat{\hat t\times\hat d}$.
 - **Recovery**: centroid mid-surface membrane stresses; moments $m=-\int\sigma z\,dz$ by two
-  Gauss points in ζ (exact for the linear-in-ζ strain; sign as the flat MITC4), in the centre
+  Gauss points in ζ (exact where the strain is linear in ζ, i.e. constant directors; a quadrature where varying directors make the Jacobian depend on ζ; sign as the flat MITC4), both in the centre mid-surface
   frame ($e_1\parallel g_1$ projected on the tangent plane). Stresses, moments and corner Von Mises
   use the mechanical strain $\varepsilon-\alpha(\Delta T_u+\zeta\Delta T_g/2)$, the thermal loads
   on the element summed (SH-6). Nodal von Mises: membrane, 2×2 extrapolated.

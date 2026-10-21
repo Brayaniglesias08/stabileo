@@ -1243,14 +1243,17 @@ pub fn curved_shell_stresses(
         - sigma_xx * sigma_yy + 3.0 * tau_xy * tau_xy).sqrt();
 
     // Bending moments per unit length: the in-plane stresses integrated through the thickness,
-    // M = ∫ σ z dz, with two Gauss points at ζ = ±1/√3 (exact for the linear-in-z strain of the
-    // degenerated shell). They were reported as zero (SH-6, #410), so a design read from them saw
-    // no bending. Sign as the flat MITC4 reports it (`quad_stresses`): M = −∫ σ z dz.
+    // M = −∫ σ z dz (the sign the flat MITC4 reports, `quad_stresses`), by two-point Gauss
+    // quadrature at ζ = ±1/√3: exact where the strain is linear in ζ (constant directors, as on
+    // a flat element), a quadrature where varying directors make the Jacobian depend on ζ. They
+    // were reported as zero (SH-6, #410), so a design read from them saw no bending.
+    // Both thickness points use the mid-surface frame (e1, e2, e3) of the reported membrane
+    // stresses: on a warped element the frame of each ζ rotates, and adding components taken
+    // in two different frames made a twisting moment out of a uniform membrane state.
     let g = 1.0 / 3f64.sqrt();
     let (mut m_xx, mut m_yy, mut m_xy) = (0.0, 0.0, 0.0);
     for zeta in [-g, g] {
         let (g1, g2, g3, _) = covariant_basis(coords, dirs, h, 0.0, 0.0, zeta);
-        let (e1, e2, e3) = local_frame(&g1, &g2, &g3);
         let j_mat = [[g1[0], g2[0], g3[0]], [g1[1], g2[1], g3[1]], [g1[2], g2[2], g3[2]]];
         let inv_j = invert_3x3(&j_mat).unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
         let bz = build_b_matrix_at_point(coords, dirs, h, 0.0, 0.0, zeta, &e1, &e2, &e3, &inv_j);

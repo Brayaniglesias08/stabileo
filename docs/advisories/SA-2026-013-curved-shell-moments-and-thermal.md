@@ -6,7 +6,7 @@
 | Status | Draft (fixed on `main`; untagged, next release) |
 | Issue | [#410](https://github.com/lambdaclass/stabileo/issues/410) (SH-6 in the element-derivation review) |
 | Fix | PR [#522](https://github.com/lambdaclass/stabileo/pull/522) |
-| Affected versions | every version with the curved-shell element, up to 0.2.0 and `main` until the fix; in the app, every version that solves a quad marked curved as a curved shell (from 2026-09-30) |
+| Affected versions | every version with the curved-shell element, up to 0.2.0 and `main` until the fix; in the app, every version that solves a quad marked curved as a curved shell (from 2026-06-12) |
 | Re-check registry | `curved-shell-moments-and-thermal` (models with curved shells) |
 
 ## Affected features
@@ -46,7 +46,7 @@ The moments were unconservative for any design read from them; the thermal stres
 reported where there are none, or missing where the restraint creates them.
 
 Since 2026-10-20 results with curved shells carried the known-issue warning SH-6 ("do not design
-from curved-shell moments or stresses"), narrowed in PR #522 to curved-shell temperature loads.
+from curved-shell moments or stresses"); the fix removes it.
 
 ## How to tell if your results are affected
 
@@ -57,8 +57,8 @@ curved shell. Mechanical loads only: the membrane stresses were right, the momen
 ## Fixed in
 
 PR #522 (next release). The moments are the in-plane stresses integrated through the thickness
-(M = −∫σ·z dz with two Gauss points in ζ, exact for the shell's linear-in-z strain; same sign as
-the flat MITC4). Stresses, moments and corner Von Mises come from the mechanical strain
+(M = −∫σ·z dz by two-point Gauss quadrature in ζ, in the mid-surface frame; exact where the
+strain is linear in ζ, as on a flat element; same sign as the flat MITC4). Stresses, moments and corner Von Mises come from the mechanical strain
 ε − α·(ΔT + ζ·ΔTg/2), the free strain the thermal load vector uses, summed over every temperature
 load on the element and taken per load case. The app sends a curved quad's temperature as
 `curvedShellThermal`, and the engine now refuses a shell load that names an element of another
