@@ -58,12 +58,12 @@ impl Relabel {
         let mut order: Vec<usize> = (0..input.loads.len()).collect();
         rng.shuffle(&mut order);
         Relabel {
-            node: bijection(input.nodes.values().map(|n| n.id), &mut rng),
-            element: bijection(input.elements.values().map(|e| e.id), &mut rng),
-            support: bijection(input.supports.values().map(|s| s.id), &mut rng),
-            material: bijection(input.materials.values().map(|m| m.id), &mut rng),
-            section: bijection(input.sections.values().map(|s| s.id), &mut rng),
-            connector: bijection(input.connectors.values().map(|c| c.id), &mut rng),
+            node: bijection(crate::ordered::values(&input.nodes).map(|n| n.id), &mut rng),
+            element: bijection(crate::ordered::values(&input.elements).map(|e| e.id), &mut rng),
+            support: bijection(crate::ordered::values(&input.supports).map(|s| s.id), &mut rng),
+            material: bijection(crate::ordered::values(&input.materials).map(|m| m.id), &mut rng),
+            section: bijection(crate::ordered::values(&input.sections).map(|s| s.id), &mut rng),
+            connector: bijection(crate::ordered::values(&input.connectors).map(|c| c.id), &mut rng),
             load_order: order,
             ..Default::default()
         }
@@ -77,17 +77,17 @@ impl Relabel {
         let mut order: Vec<usize> = (0..input.loads.len()).collect();
         rng.shuffle(&mut order);
         Relabel {
-            node: bijection(input.nodes.values().map(|n| n.id), &mut rng),
-            element: bijection(input.elements.values().map(|e| e.id), &mut rng),
+            node: bijection(crate::ordered::values(&input.nodes).map(|n| n.id), &mut rng),
+            element: bijection(crate::ordered::values(&input.elements).map(|e| e.id), &mut rng),
             support: BTreeMap::new(),
-            material: bijection(input.materials.values().map(|m| m.id), &mut rng),
-            section: bijection(input.sections.values().map(|s| s.id), &mut rng),
-            connector: bijection(input.connectors.values().map(|c| c.id), &mut rng),
-            plate: bijection(input.plates.values().map(|p| p.id), &mut rng),
-            quad: bijection(input.quads.values().map(|p| p.id), &mut rng),
-            quad9: bijection(input.quad9s.values().map(|p| p.id), &mut rng),
-            solid_shell: bijection(input.solid_shells.values().map(|p| p.id), &mut rng),
-            curved_shell: bijection(input.curved_shells.values().map(|p| p.id), &mut rng),
+            material: bijection(crate::ordered::values(&input.materials).map(|m| m.id), &mut rng),
+            section: bijection(crate::ordered::values(&input.sections).map(|s| s.id), &mut rng),
+            connector: bijection(crate::ordered::values(&input.connectors).map(|c| c.id), &mut rng),
+            plate: bijection(crate::ordered::values(&input.plates).map(|p| p.id), &mut rng),
+            quad: bijection(crate::ordered::values(&input.quads).map(|p| p.id), &mut rng),
+            quad9: bijection(crate::ordered::values(&input.quad9s).map(|p| p.id), &mut rng),
+            solid_shell: bijection(crate::ordered::values(&input.solid_shells).map(|p| p.id), &mut rng),
+            curved_shell: bijection(crate::ordered::values(&input.curved_shells).map(|p| p.id), &mut rng),
             load_order: order,
         }
     }
@@ -287,7 +287,7 @@ impl Relabel {
             // 3D supports carry no id; their key is the id staged analysis
             // refers to them by (a number), so re-key them with fresh numbers.
             supports: {
-                let mut v: Vec<SolverSupport3D> = input.supports.values().map(|s| SolverSupport3D { node_id: self.n(s.node_id), ..s.clone() }).collect();
+                let mut v: Vec<SolverSupport3D> = crate::ordered::values(&input.supports).map(|s| SolverSupport3D { node_id: self.n(s.node_id), ..s.clone() }).collect();
                 rng.shuffle(&mut v);
                 v.into_iter().enumerate().map(|(k, s)| ((7 * k + 3).to_string(), s)).collect()
             },

@@ -1,4 +1,5 @@
 <script module lang="ts">
+  import { downloadResultText } from '../../lib/export/provenance-attach';
   export type TableMode = 'current' | 'all' | 'summary' | 'envelope' | 'maxType';
   /** Which result sets the across-set views read. */
   export type TableBasis = 'combos' | 'cases' | 'both';
@@ -20,8 +21,7 @@
   import { modelStore, resultsStore, uiStore } from '../../lib/store';
   import { t, tp } from '../../lib/i18n';
   import { activePerCombo3D, activeCombinations } from '../../lib/store/active-results';
-  import { downloadText } from '../../lib/store/file';
-  import { exportToExcel } from '../../lib/export/excel';
+    import { exportToExcel } from '../../lib/export/excel';
   import { computeStationDemands } from '../../lib/engine/verification-service';
   import {
     columnsOf, allRows, summaryRows, envelopeRows, maxByType, toCsv, whereOf, MAX_TYPES,
@@ -142,7 +142,7 @@
   const stem = () => `${kind}-${mode}`;
   function csv() {
     const { header, rows } = table();
-    downloadText(toCsv(header, rows), `${stem()}.csv`, 'text/csv;charset=utf-8');
+    void downloadResultText(toCsv(header, rows), `${stem()}.csv`, 'text/csv;charset=utf-8');
   }
   function xlsx() {
     const { header, rows } = table();

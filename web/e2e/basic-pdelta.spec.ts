@@ -1,4 +1,4 @@
-import { test, expect, openBasicProjectPanel } from './fixtures';
+import { test, expect, openBasicProjectPanel, CURRENT_STAMP } from './fixtures';
 
 // A cantilever above Euler's critical load can converge on an indefinite
 // stiffness matrix. Convergence must not turn that into a stable result.
@@ -8,6 +8,7 @@ function postcriticalColumn(mode: '2d' | '3d') {
   return {
     version: '2.0', name: 'Postcritical column', analysisMode: mode,
     snapshot: {
+      solvedWith: CURRENT_STAMP,
       name: 'Postcritical column',
       nodes: Array.from({ length: n + 1 }, (_, i) => [i + 1, {
         id: i + 1, x: 0, y: mode === '2d' ? length * i / n : 0,

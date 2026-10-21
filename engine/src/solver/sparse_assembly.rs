@@ -102,7 +102,7 @@ fn add_connector_triplets_2d(
 ) {
     if input.connectors.is_empty() { return; }
     let node_by_id: std::collections::HashMap<usize, &SolverNode> =
-        input.nodes.values().map(|nd| (nd.id, nd)).collect();
+        crate::ordered::values(&input.nodes).map(|nd| (nd.id, nd)).collect();
     for conn in crate::element::connector::sorted_by_id(&input.connectors) {
         let ni = match node_by_id.get(&conn.node_i) { Some(n) => n, None => continue };
         let nj = match node_by_id.get(&conn.node_j) { Some(n) => n, None => continue };
@@ -134,13 +134,13 @@ pub fn assemble_2d_sparse(input: &SolverInput, dof_num: &DofNumbering) -> Triple
 
     // Pre-build O(1) lookup maps
     let node_map: std::collections::HashMap<usize, &SolverNode> =
-        input.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
     let mat_map: std::collections::HashMap<usize, &SolverMaterial> =
-        input.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
     let sec_map: std::collections::HashMap<usize, &SolverSection> =
-        input.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let node_i = node_map[&elem.node_i];
         let node_j = node_map[&elem.node_j];
         let mat = mat_map[&elem.material_id];
@@ -222,7 +222,7 @@ pub fn assemble_2d_sparse(input: &SolverInput, dof_num: &DofNumbering) -> Triple
     }
 
     // Spring stiffness
-    for sup in input.supports.values() {
+    for sup in crate::ordered::values(&input.supports) {
         if let Some(kx) = sup.kx {
             if kx > 0.0 {
                 if let Some(&d) = dof_num.map.get(&(sup.node_id, 0)) {
@@ -254,7 +254,7 @@ pub fn assemble_2d_sparse(input: &SolverInput, dof_num: &DofNumbering) -> Triple
         let artificial_k = if max_diag > 0.0 { max_diag * 1e-10 } else { 1e-6 };
         let mut node_hinge_count: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
         let mut node_frame_count: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-        for elem in input.elements.values() {
+        for elem in crate::ordered::values(&input.elements) {
             if elem.elem_type != "frame" { continue; }
             *node_frame_count.entry(elem.node_i).or_insert(0) += 1;
             *node_frame_count.entry(elem.node_j).or_insert(0) += 1;
@@ -262,12 +262,12 @@ pub fn assemble_2d_sparse(input: &SolverInput, dof_num: &DofNumbering) -> Triple
             if elem.hinge_end { *node_hinge_count.entry(elem.node_j).or_insert(0) += 1; }
         }
         let mut rot_restrained: std::collections::HashSet<usize> = std::collections::HashSet::new();
-        for sup in input.supports.values() {
+        for sup in crate::ordered::values(&input.supports) {
             if matches!(sup.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ") { rot_restrained.insert(sup.node_id); }
             if sup.support_type == "spring" && sup.kz.unwrap_or(0.0) > 0.0 { rot_restrained.insert(sup.node_id); }
         }
         rot_restrained.extend(super::assembly::rotation_tied_nodes_2d(input));
-        for (&node_id, &hinges) in &node_hinge_count {
+        for (&node_id, &hinges) in crate::ordered::entries(&node_hinge_count) {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {
                 if let Some(&idx) = dof_num.map.get(&(node_id, 2)) {
@@ -316,14 +316,14 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
 
     // Pre-build O(1) lookup maps
     let node_map: std::collections::HashMap<usize, &SolverNode> =
-        input.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
     let mat_map: std::collections::HashMap<usize, &SolverMaterial> =
-        input.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
     let sec_map: std::collections::HashMap<usize, &SolverSection> =
-        input.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     // Assemble element stiffness matrices (same iteration order as the dense path)
-    for elem in input.elements.values() {
+    for elem in crate::ordered::values(&input.elements) {
         let node_i = node_map[&elem.node_i];
         let node_j = node_map[&elem.node_j];
         let mat = mat_map[&elem.material_id];
@@ -396,7 +396,7 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
     }
 
     // Add spring stiffness (with rotation support for springs with angle)
-    for sup in input.supports.values() {
+    for sup in crate::ordered::values(&input.supports) {
         let kx_val = sup.kx.unwrap_or(0.0);
         let ky_val = sup.ky.unwrap_or(0.0);  // ky maps to vertical (uz) in 2D
         let kz_val = sup.kz.unwrap_or(0.0);  // rotational spring
@@ -490,7 +490,7 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
 
         let mut node_hinge_count: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
         let mut node_frame_count: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-        for elem in input.elements.values() {
+        for elem in crate::ordered::values(&input.elements) {
             if elem.elem_type != "frame" { continue; }
             *node_frame_count.entry(elem.node_i).or_insert(0) += 1;
             *node_frame_count.entry(elem.node_j).or_insert(0) += 1;
@@ -504,7 +504,7 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
 
         // Nodes with rotational restraint from supports
         let mut rot_restrained: std::collections::HashSet<usize> = std::collections::HashSet::new();
-        for sup in input.supports.values() {
+        for sup in crate::ordered::values(&input.supports) {
             if matches!(sup.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ") {
                 rot_restrained.insert(sup.node_id);
             }
@@ -514,7 +514,7 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
         }
         rot_restrained.extend(super::assembly::rotation_tied_nodes_2d(input));
 
-        for (&node_id, &hinges) in &node_hinge_count {
+        for (&node_id, &hinges) in crate::ordered::entries(&node_hinge_count) {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {
                 if let Some(&idx) = dof_num.map.get(&(node_id, 2)) {
@@ -530,7 +530,7 @@ pub fn assemble_stiffness_sparse_2d(input: &SolverInput, dof_num: &DofNumbering)
     // Apply 2D inclined support transformations (triplets before CSC conversion;
     // the force vector rotation happens in `assemble_load_vector_2d`)
     let mut inclined_transforms_2d = Vec::new();
-    for sup in input.supports.values() {
+    for sup in crate::ordered::values(&input.supports) {
         if sup.support_type == "inclinedRoller" {
             if let Some(theta) = sup.angle {
                 let r = super::assembly::inclined_rotation_matrix_2d(theta);
@@ -658,14 +658,14 @@ pub fn assemble_elements_parallel_2d(input: &SolverInput, dof_num: &DofNumbering
 
     // Pre-build O(1) lookup maps
     let node_map: std::collections::HashMap<usize, &SolverNode> =
-        input.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
     let mat_map: std::collections::HashMap<usize, &SolverMaterial> =
-        input.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
     let sec_map: std::collections::HashMap<usize, &SolverSection> =
-        input.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     // Collect elements into a Vec for parallel iteration
-    let elements: Vec<&SolverElement> = input.elements.values().collect();
+    let elements: Vec<&SolverElement> = crate::ordered::values(&input.elements).collect();
 
     // Parallel element loop: each element produces local contributions
     let contributions: Vec<ElementContribution> = elements.par_iter().map(|elem| {
@@ -831,7 +831,7 @@ pub fn assemble_elements_parallel_2d(input: &SolverInput, dof_num: &DofNumbering
     }
 
     // Spring stiffness (sequential)
-    for sup in input.supports.values() {
+    for sup in crate::ordered::values(&input.supports) {
         if let Some(kx) = sup.kx {
             if kx > 0.0 {
                 if let Some(&d) = dof_num.map.get(&(sup.node_id, 0)) {
@@ -863,7 +863,7 @@ pub fn assemble_elements_parallel_2d(input: &SolverInput, dof_num: &DofNumbering
         let artificial_k = if max_diag > 0.0 { max_diag * 1e-10 } else { 1e-6 };
         let mut node_hinge_count: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
         let mut node_frame_count: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-        for elem in input.elements.values() {
+        for elem in crate::ordered::values(&input.elements) {
             if elem.elem_type != "frame" { continue; }
             *node_frame_count.entry(elem.node_i).or_insert(0) += 1;
             *node_frame_count.entry(elem.node_j).or_insert(0) += 1;
@@ -871,12 +871,12 @@ pub fn assemble_elements_parallel_2d(input: &SolverInput, dof_num: &DofNumbering
             if elem.hinge_end { *node_hinge_count.entry(elem.node_j).or_insert(0) += 1; }
         }
         let mut rot_restrained: std::collections::HashSet<usize> = std::collections::HashSet::new();
-        for sup in input.supports.values() {
+        for sup in crate::ordered::values(&input.supports) {
             if matches!(sup.support_type.as_str(), "fixed" | "guidedX" | "guidedY" | "guidedZ") { rot_restrained.insert(sup.node_id); }
             if sup.support_type == "spring" && sup.kz.unwrap_or(0.0) > 0.0 { rot_restrained.insert(sup.node_id); }
         }
         rot_restrained.extend(super::assembly::rotation_tied_nodes_2d(input));
-        for (&node_id, &hinges) in &node_hinge_count {
+        for (&node_id, &hinges) in crate::ordered::entries(&node_hinge_count) {
             let frames = *node_frame_count.get(&node_id).unwrap_or(&0);
             if hinges >= frames && frames >= 1 && !rot_restrained.contains(&node_id) {
                 if let Some(&idx) = dof_num.map.get(&(node_id, 2)) {
@@ -1011,24 +1011,24 @@ pub fn assemble_stiffness_sparse_3d_parallel(input: &SolverInput3D, dof_num: &Do
 
     // Pre-build O(1) lookup maps
     let node_map: std::collections::HashMap<usize, &SolverNode3D> =
-        input.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
     let mat_map: std::collections::HashMap<usize, &SolverMaterial> =
-        input.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
     let sec_map: std::collections::HashMap<usize, &SolverSection3D> =
-        input.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
 
     // Collect all elements into unified vec, sorted by ID for deterministic assembly.
     // HashMap iteration order is randomized in Rust; without sorting, triplet
     // accumulation order varies across runs, causing floating-point differences
     // in the CSC matrix that propagate into the Cholesky factorization.
     let mut all_elements: Vec<AnyElement3D> = Vec::new();
-    for e in input.elements.values() { all_elements.push(AnyElement3D::Frame(e)); }
-    for p in input.plates.values() { all_elements.push(AnyElement3D::Plate(p)); }
-    for q in input.quads.values() { all_elements.push(AnyElement3D::Quad(q)); }
-    for q9 in input.quad9s.values() { all_elements.push(AnyElement3D::Quad9(q9)); }
-    for ss in input.solid_shells.values() { all_elements.push(AnyElement3D::SolidShell(ss)); }
-    for cs in input.curved_shells.values() { all_elements.push(AnyElement3D::CurvedShell(cs)); }
-    for conn in input.connectors.values() { all_elements.push(AnyElement3D::Connector(conn)); }
+    for e in crate::ordered::values(&input.elements) { all_elements.push(AnyElement3D::Frame(e)); }
+    for p in crate::ordered::values(&input.plates) { all_elements.push(AnyElement3D::Plate(p)); }
+    for q in crate::ordered::values(&input.quads) { all_elements.push(AnyElement3D::Quad(q)); }
+    for q9 in crate::ordered::values(&input.quad9s) { all_elements.push(AnyElement3D::Quad9(q9)); }
+    for ss in crate::ordered::values(&input.solid_shells) { all_elements.push(AnyElement3D::SolidShell(ss)); }
+    for cs in crate::ordered::values(&input.curved_shells) { all_elements.push(AnyElement3D::CurvedShell(cs)); }
+    for conn in crate::ordered::values(&input.connectors) { all_elements.push(AnyElement3D::Connector(conn)); }
     all_elements.sort_by_key(|e| match e {
         AnyElement3D::Frame(f) => f.id,
         AnyElement3D::Plate(p) => p.id,
@@ -1317,7 +1317,7 @@ pub fn assemble_stiffness_sparse_3d_parallel(input: &SolverInput3D, dof_num: &Do
     }
 
     // Spring stiffness
-    for sup in input.supports.values() {
+    for sup in crate::ordered::values(&input.supports) {
         let springs = [sup.kx, sup.ky, sup.kz, sup.krx, sup.kry, sup.krz];
         for (i, ks) in springs.iter().enumerate() {
             if let Some(k) = ks {
@@ -1367,7 +1367,7 @@ pub fn assemble_stiffness_sparse_3d_parallel(input: &SolverInput3D, dof_num: &Do
     // Inclined support transforms (stiffness triplets only; the force vector
     // rotation happens in `assemble_load_vector_3d_sparse_parallel`)
     let mut inclined_transforms = Vec::new();
-    for sup in input.supports.values() {
+    for sup in crate::ordered::values(&input.supports) {
         if sup.is_inclined.unwrap_or(false) {
             if let (Some(nx), Some(ny), Some(nz)) = (sup.normal_x, sup.normal_y, sup.normal_z) {
                 let n_len = (nx * nx + ny * ny + nz * nz).sqrt();
@@ -1470,22 +1470,22 @@ pub fn assemble_load_vector_3d_sparse_parallel(
     let left_hand = input.left_hand.unwrap_or(false);
 
     let node_map: std::collections::HashMap<usize, &SolverNode3D> =
-        input.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
     let mat_map: std::collections::HashMap<usize, &SolverMaterial> =
-        input.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&input.materials).map(|m| (m.id, m)).collect();
     let sec_map: std::collections::HashMap<usize, &SolverSection3D> =
-        input.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&input.sections).map(|s| (s.id, s)).collect();
     let load_index = build_load_index_3d(loads);
 
     // Unified element list, sorted by ID (same order as the parallel assembler).
     let mut all_elements: Vec<AnyElement3D> = Vec::new();
-    for e in input.elements.values() { all_elements.push(AnyElement3D::Frame(e)); }
-    for p in input.plates.values() { all_elements.push(AnyElement3D::Plate(p)); }
-    for q in input.quads.values() { all_elements.push(AnyElement3D::Quad(q)); }
-    for q9 in input.quad9s.values() { all_elements.push(AnyElement3D::Quad9(q9)); }
-    for ss in input.solid_shells.values() { all_elements.push(AnyElement3D::SolidShell(ss)); }
-    for cs in input.curved_shells.values() { all_elements.push(AnyElement3D::CurvedShell(cs)); }
-    for conn in input.connectors.values() { all_elements.push(AnyElement3D::Connector(conn)); }
+    for e in crate::ordered::values(&input.elements) { all_elements.push(AnyElement3D::Frame(e)); }
+    for p in crate::ordered::values(&input.plates) { all_elements.push(AnyElement3D::Plate(p)); }
+    for q in crate::ordered::values(&input.quads) { all_elements.push(AnyElement3D::Quad(q)); }
+    for q9 in crate::ordered::values(&input.quad9s) { all_elements.push(AnyElement3D::Quad9(q9)); }
+    for ss in crate::ordered::values(&input.solid_shells) { all_elements.push(AnyElement3D::SolidShell(ss)); }
+    for cs in crate::ordered::values(&input.curved_shells) { all_elements.push(AnyElement3D::CurvedShell(cs)); }
+    for conn in crate::ordered::values(&input.connectors) { all_elements.push(AnyElement3D::Connector(conn)); }
     all_elements.sort_by_key(|e| match e {
         AnyElement3D::Frame(f) => f.id,
         AnyElement3D::Plate(p) => p.id,

@@ -124,7 +124,7 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
 
     // Initialize per-element fiber states
     let mut elem_states: HashMap<usize, ElementFiberState> = HashMap::new();
-    for elem in input.solver.elements.values() {
+    for elem in crate::ordered::values(&input.solver.elements) {
         let sec_key = elem.section_id.to_string();
         if let Some(sec) = input.fiber_sections.get(&sec_key) {
             let n_fibers = sec.fibers.len();
@@ -371,7 +371,7 @@ pub fn solve_fiber_nonlinear_2d(input: &FiberNonlinearInput) -> Result<FiberNonl
 
     // Collect fiber status
     let mut fiber_status = Vec::new();
-    for elem in input.solver.elements.values() {
+    for elem in crate::ordered::values(&input.solver.elements) {
         if let Some(es) = elem_states.get(&elem.id) {
             let mut max_strain = 0.0_f64;
             let mut max_stress = 0.0_f64;
@@ -458,11 +458,11 @@ fn fiber_member_forces_2d(
     n_ip: usize,
     forces: &mut [ElementForces],
 ) {
-    let node_by_id: HashMap<usize, &SolverNode> = solver.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: HashMap<usize, &SolverMaterial> = solver.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: HashMap<usize, &SolverSection> = solver.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode> = crate::ordered::values(&solver.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: HashMap<usize, &SolverMaterial> = crate::ordered::values(&solver.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: HashMap<usize, &SolverSection> = crate::ordered::values(&solver.sections).map(|s| (s.id, s)).collect();
     for ef in forces.iter_mut() {
-        let Some(elem) = solver.elements.values().find(|e| e.id == ef.element_id) else { continue };
+        let Some(elem) = crate::ordered::values(&solver.elements).find(|e| e.id == ef.element_id) else { continue };
         if elem.elem_type == "truss" || elem.elem_type == "cable" { continue; }
         let (Some(section), Some(es)) = (fiber_sections.get(&elem.section_id.to_string()), elem_states.get(&elem.id)) else { continue };
         let (ni, nj) = (node_by_id[&elem.node_i], node_by_id[&elem.node_j]);
@@ -509,11 +509,11 @@ fn fiber_member_forces_3d(
     n_ip: usize,
     forces: &mut [ElementForces3D],
 ) {
-    let node_by_id: HashMap<usize, &SolverNode3D> = solver.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: HashMap<usize, &SolverMaterial> = solver.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: HashMap<usize, &SolverSection3D> = solver.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode3D> = crate::ordered::values(&solver.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: HashMap<usize, &SolverMaterial> = crate::ordered::values(&solver.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: HashMap<usize, &SolverSection3D> = crate::ordered::values(&solver.sections).map(|s| (s.id, s)).collect();
     for ef in forces.iter_mut() {
-        let Some(elem) = solver.elements.values().find(|e| e.id == ef.element_id) else { continue };
+        let Some(elem) = crate::ordered::values(&solver.elements).find(|e| e.id == ef.element_id) else { continue };
         if elem.elem_type == "truss" || elem.elem_type == "cable" { continue; }
         let (Some(section), Some(es)) = (fiber_sections.get(&elem.section_id.to_string()), elem_states.get(&elem.id)) else { continue };
         let (ni, nj) = (node_by_id[&elem.node_i], node_by_id[&elem.node_j]);
@@ -574,9 +574,9 @@ fn assemble_fiber_elements(
     f_int: &mut [f64],
     scatter: &mut impl FnMut(usize, usize, f64),
 ) {
-    let node_by_id: HashMap<usize, &SolverNode> = solver.nodes.values().map(|n| (n.id, n)).collect();
+    let node_by_id: HashMap<usize, &SolverNode> = crate::ordered::values(&solver.nodes).map(|n| (n.id, n)).collect();
 
-    for elem in solver.elements.values() {
+    for elem in crate::ordered::values(&solver.elements) {
         if elem.elem_type == "truss" || elem.elem_type == "cable" { continue; }
 
         let sec_key = elem.section_id.to_string();
@@ -652,11 +652,11 @@ fn assemble_elastic_elements(
     f_int: &mut [f64],
     scatter: &mut impl FnMut(usize, usize, f64),
 ) {
-    let node_by_id: HashMap<usize, &SolverNode> = solver.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: HashMap<usize, &SolverMaterial> = solver.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: HashMap<usize, &SolverSection> = solver.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode> = crate::ordered::values(&solver.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: HashMap<usize, &SolverMaterial> = crate::ordered::values(&solver.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: HashMap<usize, &SolverSection> = crate::ordered::values(&solver.sections).map(|s| (s.id, s)).collect();
 
-    for elem in solver.elements.values() {
+    for elem in crate::ordered::values(&solver.elements) {
         let sec_key = elem.section_id.to_string();
 
         if elem.elem_type == "truss" || elem.elem_type == "cable" {
@@ -838,7 +838,7 @@ pub fn solve_fiber_nonlinear_3d(input: &FiberNonlinearInput3D) -> Result<FiberNo
 
     // Initialize per-element fiber states
     let mut elem_states: HashMap<usize, ElementFiberState> = HashMap::new();
-    for elem in input.solver.elements.values() {
+    for elem in crate::ordered::values(&input.solver.elements) {
         let sec_key = elem.section_id.to_string();
         if let Some(sec) = input.fiber_sections.get(&sec_key) {
             let n_fibers = sec.fibers.len();
@@ -1075,7 +1075,7 @@ pub fn solve_fiber_nonlinear_3d(input: &FiberNonlinearInput3D) -> Result<FiberNo
     fiber_member_forces_3d(&input.solver, &input.fiber_sections, &dof_num, &u_full, &elem_states, n_ip, &mut element_forces);
 
     let mut fiber_status = Vec::new();
-    for elem in input.solver.elements.values() {
+    for elem in crate::ordered::values(&input.solver.elements) {
         if let Some(es) = elem_states.get(&elem.id) {
             let mut max_strain = 0.0_f64;
             let mut max_stress = 0.0_f64;
@@ -1178,11 +1178,11 @@ fn assemble_fiber_elements_3d(
     f_int: &mut [f64],
     scatter: &mut impl FnMut(usize, usize, f64),
 ) {
-    let node_by_id: HashMap<usize, &SolverNode3D> = solver.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: HashMap<usize, &SolverMaterial> = solver.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: HashMap<usize, &SolverSection3D> = solver.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode3D> = crate::ordered::values(&solver.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: HashMap<usize, &SolverMaterial> = crate::ordered::values(&solver.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: HashMap<usize, &SolverSection3D> = crate::ordered::values(&solver.sections).map(|s| (s.id, s)).collect();
 
-    for elem in solver.elements.values() {
+    for elem in crate::ordered::values(&solver.elements) {
         if elem.elem_type == "truss" || elem.elem_type == "cable" { continue; }
 
         let sec_key = elem.section_id.to_string();
@@ -1266,11 +1266,11 @@ fn assemble_elastic_elements_3d(
     f_int: &mut [f64],
     scatter: &mut impl FnMut(usize, usize, f64),
 ) {
-    let node_by_id: HashMap<usize, &SolverNode3D> = solver.nodes.values().map(|n| (n.id, n)).collect();
-    let mat_by_id: HashMap<usize, &SolverMaterial> = solver.materials.values().map(|m| (m.id, m)).collect();
-    let sec_by_id: HashMap<usize, &SolverSection3D> = solver.sections.values().map(|s| (s.id, s)).collect();
+    let node_by_id: HashMap<usize, &SolverNode3D> = crate::ordered::values(&solver.nodes).map(|n| (n.id, n)).collect();
+    let mat_by_id: HashMap<usize, &SolverMaterial> = crate::ordered::values(&solver.materials).map(|m| (m.id, m)).collect();
+    let sec_by_id: HashMap<usize, &SolverSection3D> = crate::ordered::values(&solver.sections).map(|s| (s.id, s)).collect();
 
-    for elem in solver.elements.values() {
+    for elem in crate::ordered::values(&solver.elements) {
         let sec_key = elem.section_id.to_string();
 
         // Skip fiber elements (handled separately)

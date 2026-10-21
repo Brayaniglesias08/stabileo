@@ -125,6 +125,12 @@ export interface ModelSnapshot {
   exports?: ExportRecord[];
   manualEdits?: number[];
   /**
+   * Which build last solved the project (`provenance/solve-stamp.ts`). Absent: not known — a
+   * project saved before stamps existed, read as solved with the oldest version. Adopted on open
+   * like `exports`, never by undo.
+   */
+  solvedWith?: import('../provenance/solve-stamp').SolveStamp;
+  /**
    * The joint designs the project carries — the bolts, plate, weld and battens chosen per node.
    *
    * Choices only; every capacity and every outline is recomputed from the model on read, so a

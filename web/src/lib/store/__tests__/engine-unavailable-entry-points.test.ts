@@ -170,7 +170,7 @@ describe('the remaining entry points route the engine error to the screen', () =
     ['lib/store/steel-optimise.svelte.ts', /engineFailed\(err\)/, /errorDetail/],
     ['lib/store/detailing.svelte.ts', /lastError = errorText\(e\)/, /from '.\/engine-action'/],
     ['lib/store/design-run.svelte.ts', /isEngineUnavailable\(err\)/, /fail\('engine\.unavailable'\)/],
-    ['lib/export/excel.ts', /runEngineActionAsync\(\(\) => exportToExcelWithEngine/, /async function exportToExcelWithEngine/],
+    ['lib/export/excel.ts', /runEngineActionAsync\(\(\) => buildExcelWorkbook/, /export async function buildExcelWorkbook/],
     ['lib/pro/report-export.ts', /runEngineActionAsync\(\(\) => exportReportWithEngine/, /async function exportReportWithEngine/],
     ['lib/store/model.svelte.ts', /engineFailureMessage\(err\)/, /return tp\(m\.key, m\.params \?\? \{\}\);/],
     ['lib/engine/codes/argentina/serviceability.ts', /isEngineUnavailable\(err\)/, /no verificado/],

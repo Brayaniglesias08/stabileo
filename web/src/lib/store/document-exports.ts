@@ -20,6 +20,9 @@
 import { i18n, tp } from '../i18n';
 import { renderReportHtml, renderDrawings, renderSchedule } from '../engine/detailing/document-render';
 import { exportToExcel } from '../export/excel';
+import { captureProvenanceToken, provenanceForExport, ExportChangedError } from './result-provenance';
+import { htmlWithProvenance, dxfWithProvenance } from '../export/provenance-attach';
+import { uiStore } from './ui.svelte';
 import { retouchedIn, withExportLog } from './export-log';
 import type { DocumentModel } from '../engine/detailing/document-model';
 
@@ -42,9 +45,24 @@ interface ExportContext {
   at: string;
 }
 
-export function exportDetailingReport(doc: DocumentModel, ctx: ExportContext): void {
+/**
+ * A detailing export runs inside its log entry (`withExportLog`), so a failure is logged as one.
+ * The project moving while the provenance was prepared is such a failure: nothing was written,
+ * the log says so, and the reader is told.
+ */
+function said(p: Promise<unknown>): Promise<void> {
+  return p.then(() => undefined, (e) => {
+    if (e instanceof ExportChangedError) { uiStore.toast(e.message, 'error'); return; }
+    if (e instanceof Error && e.name === 'NotWritten') return;
+    throw e;
+  });
+}
+
+export function exportDetailingReport(doc: DocumentModel, ctx: ExportContext): Promise<void> {
   const filename = `detailing-rev${doc.revision.number}.html`;
-  withExportLog({ kind: 'report', doc, filename, at: ctx.at }, () => {
+  // Taken now, with the document; checked again once the engine hashes are in.
+  const token = captureProvenanceToken();
+  return said(withExportLog({ kind: 'report', doc, filename, at: ctx.at }, async () => {
     const html = renderReportHtml(
       doc,
       { locale: i18n.locale, projectName: ctx.projectName, retouched: retouchedIn(doc) },
@@ -57,32 +75,47 @@ export function exportDetailingReport(doc: DocumentModel, ctx: ExportContext): v
       )),
     );
     // Printed through the browser rather than a bundled PDF writer: better typography, no
-    // dependency, and the user picks the paper size.
+    // dependency, and the user picks the paper size. The tab is opened inside the click, before
+    // the await: one opened after it is one the pop-up blocker refuses.
     const w = window.open('', '_blank');
-    if (w) { w.document.write(html); w.document.close(); w.focus(); w.print(); }
-    else downloadBlob(filename, 'text/html', html);
-  });
+    let record;
+    try {
+      record = await provenanceForExport(token);
+    } catch (e) {
+      w?.close();
+      throw e;
+    }
+    const withProv = htmlWithProvenance(html, record);
+    if (w) { w.document.write(withProv); w.document.close(); w.focus(); w.print(); }
+    else downloadBlob(filename, 'text/html', withProv);
+  }));
 }
 
-export function exportDetailingDxf(doc: DocumentModel, ctx: ExportContext): void {
+export function exportDetailingDxf(doc: DocumentModel, ctx: ExportContext): Promise<void> {
   const filename = `detailing-rev${doc.revision.number}.dxf`;
-  withExportLog({ kind: 'dxf', doc, filename, at: ctx.at }, () => {
+  const token = captureProvenanceToken();
+  return said(withExportLog({ kind: 'dxf', doc, filename, at: ctx.at }, async () => {
     const set = renderDrawings(doc, {
       locale: i18n.locale, projectName: ctx.projectName, retouched: retouchedIn(doc),
     });
-    downloadBlob(filename, 'application/dxf', set.dxf);
-  });
+    downloadBlob(filename, 'application/dxf', dxfWithProvenance(set.dxf, await provenanceForExport(token)));
+  }));
 }
 
-export function exportDetailingXlsx(doc: DocumentModel, ctx: ExportContext): void {
+export function exportDetailingXlsx(doc: DocumentModel, ctx: ExportContext): Promise<void> {
   const sheets = renderSchedule(doc, {
     locale: i18n.locale, projectName: ctx.projectName, retouched: retouchedIn(doc),
   });
   const filename = `detailing-rev${doc.revision.number}.xlsx`;
-  withExportLog({ kind: 'xlsx', doc, filename, at: ctx.at }, () =>
-    exportToExcel({
+  return said(withExportLog({ kind: 'xlsx', doc, filename, at: ctx.at }, async () => {
+    const written = await exportToExcel({
       filename,
       onlyExtras: true,
       extraSheets: sheets.map((s) => ({ name: s.name, rows: s.aoa })),
-    }));
+    });
+    // Not written (the reader was told why): the log must not record an export that did not happen.
+    if (!written) throw new NotWritten();
+  }));
 }
+
+class NotWritten extends Error { constructor() { super('not written'); this.name = 'NotWritten'; } }

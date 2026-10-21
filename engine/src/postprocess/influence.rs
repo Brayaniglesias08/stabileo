@@ -128,9 +128,9 @@ pub fn compute_influence_line(input: &InfluenceLineInput) -> Result<InfluenceLin
         &IL_FORCES_2D,
         input.target_node_id,
         input.target_element_id,
-        |n| s.nodes.values().any(|x| x.id == n),
-        |n| s.supports.values().any(|x| x.node_id == n),
-        |e| s.elements.values().any(|x| x.id == e),
+        |n| crate::ordered::values(&s.nodes).any(|x| x.id == n),
+        |n| crate::ordered::values(&s.supports).any(|x| x.node_id == n),
+        |e| crate::ordered::values(&s.elements).any(|x| x.id == e),
     )?;
     if input.solver.nodes.len() < 2 {
         return Err("Need at least 2 nodes".into());
@@ -181,13 +181,13 @@ pub fn compute_influence_line(input: &InfluenceLineInput) -> Result<InfluenceLin
     };
 
     // Pre-compute node positions
-    let node_pos: HashMap<usize, (f64, f64)> = input.solver.nodes.values()
+    let node_pos: HashMap<usize, (f64, f64)> = crate::ordered::values(&input.solver.nodes)
         .map(|n| (n.id, (n.x, n.z)))
         .collect();
 
     let mut points = Vec::new();
 
-    for elem in input.solver.elements.values() {
+    for elem in crate::ordered::values(&input.solver.elements) {
         // A missing node is a caller error, not a crash. `prepare` above
         // validates and would already have refused it; this used to `unwrap`
         // on the `None` — panicking, which in WASM takes the whole module down
@@ -393,9 +393,9 @@ pub fn compute_influence_line_3d(input: &InfluenceLineInput3D) -> Result<Influen
         &IL_FORCES_3D,
         input.target_node_id,
         input.target_element_id,
-        |n| s.nodes.values().any(|x| x.id == n),
-        |n| s.supports.values().any(|x| x.node_id == n),
-        |e| s.elements.values().any(|x| x.id == e),
+        |n| crate::ordered::values(&s.nodes).any(|x| x.id == n),
+        |n| crate::ordered::values(&s.supports).any(|x| x.node_id == n),
+        |e| crate::ordered::values(&s.elements).any(|x| x.id == e),
     )?;
     if input.solver.nodes.len() < 2 {
         return Err("Need at least 2 nodes".into());
@@ -455,13 +455,13 @@ pub fn compute_influence_line_3d(input: &InfluenceLineInput3D) -> Result<Influen
         }
     };
 
-    let node_pos: HashMap<usize, (f64, f64, f64)> = input.solver.nodes.values()
+    let node_pos: HashMap<usize, (f64, f64, f64)> = crate::ordered::values(&input.solver.nodes)
         .map(|n| (n.id, (n.x, n.y, n.z)))
         .collect();
 
     let mut points = Vec::new();
 
-    for elem in input.solver.elements.values() {
+    for elem in crate::ordered::values(&input.solver.elements) {
         if elem.elem_type != "frame" && elem.elem_type != "beam" {
             continue; // only traverse frame elements
         }

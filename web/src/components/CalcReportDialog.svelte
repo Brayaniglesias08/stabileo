@@ -14,6 +14,7 @@
   import { loadComponentsText, distributedText, pointOnElementText, thermalText } from '../lib/engine/calc-report-loads';
   import { t, tp, i18n } from '../lib/i18n';
   import { shouldProjectModelToXZ } from '../lib/geometry/coordinate-system';
+  import { captureProvenanceToken, provenanceForExport, provenanceLabels, ensureEngineHashes } from '../lib/store/result-provenance';
 
   let { open = $bindable(false) }: { open: boolean } = $props();
 
@@ -110,6 +111,10 @@
     try {
       // Solved first when there are no results; a failure still gives the report, saying why.
       const solved = await ensureResults();
+      // What the report is taken from, checked again before its provenance is written.
+      const token = captureProvenanceToken();
+      // Started now, so the engine hashes are computed while the figures are drawn.
+      void ensureEngineHashes();
       const figureOptions: FigureOptions = { ...DEFAULT_FIGURE_OPTIONS, style: figStyle, values: figValues, lengths: figLengths, loads: false };
       const figures = await reportFigures(content, solved.ok, figureOptions);
       const data = reportData();
@@ -117,6 +122,9 @@
       data.figures = figures;
       data.kinematics = content.kinematics ? kinematicReportOfModel() : undefined;
       if (!solved.ok) data.solveError = solved.error;
+      // After the solve: the record names the results the report prints.
+      // Throws ExportChangedError (said below, nothing opened) if the project moved meanwhile.
+      data.resultProvenance = { record: await provenanceForExport(token), labels: provenanceLabels() };
       // No tab to be had: the report came as a file, which is said, and the dialog stays.
       if (openCalcReport(data, win) === 'tab') open = false;
       else uiStore.toast(t('calcReport.popupBlocked'), 'info');

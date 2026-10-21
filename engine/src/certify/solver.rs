@@ -337,11 +337,11 @@ pub fn certify_results_2d(input: &SolverInput, results: &AnalysisResults) -> Cer
 }
 
 fn needs_general_2d(input: &SolverInput) -> bool {
-    !input.constraints.is_empty() || input.supports.values().any(|s| s.support_type == "inclinedRoller")
+    !input.constraints.is_empty() || crate::ordered::values(&input.supports).any(|s| s.support_type == "inclinedRoller")
 }
 
 fn needs_general_3d(input: &SolverInput3D) -> bool {
-    !input.constraints.is_empty() || input.supports.values().any(|s| s.is_inclined.unwrap_or(false))
+    !input.constraints.is_empty() || crate::ordered::values(&input.supports).any(|s| s.is_inclined.unwrap_or(false))
 }
 
 /// Single case with constraints and/or inclined supports (see module docs).
@@ -437,7 +437,7 @@ fn rotated_candidate_2d(
     let mut rots = Vec::with_capacity(its.len());
     let mut prescribed = Vec::new();
     for it in its {
-        let sups: Vec<&SolverSupport> = input.supports.values().filter(|s| s.node_id == it.node_id).collect();
+        let sups: Vec<&SolverSupport> = crate::ordered::values(&input.supports).filter(|s| s.node_id == it.node_id).collect();
         let [sup] = sups.as_slice() else {
             return Err(Certificate::uncertified(format!(
                 "unsupported: several supports on inclined node {}",
@@ -654,7 +654,7 @@ fn rotated_candidate_3d(
     let mut rots = Vec::with_capacity(its.len());
     let mut prescribed = Vec::new();
     for it in its {
-        let sups: Vec<&SolverSupport3D> = input.supports.values().filter(|s| s.node_id == it.node_id).collect();
+        let sups: Vec<&SolverSupport3D> = crate::ordered::values(&input.supports).filter(|s| s.node_id == it.node_id).collect();
         let [sup] = sups.as_slice() else {
             return Err(Certificate::uncertified(format!(
                 "unsupported: several supports on inclined node {}",
@@ -793,7 +793,7 @@ pub fn reduced_sparse_2d(
     if !input.constraints.is_empty() {
         return Err(Certificate::uncertified("unsupported: constraints (constrained solver path)"));
     }
-    if input.supports.values().any(|s| s.support_type == "inclinedRoller") {
+    if crate::ordered::values(&input.supports).any(|s| s.support_type == "inclinedRoller") {
         return Err(Certificate::uncertified("unsupported: inclined supports"));
     }
     let dof_num = DofNumbering::build_2d(input);
@@ -823,7 +823,7 @@ fn reduced_sparse_3d_expanded(
     if !input.constraints.is_empty() {
         return Err(Certificate::uncertified("unsupported: constraints (constrained solver path)"));
     }
-    if input.supports.values().any(|s| s.is_inclined.unwrap_or(false)) {
+    if crate::ordered::values(&input.supports).any(|s| s.is_inclined.unwrap_or(false)) {
         return Err(Certificate::uncertified("unsupported: inclined supports"));
     }
     let dof_num = DofNumbering::build_3d(input);

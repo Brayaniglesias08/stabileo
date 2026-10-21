@@ -65,9 +65,9 @@ pub fn solve_winkler_2d(input: &WinklerInput) -> Result<AnalysisResults, String>
 
     // Build O(1) lookup maps
     let node_by_id: HashMap<usize, &SolverNode> =
-        input.solver.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input.solver.nodes).map(|n| (n.id, n)).collect();
     let elem_by_id: HashMap<usize, &SolverElement> =
-        input.solver.elements.values().map(|e| (e.id, e)).collect();
+        crate::ordered::values(&input.solver.elements).map(|e| (e.id, e)).collect();
 
     reject_released_bedded_members_2d(input)?;
 
@@ -182,9 +182,9 @@ pub fn solve_winkler_3d(input: &WinklerInput3D) -> Result<AnalysisResults3D, Str
 
     // Build O(1) lookup maps
     let node_by_id: HashMap<usize, &SolverNode3D> =
-        input_solver.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input_solver.nodes).map(|n| (n.id, n)).collect();
     let elem_by_id: HashMap<usize, &SolverElement3D> =
-        input_solver.elements.values().map(|e| (e.id, e)).collect();
+        crate::ordered::values(&input_solver.elements).map(|e| (e.id, e)).collect();
 
     reject_released_bedded_members_3d(input)?;
     for spring in &input.foundation_springs {
@@ -480,7 +480,7 @@ fn bed_end_forces(kf: f64, l: f64, v: [f64; 4]) -> [f64; 4] {
 fn reject_released_bedded_members_2d(input: &WinklerInput) -> Result<(), String> {
     for spring in &input.foundation_springs {
         if spring.kf == 0.0 { continue; }
-        if let Some(e) = input.solver.elements.values().find(|e| e.id == spring.element_id) {
+        if let Some(e) = crate::ordered::values(&input.solver.elements).find(|e| e.id == spring.element_id) {
             if e.elem_type == "frame" && (e.hinge_start || e.hinge_end) {
                 return Err(format!(
                     "Element {}: a Winkler foundation on a member with a hinged end is not supported \
@@ -496,7 +496,7 @@ fn reject_released_bedded_members_2d(input: &WinklerInput) -> Result<(), String>
 
 fn reject_released_bedded_members_3d(input: &WinklerInput3D) -> Result<(), String> {
     for spring in &input.foundation_springs {
-        if let Some(e) = input.solver.elements.values().find(|e| e.id == spring.element_id) {
+        if let Some(e) = crate::ordered::values(&input.solver.elements).find(|e| e.id == spring.element_id) {
             if e.elem_type != "frame" { continue; }
             // ky beds (v, θz), released by Mz; kz beds (w, θy), released by My.
             let y = spring.ky.unwrap_or(0.0) != 0.0 && (e.release_mz_start || e.release_mz_end);

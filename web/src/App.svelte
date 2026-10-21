@@ -34,7 +34,7 @@
   import {
     loadAutosave, clearAutosave,
     loadWorkspaceFromLocalStorage, saveWorkspaceToLocalStorage,
-    downloadCanvasPNG, downloadDataUrlPNG, noteAxisConventionMigrationIfNeeded, noteBasicSelfWeightRuleIfNeeded,
+    downloadCanvasPNG, downloadDataUrlPNG, onProjectOpened, noteBasicSelfWeightRuleIfNeeded,
     type DedalFile,
   } from './lib/store/file';
   import { requestAutosave } from './lib/store/autosave-service';
@@ -310,6 +310,9 @@
   import StressPickHint from './components/stress/StressPickHint.svelte';
   import ColourScaleLegend from './components/ColourScaleLegend.svelte';
   import SwitchTo2DDialog from './components/SwitchTo2DDialog.svelte';
+  import RecheckNotice from './components/RecheckNotice.svelte';
+  import { prepareExportProvenance, pngWithProvenance } from './lib/export/provenance-attach';
+  import ReproduceDialog from './components/ReproduceDialog.svelte';
   import TabBar from './components/TabBar.svelte';
   import MobileResultsPanel from './components/MobileResultsPanel.svelte';
   import KeyboardShortcuts from './components/KeyboardShortcuts.svelte';
@@ -723,7 +726,7 @@
       modelStore.model.name = autosaveData.name;
       // Same convention note as a .ded open — an autosave predating the metadata
       // is restored under the corrected convention, so warn if it's a legacy 3D model.
-      noteAxisConventionMigrationIfNeeded(autosaveData.snapshot, autosaveData.analysisMode);
+      onProjectOpened(autosaveData.snapshot, autosaveData.analysisMode);
       // Restore analysis mode and axis convention from autosave
       if (autosaveData.analysisMode) uiStore.analysisMode = autosaveData.analysisMode;
       if (autosaveData.axisConvention3D) uiStore.axisConvention3D = autosaveData.axisConvention3D;
@@ -857,12 +860,16 @@
     if (typeof panel === 'string') openBasicPanel(panel, { toggle: false });
   }
 
-  function handleExportPNG() {
+  async function handleExportPNG() {
     // Captioned, with the colour scale drawn into the image (`lib/export/figure.ts`).
     const fig = captureFigure();
-    if (fig) { downloadDataUrlPNG(fig.dataUrl); return; }
-    const canvas = viewportCanvas();
-    if (canvas) downloadCanvasPNG(canvas);
+    const canvas = fig ? null : viewportCanvas();
+    // The picture carries its provenance (a PNG tEXt chunk), prepared like every export's.
+    const record = await prepareExportProvenance();
+    if (!record) return;
+    const embed = (png: Uint8Array) => pngWithProvenance(png, record);
+    if (fig) { downloadDataUrlPNG(fig.dataUrl, embed); return; }
+    if (canvas) downloadCanvasPNG(canvas, embed);
   }
 
   onMount(() => {
@@ -2198,6 +2205,13 @@
   viewport-scoped act.
 -->
 <SwitchTo2DDialog bind:open={uiStore.switchTo2DPrompt} />
+
+<!--
+  The re-check notice for a project last solved with an older version, and the banner that keeps
+  its results marked stale until they are re-run (`lib/store/recheck.svelte.ts`).
+-->
+<RecheckNotice />
+<ReproduceDialog />
 
 <DxfImportDialog
   open={showDxfImport}

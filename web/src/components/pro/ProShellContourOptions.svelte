@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { downloadResultText } from '../../lib/export/provenance-attach';
   /**
    * How the shell contour is drawn (`store/contour-options.svelte.ts`) and the same field read
    * along a line: two points typed or picked on the model, the value sampled between them on the
@@ -9,8 +10,7 @@
   import { contourOptions } from '../../lib/store/contour-options.svelte';
   import { placementStore } from '../../lib/store/placement.svelte';
   import { editPreview } from '../../lib/store/edit-preview.svelte';
-  import { downloadText } from '../../lib/store/file';
-  import { shellContourField } from '../../lib/engine/shell-contour-field';
+    import { shellContourField } from '../../lib/engine/shell-contour-field';
   import { sampleAlongLine, type V3 } from '../../lib/engine/shell-line';
   import { shellComponentMeta, shellComponentLabelKey } from '../../lib/engine/shell-stress';
   import { toCsv } from '../../lib/engine/result-tables';
@@ -55,7 +55,7 @@
 
   function csv() {
     if (!samples) return;
-    downloadText(toCsv(['s (m)', 'x (m)', 'y (m)', 'z (m)', `${meta.key} (${meta.unit})`],
+    void downloadResultText(toCsv(['s (m)', 'x (m)', 'y (m)', 'z (m)', `${meta.key} (${meta.unit})`],
       samples.map((s) => [s.s, s.point[0], s.point[1], s.point[2], s.value ?? ''])), 'shell-line.csv', 'text/csv;charset=utf-8');
   }
 </script>

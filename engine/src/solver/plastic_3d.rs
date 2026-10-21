@@ -190,8 +190,8 @@ fn set_hinge(input: &mut SolverInput3D, m: &Member3, t: f64, on: bool) {
 }
 
 fn local_axes(input: &SolverInput3D, el: &SolverElement3D) -> Option<([f64; 3], [f64; 3], [f64; 3])> {
-    let ni = input.nodes.values().find(|n| n.id == el.node_i)?;
-    let nj = input.nodes.values().find(|n| n.id == el.node_j)?;
+    let ni = crate::ordered::values(&input.nodes).find(|n| n.id == el.node_i)?;
+    let nj = crate::ordered::values(&input.nodes).find(|n| n.id == el.node_j)?;
     Some(element::compute_local_axes_3d(
         ni.x, ni.y, ni.z, nj.x, nj.y, nj.z,
         el.local_yx, el.local_yy, el.local_yz, el.roll_angle,
@@ -324,10 +324,10 @@ fn released_end_rotations(input: &SolverInput3D, key: &str, disp: &HashMap<usize
     if el.elem_type != "frame" || !rel.iter().any(|r| r.1) {
         return [[0.0; 2]; 2];
     }
-    let node = |id: usize| input.nodes.values().find(|n| n.id == id);
+    let node = |id: usize| crate::ordered::values(&input.nodes).find(|n| n.id == id);
     let (Some(ni), Some(nj)) = (node(el.node_i), node(el.node_j)) else { return [[0.0; 2]; 2] };
-    let Some(mat) = input.materials.values().find(|m| m.id == el.material_id) else { return [[0.0; 2]; 2] };
-    let Some(sec) = input.sections.values().find(|s| s.id == el.section_id) else { return [[0.0; 2]; 2] };
+    let Some(mat) = crate::ordered::values(&input.materials).find(|m| m.id == el.material_id) else { return [[0.0; 2]; 2] };
+    let Some(sec) = crate::ordered::values(&input.sections).find(|s| s.id == el.section_id) else { return [[0.0; 2]; 2] };
     let Some((ex, ey, ez)) = local_axes(input, el) else { return [[0.0; 2]; 2] };
     let l = ((nj.x - ni.x).powi(2) + (nj.y - ni.y).powi(2) + (nj.z - ni.z).powi(2)).sqrt();
     let e = mat.e * 1000.0;
@@ -436,7 +436,7 @@ fn increment_to_yield(acc: (f64, f64), unit: (f64, f64), mp: (f64, f64)) -> f64 
 }
 
 fn node_pos(input: &SolverInput3D, id: usize) -> [f64; 3] {
-    input.nodes.values().find(|n| n.id == id).map_or([0.0; 3], |n| [n.x, n.y, n.z])
+    crate::ordered::values(&input.nodes).find(|n| n.id == id).map_or([0.0; 3], |n| [n.x, n.y, n.z])
 }
 
 /// Whether the directions span all of space (Gram determinant of the unit
@@ -489,7 +489,7 @@ fn carry(input: &SolverInput3D) -> Option<AnalysisResults3D> {
     if !balanced(input, &r) {
         return None;
     }
-    let supported: HashSet<usize> = input.supports.values().map(|s| s.node_id).collect();
+    let supported: HashSet<usize> = crate::ordered::values(&input.supports).map(|s| s.node_id).collect();
     r.reactions.retain(|x| supported.contains(&x.node_id));
     Some(r)
 }
@@ -499,10 +499,10 @@ fn with_soft_springs(input: &SolverInput3D) -> SolverInput3D {
     // relative to the softest bending stiffness, so that the springs take a
     // negligible share of the ordinary (elastic) displacements
     let (mut kt, mut kr) = (f64::INFINITY, f64::INFINITY);
-    for el in input.elements.values() {
+    for el in crate::ordered::values(&input.elements) {
         let (Some(mat), Some(sec)) = (
-            input.materials.values().find(|m| m.id == el.material_id),
-            input.sections.values().find(|x| x.id == el.section_id),
+            crate::ordered::values(&input.materials).find(|m| m.id == el.material_id),
+            crate::ordered::values(&input.sections).find(|x| x.id == el.section_id),
         ) else {
             continue;
         };
@@ -518,7 +518,7 @@ fn with_soft_springs(input: &SolverInput3D) -> SolverInput3D {
         (kt, kr) = (1.0, 1.0);
     }
     let (kt, kr) = (1e-10 * kt, 1e-10 * kr);
-    let has: HashSet<usize> = input.supports.values().map(|s| s.node_id).collect();
+    let has: HashSet<usize> = crate::ordered::values(&input.supports).map(|s| s.node_id).collect();
     for sup in out.supports.values_mut() {
         if sup.is_inclined == Some(true) {
             continue;
@@ -531,7 +531,7 @@ fn with_soft_springs(input: &SolverInput3D) -> SolverInput3D {
             }
         }
     }
-    let mut ids: Vec<usize> = input.nodes.values().map(|n| n.id).filter(|id| !has.contains(id)).collect();
+    let mut ids: Vec<usize> = crate::ordered::values(&input.nodes).map(|n| n.id).filter(|id| !has.contains(id)).collect();
     ids.sort();
     for id in ids {
         out.supports.insert(
@@ -573,19 +573,19 @@ fn with_soft_springs(input: &SolverInput3D) -> SolverInput3D {
 /// checked, nor are models with constraints or connectors).
 fn balanced(input: &SolverInput3D, r: &AnalysisResults3D) -> bool {
     let mut skip: HashSet<usize> = HashSet::new();
-    for p in input.plates.values() {
+    for p in crate::ordered::values(&input.plates) {
         skip.extend(p.nodes);
     }
-    for p in input.quads.values() {
+    for p in crate::ordered::values(&input.quads) {
         skip.extend(p.nodes);
     }
-    for p in input.quad9s.values() {
+    for p in crate::ordered::values(&input.quad9s) {
         skip.extend(p.nodes);
     }
-    for p in input.solid_shells.values() {
+    for p in crate::ordered::values(&input.solid_shells) {
         skip.extend(p.nodes);
     }
-    for p in input.curved_shells.values() {
+    for p in crate::ordered::values(&input.curved_shells) {
         skip.extend(p.nodes);
     }
     if !input.constraints.is_empty() || !input.connectors.is_empty() {
@@ -603,7 +603,7 @@ fn balanced(input: &SolverInput3D, r: &AnalysisResults3D) -> bool {
         }
     }
     let by_id: HashMap<usize, &ElementForces3D> = r.element_forces.iter().map(|ef| (ef.element_id, ef)).collect();
-    for el in input.elements.values() {
+    for el in crate::ordered::values(&input.elements) {
         let Some(ef) = by_id.get(&el.id) else { continue };
         let Some((ex, ey, ez)) = local_axes(input, el) else { return false };
         // forces exerted by the nodes on the member, local axes
@@ -662,16 +662,16 @@ fn balanced(input: &SolverInput3D, r: &AnalysisResults3D) -> bool {
 /// Nodes whose rotation a shell element can hold.
 fn rotation_coupled_nodes(input: &SolverInput3D) -> HashSet<usize> {
     let mut out: HashSet<usize> = HashSet::new();
-    for p in input.plates.values() {
+    for p in crate::ordered::values(&input.plates) {
         out.extend(p.nodes);
     }
-    for p in input.quads.values() {
+    for p in crate::ordered::values(&input.quads) {
         out.extend(p.nodes);
     }
-    for p in input.quad9s.values() {
+    for p in crate::ordered::values(&input.quad9s) {
         out.extend(p.nodes);
     }
-    for p in input.curved_shells.values() {
+    for p in crate::ordered::values(&input.curved_shells) {
         out.extend(p.nodes);
     }
     out
@@ -747,7 +747,7 @@ fn solve_plastic_3d_inner(input: &PlasticInput3D) -> Result<PlasticResult3D, Str
     // Curved beams become ordinary frame members first, so that hinges can
     // form on them like on any other member.
     let mut current_input = super::super::linear::expand_curved_beams_3d(&input.solver);
-    let node_xyz: HashMap<usize, [f64; 3]> = current_input.nodes.values().map(|n| (n.id, [n.x, n.y, n.z])).collect();
+    let node_xyz: HashMap<usize, [f64; 3]> = crate::ordered::values(&current_input.nodes).map(|n| (n.id, [n.x, n.y, n.z])).collect();
     let mut members: Vec<Member3> = current_input
         .elements
         .iter()
@@ -776,17 +776,17 @@ fn solve_plastic_3d_inner(input: &PlasticInput3D) -> Result<PlasticResult3D, Str
         })
         .collect();
     members.sort_by_key(|m| m.id);
-    let original_nodes: HashSet<usize> = input.solver.nodes.values().map(|n| n.id).collect();
+    let original_nodes: HashSet<usize> = crate::ordered::values(&input.solver.nodes).map(|n| n.id).collect();
     let mut next_node = node_xyz.keys().max().copied().unwrap_or(0) + 1;
     let mut next_elem = current_input
         .elements
         .values()
         .map(|e| e.id)
-        .chain(current_input.plates.values().map(|p| p.id))
-        .chain(current_input.quads.values().map(|p| p.id))
-        .chain(current_input.quad9s.values().map(|p| p.id))
-        .chain(current_input.solid_shells.values().map(|p| p.id))
-        .chain(current_input.curved_shells.values().map(|p| p.id))
+        .chain(crate::ordered::values(&current_input.plates).map(|p| p.id))
+        .chain(crate::ordered::values(&current_input.quads).map(|p| p.id))
+        .chain(crate::ordered::values(&current_input.quad9s).map(|p| p.id))
+        .chain(crate::ordered::values(&current_input.solid_shells).map(|p| p.id))
+        .chain(crate::ordered::values(&current_input.curved_shells).map(|p| p.id))
         .max()
         .unwrap_or(0)
         + 1;
@@ -1050,7 +1050,7 @@ fn solve_plastic_3d_inner(input: &PlasticInput3D) -> Result<PlasticResult3D, Str
             }
             let mut free = 0;
             let mut axes: Vec<[f64; 3]> = Vec::new();
-            for e in current_input.elements.values().filter(|e| e.elem_type == "frame") {
+            for e in crate::ordered::values(&current_input.elements).filter(|e| e.elem_type == "frame") {
                 for (at, rel_b, rel_t, other) in [
                     (e.node_i, e.release_my_start && e.release_mz_start, e.release_t_start, e.node_j),
                     (e.node_j, e.release_my_end && e.release_mz_end, e.release_t_end, e.node_i),
@@ -1072,7 +1072,7 @@ fn solve_plastic_3d_inner(input: &PlasticInput3D) -> Result<PlasticResult3D, Str
                 *used += 1;
                 return true;
             }
-            for sup in current_input.supports.values().filter(|s| s.node_id == n) {
+            for sup in crate::ordered::values(&current_input.supports).filter(|s| s.node_id == n) {
                 let k = |v: Option<f64>| v.unwrap_or(0.0) > 0.0;
                 if sup.rrx || k(sup.krx) {
                     axes.push([1.0, 0.0, 0.0]);
@@ -1320,7 +1320,7 @@ mod tests {
 fn load_moment_scale_3d(input: &SolverInput3D) -> f64 {
     let mut lo = [f64::INFINITY; 3];
     let mut hi = [f64::NEG_INFINITY; 3];
-    for n in input.nodes.values() {
+    for n in crate::ordered::values(&input.nodes) {
         for (k, v) in [n.x, n.y, n.z].into_iter().enumerate() {
             lo[k] = lo[k].min(v);
             hi[k] = hi[k].max(v);
@@ -1328,9 +1328,9 @@ fn load_moment_scale_3d(input: &SolverInput3D) -> f64 {
     }
     let l = (0..3).map(|k| hi[k] - lo[k]).fold(f64::MIN_POSITIVE, f64::max);
     let len = |id: usize| {
-        input.elements.values().find(|e| e.id == id).and_then(|e| {
-            let a = input.nodes.values().find(|n| n.id == e.node_i)?;
-            let b = input.nodes.values().find(|n| n.id == e.node_j)?;
+        crate::ordered::values(&input.elements).find(|e| e.id == id).and_then(|e| {
+            let a = crate::ordered::values(&input.nodes).find(|n| n.id == e.node_i)?;
+            let b = crate::ordered::values(&input.nodes).find(|n| n.id == e.node_j)?;
             Some(((b.x - a.x).powi(2) + (b.y - a.y).powi(2) + (b.z - a.z).powi(2)).sqrt())
         }).unwrap_or(0.0)
     };

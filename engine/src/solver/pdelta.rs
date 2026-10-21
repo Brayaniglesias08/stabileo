@@ -829,11 +829,11 @@ mod tests {
         let mut input = building(1, 1, false);
         input.nodes = (0..=4).map(|k| ((k + 1).to_string(), SolverNode3D { id: k + 1, x: 0.0, y: 0.0, z: k as f64 })).collect();
         input.elements = (1..=4).map(|k| {
-            let mut e = input.elements.values().next().unwrap().clone();
+            let mut e = crate::ordered::values(&input.elements).next().unwrap().clone();
             e.id = k; e.node_i = k; e.node_j = k + 1; e.section_id = 1;
             (k.to_string(), e)
         }).collect();
-        let fixed = input.supports.values().next().unwrap().clone();
+        let fixed = crate::ordered::values(&input.supports).next().unwrap().clone();
         input.supports = HashMap::from([("1".into(), SolverSupport3D { node_id: 1, ..fixed })]);
         input.loads = vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 5, fx: 0.5, fy: 0.0, fz: -p, mx: 0.0, my: 0.0, mz: 0.0, bw: None })];
         input

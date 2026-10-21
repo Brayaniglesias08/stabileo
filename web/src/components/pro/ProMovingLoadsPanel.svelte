@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { downloadResultText } from '../../lib/export/provenance-attach';
+  import { captureAnalysisProvenance } from '../../lib/store/result-provenance';
+  import type { ResultProvenance } from '../../lib/provenance/result-provenance';
   /**
    * Moving loads in PRO: a train of axles along a path of members (the selection, in order), and
    * each member's envelope over every position (`engine/moving-loads-3d.ts`).
@@ -100,6 +103,7 @@
   let progress = $state({ done: 0, total: 0 });
   let controller: AbortController | null = null;
   let result = $state<MovingEnvelope3D | null>(null);
+  let resultProvenance: ResultProvenance | null = null;
   let error = $state<string | null>(null);
   let sortBy = $state<EnvelopeComponent>('my');
 
@@ -111,7 +115,7 @@
   }
 
   async function run() {
-    error = null; result = null; notes = [];
+    error = null; result = null; resultProvenance = null; notes = [];
     const v = checked();
     if (!v) return;
     // The path names the model's members; one of variable section is cut into pieces for the solve.
@@ -135,13 +139,16 @@
     const path2 = line2?.path2 ?? null;
     notes = (line2?.notes ?? []).map(noteText);
     const trains = vehicleTrains(v, spacingStep);
+    const input = { base: { ...base, loads: [] }, path, trains, step, path2 };
+    const provenance = captureAnalysisProvenance('moving-load envelope', input);
     running = true;
     controller = new AbortController();
     try {
-      result = await sweepTrains3D({ ...base, loads: [] }, path, trains, {
-        step, path2, signal: controller.signal, onProgress: (done, total) => (progress = { done, total }),
+      result = await sweepTrains3D(input.base, input.path, input.trains, {
+        step: input.step, path2: input.path2, signal: controller.signal, onProgress: (done, total) => (progress = { done, total }),
       });
       if (result.positions === 0) { error = t('train.noPositionSolved'); result = null; }
+      if (result) resultProvenance = provenance(result);
     } catch (e) {
       error = e instanceof DOMException && e.name === 'AbortError' ? t('train.analysisCancelled') : String((e as Error).message ?? e);
     } finally {
@@ -182,12 +189,12 @@
   }
 
   function csv() {
-    if (!result) return;
+    if (!result || !resultProvenance) return;
     // SI, each column with its unit.
     const UNIT: Record<EnvelopeComponent, string> = { n: 'kN', vy: 'kN', vz: 'kN', my: 'kN·m', mz: 'kN·m', torsion: 'kN·m' };
     const head = [t('pro.elemLabel'), ...ENVELOPE_COMPONENTS.flatMap((c) => [`${LABEL[c]} max (${UNIT[c]})`, `${LABEL[c]} min (${UNIT[c]})`])];
-    downloadText(toCsv(head, rows.map((r) => [r.id, ...ENVELOPE_COMPONENTS.flatMap((c) => [r.env[c].max.value, r.env[c].min.value])])),
-      'moving-load-envelope.csv', 'text/csv;charset=utf-8');
+    void downloadResultText(toCsv(head, rows.map((r) => [r.id, ...ENVELOPE_COMPONENTS.flatMap((c) => [r.env[c].max.value, r.env[c].min.value])])),
+      'moving-load-envelope.csv', 'text/csv;charset=utf-8', resultProvenance);
   }
 </script>
 

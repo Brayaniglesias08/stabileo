@@ -188,7 +188,7 @@ pub fn of_2d(input: &SolverInput) -> Result<Conditioning, String> {
     };
     let (kr, n) = reduced(&asm.k, &dof, ct);
     let kappa = scaled_condition(&kr, n)?;
-    let pts: Vec<[f64; 3]> = input.nodes.values().map(|p| [p.x, p.z, 0.0]).collect();
+    let pts: Vec<[f64; 3]> = crate::ordered::values(&input.nodes).map(|p| [p.x, p.z, 0.0]).collect();
     let pos = |id: usize| input.nodes.get(&id.to_string()).map(|p| [p.x, p.z]);
     let chords: Vec<f64> = input
         .elements
@@ -211,10 +211,10 @@ pub fn of_3d(input: &SolverInput3D) -> Result<Conditioning, String> {
     };
     let (kr, n) = reduced(&asm.k, &dof, ct);
     let kappa = scaled_condition(&kr, n)?;
-    let pts: Vec<[f64; 3]> = input.nodes.values().map(|p| [p.x, p.y, p.z]).collect();
+    let pts: Vec<[f64; 3]> = crate::ordered::values(&input.nodes).map(|p| [p.x, p.y, p.z]).collect();
     let pos = |id: usize| input.nodes.get(&id.to_string()).map(|p| [p.x, p.y, p.z]);
     let dist = |a: [f64; 3], b: [f64; 3]| ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
-    let mut chords: Vec<f64> = input.elements.values().filter_map(|e| Some(dist(pos(e.node_i)?, pos(e.node_j)?))).collect();
+    let mut chords: Vec<f64> = crate::ordered::values(&input.elements).filter_map(|e| Some(dist(pos(e.node_i)?, pos(e.node_j)?))).collect();
     let mut edges = |ns: &[usize]| {
         for k in 0..ns.len() {
             if let (Some(a), Some(b)) = (pos(ns[k]), pos(ns[(k + 1) % ns.len()])) {
@@ -222,19 +222,19 @@ pub fn of_3d(input: &SolverInput3D) -> Result<Conditioning, String> {
             }
         }
     };
-    for p in input.plates.values() {
+    for p in crate::ordered::values(&input.plates) {
         edges(&p.nodes);
     }
-    for p in input.quads.values() {
+    for p in crate::ordered::values(&input.quads) {
         edges(&p.nodes);
     }
-    for p in input.quad9s.values() {
+    for p in crate::ordered::values(&input.quad9s) {
         edges(&p.nodes[..4]);
     }
-    for p in input.curved_shells.values() {
+    for p in crate::ordered::values(&input.curved_shells) {
         edges(&p.nodes);
     }
-    for p in input.solid_shells.values() {
+    for p in crate::ordered::values(&input.solid_shells) {
         edges(&p.nodes[..4]);
     }
     let (geom, lchar) = geom_factor(&pts, &chords);

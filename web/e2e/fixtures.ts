@@ -1,4 +1,17 @@
+import { readFileSync } from 'node:fs';
 import { test as base, expect, type Page } from '@playwright/test';
+
+/**
+ * A project a spec writes stands for one made in this build: stamped as solved with it, so opening
+ * it raises no re-check notice (`src/lib/store/recheck.svelte.ts`). A spec about that notice
+ * (`recheck-provenance.spec.ts`) leaves the stamp out on purpose.
+ */
+export const CURRENT_STAMP = {
+  id: 'e2e-current',
+  resultsVersion: (JSON.parse(readFileSync(new URL('../src/lib/provenance/result-changes.json', import.meta.url), 'utf8')) as { currentResultsVersion: number }).currentResultsVersion,
+  analyses: [] as string[],
+};
+
 
 /**
  * Shared Playwright fixtures for the RC Design suite.

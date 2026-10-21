@@ -69,13 +69,13 @@ pub fn model_3d(input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
     let mut out = Vec::new();
     if !input.curved_shells.is_empty() {
         let mut d = hit("SH-6", 410, "Curved shells report zero bending moments, and their stresses ignore thermal strain; do not design from curved-shell moments or stresses");
-        d.element_ids = input.curved_shells.values().map(|c| c.id).collect();
+        d.element_ids = crate::ordered::values(&input.curved_shells).map(|c| c.id).collect();
         d.element_kind = Some(ElementKind::CurvedShell);
         out.push(d);
     }
     // One id index for every element check: a lookup per node made the pass O(elements × nodes).
-    let xyz: std::collections::HashMap<usize, [f64; 3]> = input.nodes.values().map(|n| (n.id, [n.x, n.y, n.z])).collect();
-    let warped: Vec<usize> = input.quad9s.values().filter(|q| !planar(&q.nodes, &xyz)).map(|q| q.id).collect();
+    let xyz: std::collections::HashMap<usize, [f64; 3]> = crate::ordered::values(&input.nodes).map(|n| (n.id, [n.x, n.y, n.z])).collect();
+    let warped: Vec<usize> = crate::ordered::values(&input.quad9s).filter(|q| !planar(&q.nodes, &xyz)).map(|q| q.id).collect();
     if !warped.is_empty() {
         let mut d = hit("SH-7", 411, "MITC9 elements on non-planar geometry do not reproduce rigid-body motion, so curved MITC9 meshes carry spurious strains; refine or use flat elements");
         d.element_ids = warped;

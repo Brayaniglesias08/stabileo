@@ -99,7 +99,7 @@ fn solve_nonlinear_material_2d_inner(
 
     // Pre-build lookup maps for O(1) access by ID.
     let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> =
-        solver.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&solver.materials).map(|m| (m.id, m)).collect();
 
     // Initialize element states: all elastic.
     let mut states: Vec<(usize, ElementState)> = solver
@@ -434,13 +434,13 @@ fn secant_member_forces_3d(solver: &SolverInput3D, states: &[(usize, ElementStat
 /// α·Iz, the stiffness `compute_global_internal_forces` balanced. Used to recover member forces.
 fn secant_model_2d(solver: &SolverInput, states: &[(usize, ElementState)]) -> SolverInput {
     let mut m = solver.clone();
-    let mut next = m.sections.values().map(|s| s.id).max().unwrap_or(0) + 1;
+    let mut next = crate::ordered::values(&m.sections).map(|s| s.id).max().unwrap_or(0) + 1;
     for (id, st) in states {
         if !(st.yielded_start || st.yielded_end) {
             continue;
         }
         let Some(e) = m.elements.values_mut().find(|e| e.id == *id && e.elem_type == "frame") else { continue };
-        let Some(sec) = solver.sections.values().find(|s| s.id == e.section_id) else { continue };
+        let Some(sec) = crate::ordered::values(&solver.sections).find(|s| s.id == e.section_id) else { continue };
         let reduced = SolverSection { id: next, iz: st.alpha * sec.iz, ..sec.clone() };
         m.sections.insert(next.to_string(), reduced);
         e.section_id = next;
@@ -452,13 +452,13 @@ fn secant_model_2d(solver: &SolverInput, states: &[(usize, ElementState)]) -> So
 /// As `secant_model_2d`, for 3D: α on both bending inertias.
 fn secant_model_3d(solver: &SolverInput3D, states: &[(usize, ElementState3D)]) -> SolverInput3D {
     let mut m = solver.clone();
-    let mut next = m.sections.values().map(|s| s.id).max().unwrap_or(0) + 1;
+    let mut next = crate::ordered::values(&m.sections).map(|s| s.id).max().unwrap_or(0) + 1;
     for (id, st) in states {
         if !(st.yielded_start || st.yielded_end) {
             continue;
         }
         let Some(e) = m.elements.values_mut().find(|e| e.id == *id && e.elem_type == "frame") else { continue };
-        let Some(sec) = solver.sections.values().find(|s| s.id == e.section_id) else { continue };
+        let Some(sec) = crate::ordered::values(&solver.sections).find(|s| s.id == e.section_id) else { continue };
         let reduced = SolverSection3D { id: next, iy: st.alpha * sec.iy, iz: st.alpha * sec.iz, ..sec.clone() };
         m.sections.insert(next.to_string(), reduced);
         e.section_id = next;
@@ -548,15 +548,15 @@ fn assemble_tangent_stiffness_scatter(
 ) {
 
     let node_by_id: std::collections::HashMap<usize, &SolverNode> =
-        solver.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&solver.nodes).map(|n| (n.id, n)).collect();
     let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> =
-        solver.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&solver.materials).map(|m| (m.id, m)).collect();
     let sec_by_id: std::collections::HashMap<usize, &SolverSection> =
-        solver.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&solver.sections).map(|s| (s.id, s)).collect();
 
     let mut scatter_diag = |gi: usize, gj: usize, v: f64| scatter(gi, gj, v);
 
-    for elem in solver.elements.values() {
+    for elem in crate::ordered::values(&solver.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let mat = mat_by_id[&elem.material_id];
@@ -661,13 +661,13 @@ fn compute_global_internal_forces(
     let mut f_int = vec![0.0; n];
 
     let node_by_id: std::collections::HashMap<usize, &SolverNode> =
-        solver.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&solver.nodes).map(|n| (n.id, n)).collect();
     let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> =
-        solver.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&solver.materials).map(|m| (m.id, m)).collect();
     let sec_by_id: std::collections::HashMap<usize, &SolverSection> =
-        solver.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&solver.sections).map(|s| (s.id, s)).collect();
 
-    for elem in solver.elements.values() {
+    for elem in crate::ordered::values(&solver.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let mat = mat_by_id[&elem.material_id];
@@ -771,7 +771,7 @@ fn update_element_states(
     let element_forces = super::linear::compute_internal_forces_2d(solver, dof_num, u);
 
     let elem_by_id: std::collections::HashMap<usize, &SolverElement> =
-        solver.elements.values().map(|e| (e.id, e)).collect();
+        crate::ordered::values(&solver.elements).map(|e| (e.id, e)).collect();
 
     for ef in &element_forces {
         let elem = match elem_by_id.get(&ef.element_id) {
@@ -876,7 +876,7 @@ fn build_element_status(
     let mut statuses = Vec::new();
 
     let elem_by_id: std::collections::HashMap<usize, &SolverElement> =
-        solver.elements.values().map(|e| (e.id, e)).collect();
+        crate::ordered::values(&solver.elements).map(|e| (e.id, e)).collect();
 
     for ef in element_forces {
         let elem = match elem_by_id.get(&ef.element_id) {
@@ -1015,7 +1015,7 @@ fn solve_nonlinear_material_3d_inner(
 
     // Pre-build lookup map for O(1) access by ID.
     let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> =
-        solver.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&solver.materials).map(|m| (m.id, m)).collect();
 
     // Initialize element states: all elastic.
     let mut states: Vec<(usize, ElementState3D)> = solver
@@ -1346,13 +1346,13 @@ fn assemble_tangent_stiffness_3d_scatter(
     let left_hand = solver.left_hand.unwrap_or(false);
 
     let node_by_id: std::collections::HashMap<usize, &SolverNode3D> =
-        solver.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&solver.nodes).map(|n| (n.id, n)).collect();
     let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> =
-        solver.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&solver.materials).map(|m| (m.id, m)).collect();
     let sec_by_id: std::collections::HashMap<usize, &SolverSection3D> =
-        solver.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&solver.sections).map(|s| (s.id, s)).collect();
 
-    for elem in solver.elements.values() {
+    for elem in crate::ordered::values(&solver.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let mat = mat_by_id[&elem.material_id];
@@ -1451,7 +1451,7 @@ fn assemble_tangent_stiffness_3d_scatter(
     }
 
     // Add spring stiffness contributions.
-    for sup in solver.supports.values() {
+    for sup in crate::ordered::values(&solver.supports) {
         let spring_dofs: [(usize, Option<f64>); 6] = [
             (0, sup.kx), (1, sup.ky), (2, sup.kz),
             (3, sup.krx), (4, sup.kry), (5, sup.krz),
@@ -1487,13 +1487,13 @@ fn compute_global_internal_forces_3d(
     let left_hand = solver.left_hand.unwrap_or(false);
 
     let node_by_id: std::collections::HashMap<usize, &SolverNode3D> =
-        solver.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&solver.nodes).map(|n| (n.id, n)).collect();
     let mat_by_id: std::collections::HashMap<usize, &SolverMaterial> =
-        solver.materials.values().map(|m| (m.id, m)).collect();
+        crate::ordered::values(&solver.materials).map(|m| (m.id, m)).collect();
     let sec_by_id: std::collections::HashMap<usize, &SolverSection3D> =
-        solver.sections.values().map(|s| (s.id, s)).collect();
+        crate::ordered::values(&solver.sections).map(|s| (s.id, s)).collect();
 
-    for elem in solver.elements.values() {
+    for elem in crate::ordered::values(&solver.elements) {
         let node_i = node_by_id[&elem.node_i];
         let node_j = node_by_id[&elem.node_j];
         let mat = mat_by_id[&elem.material_id];
@@ -1601,7 +1601,7 @@ fn compute_global_internal_forces_3d(
     }
 
     // Add spring force contributions.
-    for sup in solver.supports.values() {
+    for sup in crate::ordered::values(&solver.supports) {
         let spring_dofs: [(usize, Option<f64>); 6] = [
             (0, sup.kx), (1, sup.ky), (2, sup.kz),
             (3, sup.krx), (4, sup.kry), (5, sup.krz),
@@ -1649,7 +1649,7 @@ fn update_element_states_3d(
     let element_forces = super::linear::compute_internal_forces_3d(solver, dof_num, u);
 
     let elem_by_id: std::collections::HashMap<usize, &SolverElement3D> =
-        solver.elements.values().map(|e| (e.id, e)).collect();
+        crate::ordered::values(&solver.elements).map(|e| (e.id, e)).collect();
 
     for ef in &element_forces {
         let elem = match elem_by_id.get(&ef.element_id) {
@@ -1713,7 +1713,7 @@ fn build_element_status_3d(
     let mut statuses = Vec::new();
 
     let elem_by_id: std::collections::HashMap<usize, &SolverElement3D> =
-        solver.elements.values().map(|e| (e.id, e)).collect();
+        crate::ordered::values(&solver.elements).map(|e| (e.id, e)).collect();
 
     for ef in element_forces {
         let elem = match elem_by_id.get(&ef.element_id) {

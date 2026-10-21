@@ -414,6 +414,9 @@
           <button class="file-btn" onclick={() => showCalcReport = true} title={t('project.exportPdfTooltip')}>
             PDF
           </button>
+          <button class="file-btn" onclick={() => window.dispatchEvent(new Event('stabileo-reproduce'))} title={t('provenance.reproduce.intro')} data-testid="open-reproduce">
+            {t('provenance.reproduce.menu')}
+          </button>
         </div>
       </div>
       {@render helpPanel('exp-report', 'project.exportReport', 'project.exportReportHelp')}

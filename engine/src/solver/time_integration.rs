@@ -95,7 +95,7 @@ fn solve_time_history_2d_inner(
                 return Err("Force history contains a non-finite time value".to_string());
             }
             for l in &rec.loads {
-                if !input.solver.nodes.values().any(|n| n.id == l.node_id) {
+                if !crate::ordered::values(&input.solver.nodes).any(|n| n.id == l.node_id) {
                     return Err(format!("Force history load: node {} does not exist", l.node_id));
                 }
                 if [l.fx, l.fz, l.my].into_iter().any(|v| !v.is_finite()) {
@@ -1109,7 +1109,7 @@ fn solve_time_history_3d_inner(
                 return Err("Force history contains a non-finite time value".to_string());
             }
             for l in &rec.loads {
-                if !input.solver.nodes.values().any(|n| n.id == l.node_id) {
+                if !crate::ordered::values(&input.solver.nodes).any(|n| n.id == l.node_id) {
                     return Err(format!("Force history load: node {} does not exist", l.node_id));
                 }
                 if [l.fx, l.fy, l.fz, l.mx, l.my, l.mz].into_iter().any(|v| !v.is_finite())

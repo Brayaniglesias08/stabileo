@@ -137,6 +137,8 @@ test.describe('Básico exports', () => {
     await page.getByTestId('calc-report-lengths').check();
     const [report] = await Promise.all([page.waitForEvent('popup'), page.getByTestId('calc-report-generate').click()]);
     await report.waitForLoadState();
+    // The tab opens inside the click and the report arrives once it is built: wait for it.
+    await expect(report.locator('h1#sec-kinematics')).toBeVisible({ timeout: 60_000 });
     const lengthTexts = await report.locator('figure.result-fig svg text').evaluateAll((ts) => ts.filter((x) => /^\d+\.\d{2} m$/.test(x.textContent ?? '')).length);
     expect(lengthTexts).toBeGreaterThan(0);
     await expect(report.locator('h1#sec-kinematics')).toBeVisible();

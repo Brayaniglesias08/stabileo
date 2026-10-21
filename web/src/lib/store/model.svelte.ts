@@ -49,7 +49,7 @@ import { inferLoadCaseType } from '../engine/combinations-service';
 import { addsLoop, singleSolveModel } from '../engine/case-effects';
 import { t, tp } from '../i18n';
 import { GRAVITY_SELF_WEIGHT, planSelfWeight, type SelfWeightLoad } from '../engine/analysis-settings';
-import { type ModelData, shouldEmbedFlat2DModelIn3D, validateAndSolve2D, validateAndSolve2DAsync, buildSolverInput2D, validateAndSolve3D, validateAndSolve3DAsync, buildSolverInput3D as buildSolverInput3DFn, solveCombinations2D, solveCombinations3D as solveCombinations3DFn, solveCombinations3DParallel as solveCombinations3DParallelFn } from '../engine/solver-service';
+import { type ModelData, shouldEmbedFlat2DModelIn3D, validateAndSolve2D, validateAndSolve2DAsync, buildSolverInput2D, validateAndSolve3D, validateAndSolve3DAsync, linearSolveInput3D, buildSolverInput3D as buildSolverInput3DFn, solveCombinations2D, solveCombinations3D as solveCombinations3DFn, solveCombinations3DParallel as solveCombinations3DParallelFn } from '../engine/solver-service';
 import { computeInfluenceLine as computeInfluenceLineFn } from '../engine/influence-service';
 import { checkStretch, checkPosition, editKeepsPlace, loadedLength } from '../model/loads/load-stretch';
 import { to2D, remapNodalLoad2D, remapMoment2D, type DrawPlane } from '../geometry/plane-projection';
@@ -1171,7 +1171,7 @@ function createModelStore() {
    * store already solves it for its other cross-store hooks.
    */
   let _captureProvenance:
-    (() => Pick<ModelSnapshot, 'exports' | 'manualEdits'>) | null = null;
+    (() => Pick<ModelSnapshot, 'exports' | 'manualEdits' | 'solvedWith'>) | null = null;
 
   const normalize2DSupportType = (type: SupportType): SupportType =>
     type === 'rollerY' ? 'rollerZ' : type;
@@ -2222,7 +2222,7 @@ function createModelStore() {
       return result;
     },
 
-    _setCaptureProvenance(fn: () => Pick<ModelSnapshot, 'exports' | 'manualEdits'>): void {
+    _setCaptureProvenance(fn: () => Pick<ModelSnapshot, 'exports' | 'manualEdits' | 'solvedWith'>): void {
       _captureProvenance = fn;
     },
 
@@ -4353,6 +4353,20 @@ function createModelStore() {
 
     /** Async 3D solve via the worker pool (UI stays responsive). Same result
      *  shape and string-error semantics as solve3D(). */
+    /** The engine input of a direct single solve of the model, without solving (`linearSolveInput3D`). */
+    singleSolveInput3D(includeSelfWeight = false, leftHand = false, isPro = false) {
+      if (this.hasSlidingJoints()) return null;
+      return linearSolveInput3D(
+        singleSolveModel({ nodes: model.nodes, elements: model.elements, supports: model.supports,
+          loads: model.loads, materials: model.materials, sections: model.sections, analysis: analysisFor(isPro, includeSelfWeight), groups: model.groups,
+          plates: isPro ? model.plates : undefined,
+          quads: isPro ? model.quads : undefined,
+          constraints: isPro ? model.constraints : undefined,
+          connectors: isPro ? model.connectors : undefined }, model.loadCases),
+        includeSelfWeight, leftHand,
+      );
+    },
+
     async solve3DAsync(includeSelfWeight = false, leftHand = false, isPro = false): Promise<AnalysisResults3D | string | null> {
       if (this.hasSlidingJoints()) return t('advanced.sliding3dUnsupported');
       return validateAndSolve3DAsync(

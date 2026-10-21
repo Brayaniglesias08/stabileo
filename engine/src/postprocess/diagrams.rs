@@ -283,9 +283,9 @@ pub fn compute_diagrams_2d(
     // O(1) lookups once — the per-element .values().find() scans made this
     // O(E·(E+N)) per call on big models.
     let elem_by_id: std::collections::HashMap<usize, &crate::types::SolverElement> =
-        input.elements.values().map(|e| (e.id, e)).collect();
+        crate::ordered::values(&input.elements).map(|e| (e.id, e)).collect();
     let node_by_id: std::collections::HashMap<usize, &crate::types::SolverNode> =
-        input.nodes.values().map(|n| (n.id, n)).collect();
+        crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
 
     for ef in &results.element_forces {
         let (node_ix, node_iy, node_jx, node_jy) = if let Some(elem) = elem_by_id.get(&ef.element_id) {

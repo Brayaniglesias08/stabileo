@@ -20,7 +20,7 @@ export interface ProjectWorkbookInput {
   projectName: string;
   projectInfo?: ProjectInfo | null;
   /** When it was written (ISO 8601) and from which build. */
-  meta: { exported: string; commit: string };
+  meta: { exported: string; commit: string; provenance?: ReadonlyArray<readonly [string, string]> };
   results: ResultSheetsInput;
   /** Translation, for the cover's and the conventions' text. */
   tr: (key: string) => string;
@@ -58,6 +58,8 @@ function coverSheet(input: ProjectWorkbookInput): WorkbookSheet {
   add('cases', input.model.loadCases.length);
   add('combinations', combos);
   for (const c of input.model.loadCases) rows.push([`${tr('wb.cover.case')} ${c.id}`, safeText(`${c.name} (${c.type})`)]);
+  // Which build produced the results from which model and settings (`provenance/result-provenance.ts`).
+  for (const [k, v] of input.meta.provenance ?? []) rows.push([safeText(k), safeText(v)]);
   return { name: 'Cover', rows };
 }
 

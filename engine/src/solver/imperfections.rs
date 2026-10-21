@@ -42,8 +42,8 @@ fn lumped_nodal_forces_2d(input: &SolverInput) -> BTreeMap<usize, [f64; 2]> {
         v[0] += f[0];
         v[1] += f[1];
     };
-    let nodes: HashMap<usize, &SolverNode> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let elems: HashMap<usize, &SolverElement> = input.elements.values().map(|e| (e.id, e)).collect();
+    let nodes: HashMap<usize, &SolverNode> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let elems: HashMap<usize, &SolverElement> = crate::ordered::values(&input.elements).map(|e| (e.id, e)).collect();
     let axes = |id: usize| -> Option<(usize, usize, f64, f64, f64)> {
         let e = elems.get(&id)?;
         let (ni, nj) = (nodes.get(&e.node_i)?, nodes.get(&e.node_j)?);
@@ -104,8 +104,8 @@ fn lumped_nodal_forces_3d(input: &SolverInput3D) -> BTreeMap<usize, [f64; 3]> {
         }
     };
     let left_hand = input.left_hand.unwrap_or(false);
-    let nodes: HashMap<usize, &SolverNode3D> = input.nodes.values().map(|n| (n.id, n)).collect();
-    let elems: HashMap<usize, &SolverElement3D> = input.elements.values().map(|e| (e.id, e)).collect();
+    let nodes: HashMap<usize, &SolverNode3D> = crate::ordered::values(&input.nodes).map(|n| (n.id, n)).collect();
+    let elems: HashMap<usize, &SolverElement3D> = crate::ordered::values(&input.elements).map(|e| (e.id, e)).collect();
     let axes = |id: usize| -> Option<(usize, usize, f64, [f64; 3], [f64; 3], [f64; 3])> {
         let e = elems.get(&id)?;
         let (ni, nj) = (nodes.get(&e.node_i)?, nodes.get(&e.node_j)?);
@@ -267,7 +267,7 @@ fn refuse_empty_notional(k: usize, total: f64, grav_name: &str) -> Result<(), St
 /// The 2D imperfection analysis: node offsets, then notional loads, then a linear solve.
 /// Refuses what it would not apply rather than solving without it.
 pub fn solve_with_imperfections_2d(mut solver: SolverInput, imp: &ImperfectionInput) -> Result<AnalysisResults, String> {
-    let ids: std::collections::HashSet<usize> = solver.nodes.values().map(|n| n.id).collect();
+    let ids: std::collections::HashSet<usize> = crate::ordered::values(&solver.nodes).map(|n| n.id).collect();
     refuse_unapplied_imperfections(imp, |id| ids.contains(&id), 2)?;
     apply_geometric_imperfections_2d(&mut solver, &imp.node_imperfections);
     let mut added = Vec::new();
@@ -283,7 +283,7 @@ pub fn solve_with_imperfections_2d(mut solver: SolverInput, imp: &ImperfectionIn
 
 /// The 3D imperfection analysis: node offsets, then notional loads, then a linear solve.
 pub fn solve_with_imperfections_3d(mut solver: SolverInput3D, imp: &ImperfectionInput) -> Result<AnalysisResults3D, String> {
-    let ids: std::collections::HashSet<usize> = solver.nodes.values().map(|n| n.id).collect();
+    let ids: std::collections::HashSet<usize> = crate::ordered::values(&solver.nodes).map(|n| n.id).collect();
     refuse_unapplied_imperfections(imp, |id| ids.contains(&id), 3)?;
     if !imp.notional_loads.is_empty() {
         let shell_load = solver.loads.iter().any(|l| matches!(l,

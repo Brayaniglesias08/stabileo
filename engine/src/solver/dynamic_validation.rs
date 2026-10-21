@@ -6,18 +6,18 @@ use std::collections::{HashMap, HashSet};
 /// Material ids referenced by any 2D element — the only ids whose density
 /// actually contributes mass to the assembled model.
 pub(crate) fn referenced_material_ids_2d(input: &SolverInput) -> HashSet<usize> {
-    input.elements.values().map(|e| e.material_id).collect()
+    crate::ordered::values(&input.elements).map(|e| e.material_id).collect()
 }
 
 /// Material ids referenced by any 3D element, including shell families
 /// (plates/quads/quad9s/solid-shells/curved-shells), which carry mass too.
 pub(crate) fn referenced_material_ids_3d(input: &SolverInput3D) -> HashSet<usize> {
-    let mut ids: HashSet<usize> = input.elements.values().map(|e| e.material_id).collect();
-    ids.extend(input.plates.values().map(|p| p.material_id));
-    ids.extend(input.quads.values().map(|q| q.material_id));
-    ids.extend(input.quad9s.values().map(|q| q.material_id));
-    ids.extend(input.solid_shells.values().map(|s| s.material_id));
-    ids.extend(input.curved_shells.values().map(|c| c.material_id));
+    let mut ids: HashSet<usize> = crate::ordered::values(&input.elements).map(|e| e.material_id).collect();
+    ids.extend(crate::ordered::values(&input.plates).map(|p| p.material_id));
+    ids.extend(crate::ordered::values(&input.quads).map(|q| q.material_id));
+    ids.extend(crate::ordered::values(&input.quad9s).map(|q| q.material_id));
+    ids.extend(crate::ordered::values(&input.solid_shells).map(|s| s.material_id));
+    ids.extend(crate::ordered::values(&input.curved_shells).map(|c| c.material_id));
     ids.extend(input.curved_beams.iter().map(|c| c.material_id));
     ids
 }
@@ -65,8 +65,8 @@ fn check_mass_value(what: &str, v: f64) -> Result<(), String> {
 /// Nodal and line masses of a 2D model: on existing nodes and members,
 /// finite and non-negative. Returns whether any of them is positive.
 fn validate_masses_2d(input: &SolverInput) -> Result<bool, String> {
-    let nodes: HashSet<usize> = input.nodes.values().map(|n| n.id).collect();
-    let elems: HashMap<usize, &crate::types::SolverElement> = input.elements.values().map(|e| (e.id, e)).collect();
+    let nodes: HashSet<usize> = crate::ordered::values(&input.nodes).map(|n| n.id).collect();
+    let elems: HashMap<usize, &crate::types::SolverElement> = crate::ordered::values(&input.elements).map(|e| (e.id, e)).collect();
     let mut any = false;
     for nm in &input.masses.nodal {
         if !nodes.contains(&nm.node_id) {
@@ -92,8 +92,8 @@ fn validate_masses_2d(input: &SolverInput) -> Result<bool, String> {
 /// An area mass names a plate, quad, quad9 or curved shell with a positive
 /// thickness (it is spread over that thickness).
 fn validate_masses_3d(input: &SolverInput3D) -> Result<bool, String> {
-    let nodes: HashSet<usize> = input.nodes.values().map(|n| n.id).collect();
-    let elems: HashSet<usize> = input.elements.values().map(|e| e.id).collect();
+    let nodes: HashSet<usize> = crate::ordered::values(&input.nodes).map(|n| n.id).collect();
+    let elems: HashSet<usize> = crate::ordered::values(&input.elements).map(|e| e.id).collect();
     let mut any = false;
     for nm in &input.masses.nodal {
         if !nodes.contains(&nm.node_id) {
@@ -123,10 +123,10 @@ fn validate_masses_3d(input: &SolverInput3D) -> Result<bool, String> {
         Default::default()
     } else {
         (
-            by_id(&mut input.quads.values().map(|q| (q.id, q.thickness))),
-            by_id(&mut input.plates.values().map(|q| (q.id, q.thickness))),
-            by_id(&mut input.quad9s.values().map(|q| (q.id, q.thickness))),
-            by_id(&mut input.curved_shells.values().map(|q| (q.id, q.thickness))),
+            by_id(&mut crate::ordered::values(&input.quads).map(|q| (q.id, q.thickness))),
+            by_id(&mut crate::ordered::values(&input.plates).map(|q| (q.id, q.thickness))),
+            by_id(&mut crate::ordered::values(&input.quad9s).map(|q| (q.id, q.thickness))),
+            by_id(&mut crate::ordered::values(&input.curved_shells).map(|q| (q.id, q.thickness))),
         )
     };
     for am in &input.masses.area {

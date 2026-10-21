@@ -512,9 +512,9 @@ fn solve_multi_case_2d_per_case(input: &MultiCaseInput) -> Result<MultiCaseResul
 }
 
 fn has_settlement_2d(s: &SolverInput) -> bool {
-    s.supports.values().any(|x| [x.dx, x.dz, x.dry].iter().any(|d| d.is_some_and(|v| v != 0.0)))
+    crate::ordered::values(&s.supports).any(|x| [x.dx, x.dz, x.dry].iter().any(|d| d.is_some_and(|v| v != 0.0)))
 }
 
 fn has_settlement_3d(s: &SolverInput3D) -> bool {
-    s.supports.values().any(|x| [x.dx, x.dy, x.dz, x.drx, x.dry, x.drz].iter().any(|d| d.is_some_and(|v| v != 0.0)))
+    crate::ordered::values(&s.supports).any(|x| [x.dx, x.dy, x.dz, x.drx, x.dry, x.drz].iter().any(|d| d.is_some_and(|v| v != 0.0)))
 }

@@ -305,6 +305,10 @@
         <button class="pp-btn" onclick={() => fileInput?.click()}
                 data-testid="pp-open">{t('project.open')}</button>
       </HelpTip>
+      <HelpTip text={t('provenance.reproduce.intro')}>
+        <button class="pp-btn" onclick={() => window.dispatchEvent(new Event('stabileo-reproduce'))}
+                data-testid="pp-reproduce">{t('provenance.reproduce.menu')}</button>
+      </HelpTip>
       <HelpTip text={linkTooLong ? tp('project.linkTooLong', { n: proLink?.length ?? 0 }) : t('project.copyLinkTooltip')}>
         <button
           class="pp-btn"

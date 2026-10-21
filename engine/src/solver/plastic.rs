@@ -397,10 +397,10 @@ fn released_end_rotations(input: &SolverInput, key: &str, disp: &HashMap<usize, 
     if el.elem_type != "frame" || !(el.hinge_start || el.hinge_end) {
         return [0.0; 2];
     }
-    let node = |id: usize| input.nodes.values().find(|n| n.id == id);
+    let node = |id: usize| crate::ordered::values(&input.nodes).find(|n| n.id == id);
     let (Some(ni), Some(nj)) = (node(el.node_i), node(el.node_j)) else { return [0.0; 2] };
-    let Some(mat) = input.materials.values().find(|m| m.id == el.material_id) else { return [0.0; 2] };
-    let Some(sec) = input.sections.values().find(|s| s.id == el.section_id) else { return [0.0; 2] };
+    let Some(mat) = crate::ordered::values(&input.materials).find(|m| m.id == el.material_id) else { return [0.0; 2] };
+    let Some(sec) = crate::ordered::values(&input.sections).find(|s| s.id == el.section_id) else { return [0.0; 2] };
     let (dx, dz) = (nj.x - ni.x, nj.z - ni.z);
     let l = (dx * dx + dz * dz).sqrt();
     let (c, s) = (dx / l, dz / l);
@@ -619,7 +619,7 @@ pub fn solve_plastic_2d(input: &PlasticInput) -> Result<PlasticResult, String> {
     }
 
     let mut current_input = solver_input.clone();
-    let node_xy: HashMap<usize, (f64, f64)> = current_input.nodes.values().map(|n| (n.id, (n.x, n.z))).collect();
+    let node_xy: HashMap<usize, (f64, f64)> = crate::ordered::values(&current_input.nodes).map(|n| (n.id, (n.x, n.z))).collect();
     let mut members: Vec<Member> = current_input
         .elements
         .iter()
@@ -672,7 +672,7 @@ pub fn solve_plastic_2d(input: &PlasticInput) -> Result<PlasticResult, String> {
             Constraint::LinearMPC(m) => rot_restrained.extend(m.terms.iter().map(|t| t.node_id)),
         }
     }
-    rot_restrained.extend(current_input.connectors.values().flat_map(|c| [c.node_i, c.node_j]));
+    rot_restrained.extend(crate::ordered::values(&current_input.connectors).flat_map(|c| [c.node_i, c.node_j]));
 
     let mut cumulative_factor = 0.0;
     let mut all_hinges: Vec<PlasticHinge> = Vec::new();
@@ -1030,13 +1030,13 @@ pub(crate) const NO_MECHANICAL_LOAD: &str = "Plastic (pushover) analysis needs a
 
 /// Σ|load| × model size: the moment scale the loads can produce.
 fn load_moment_scale_2d(input: &SolverInput) -> f64 {
-    let xs: Vec<(f64, f64)> = input.nodes.values().map(|n| (n.x, n.z)).collect();
+    let xs: Vec<(f64, f64)> = crate::ordered::values(&input.nodes).map(|n| (n.x, n.z)).collect();
     let ext = |f: fn(&(f64, f64)) -> f64| xs.iter().map(f).fold(f64::NEG_INFINITY, f64::max) - xs.iter().map(f).fold(f64::INFINITY, f64::min);
     let l = ext(|p| p.0).max(ext(|p| p.1)).max(f64::MIN_POSITIVE);
     let len = |id: usize| {
-        input.elements.values().find(|e| e.id == id).and_then(|e| {
-            let a = input.nodes.values().find(|n| n.id == e.node_i)?;
-            let b = input.nodes.values().find(|n| n.id == e.node_j)?;
+        crate::ordered::values(&input.elements).find(|e| e.id == id).and_then(|e| {
+            let a = crate::ordered::values(&input.nodes).find(|n| n.id == e.node_i)?;
+            let b = crate::ordered::values(&input.nodes).find(|n| n.id == e.node_j)?;
             Some(((b.x - a.x).powi(2) + (b.z - a.z).powi(2)).sqrt())
         }).unwrap_or(0.0)
     };

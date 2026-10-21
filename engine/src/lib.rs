@@ -14,6 +14,8 @@ pub mod certify;
 pub mod sanity;
 pub mod metamorphic;
 pub mod known_issues;
+pub mod reproduce;
+pub mod ordered;
 #[cfg(kani)]
 mod kani_proofs;
 
@@ -51,6 +53,25 @@ fn from_js_value<T: serde::de::DeserializeOwned>(value: JsValue) -> Result<T, Js
 #[wasm_bindgen]
 pub fn review_model_sanity(json: &str) -> Result<String, JsValue> {
     sanity::review_json(json).map_err(|e| JsValue::from_str(&e))
+}
+
+/// Which engine this is: `{"engineVersion": CARGO_PKG_VERSION, "engineCommit": <git commit>}`.
+/// The web app records it in the provenance of every result and report.
+#[wasm_bindgen]
+pub fn engine_build_info() -> String {
+    serde_json::json!({
+        "engineVersion": env!("CARGO_PKG_VERSION"),
+        "engineCommit": env!("STABILEO_ENGINE_COMMIT"),
+    })
+    .to_string()
+}
+
+/// Solve a linear model and hash its input and result for reproduction
+/// (`reproduce::linear_hashes`). JSON in → `ReproduceHashes` JSON out.
+#[wasm_bindgen]
+pub fn engine_reproduce_hashes(json: &str, is_3d: bool) -> Result<String, JsValue> {
+    let h = reproduce::linear_hashes(json, is_3d).map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&h).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 /// Solve 2D linear static analysis. JsValue in → JsValue out (hot path).

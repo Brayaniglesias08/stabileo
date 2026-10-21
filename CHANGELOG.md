@@ -36,6 +36,25 @@ from such a node, is held by the artificial spring and the assembled-level certi
 certifies a model that has no solution.
 ### Changed
 
+#### Re-check prompt for old projects; provenance-stamped, reproducible results (2026-10-18)
+
+**Results move in the last bits:** the engine now iterates its inputs in a fixed order, so a model
+solves to the same bits every time; before, two solves of the same model in one session could
+differ in the last digits (2D displacements, equilibrium sums, inclined-support models) and list
+3D plate stresses in a different order. See `docs/verification/PROVENANCE.md`.
+
+- `web/src/lib/provenance/result-changes.json`: machine-readable registry of result-affecting
+  changes (results version, model features, en/es/pt explanation, changelog link), seeded with
+  the October 2026 safety wave and the earlier BREAKING entries.
+- Projects record which build last solved them (`snapshot.solvedWith`). Opening one solved with
+  an older version lists the registered changes that concern that model in a notice that stays
+  until acknowledged, with "Re-run analysis and design"; results stay marked stale until re-run.
+- Every report (calc, PRO), workbook cover and CSV prints a provenance block: app and engine
+  version and commit, WASM hash, model/settings/results hashes, engine input and result hashes,
+  certificate hashes, stale flag. "Reproduce from provenance" re-solves and compares the hashes;
+  `cargo run --release --example reproduce` does the same natively from the exported solver input.
+- Engine: `crate::ordered` (key-ordered iteration of input maps), `DofNumbering::entries_by_dof`,
+  WASM `engine_build_info` and `engine_reproduce_hashes`, `tests/determinism.rs`.
 #### Discretization error: estimated next to every certified shell result (2026-10-18)
 
 Certificates bound the algebraic error of the assembled system, not the mesh error. The engine

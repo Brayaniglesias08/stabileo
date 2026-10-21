@@ -18,6 +18,6 @@ export async function exportWorkbook(): Promise<void> {
 
 export async function exportResultsCsv(): Promise<void> {
   const solved = await ensureResults();
-  downloadResultsCSV(solved.ok ? undefined : solved.error);
+  await downloadResultsCSV(solved.ok ? undefined : solved.error);
   if (!solved.ok) uiStore.toast(t('exportResults.withErrorCsv'), 'info');
 }

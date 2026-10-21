@@ -76,7 +76,8 @@ function buildCommit(): string {
   }
 }
 
-/** The app version shown in the status bar and the what's-new notice (`lib/build-info.ts`). */
+/** The app version: the status bar, the what's-new notice (`lib/build-info.ts`) and result
+ * provenance (`lib/provenance/build-identity.ts`). */
 function appVersion(): string {
   return JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')).version;
 }
@@ -86,6 +87,7 @@ export default defineConfig({
   define: {
     __STABILEO_COMMIT__: JSON.stringify(buildCommit()),
     __STABILEO_VERSION__: JSON.stringify(appVersion()),
+    __STABILEO_APP_VERSION__: JSON.stringify(appVersion()),
   },
   base: process.env.BASE_PATH || '/',
   server: {
