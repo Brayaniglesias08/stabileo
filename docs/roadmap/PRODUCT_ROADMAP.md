@@ -227,6 +227,20 @@ depth items 1 and 3), design-check properties (item 4) and validation against ex
 
 **Metrics** (on the [dashboard](../verification/DASHBOARD.md)): share of solves with per-model cross-checks and their disagreements; certified results exportable as bundles; kernels proved through Aeneas; certificate kinds formalized; bug-bounty reports received, accepted and fixed.
 
+### Solver performance and capability
+
+Speed for the workflows engineers repeat, and results that come with a guaranteed accuracy. This section starts after the open unconservative `safety` issues are closed: a faster solver that is still wrong in places is the wrong order.
+
+1. **Profile before optimizing.** A benchmark harness over the acceptance suite, the large examples and synthetic 10⁵–10⁶-DOF frame, shell and building models: time per phase (assembly, ordering, factorization, solve, post-processing, certificates), memory, and iteration counts, tracked per release on the verification dashboard. Every item below is chosen and measured against it.
+2. **Re-analysis instead of re-solving.** Keep factorizations across edits; low-rank (Sherman–Morrison–Woodbury) updates when a section, support or load changes; all load cases and combinations solved as one multi-right-hand-side solve. Target: an edit-and-solve cycle on a large model 100–1000× faster than a full re-solve, so design iteration is interactive. Certificates must still cover the updated result.
+3. **A stronger sparse direct solver.** Supernodal or multifrontal Cholesky with nested-dissection / METIS-quality ordering; multithreading in the browser (WASM threads with SharedArrayBuffer and cross-origin isolation) and natively; an algebraic multigrid preconditioner for very large shell models; no silent fallback to dense LU on thin-shell meshes (#454). Target: 10–50× on large models.
+4. **GPU (WebGPU) for iterative and many-solve workloads:** preconditioned iterative solves, design-search batches, time-history and parameter sweeps, with CPU fallback and results checked against the CPU path to round-off.
+5. **Differentiable solver (adjoint sensitivities).** One adjoint solve gives the derivative of a response (drift, a member force, a utilization ratio, a frequency) with respect to every design variable: section properties, member sizes, support stiffness, material values. Turns optimization, sensitivity to assumptions and "which members govern" from thousands of solves into a handful; the foundation for the optimization and AI-reviewer multipliers. Gradients verified against finite differences in CI.
+6. **Adaptive refinement to a target accuracy.** The discretization-error estimator drives h-refinement (and p where available) until the estimated error in the governing quantities is below a user target, so "solve to 1 %" replaces "hope the mesh is fine". Estimates stay labelled as estimates, never certified.
+7. **End-to-end certificates for every element family:** after frames and trusses (#403), shells, plates and solids, so every displayed number is checked against the model itself, not only against the assembled matrices.
+8. **Substructuring and model reduction for buildings:** floors and repeated parts as superelements (static condensation, Craig–Bampton for dynamics) with exact recovery of the internal results, for large building models and for re-analysis of local changes.
+9. **One engine, every size:** the same Rust engine running in the browser, natively on the desktop and on a server for very large models, with identical results across all three (the determinism checks extend to native and server builds).
+
 ### Release safety
 
 Pushes to main deploy straight to users (GitHub Pages), so a merge is a release.
