@@ -417,6 +417,7 @@ fn validation_ca_ssll111_two_bar_thermal() {
             element_id: i + 1,
             dt_uniform: dt,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         })
     }).collect();
 

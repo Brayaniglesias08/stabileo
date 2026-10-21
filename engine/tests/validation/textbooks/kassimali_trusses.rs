@@ -817,6 +817,7 @@ fn validation_kassimali_7_truss_thermal() {
             element_id: 1,
             dt_uniform: dt,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         })],
     );
     let results = linear::solve_2d(&input).unwrap();

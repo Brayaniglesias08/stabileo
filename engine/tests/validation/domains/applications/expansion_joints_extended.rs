@@ -48,6 +48,7 @@ fn validation_free_thermal_expansion() {
             element_id: i + 1,
             dt_uniform: dt,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         }))
         .collect();
 
@@ -95,6 +96,7 @@ fn validation_restrained_thermal_force() {
             element_id: i + 1,
             dt_uniform: dt,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         }))
         .collect();
 
@@ -164,6 +166,7 @@ fn validation_gap_sizing() {
             element_id: i + 1,
             dt_uniform: dt_hot,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         }))
         .collect();
     let input_hot = make_beam(n, l, e, a, iz, "pinned", Some("rollerX"), loads_hot);
@@ -175,6 +178,7 @@ fn validation_gap_sizing() {
             element_id: i + 1,
             dt_uniform: dt_cold,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         }))
         .collect();
     let input_cold = make_beam(n, l, e, a, iz, "pinned", Some("rollerX"), loads_cold);
@@ -261,6 +265,7 @@ fn validation_multi_span_bridge_expansion() {
             element_id: i + 1,
             dt_uniform: dt,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         }))
         .collect();
 
@@ -355,6 +360,7 @@ fn validation_portal_frame_thermal_column_bending() {
             element_id: 2,
             dt_uniform: dt,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         }),
     ];
 
@@ -431,6 +437,7 @@ fn validation_steel_vs_concrete_differential_expansion() {
             element_id: i + 1,
             dt_uniform: dt,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         }))
         .collect();
     let input_steel = make_beam(n, l, e_steel, a, iz, "pinned", Some("rollerX"), loads_steel);
@@ -445,6 +452,7 @@ fn validation_steel_vs_concrete_differential_expansion() {
             element_id: i + 1,
             dt_uniform: dt_eff,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         }))
         .collect();
     let input_concrete = make_beam(n, l, e_concrete, a, iz, "pinned", Some("rollerX"), loads_concrete);
@@ -502,6 +510,7 @@ fn validation_temperature_gradient_curvature() {
             element_id: i + 1,
             dt_uniform: 0.0,
             dt_gradient: dt_grad,
+            alpha: None, depth: None,
         }))
         .collect();
 
@@ -597,6 +606,7 @@ fn validation_bearing_movement_thermal() {
             element_id: i + 1,
             dt_uniform: dt,
             dt_gradient: 0.0,
+            alpha: None, depth: None,
         }))
         .collect();
 

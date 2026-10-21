@@ -682,7 +682,7 @@ fn cases_2d() -> Vec<Case2> {
             m.nodal(5, 0.0, -1.0, 0.0);
             if thermal {
                 for e in 1..=4 {
-                    m.load(SolverLoad::Thermal(SolverThermalLoad { element_id: e, dt_uniform: dtu, dt_gradient: dtg }));
+                    m.load(SolverLoad::Thermal(SolverThermalLoad { element_id: e, dt_uniform: dtu, dt_gradient: dtg, alpha: None, depth: None }));
                 }
             }
             m
@@ -702,7 +702,7 @@ fn cases_2d() -> Vec<Case2> {
             m.sup(1, 1, "fixed").sup(2, 9, if force { "guidedX" } else { "fixed" });
             if thermal {
                 for e in 1..=8 {
-                    m.load(SolverLoad::Thermal(SolverThermalLoad { element_id: e, dt_uniform: dtu, dt_gradient: 0.0 }));
+                    m.load(SolverLoad::Thermal(SolverThermalLoad { element_id: e, dt_uniform: dtu, dt_gradient: 0.0, alpha: None, depth: None }));
                 }
             }
             if force {
@@ -2216,7 +2216,7 @@ fn cases_3d() -> Vec<Case3> {
             m.nodal(5, [0.0, 0.0, -1.0, 0.0, 0.0, 0.0]);
             if thermal {
                 for e in 1..=4 {
-                    m.load(SolverLoad3D::Thermal(SolverThermalLoad3D { element_id: e, dt_uniform: dtu, dt_gradient_y: 0.0, dt_gradient_z: dtg }));
+                    m.load(SolverLoad3D::Thermal(SolverThermalLoad3D { element_id: e, dt_uniform: dtu, dt_gradient_y: 0.0, dt_gradient_z: dtg, alpha: None, depth_y: None, depth_z: None }));
                 }
             }
             m

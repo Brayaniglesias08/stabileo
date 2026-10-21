@@ -580,6 +580,7 @@ fn embed(input: &SolverInput, rot_sign: f64) -> SolverInput3D {
                 SolverLoad3D::Thermal(SolverThermalLoad3D {
                     element_id: tl.element_id, dt_uniform: tl.dt_uniform,
                     dt_gradient_y: -cy * tl.dt_gradient, dt_gradient_z: -cz * tl.dt_gradient,
+                    alpha: None, depth_y: None, depth_z: None,
                 })
             }
         })
@@ -1349,7 +1350,7 @@ fn reported_legacy_triplet_assemblers() {
         &[(1, 0.0, 0.0), (2, 4.0, 3.0)],
         &[(1, "truss", 1, 2, false, false)],
         vec![sup_2d(1, 1, "pinned")],
-        vec![SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 30.0, dt_gradient: 0.0 })],
+        vec![SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 30.0, dt_gradient: 0.0, alpha: None, depth: None })],
     );
     let dn = DofNumbering::build_2d(&m);
     let f = assemble_load_vector_2d(&m, &m.loads, &dn, &[]);

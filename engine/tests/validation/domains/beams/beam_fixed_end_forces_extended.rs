@@ -415,6 +415,7 @@ fn validation_fef_ext_thermal_gradient() {
             element_id: i,
             dt_uniform: 0.0,
             dt_gradient,
+            alpha: None, depth: None,
         }))
         .collect();
     let input = make_beam(n, l, E, A, IZ, "fixed", Some("fixed"), loads);

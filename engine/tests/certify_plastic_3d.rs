@@ -371,7 +371,7 @@ fn unsupported_models_are_refused() {
     s.supports.get_mut("2").unwrap().dz = Some(0.01);
     assert!(reason(s).contains("prescribed"));
     let mut s = base();
-    s.loads.push(SolverLoad3D::Thermal(SolverThermalLoad3D { element_id: 1, dt_uniform: 10.0, dt_gradient_y: 0.0, dt_gradient_z: 0.0 }));
+    s.loads.push(SolverLoad3D::Thermal(SolverThermalLoad3D { element_id: 1, dt_uniform: 10.0, dt_gradient_y: 0.0, dt_gradient_z: 0.0, alpha: None, depth_y: None, depth_z: None }));
     assert!(reason(s).contains("thermal"));
     let mut s = base();
     s.elements.get_mut("1").unwrap().elem_type = "cable".into();

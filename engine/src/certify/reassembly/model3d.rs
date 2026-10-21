@@ -8,8 +8,9 @@
 //! |x·Z| > 0.999); then the roll angle (degrees, about local x:
 //! y' = cos·y + sin·z, z' = −sin·y + cos·z), then `leftHand` negates local y.
 //! E in MPa (×1000), G = E/(2(1+ν)); shear area `asY` pairs with Iy (bending
-//! in the local x–z plane), `asZ` with Iz; `θy = −dw/dx`. Thermal: α = 12e-6,
-//! depths h_y = √(12·Iz/A), h_z = √(12·Iy/A); `dtGradientY` gives θz-curvature
+//! in the local x–z plane), `asZ` with Iz; `θy = −dw/dx`. Thermal: α = the load's
+//! `alpha`, else 12e-6; depths h_y = `depthY`, else √(12·Iz/A), h_z = `depthZ`,
+//! else √(12·Iy/A); `dtGradientY` gives θz-curvature
 //! +α·Δt/h_y, `dtGradientZ` θy-curvature +α·Δt/h_z. Member loads in local
 //! axes. Inclined supports restrain the translation along their normal.
 
@@ -278,17 +279,17 @@ pub(super) fn build(input: &SolverInput3D, loads: &[SolverLoad3D]) -> Result<Mod
                     }
                 }
                 SolverLoad3D::Thermal(tl) => {
-                    let alpha = dec(ALPHA);
+                    let alpha = tl.alpha.map(inp).unwrap_or_else(|| dec(ALPHA));
                     let n = e * area * alpha * inp(tl.dt_uniform);
                     lvec_add(&mut f, 0, -n);
                     lvec_add(&mut f, 6, n);
                     if is_frame && tl.dt_gradient_y != 0.0 && sec.iz != 0.0 {
-                        let m = thermal_moment(e, iz, area, alpha, inp(tl.dt_gradient_y), el.id)?;
+                        let m = thermal_moment(e, iz, area, alpha, inp(tl.dt_gradient_y), tl.depth_y.map(inp), el.id)?;
                         lvec_add(&mut f, 5, -m);
                         lvec_add(&mut f, 11, m);
                     }
                     if is_frame && tl.dt_gradient_z != 0.0 && sec.iy != 0.0 {
-                        let m = thermal_moment(e, iy, area, alpha, inp(tl.dt_gradient_z), el.id)?;
+                        let m = thermal_moment(e, iy, area, alpha, inp(tl.dt_gradient_z), tl.depth_z.map(inp), el.id)?;
                         lvec_add(&mut f, 4, -m);
                         lvec_add(&mut f, 10, m);
                     }

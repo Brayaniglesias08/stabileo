@@ -104,7 +104,7 @@ fn loads_2d_nothing_resists() {
         "point load on a missing element",
     );
     assert_failed(
-        e2e_2d(frame_2d(), |i| i.loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 99, dt_uniform: 10.0, dt_gradient: 0.0 }))),
+        e2e_2d(frame_2d(), |i| i.loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 99, dt_uniform: 10.0, dt_gradient: 0.0, alpha: None, depth: None }))),
         "thermal load on a missing element",
     );
 }
@@ -227,7 +227,7 @@ fn loads_3d_nothing_resists() {
         "point load on a missing element",
     );
     assert_failed(
-        e2e_3d(frame_3d(), |i| i.loads.push(SolverLoad3D::Thermal(SolverThermalLoad3D { element_id: 99, dt_uniform: 5.0, dt_gradient_y: 0.0, dt_gradient_z: 0.0 }))),
+        e2e_3d(frame_3d(), |i| i.loads.push(SolverLoad3D::Thermal(SolverThermalLoad3D { element_id: 99, dt_uniform: 5.0, dt_gradient_y: 0.0, dt_gradient_z: 0.0, alpha: None, depth_y: None, depth_z: None }))),
         "thermal load on a missing element",
     );
     assert_failed(
