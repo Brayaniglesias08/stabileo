@@ -27,6 +27,7 @@ on that branch: a test that now passes means the finding is fixed.
 | [#439](https://github.com/lambdaclass/stabileo/issues/439) | web sends no Cw and a fallback J | #468 (batch 4) | real J, shear centre, buckling Cw; missing data refused by name |
 | — | settlement on a spring DOF dropped; Winkler member end forces | #436 (batch 4) | `settlement_on_spring_dof_is_not_silently_dropped`, `winkler_member_end_forces_include_foundation` pass |
 | — | SH-9 solid shell Poisson locking | #401 | `sh9_solid_shell_strip_does_not_poisson_lock` passes |
+| [#418](https://github.com/lambdaclass/stabileo/issues/418) | SP-15 curved-beam segment axes depend on plan orientation | `fix/curved-beam-axes` (advisory SA-2026-016) | `curved_beam_arch_is_invariant_under_plan_rotation` passes and is un-ignored; containment removed |
 
 ## A: wrong results a user would rely on (fix, contain, advisory)
 
@@ -37,7 +38,6 @@ on that branch: a test that now passes means the finding is fixed.
 | [#428](https://github.com/lambdaclass/stabileo/issues/428) | NL-5 material nonlinear is a whole-member secant, not plasticity | response jumps at first yield; load factors depend on the step | `nl_material_2d_response_is_continuous_at_first_yield` fails |
 | [#410](https://github.com/lambdaclass/stabileo/issues/410) | SH-6 curved shell reports zero bending moments; stresses ignore thermal strain | a design read from curved-shell moments sees none | `sh6_curved_shell_reports_bending_moments` fails |
 | [#416](https://github.com/lambdaclass/stabileo/issues/416) | SP-12 cable tension too low in indeterminate systems | unconservative cable and anchorage forces | `cable_tension_follows_the_elastic_catenary_chord_law` fails |
-| [#418](https://github.com/lambdaclass/stabileo/issues/418) | SP-15 curved-beam segment axes depend on plan orientation | Iy and Iz swap on near-vertical segments: wrong stiffness and forces | `curved_beam_arch_is_invariant_under_plan_rotation` fails |
 | [#421](https://github.com/lambdaclass/stabileo/issues/421) | AC-12 p-y curves depart from the cited references | lateral pile and soil-spring response off | `py_soft_clay_ultimate_includes_j_term` fails |
 | [#422](https://github.com/lambdaclass/stabileo/issues/422) | AC-13 "stiff clay" p-y discontinuous, not Reese's curve | same | `py_stiff_clay_is_continuous` fails |
 | [#423](https://github.com/lambdaclass/stabileo/issues/423) | AC-16 t-z / q-z curves missing perimeter / tip area | units kPa·m instead of kN: axial pile springs off by the perimeter or area | none (dimensional); to add |

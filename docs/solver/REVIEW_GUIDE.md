@@ -105,7 +105,7 @@ warning:
 - **SP-12, SP-14, SP-15:**
   - Cable tension comes out low in indeterminate systems.
   - The linear solver lets a cable carry compression silently.
-  - Curved-beam axes depend on the plan orientation.
+  - Curved-beam axes depended on the plan orientation (fixed, #418).
 - **FR-4:** the frame thermal coefficient $\alpha$ and section depth are constants of the engine.
   The web compensates for them, but direct API users do not get that correction.
 

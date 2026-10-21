@@ -1759,7 +1759,6 @@ const pt: Translations = {
   'knownIssue.FR-4': 'As cargas de temperatura em barras usam α = 12·10⁻⁶ /°C e uma altura √(12·I/A) qualquer que seja o material e a seção; para outros materiais ou alturas reais os esforços térmicos ficam desviados nessa proporção',
   'knownIssue.SH-6': 'As cascas curvas informam momentos fletores nulos e suas tensões ignoram a deformação térmica: não dimensione com momentos nem tensões de cascas curvas',
   'knownIssue.SH-7': 'Os elementos MITC9 em geometria não plana têm deformações espúrias; refine a malha ou use elementos planos',
-  'knownIssue.SP-15': 'As vigas curvas fora de um plano horizontal (arcos) podem trocar Iy e Iz em trechos quase verticais; confira a rigidez e os esforços desses trechos',
   'knownIssue.AC-12': 'As curvas p-y se afastam de suas referências (argila mole, areia); os resultados laterais de estacas e molas de solo estão desviados',
   'knownIssue.AC-13': 'A curva p-y de argila rija é descontínua e não é a de Reese; os resultados laterais de estacas e molas de solo estão desviados',
   'knownIssue.AC-16': 'As curvas t-z e q-z omitem o perímetro do fuste ou a área da ponta; as molas axiais de estacas estão desviadas nesse fator',

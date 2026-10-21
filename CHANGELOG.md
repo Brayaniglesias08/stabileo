@@ -177,6 +177,21 @@ structures and modal frequencies shift too). Re-run solid-shell models.
   both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
 ### Fixed
 
+#### Curved members keep one section orientation along the arc (#418, SA-2026-016)
+
+The straight segments of an arc took the default local axes of a straight member, which switch to
+a global-X reference within 2.56° of vertical. In an arch outside the X–Z plane the near-vertical
+segments at the springings so had Iy and Iz swapped: a 40-segment semicircle in the Y–Z plane
+gave a crown deflection 15 % lower (−6.18 mm instead of −7.29 mm) than the same arch in the X–Z
+plane. Every segment now takes local y = a·n + b·(n × x) from the arc's plane normal n, with (a, b)
+those of the default rule at the middle of the arc: plan curves keep local z vertical as before,
+arches keep local y normal to their plane, tilted arcs no longer roll. Engine curved beams
+(`expand_curved_beams_3d`, `ArcSectionFrame`) and the app's arc tool both apply it, and arcs
+saved before take it when the project opens (re-check notice `arc-member-local-axes`). The SP-15
+known-issue warning is removed. Tests: `engine/tests/derivation_special_elements.rs` (explicit
+members, rotation about the vertical, plan curves, tilted arcs) and
+`web/src/lib/model/__tests__/curved-member.test.ts`.
+
 #### Silent errors from the element-derivations review: 2D-in-3D signs, settlements, Winkler, imperfections, constraints (2026-10-18)
 
 **BREAKING (results): a flat 2D model solved by the 3D solver now turns nodal moments and

@@ -27,6 +27,7 @@
  *
  * Does NOT touch the solver.
  */
+import { computeLocalAxes3D } from '../engine/local-axes-3d';
 
 export interface Vec3 { x: number; y: number; z: number }
 
@@ -151,6 +152,103 @@ export function arcPoints(spec: ArcSpec): Vec3[] {
 }
 
 /**
+ * The local-y reference every member of an arc takes: the same section orientation relative to
+ * the curve on all of them (#418, SP-15).
+ *
+ * A curved member is one bar bent in its plane, so its section does not roll along it. Each
+ * member gets local y = a·n + b·(n × ex), n the unit normal of the arc's plane and ex the member's
+ * axis: the angle between local y and the plane normal is the same on every member. (a, b) are
+ * those of the default rule (local z = global up projected off the axis) on the arc's tangent at
+ * the middle of its sweep. A plan curve so keeps local z vertical on every member, as the default
+ * rule gives it, and an arch keeps local y normal to its plane on every member — the default rule
+ * alone turns the near-vertical members at the springings of an arch by 90° (it switches to a
+ * global-X reference within 2.56° of vertical), swapping Iy and Iz on them unless the arch lies
+ * in the X–Z plane. Mirrors `ArcSectionFrame` in engine/src/element/curved_beam.rs.
+ *
+ * Null for collinear points (a straight member keeps the default axes) or a member with no
+ * length in the plane.
+ */
+export function arcMemberLocalY(spec: Pick<ArcSpec, 'start' | 'through' | 'end'>, nodeI: Vec3, nodeJ: Vec3): Vec3 | null {
+  const geo = arcThroughThree(spec.start, spec.through, spec.end);
+  if (!geo) return null;
+  const nRaw = cross(sub(spec.through, spec.start), sub(spec.end, spec.start));
+  const n = mul(nRaw, 1 / len(nRaw));
+  // Tangent at the middle of the sweep: the start radius turned by sweep/2 about n, then n × it.
+  const r0 = sub(spec.start, geo.centre);
+  const h = geo.sweep / 2;
+  const rMid = add(add(mul(r0, Math.cos(h)), mul(cross(n, r0), Math.sin(h))), mul(n, dot(n, r0) * (1 - Math.cos(h))));
+  const tRaw = cross(n, rMid);
+  const t = mul(tRaw, 1 / len(tRaw));
+  let a: number, b: number;
+  if (Math.abs(t.z) > 0.999) {
+    // The default rule's near-vertical branch depends on the plan orientation; a plane holding
+    // a vertical tangent is vertical, and an arch in it has local y along the plane normal.
+    a = 1; b = 0;
+  } else {
+    // Default rule on t: ez = up projected off t, ey = ez × t.
+    const ez0 = sub({ x: 0, y: 0, z: 1 }, mul(t, t.z));
+    const ey0 = cross(mul(ez0, 1 / len(ez0)), t);
+    const m = cross(n, t);
+    a = dot(ey0, n); b = dot(ey0, m);
+    const l = Math.hypot(a, b);
+    a /= l; b /= l;
+  }
+  const d = sub(nodeJ, nodeI);
+  const ex0 = sub(d, mul(n, dot(d, n)));
+  const l = len(ex0);
+  if (!(l > 1e-12)) return null;
+  const mi = cross(n, mul(ex0, 1 / l));
+  return add(mul(n, a), mul(mi, b));
+}
+
+/** What `migrateArcLocalAxes` reads and writes of a member. */
+interface ArcMember {
+  nodeI: number; nodeJ: number;
+  arc?: { spec: ArcSpec };
+  localYx?: number; localYy?: number; localYz?: number;
+  rollAngle?: number;
+}
+
+/**
+ * Read-migration for arcs drawn before #418: their members were left on the default local axes,
+ * which turns the near-vertical members of an arch by 90° (Iy and Iz swapped on them). Each
+ * member tagged with an arc and with no orientation of its own (no local y, no roll) takes
+ * `arcMemberLocalY` — only where that changes its axes, so a plan curve, whose axes the default
+ * rule already gives, is left as it is. Returns how many members changed. Mutates `elements`.
+ */
+export function migrateArcLocalAxes(
+  elements: Map<number, ArcMember>,
+  nodes: ReadonlyMap<number, { x: number; y?: number; z?: number }>,
+): number {
+  let changed = 0;
+  const pos = (id: number): Vec3 | undefined => {
+    const n = nodes.get(id);
+    return n ? { x: n.x, y: n.y ?? 0, z: n.z ?? 0 } : undefined;
+  };
+  for (const e of elements.values()) {
+    if (!e.arc?.spec || e.localYx !== undefined || e.localYy !== undefined || e.localYz !== undefined) continue;
+    if (e.rollAngle !== undefined && e.rollAngle !== 0) continue;
+    const pi = pos(e.nodeI), pj = pos(e.nodeJ);
+    if (!pi || !pj) continue;
+    const ly = arcMemberLocalY(e.arc.spec, pi, pj);
+    if (!ly) continue;
+    let same: boolean;
+    try {
+      const [ni, nj] = [{ id: e.nodeI, ...pi }, { id: e.nodeJ, ...pj }];
+      const d = computeLocalAxes3D(ni, nj);
+      const a = computeLocalAxes3D(ni, nj, ly);
+      same = d.ey[0] * a.ey[0] + d.ey[1] * a.ey[1] + d.ey[2] * a.ey[2] > 1 - 1e-9;
+    } catch {
+      continue; // a zero-length member: validation reports it
+    }
+    if (same) continue;
+    e.localYx = ly.x; e.localYy = ly.y; e.localYz = ly.z;
+    changed++;
+  }
+  return changed;
+}
+
+/**
  * How far the chord of one segment falls inside the true arc, in metres.
  *
  * The number that answers "is twelve segments enough". A reader asked for a
@@ -186,6 +284,14 @@ export interface ArcBuildTarget {
   addElement: (nodeI: number, nodeJ: number) => number;
   /** Called once per created member, with the tag to remember. */
   tag: (elementId: number, tag: ArcTag) => void;
+  /**
+   * Called once per created member with its local-y reference (`arcMemberLocalY`), so every
+   * member of the arc has the same section orientation relative to the curve (#418). Not called
+   * for a straight (collinear) arc.
+   */
+  setLocalY?: (elementId: number, localY: Vec3) => void;
+  /** Where a node is, for the local axes of the members joining existing nodes. */
+  nodePosition?: (id: number) => Vec3 | undefined;
   /**
    * An existing node at this point, if there is one.
    *
@@ -238,6 +344,12 @@ export function buildArc(
   for (let i = 0; i < ids.length - 1; i++) {
     const id = target.addElement(ids[i], ids[i + 1]);
     target.tag(id, { arcId, spec });
+    if (target.setLocalY) {
+      const pi = target.nodePosition?.(ids[i]) ?? pts[i];
+      const pj = target.nodePosition?.(ids[i + 1]) ?? pts[i + 1];
+      const ly = arcMemberLocalY(spec, pi, pj);
+      if (ly) target.setLocalY(id, ly);
+    }
     made.push(id);
   }
   return made;

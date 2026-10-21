@@ -186,13 +186,17 @@ id before expansion); only nodal loads and self-weight style loads on the genera
   $1/R$, the Winkler–Bach stress distribution of thick curved bars with $h/R$ not small) are
   represented only through the polygon. For $h/R \gtrsim 0.1$ the straight-member section
   stresses are not the curved-bar stresses.
-- **Local axes along the arc** (SP-15, open). The default rule switches reference for a segment
-  within 2.56° of vertical ($|e_x\cdot Z|>0.999$). For an arch in the X–Z plane both references
-  keep local $z$ in the arch plane. For an arch in any other vertical plane the near-vertical
-  segments get local $z$ normal to the plane, so $I_y$ and $I_z$ swap on them; a semicircle with
-  $N = 40$ in the Y–Z plane gives a crown deflection 15 % different from the same arch in the
-  X–Z plane. A fix needs a per-arc orientation rule (for example local $y$ = $\hat n$ for arcs in
-  non-horizontal planes and local $z = \hat n$ for horizontal ones, or a user local-axis input).
+- **Local axes along the arc** (SP-15, fixed in #418). The default rule switches reference for a
+  segment within 2.56° of vertical ($|e_x\cdot Z|>0.999$). For an arch in the X–Z plane both
+  references keep local $z$ in the arch plane; for an arch in any other vertical plane the
+  near-vertical segments got local $z$ normal to the plane, so $I_y$ and $I_z$ swapped on them (a
+  semicircle with $N = 40$ in the Y–Z plane gave a crown deflection 15 % lower than the same arch
+  in the X–Z plane). Every segment now takes $\hat y = a\,\hat n + b\,(\hat n\times e_x)$, with
+  $\hat n$ the arc's plane normal and $(a, b)$ those of the default rule on the arc's tangent at
+  the middle of its sweep (`ArcSectionFrame`): the section does not roll along the arc, a plan
+  curve keeps local $z$ vertical as before, and an arch keeps local $y = \hat n$ on every segment.
+  Results are invariant under rotating the model about the vertical
+  (`curved_beam_arch_results_are_invariant_under_rotation_about_vertical`).
 
 ---
 
@@ -483,7 +487,7 @@ All tests are in `engine/tests/derivation_special_elements.rs` unless stated.
 | SP-12 | Cable solver recovers tension as $T = E_\text{eq}(T)A\varepsilon$, using Ernst's tangent as a secant from a straight, stress-free chord: $\varepsilon = T/EA + (wl_h)^2/(12T^2)$ instead of the elastic-catenary $T/EA - (wl_h)^2/(24T^2)$. Indeterminate cable systems get too little cable tension when sag matters (example: 9.39 kN where the chord law needs more). Needs an unstressed-length or pretension input to be consistent (§1.3). | OPEN | `cable_tension_follows_the_elastic_catenary_chord_law` |
 | SP-13 | The cable solver does not apply the cable's self-weight as a load; density only reduces the modulus. | DOCUMENTED-CHOICE | `cable_density_is_not_a_load` |
 | SP-14 | Outside the cable solver a cable is a truss bar: the linear solver lets it carry compression (−25.5 kN in the example) with no diagnostic. | OPEN | `linear_solver_does_not_report_cable_compression_silently` |
-| SP-15 | Curved-beam segments take default local axes; near-vertical segments switch reference, so outside the X–Z plane $I_y$/$I_z$ swap on them (semicircle, N = 40: 15 % crown-deflection difference between the X–Z and Y–Z planes). | OPEN | `curved_beam_arch_is_invariant_under_plan_rotation` |
+| SP-15 | Curved-beam segments take default local axes; near-vertical segments switch reference, so outside the X–Z plane $I_y$/$I_z$ swap on them (semicircle, N = 40: 15 % crown-deflection difference between the X–Z and Y–Z planes). Fixed (#418): every segment takes its axes from the arc's plane, the same relative to the curve. | FIXED | `curved_beam_arch_is_invariant_under_plan_rotation`, `curved_beam_arch_matches_explicit_members_with_plane_normal_axes` |
 | SP-16 | Zero-length 3D connector axes are $e_x=X$, $e_y=-Z$, $e_z=Y$ (its own reference rule), so `k_shear` acts along global Z and `k_shear_z` along Y; the "local Y" in the type doc is not the frame's local y. | DOCUMENTED-CHOICE | `connector_zero_length_3d_axis_mapping` |
 | SP-17 | 3D connector triad is discontinuous where its reference switches ($|e_{x,X}|=0.9$) for directions with a Z component, and has no user orientation input: anisotropic transverse springs change by O(k) between nearly parallel connectors. | OPEN | `connector_3d_axes_are_continuous_in_direction` |
 | SP-18 | Fiber solvers return an empty `reactions` list. | OPEN | `fiber_solver_reports_reactions` |

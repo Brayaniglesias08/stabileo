@@ -32,7 +32,7 @@ export const UNTRACKED_ANALYSES: readonly AnalysisKind[] = ['timeHistory', 'nonl
 
 /** Every feature id a registry entry may name. The registry test fails on any other. */
 export const FEATURE_IDS = [
-  'plane2D', 'members', 'frameMembers', 'trussMembers', 'hinges',
+  'plane2D', 'members', 'frameMembers', 'trussMembers', 'hinges', 'arcMembers',
   'steelMembers', 'steelCirsoc301', 'steelTensionWithoutConnection',
   'concreteMembers', 'cirsoc201', 'aci318', 'footings', 'jointDesigns',
   'shells', 'curvedShells', 'shellEdgeLoads',
@@ -51,6 +51,8 @@ interface Elem {
   releaseI?: Record<string, unknown>; releaseJ?: Record<string, unknown>;
   semiRigid?: unknown; reinforcement?: unknown;
   tensionConnection?: { i?: unknown; j?: unknown };
+  /** Set on the members of a curve drawn as one (`lib/model/curved-member.ts`). */
+  arc?: unknown;
 }
 interface Sup {
   nodeId: number; type?: string; angle?: number; isGlobal?: boolean; isInclined?: boolean; dofFrame?: string;
@@ -135,6 +137,7 @@ export function modelFeatures(s: FeatureSnapshot, ctx: FeatureContext = {}): Set
   for (const e of elements) {
     if (e.type === 'truss') f.add('trussMembers'); else f.add('frameMembers');
     if (hasRelease(e.releaseI) || hasRelease(e.releaseJ) || e.semiRigid) f.add('hinges');
+    if (e.arc) f.add('arcMembers');
     const fam = familyOf(e.materialId);
     if (fam === 'steel') {
       steel++;

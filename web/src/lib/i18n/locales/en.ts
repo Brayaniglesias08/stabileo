@@ -3707,7 +3707,6 @@ const en: Record<string, string> = {
   'knownIssue.FR-4': 'Temperature loads on frames and trusses use α = 12·10⁻⁶ /°C and a depth of √(12·I/A) whatever the material and section; for other materials or real depths the thermal forces are off in proportion',
   'knownIssue.SH-6': 'Curved shells report zero bending moments and their stresses ignore thermal strain: do not design from curved-shell moments or stresses',
   'knownIssue.SH-7': 'MITC9 elements on non-planar geometry carry spurious strains; refine the mesh or use flat elements',
-  'knownIssue.SP-15': 'Curved beams outside a horizontal plane (arches) can swap Iy and Iz on near-vertical segments; check those segments’ stiffness and forces',
   'knownIssue.AC-12': 'p-y soil curves depart from their references (soft clay, sand); lateral pile and soil-spring results are off',
   'knownIssue.AC-13': 'The stiff-clay p-y curve is discontinuous and is not Reese’s curve; lateral pile and soil-spring results are off',
   'knownIssue.AC-16': 't-z and q-z curves miss the shaft perimeter or tip area; axial pile springs are off by that factor',

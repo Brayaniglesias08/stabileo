@@ -1,3 +1,4 @@
+import { migrateArcLocalAxes } from '../model/curved-member';
 import {
   defaultCodeSettings, migrateCodeSettings, type ProjectCodeSettings,
 } from '../codes/project-code-settings';
@@ -2276,6 +2277,9 @@ function createModelStore() {
         releaseI: { ...(v.releaseI ?? NO_RELEASE) },
         releaseJ: { ...(v.releaseJ ?? NO_RELEASE) },
       }]));
+      // Arcs drawn before #418 (SP-15) left their members on the default local axes, which turn
+      // the near-vertical members of an arch by 90°: they take the arc's own orientation.
+      migrateArcLocalAxes(model.elements, model.nodes);
       // Deduplicate supports: keep only the last support per node (legacy cleanup)
       const supEntries = s.supports.map(([k, v]) => [k, {
         ...v,

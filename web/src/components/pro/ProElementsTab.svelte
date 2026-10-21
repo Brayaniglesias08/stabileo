@@ -77,6 +77,14 @@
           return null;
         },
         addElement: (i, j) => modelStore.addElement(i, j),
+        /* Every member of the arc keeps the same section orientation relative to the
+           curve (#418): the default rule alone turned the near-vertical members of an
+           arch by 90°, swapping Iy and Iz on them. */
+        setLocalY: (id, v) => modelStore.updateElementLocalY(id, v.x, v.y, v.z),
+        nodePosition: (id) => {
+          const n = modelStore.nodes.get(id);
+          return n ? { x: n.x, y: n.y ?? 0, z: (n as { z?: number }).z ?? 0 } : undefined;
+        },
         tag: (elementId, tag) => {
           const el = modelStore.elements.get(elementId);
           if (el) modelStore.updateElement(elementId, { arc: { id: tag.arcId, spec: tag.spec } } as never);
