@@ -54,7 +54,7 @@ fn support(node_id: usize, f: [bool; 6]) -> SolverSupport3D {
 
 fn empty_input() -> SolverInput3D {
     SolverInput3D {
-        solver_options: None, nodes: HashMap::new(), materials: HashMap::new(), sections: HashMap::new(),
+        solver_options: None, masses: Default::default(), nodes: HashMap::new(), materials: HashMap::new(), sections: HashMap::new(),
         elements: HashMap::new(), supports: HashMap::new(), loads: vec![], constraints: vec![], left_hand: None,
         plates: HashMap::new(), quads: HashMap::new(), quad9s: HashMap::new(), solid_shells: HashMap::new(),
         curved_shells: HashMap::new(), curved_beams: vec![], connectors: HashMap::new(),
@@ -649,6 +649,7 @@ fn refinement_keeps_loads_supports_and_members() {
     let mut m = square_plate(Fam::Dkt, 4, false);
     m.input.sections.insert("1".into(), SolverSection3D {
         id: 1, name: None, a: 0.01, iy: 1e-5, iz: 1e-5, j: 2e-5, cw: None, as_y: None, as_z: None,
+        shear_center_y: None, shear_center_z: None,
     });
     let mut eid = 1000;
     for j in 0..4 {
@@ -695,7 +696,7 @@ fn refinement_refuses_what_it_cannot_extend() {
 fn frames_only_estimate_says_exact() {
     let mut input = empty_input();
     input.materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
-    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-5, iz: 1e-5, j: 2e-5, cw: None, as_y: None, as_z: None });
+    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-5, iz: 1e-5, j: 2e-5, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None });
     input.nodes.insert("1".into(), SolverNode3D { id: 1, x: 0.0, y: 0.0, z: 0.0 });
     input.nodes.insert("2".into(), SolverNode3D { id: 2, x: 4.0, y: 0.0, z: 0.0 });
     input.elements.insert("1".into(), SolverElement3D {
@@ -818,7 +819,7 @@ fn convergence_keeps_zero_coarse_shell_quantities() {
 fn cantilever_with_section(cw: Option<f64>) -> SolverInput3D {
     let mut input = empty_input();
     input.materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
-    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-5, iz: 1e-5, j: 2e-7, cw, as_y: None, as_z: None });
+    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-5, iz: 1e-5, j: 2e-7, cw, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None });
     input.nodes.insert("1".into(), SolverNode3D { id: 1, x: 0.0, y: 0.0, z: 0.0 });
     input.nodes.insert("2".into(), SolverNode3D { id: 2, x: 4.0, y: 0.0, z: 0.0 });
     input.elements.insert("1".into(), SolverElement3D {
@@ -989,7 +990,7 @@ fn udl(element_id: usize, q: f64) -> SolverLoad3D {
 fn member_moment_max_reads_the_whole_diagram() {
     let mut input = empty_input();
     input.materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
-    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 2e-4, cw: None, as_y: None, as_z: None });
+    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 2e-4, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None });
     for (id, x) in [(1, 0.0), (2, 4.0)] {
         input.nodes.insert(id.to_string(), SolverNode3D { id, x, y: 0.0, z: 0.0 });
     }
@@ -1017,7 +1018,7 @@ fn split_exact_member_raises_no_frame_warning() {
     let mut input = empty_input();
     input.materials.insert("1".into(), SolverMaterial { id: 1, e: 200_000.0, nu: 0.3 });
     input.materials.insert("2".into(), SolverMaterial { id: 2, e: 0.2, nu: 0.3 });
-    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 2e-4, cw: None, as_y: None, as_z: None });
+    input.sections.insert("1".into(), SolverSection3D { id: 1, name: None, a: 0.01, iy: 1e-4, iz: 1e-4, j: 2e-4, cw: None, as_y: None, as_z: None, shear_center_y: None, shear_center_z: None });
     for (id, x, y) in [(1, -1.0, 0.0), (2, 0.0, 0.0), (3, 1.0, 0.0), (4, 2.0, 0.0), (5, 1.0, 1.0), (6, 0.0, 1.0)] {
         input.nodes.insert(id.to_string(), SolverNode3D { id, x, y, z: 0.0 });
     }
