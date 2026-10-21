@@ -145,19 +145,57 @@ pub fn ernst_equivalent_modulus(e: f64, a: f64, w: f64, l_h: f64, tension: f64) 
     e / denominator
 }
 
-/// Cable tangent modulus for incremental analysis.
+/// Cable tangent modulus for incremental analysis: dσ/dε of the chord-tension law
+/// `cable_chord_tension`, which is Ernst's modulus itself.
 ///
-/// E_tan = E / [1 + (γ·L_h)²·E·A / (12·σ³·A³)]
-///
-/// This is the derivative of the Ernst formula at current tension.
+/// The chord of a shallow elastic cable obeys ε = T/EA − (w·l_h)²/(24T²) + const, so
+/// dT/dε = EA/(1 + (w·l_h)²·EA/(12T³)) = `ernst_equivalent_modulus`·A. This helper used to
+/// return E(1 + α(1 − 3α/(1+α)))/(1+α)², which is not that derivative and turns negative
+/// for moderate α (SP-11, #415).
 pub fn ernst_tangent_modulus(e: f64, a: f64, w: f64, l_h: f64, tension: f64) -> f64 {
-    if tension.abs() < 1e-15 {
-        return 0.0;
+    ernst_equivalent_modulus(e, a, w, l_h, tension)
+}
+
+/// Chord tension of a shallow elastic cable whose unstressed length is its chord as modelled.
+///
+/// Solves the elastic-catenary chord law ε = T/EA − (w·l_h)²/(24T²) for T, with ε the chord
+/// strain (deformed chord minus unstressed length, over the unstressed length), `w` the weight
+/// per unit cable length (kN/m) and `l_h` the horizontal projection of the chord. Elastic
+/// stretch lengthens the chord; the sag the weight forces takes some of it up again.
+///
+/// Without weight it is the taut-string law max(EA·ε, 0): a shortened chord is slack. With
+/// weight the cable always hangs with some tension: T³ − EA·ε·T² − EA·(w·l_h)²/24 = 0 has
+/// exactly one positive root for any ε, and dT/dε is Ernst's modulus times A
+/// (`ernst_equivalent_modulus`), the stiffness a Newton iteration on this law must use.
+pub fn cable_chord_tension(ea: f64, w: f64, l_h: f64, strain: f64) -> f64 {
+    let d = ea * (w * l_h).powi(2) / 24.0;
+    if !(d > 0.0) {
+        return (ea * strain).max(0.0);
     }
-    let wl = w * l_h;
-    let alpha = wl * wl * e * a / (12.0 * tension.powi(3));
-    let denom = (1.0 + alpha) * (1.0 + alpha);
-    e * (1.0 + alpha * (1.0 - 3.0 * alpha / (1.0 + alpha))) / denom
+    let b = ea * strain;
+    // g(T) = T²(T − b) − d: g(0) = −d < 0, increasing wherever it is positive.
+    let g = |t: f64| t * t * (t - b) - d;
+    let (mut lo, mut hi) = (0.0_f64, b.max(0.0) + d.cbrt());
+    while g(hi) <= 0.0 {
+        hi *= 2.0;
+    }
+    // Newton from the upper end (g is convex there, so it stays above the root), bisection
+    // whenever a step leaves the bracket.
+    let mut t = hi;
+    for _ in 0..200 {
+        let gt = g(t);
+        if gt > 0.0 { hi = t } else { lo = t }
+        let dg = 3.0 * t * t - 2.0 * b * t;
+        let mut next = if dg > 0.0 { t - gt / dg } else { f64::NAN };
+        if !(next > lo && next < hi) {
+            next = 0.5 * (lo + hi);
+        }
+        if (next - t).abs() <= 1e-15 * t.abs().max(f64::MIN_POSITIVE) {
+            return next;
+        }
+        t = next;
+    }
+    t
 }
 
 /// 2D cable global stiffness matrix (4×4) using Ernst equivalent modulus.

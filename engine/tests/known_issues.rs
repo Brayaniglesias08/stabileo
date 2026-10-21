@@ -103,9 +103,9 @@ fn curved_shells_and_warped_mitc9_and_arches_are_flagged_only_when_present() {
 }
 
 #[test]
-fn cable_analysis_is_flagged() {
-    assert!(ids(&for_3d(&beam3d(), Analysis::Cable)).contains(&"SP-12".to_string()));
-    assert!(!ids(&for_3d(&beam3d(), Analysis::Linear)).contains(&"SP-12".to_string()));
+fn cable_analysis_is_no_longer_flagged() {
+    // SP-12 (#416) is fixed: the cable solve iterates on the chord law itself.
+    assert!(!ids(&for_3d(&beam3d(), Analysis::Cable)).contains(&"SP-12".to_string()));
 }
 
 #[test]

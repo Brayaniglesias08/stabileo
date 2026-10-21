@@ -37,13 +37,16 @@ A member with `elem_type = "cable"` uses the node, material and section data of 
 |---|---|
 | Linear, modal, P-Δ, … (`assembly.rs`, `sparse_assembly.rs`, `mass_matrix.rs`) | A plain truss bar, $k = EA/L$. Compression is carried and **not reported** ([SP-14](#discrepancies-and-open-questions-for-review)). |
 | Fiber solver (`assemble_elastic_elements(_3d)`) | Truss bar, linear. |
-| Cable solver (`solve_cable_2d/3d`) | Truss bar with Ernst's modulus, tension-only, fixed-point iteration (§1.3). |
+| Cable solver (`solve_cable_2d/3d`) | Truss bar following the elastic-catenary chord law, Newton iteration with Ernst's modulus as the tangent (§1.3). |
 
 There is no geometric (string) stiffness, no large-displacement equilibrium and no prestress or
 unstressed-length input. The **unstressed length is the chord length between the nodes as
 modelled**: $L_0 = \lVert x_j - x_i\rVert$ (`CableGeom.l0`, reported as
-`unstretched_length`). A cable modelled straight is therefore stress-free in that geometry, and a
-straight cable loaded transversally has no transverse stiffness: the solve reports a mechanism.
+`unstretched_length`). A weightless cable modelled straight is therefore stress-free in that
+geometry. A cable with weight cannot be: a cable exactly as long as its chord must stretch to sag,
+so with no load it hangs at the tension $T_0$ with $T_0^3 = EA\,(w l_h)^2/24$ (§1.3), and the
+supports take $T_0$ as a pull along the chord. A straight cable loaded transversally has no
+transverse stiffness: the solve reports a mechanism.
 Cable nets must be modelled in (approximately) their loaded shape and triangulated.
 
 ### 1.2 Element stiffness
@@ -84,41 +87,58 @@ stiffness for increments about a known tensioned state.
 
 ### 1.3 Cable solver iteration
 
-`solve_cable_2d/3d` iterate (counter $k = 0,1,\dots$):
+The cable's force law is the elastic-catenary **chord law** with the unstressed length equal to
+the modelled chord (§1.1, §1.2):
+
+$$
+\varepsilon = \frac{T}{EA} - \frac{(w l_h)^2}{24\,T^2},
+\qquad \varepsilon = \frac{\lVert x_j + u_j - x_i - u_i\rVert - L_0}{L_0},
+$$
+
+solved for $T$ by `element::cable_chord_tension` (the cubic $T^3 - EA\varepsilon T^2 - EA(wl_h)^2/24
+= 0$ has exactly one positive root for every $\varepsilon$; safeguarded Newton). Without weight it
+is $T = \max(EA\varepsilon, 0)$; with weight $T>0$ always (a shortened chord sags, it does not go
+slack). Its derivative $dT/d\varepsilon = EA/(1+\alpha(T)) = E_\text{eq}A$ is Ernst's modulus.
+
+`solve_cable_2d/3d` run Newton on it (counter $k = 0,1,\dots$), from the undeformed chord
+($u=0$, $\varepsilon=0$, $T^{(0)} = T(0)$):
 
 1. Assemble $K^{(k)} = K_\text{base} + \sum_c (\phi_c^{(k)} - 1)\,\dfrac{EA}{L_0} \begin{bmatrix} dd^{\mathsf T} & -dd^{\mathsf T}\\ -dd^{\mathsf T} & dd^{\mathsf T}\end{bmatrix}$
-   with the factor $\phi_c^{(k)}$ = `ernst_factor`$(w,l_h,EA,T_c^{(k)},k)$:
-   - $\phi = 1/(1+\alpha(T))$ if $T > 10^{-10}$ and $w>0$;
+   with the tangent factor $\phi_c^{(k)}$ = `ernst_factor`$(w,l_h,EA,T_c^{(k)},k)$:
+   - $\phi = 1/(1+\alpha(T))$ if $T > 0$ and $w>0$;
    - $\phi = 0$ (slack: stiffness removed) if $T \le 0$ and $k>0$;
    - $\phi = 1$ otherwise (first pass, or no weight).
-2. Solve the **linear** system $K^{(k)}u = f$ (constraints and inclined supports as in the
-   linear solver; [assembly-constraints.md](assembly-constraints.md) §4.2, §6).
+2. Solve the **linear** system $K^{(k)}u = f + \sum_c \big[c\,(T_c^{(k)} - EA\,\varepsilon^{(k)}_{c,\text{lin}})\big]_\text{rot} + \sum_c (\phi_c-1)\tfrac{EA}{L_0}\,c\,(c\cdot u^{(k)})$,
+   with $c = (d, -d)$ on the cable's DOFs and $\varepsilon_\text{lin} = d\cdot(u_j-u_i)/L_0$. The
+   two terms are the offset of the linearisation $T \approx T^{(k)} + \phi EA(\varepsilon - \varepsilon^{(k)})$
+   written against what the matrix actually produces (the base truss, rotated at inclined
+   supports like the loads, and the correction block as assembled), so at the fixed point every
+   cable pulls on its nodes with $T(\varepsilon)$ exactly, whatever the tangent.
 3. New tension from the deformed chord, large-displacement length but small-displacement
-   equilibrium:
-   $\varepsilon = (\lVert x_j + u_j - x_i - u_i\rVert - L_0)/L_0$,
-   $T^{(k+1)} = \phi\,EA\,\varepsilon$ if $\varepsilon>0$ (with $\phi$ replaced by 1 if the cable
-   was slack, so that a re-stretched cable is re-activated), else $0$.
+   equilibrium: $T^{(k+1)} = $ `cable_chord_tension`$(\varepsilon)$.
 4. Stop when $\max_c |T^{(k+1)}-T^{(k)}| / \max(|T^{(k)}|,|T^{(k+1)}|,1) <$ `tolerance` and
    $k>0$.
 
-Reported results come from one stiffness: displacements from the last solve, the member axial
-force and `tension` = $T$, reactions from $K_\text{base}$ corrected by the same factor
-(`cable_statics.rs`). `horizontal_thrust` $= T\,l_h/L_0$, `sag` $= w l_h^2/(8H)$ (parabolic,
-informative only: the chord geometry is not changed), `ernst_modulus` $= \phi E$.
+Reported results: displacements from the last solve, the member axial force and `tension` = $T$,
+reactions from $K_\text{base}$ with each cable's force replaced by its tension
+($-c\,(T - EA\varepsilon_\text{lin})$ at the restrained DOFs, rotated like the loads), so they
+balance the reported tensions (`cable_statics.rs`). `horizontal_thrust` $= T\,l_h/L_0$, `sag` $=
+w l_h^2/(8H)$ (parabolic, informative only: the chord geometry is not changed), `ernst_modulus` $=
+\phi E$, the tangent of the last solve.
 
 Two properties a reviewer should know:
 
-- **The cable's weight is not a load** (SP-13, pinned). Density only enters $\alpha$. The user
-  must apply the self-weight (or its nodal resultant) as a load.
-- **Tension recovery uses Ernst's tangent as a secant** (SP-12, open). Step 3 is
-  $T(1+\alpha(T)) = EA\varepsilon$, i.e. $\varepsilon = T/EA + (wl_h)^2/(12T^2)$. With the
-  unstressed length equal to the chord (§1.1), the elastic-catenary relation of §1.2 gives
-  $\varepsilon = T/EA - (wl_h)^2/(24T^2)$: sag takes up chord length, so a given chord strain
-  needs *more* tension than $EA\varepsilon$, not less. The two agree when $\alpha\ll1$. In
-  statically determinate cable systems equilibrium fixes $T$ and only the displacements are
-  affected; in indeterminate systems the cable is assigned too little tension. The deeper issue
-  is that a cable whose unstressed length equals its straight chord has no sag at zero tension,
-  so a consistent model needs either a given unstressed length or a given pretension.
+- **The cable's weight is not a load** (SP-13, pinned). Density only enters the chord law. The
+  user must apply the self-weight (or its nodal resultant) as a load.
+- **Tension follows the chord law** (SP-12, fixed). The solver used to recover the tension as
+  $T = \phi(T)EA\varepsilon$, i.e. $T(1+\alpha(T)) = EA\varepsilon$ or
+  $\varepsilon = T/EA + (wl_h)^2/(12T^2)$: Ernst's tangent used as a secant from a stress-free
+  chord. Sag takes up chord length, so a given chord strain needs *more* tension than
+  $EA\varepsilon$, not less; in statically indeterminate systems the cable got too little tension
+  (9.39 kN instead of 9.59 kN in `cable_tension_follows_the_elastic_catenary_chord_law`). In
+  statically determinate systems equilibrium fixes $T$ and only the displacements change. There
+  is still no unstressed-length or pretension input: the chord as modelled is the unstressed
+  length.
 
 ### 1.4 Closed-form helpers (not used by the solvers)
 
@@ -131,7 +151,7 @@ Two properties a reviewer should know:
 | `cable_end_tensions` | $T = H\sqrt{1+y'^2}$ | correct |
 | `cable_natural_frequency` | $f_n = \frac{n}{2L}\sqrt{T/(\rho A)}$ (taut string) | correct for a taut string, ignores sag |
 | `irvine_parameter` | $\lambda^2 = (wL/H)^2\,L/(HL_e/EA)$, $L_e = L(1+8(f/L)^2)$ | had an extra factor $L$ (SP-9, fixed) |
-| `ernst_tangent_modulus` | $E(1+\alpha(1-\frac{3\alpha}{1+\alpha}))/(1+\alpha)^2$ | not the derivative of the chord law; $E_\text{eq}$ already is the tangent (SP-11) |
+| `ernst_tangent_modulus` | $E/(1+\alpha)$ = `ernst_equivalent_modulus` | the derivative of the chord law; it returned $E(1+\alpha(1-\frac{3\alpha}{1+\alpha}))/(1+\alpha)^2$ (SP-11, fixed) |
 
 ---
 
@@ -479,8 +499,8 @@ All tests are in `engine/tests/derivation_special_elements.rs` unless stated.
 | SP-8 | Hognestad concrete is nonlinear-elastic in compression (no unloading, crushing not remembered), cracking permanent; no tension stiffening. Inadequate for cyclic analysis. | DOCUMENTED-CHOICE | `concrete_hognestad_is_history_free_in_compression` |
 | SP-9 | `irvine_parameter` had an extra factor $L$ (dimension of length; value changed with units by 1000× from m to mm). Not used by any solver. | FIXED | `irvine_parameter_is_dimensionless` |
 | SP-10 | `parabolic_ordinate` puts the sag above the chord ($y(L/2)=h/2+f$), `catenary_ordinate` below it; they should be the approximate and exact forms of one curve. Pinned by the validation test `cable_advanced_ext_parabolic_ordinate`, so the convention needs a decision. Not used by any solver. | OPEN | `parabolic_and_catenary_ordinates_agree_for_shallow_cable` |
-| SP-11 | `ernst_tangent_modulus` returns $E(1+\alpha(1-\frac{3\alpha}{1+\alpha}))/(1+\alpha)^2$, which is not the derivative of the chord–tension law (that derivative is `ernst_equivalent_modulus`); negative for moderate α. Not used by any solver; pinned by a validation test. | OPEN | `ernst_tangent_modulus_is_the_chord_law_derivative` |
-| SP-12 | Cable solver recovers tension as $T = E_\text{eq}(T)A\varepsilon$, using Ernst's tangent as a secant from a straight, stress-free chord: $\varepsilon = T/EA + (wl_h)^2/(12T^2)$ instead of the elastic-catenary $T/EA - (wl_h)^2/(24T^2)$. Indeterminate cable systems get too little cable tension when sag matters (example: 9.39 kN where the chord law needs more). Needs an unstressed-length or pretension input to be consistent (§1.3). | OPEN | `cable_tension_follows_the_elastic_catenary_chord_law` |
+| SP-11 | `ernst_tangent_modulus` returns $E(1+\alpha(1-\frac{3\alpha}{1+\alpha}))/(1+\alpha)^2$, which is not the derivative of the chord–tension law (that derivative is `ernst_equivalent_modulus`); negative for moderate α. Now returns that derivative (#415). Not used by any solver. | FIXED | `ernst_tangent_modulus_is_the_chord_law_derivative` |
+| SP-12 | Cable solver recovers tension as $T = E_\text{eq}(T)A\varepsilon$, using Ernst's tangent as a secant from a straight, stress-free chord: $\varepsilon = T/EA + (wl_h)^2/(12T^2)$ instead of the elastic-catenary $T/EA - (wl_h)^2/(24T^2)$. Indeterminate cable systems got too little cable tension when sag matters (example: 9.39 kN where the chord law gives 9.59 kN). The solver now runs Newton on the chord law with the unstressed length equal to the modelled chord, Ernst's modulus as the tangent (§1.3; #416, advisory SA-2026-015). An unstressed-length or pretension input is still to add. | FIXED | `cable_tension_follows_the_elastic_catenary_chord_law` |
 | SP-13 | The cable solver does not apply the cable's self-weight as a load; density only reduces the modulus. | DOCUMENTED-CHOICE | `cable_density_is_not_a_load` |
 | SP-14 | Outside the cable solver a cable is a truss bar: the linear solver lets it carry compression (−25.5 kN in the example) with no diagnostic. | OPEN | `linear_solver_does_not_report_cable_compression_silently` |
 | SP-15 | Curved-beam segments take default local axes; near-vertical segments switch reference, so outside the X–Z plane $I_y$/$I_z$ swap on them (semicircle, N = 40: 15 % crown-deflection difference between the X–Z and Y–Z planes). | OPEN | `curved_beam_arch_is_invariant_under_plan_rotation` |
