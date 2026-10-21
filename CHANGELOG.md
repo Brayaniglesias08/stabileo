@@ -255,6 +255,20 @@ The element is documented as a flat facet (curvature from the mesh). The `SH-7` 
 is removed. The Scordelis–Lo MITC9 effectivity check against w₃ − w₀ is dropped: the faceted
 energies are not monotone under refinement, so that difference is not the error (θ was 0.99 by
 coincidence, 1.57 after the fix with the same displacements).
+#### 3D material-nonlinear yield surface matches 2D (2026-10-21, #429, NL-6, SA-2026-020)
+
+**BREAKING (results): 3D material-nonlinear members with axial force or biaxial bending yield
+earlier and report a higher utilization.** The 3D solver yielded at
+(N/Np)² + (My/Mpy)² + (Mz/Mpz)² > 1; squaring the moment ratios made a 3D member yield later
+than the same member in 2D ((N/Np)² + |M|/Mp): 15 % later about one axis at N = 0.5·Np,
+0.74 against 0.95 for the same planar state, and a tip moment of 0.6·Mp about each axis stayed
+elastic. It now uses (N/Np)² + |My|/Mpy + |Mz|/Mpz, in yield detection and in the utilization
+(from the reported secant forces): the 2D surface for bending about one axis, and between the
+axes the chord between the uniaxial limits. Engine and WASM API only; no app screen calls the
+solver. The NL-5 warning no longer mentions NL-6. Tests in `engine/tests/derivation_nonlinear.rs`;
+advisory `docs/advisories/SA-2026-020-material-nonlinear-3d-yield-surface.md`. Still open for 2D
+and 3D: the (N/Np)² term is the rectangle's and is unconservative for the strong axis of an
+I-section at high axial force.
 
 #### Silent errors from the element-derivations review: 2D-in-3D signs, settlements, Winkler, imperfections, constraints (2026-10-18)
 

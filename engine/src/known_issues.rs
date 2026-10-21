@@ -27,7 +27,7 @@ fn hit(id: &str, issue: u32, message: &str) -> StructuredDiagnostic {
     d
 }
 
-const NL_MATERIAL: &str = "Material-nonlinear results are approximate: the model is a whole-member secant rather than plasticity, so the response jumps at first yield (NL-5), and in 3D the yield surface is less conservative than in 2D (NL-6). Check the collapse load factor with plastic collapse";
+const NL_MATERIAL: &str = "Material-nonlinear results are approximate: the model is a whole-member secant rather than plasticity, so the response jumps at first yield (NL-5). Check the collapse load factor with plastic collapse";
 const THERMAL: &str = "Frame and truss temperature loads use α = 12·10⁻⁶ /°C and a depth of √(12·I/A) whatever the material and section; for other materials or real section depths the thermal forces are off in proportion";
 
 /// The warnings an analysis carries whatever the model (the solver itself is affected).

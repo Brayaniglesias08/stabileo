@@ -88,7 +88,7 @@ warning:
 - **NL-4, NL-5, NL-6:** the "material nonlinear" solver has three problems:
   - it reports elastic member forces;
   - it is a whole-member secant softening, not plasticity;
-  - its 3D yield surface is unconservative compared with the 2D one.
+  - its 3D yield surface was unconservative compared with the 2D one (fixed, #429).
 - **NL-9, NL-11:** imperfections can silently do nothing. The 3D notional loads default to the Y
   axis, and residual stresses and initial displacements are ignored.
 - **AC-15:** the web's embedding of a flat 2D model into the 3D solver does not negate nodal

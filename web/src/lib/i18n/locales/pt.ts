@@ -1754,7 +1754,7 @@ const pt: Translations = {
   'diag.deflectionExceeded': 'Deformação excede o limite admissível',
   'diag.deflectionHigh': 'Deformação próxima ao limite admissível',
   'diag.elements': 'Barras',
-  'knownIssue.NL-5': 'Os resultados não lineares de material são aproximados: o modelo é uma secante de barra inteira e não plasticidade, então a resposta salta no primeiro escoamento, e em 3D a superfície de escoamento é menos conservadora que em 2D. Confira o fator de colapso com colapso plástico',
+  'knownIssue.NL-5': 'Os resultados não lineares de material são aproximados: o modelo é uma secante de barra inteira e não plasticidade, então a resposta salta no primeiro escoamento. Confira o fator de colapso com colapso plástico',
   'knownIssue.FR-4': 'As cargas de temperatura em barras usam α = 12·10⁻⁶ /°C e uma altura √(12·I/A) qualquer que seja o material e a seção; para outros materiais ou alturas reais os esforços térmicos ficam desviados nessa proporção',
   'diag.errors': 'Erros',
   'diag.errorsFound': '{count} erro(s) detectado(s)',

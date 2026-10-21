@@ -3695,7 +3695,7 @@ const es: Record<string, string> = {
   'diag.detail.overlapLength': "Superposición (m)",
   'diag.detail.outOfPlane': "Fuera del plano (m)",
   'diag.elements': 'Barras',
-  'knownIssue.NL-5': 'Los resultados no lineales de material son aproximados: el modelo es una secante de barra completa y no plasticidad, así que la respuesta salta en la primera fluencia, y en 3D la superficie de fluencia es menos conservadora que en 2D. Verificá el factor de colapso con colapso plástico',
+  'knownIssue.NL-5': 'Los resultados no lineales de material son aproximados: el modelo es una secante de barra completa y no plasticidad, así que la respuesta salta en la primera fluencia. Verificá el factor de colapso con colapso plástico',
   'knownIssue.FR-4': 'Las cargas de temperatura en barras usan α = 12·10⁻⁶ /°C y una altura √(12·I/A) sea cual sea el material y la sección; para otros materiales o alturas reales los esfuerzos térmicos quedan desviados en esa proporción',
   'diag.nodes': 'Nodos',
   'diag.shells': 'Cáscaras',

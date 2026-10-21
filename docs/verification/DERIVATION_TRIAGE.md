@@ -28,13 +28,13 @@ on that branch: a test that now passes means the finding is fixed.
 | — | settlement on a spring DOF dropped; Winkler member end forces | #436 (batch 4) | `settlement_on_spring_dof_is_not_silently_dropped`, `winkler_member_end_forces_include_foundation` pass |
 | — | SH-9 solid shell Poisson locking | #401 | `sh9_solid_shell_strip_does_not_poisson_lock` passes |
 | [#418](https://github.com/lambdaclass/stabileo/issues/418) | SP-15 curved-beam segment axes depend on plan orientation | #523 (advisory SA-2026-016) | `curved_beam_arch_is_invariant_under_plan_rotation` passes and is un-ignored; containment removed |
+| [#429](https://github.com/lambdaclass/stabileo/issues/429) | NL-6 3D material-nonlinear yield surface unconservative vs 2D | `fix/nl6-yield-surface` (advisory SA-2026-020) | `nl_material_2d_and_3d_use_the_same_yield_surface` and three new 3D tests pass; the I-section strong-axis N–M term stays open for 2D and 3D (docs/solver/nonlinear.md NL-6) |
 
 ## A: wrong results a user would rely on (fix, contain, advisory)
 
 | Issue | Finding | Why it matters | Demonstration |
 |---|---|---|---|
 | [#427](https://github.com/lambdaclass/stabileo/issues/427) | NL-4 material-nonlinear member forces are the elastic `K_el·u` | after yield the reported forces are up to ~100× off and do not balance the reactions | `nl_material_2d_member_forces_balance_the_reactions` fails |
-| [#429](https://github.com/lambdaclass/stabileo/issues/429) | NL-6 3D material-nonlinear yield surface unconservative vs 2D | a 3D member yields later than the same member in 2D | `nl_material_2d_and_3d_use_the_same_yield_surface` fails |
 | [#428](https://github.com/lambdaclass/stabileo/issues/428) | NL-5 material nonlinear is a whole-member secant, not plasticity | response jumps at first yield; load factors depend on the step | `nl_material_2d_response_is_continuous_at_first_yield` fails |
 | [#410](https://github.com/lambdaclass/stabileo/issues/410) | SH-6 curved shell reports zero bending moments; stresses ignore thermal strain | a design read from curved-shell moments sees none | **FIXED** in #522 (advisory SA-2026-013): moments recovered through the thickness, thermal strain subtracted, app curved-quad temperatures applied; `sh6_*` tests pass |
 | [#416](https://github.com/lambdaclass/stabileo/issues/416) | SP-12 cable tension too low in indeterminate systems | unconservative cable and anchorage forces | **fixed**: the cable solve runs Newton on the elastic-catenary chord law (Ernst's modulus as the tangent); `cable_tension_follows_the_elastic_catenary_chord_law` and its 3D twin pass against the closed form; advisory [SA-2026-015](../advisories/SA-2026-015-cable-tension-chord-law.md) |

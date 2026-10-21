@@ -29,6 +29,7 @@ released.
 | [SA-2026-015](SA-2026-015-cable-tension-chord-law.md) | Cables with self-weight got too little tension in indeterminate structures (guyed mast 16 % low) | High | [#416](https://github.com/lambdaclass/stabileo/issues/416) | #525 | next release | Draft |
 | [SA-2026-017](SA-2026-017-soil-curves.md) | Soil-structure interaction p-y, t-z and q-z curves departed from their references (soft clay p_u a third to a half low, sand A, stiff clay jump, t-z/q-z units) | High | [#421](https://github.com/lambdaclass/stabileo/issues/421), [#422](https://github.com/lambdaclass/stabileo/issues/422), [#423](https://github.com/lambdaclass/stabileo/issues/423) | #526 (in review) | — | Draft |
 | [SA-2026-018](SA-2026-018-mitc9-curved-rigid-motion.md) | MITC9 shells (engine/WASM only) on curved geometry strained by rigid-body motion (101 MPa from a 1 mrad rotation) | Medium | [#411](https://github.com/lambdaclass/stabileo/issues/411) | this fix | `main` (next release) | Draft |
+| [SA-2026-020](SA-2026-020-material-nonlinear-3d-yield-surface.md) | 3D material-nonlinear solver (engine/WASM only) used a yield surface less conservative than 2D (first yield up to 15 % late at N = 0.5·Np) | Medium | [#429](https://github.com/lambdaclass/stabileo/issues/429) | `fix/nl6-yield-surface` | next release | Draft |
 
 Other open `safety` issues (the derivation-review findings #406–#433, #338, #439) get an advisory
 or a recorded "no advisory needed" when they are triaged; the list is on the
