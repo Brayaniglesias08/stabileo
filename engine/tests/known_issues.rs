@@ -5,6 +5,7 @@ mod common;
 use common::{make_3d_beam, make_beam};
 use dedaliano_engine::known_issues::{for_3d, for_ssi, Analysis};
 use dedaliano_engine::solver::linear::{prepare_static_2d, solve_2d};
+use dedaliano_engine::solver::constraints::{solve_constrained_2d, ConstrainedInput};
 use dedaliano_engine::solver::ssi::{solve_ssi_2d, SSIInput, SoilSpring};
 use dedaliano_engine::solver::material_nonlinear::solve_nonlinear_material_2d;
 use dedaliano_engine::solver::soil_curves::SoilCurve;
@@ -142,4 +143,19 @@ fn ssi_results_carry_structural_and_soil_warnings_once() {
     let found = ids(&r.results.structured_diagnostics);
     assert!(found.contains(&"FR-4".to_string()) && found.contains(&"AC-16".to_string()), "{found:?}");
     assert_eq!(found.iter().filter(|x| *x == "FR-4").count(), 1, "attached once");
+}
+
+#[test]
+fn a_direct_constrained_solve_carries_its_warnings_once() {
+    let mut loads = tip(-10.0);
+    loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 10.0, dt_gradient: 0.0 }));
+    let solver = make_beam(4, 4.0, E, 0.045, 3.375e-4, "fixed", None, loads);
+    let tie = Constraint::EqualDOF(EqualDOFConstraint { master_node: 2, slave_node: 3, dofs: vec![1] });
+    let r = solve_constrained_2d(&ConstrainedInput { solver: solver.clone(), constraints: vec![tie.clone()] }).unwrap();
+    assert_eq!(ids(&r.structured_diagnostics).iter().filter(|x| *x == "FR-4").count(), 1);
+    // Through solve_2d (which delegates to the constrained solver): still once.
+    let mut with = solver;
+    with.constraints = vec![tie];
+    let r = solve_2d(&with).unwrap();
+    assert_eq!(ids(&r.structured_diagnostics).iter().filter(|x| *x == "FR-4").count(), 1);
 }

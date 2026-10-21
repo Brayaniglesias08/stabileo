@@ -1481,7 +1481,15 @@ fn map_dof_forces_to_constraint_forces(
 }
 
 /// Solve a 2D constrained analysis.
+/// Constrained 2D solve, with the known-issue warnings that apply attached (once, also when
+/// reached through `linear::solve_2d`).
 pub fn solve_constrained_2d(input: &ConstrainedInput) -> Result<AnalysisResults, String> {
+    let mut r = solve_constrained_2d_inner(input)?;
+    crate::known_issues::attach(&mut r.structured_diagnostics, crate::known_issues::for_2d(&input.solver, crate::known_issues::Analysis::Linear));
+    Ok(r)
+}
+
+fn solve_constrained_2d_inner(input: &ConstrainedInput) -> Result<AnalysisResults, String> {
     if input.constraints.is_empty() {
         return linear::solve_2d(&input.solver);
     }
@@ -2082,7 +2090,14 @@ fn solve_constrained_2d_sparse(
 }
 
 /// Solve a 3D constrained analysis.
+/// Constrained 3D solve, with the known-issue warnings that apply attached (once).
 pub fn solve_constrained_3d(input: &ConstrainedInput3D) -> Result<AnalysisResults3D, String> {
+    let mut r = solve_constrained_3d_inner(input)?;
+    crate::known_issues::attach(&mut r.structured_diagnostics, crate::known_issues::for_3d(&input.solver, crate::known_issues::Analysis::Linear));
+    Ok(r)
+}
+
+fn solve_constrained_3d_inner(input: &ConstrainedInput3D) -> Result<AnalysisResults3D, String> {
     if input.constraints.is_empty() {
         return linear::solve_3d(&input.solver);
     }

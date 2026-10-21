@@ -73,14 +73,16 @@ pub fn model_3d(input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
         d.element_kind = Some(ElementKind::CurvedShell);
         out.push(d);
     }
-    let warped: Vec<usize> = input.quad9s.values().filter(|q| !planar(&q.nodes, input)).map(|q| q.id).collect();
+    // One id index for every element check: a lookup per node made the pass O(elements × nodes).
+    let xyz: std::collections::HashMap<usize, [f64; 3]> = input.nodes.values().map(|n| (n.id, [n.x, n.y, n.z])).collect();
+    let warped: Vec<usize> = input.quad9s.values().filter(|q| !planar(&q.nodes, &xyz)).map(|q| q.id).collect();
     if !warped.is_empty() {
         let mut d = hit("SH-7", 411, "MITC9 elements on non-planar geometry do not reproduce rigid-body motion, so curved MITC9 meshes carry spurious strains; refine or use flat elements");
         d.element_ids = warped;
         d.element_kind = Some(ElementKind::Quad9);
         out.push(d);
     }
-    if input.curved_beams.iter().any(|c| !horizontal_plane(c, input)) {
+    if input.curved_beams.iter().any(|c| !horizontal_plane(c, &xyz)) {
         out.push(hit("SP-15", 418, "Curved beams outside a horizontal plane (arches) take their segment axes from the plan orientation, so Iy and Iz swap on near-vertical segments; check the segments' stiffness and forces"));
     }
     out
@@ -127,13 +129,9 @@ pub fn for_ssi(curves: &[&crate::solver::soil_curves::SoilCurve]) -> Vec<Structu
     out
 }
 
-fn node_xyz(input: &SolverInput3D, id: usize) -> Option<[f64; 3]> {
-    input.nodes.values().find(|n| n.id == id).map(|n| [n.x, n.y, n.z])
-}
-
 /// Nine nodes on one plane, to 1e-6 of the element's size.
-fn planar(nodes: &[usize; 9], input: &SolverInput3D) -> bool {
-    let p: Vec<[f64; 3]> = nodes.iter().filter_map(|&n| node_xyz(input, n)).collect();
+fn planar(nodes: &[usize; 9], xyz: &std::collections::HashMap<usize, [f64; 3]>) -> bool {
+    let p: Vec<[f64; 3]> = nodes.iter().filter_map(|n| xyz.get(n).copied()).collect();
     if p.len() < 9 {
         return true; // a missing node is refused by validation
     }
@@ -149,8 +147,8 @@ fn planar(nodes: &[usize; 9], input: &SolverInput3D) -> bool {
 }
 
 /// A curved beam whose three points lie in a horizontal plane (a plan curve).
-fn horizontal_plane(c: &CurvedBeamInput, input: &SolverInput3D) -> bool {
-    let (Some(a), Some(b), Some(m)) = (node_xyz(input, c.node_start), node_xyz(input, c.node_end), node_xyz(input, c.node_mid)) else {
+fn horizontal_plane(c: &CurvedBeamInput, xyz: &std::collections::HashMap<usize, [f64; 3]>) -> bool {
+    let (Some(&a), Some(&b), Some(&m)) = (xyz.get(&c.node_start), xyz.get(&c.node_end), xyz.get(&c.node_mid)) else {
         return true;
     };
     let span = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt().max(1e-12);
