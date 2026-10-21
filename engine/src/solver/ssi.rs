@@ -54,8 +54,31 @@ pub struct SoilSpring {
     pub direction: usize,
     /// Soil curve type
     pub curve: SoilCurve,
-    /// Tributary length for this spring (m)
+    /// Tributary length for this spring (m): the curve's reaction per metre
+    /// of pile (p-y, t-z, custom) times this is the spring force. Not used by
+    /// a q-z tip spring, whose curve already returns a force.
     pub tributary_length: f64,
+}
+
+impl SoilSpring {
+    /// What the curve's reaction is multiplied by: the tributary length for
+    /// curves per unit length of pile (p-y, t-z, custom), 1 for the q-z tip
+    /// spring, whose reaction is already a force.
+    pub fn length_factor(&self) -> f64 {
+        if self.curve.is_point_spring() { 1.0 } else { self.tributary_length }
+    }
+}
+
+/// Refuse a spring whose curve is invalid or misses a parameter its reference
+/// needs, or whose tributary length is not a non-negative number.
+fn validate_springs(springs: &[SoilSpring]) -> Result<(), String> {
+    for (i, s) in springs.iter().enumerate() {
+        s.curve.validate().map_err(|e| format!("Soil spring {i} (node {}): {e}", s.node_id))?;
+        if !s.curve.is_point_spring() && !(s.tributary_length.is_finite() && s.tributary_length >= 0.0) {
+            return Err(format!("Soil spring {i} (node {}): tributary length {} must be non-negative and finite", s.node_id, s.tributary_length));
+        }
+    }
+    Ok(())
 }
 
 /// SSI analysis input (2D).
@@ -120,12 +143,12 @@ pub struct SpringResult {
 pub fn solve_ssi_2d(input: &SSIInput) -> Result<SSIResult, String> {
     let mut r = solve_ssi_2d_inner(input)?;
     crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_2d(&input.solver, crate::known_issues::Analysis::Ssi));
-    crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_ssi(&input.soil_springs.iter().map(|s| &s.curve).collect::<Vec<_>>()));
     Ok(r)
 }
 
 fn solve_ssi_2d_inner(input: &SSIInput) -> Result<SSIResult, String> {
     super::linear::validate_input_2d(&input.solver)?;
+    validate_springs(&input.soil_springs)?;
     // The secant solve does not impose prescribed displacements. Inclined
     // supports are solved in their frames (fix/inclined-supports).
     super::feature_gates::refuse_2d(&input.solver, "Soil-structure interaction analysis", &[super::feature_gates::Feature::PrescribedDisplacements])?;
@@ -197,10 +220,10 @@ fn solve_ssi_2d_inner(input: &SSIInput) -> Result<SSIResult, String> {
     // Initialize secant stiffnesses (use initial tangent from curves)
     let mut spring_k: Vec<f64> = input.soil_springs.iter()
         .map(|s| {
-            let (_, k0) = evaluate_soil_curve(&s.curve, 1e-8);
-            k0 * s.tributary_length
+            let (_, k0) = evaluate_soil_curve(&s.curve, 1e-8)?;
+            Ok(k0 * s.length_factor())
         })
-        .collect();
+        .collect::<Result<_, String>>()?;
 
     let mut u_full = vec![0.0; n];
     let mut u_frame = vec![0.0; nf];
@@ -290,8 +313,8 @@ fn solve_ssi_2d_inner(input: &SSIInput) -> Result<SSIResult, String> {
                 .map(|&d| u_full[d])
                 .unwrap_or(0.0);
 
-            let (_reaction, k_secant) = evaluate_soil_curve(&spring.curve, disp);
-            let new_k = k_secant * spring.tributary_length;
+            let (_reaction, k_secant) = evaluate_soil_curve(&spring.curve, disp)?;
+            let new_k = k_secant * spring.length_factor();
 
             let old_k = spring_k[si];
             let change = (new_k - old_k).abs();
@@ -317,16 +340,16 @@ fn solve_ssi_2d_inner(input: &SSIInput) -> Result<SSIResult, String> {
             let disp = dof_num.map.get(&(spring.node_id, dir))
                 .map(|&d| u_full[d])
                 .unwrap_or(0.0);
-            let (reaction, _) = evaluate_soil_curve(&spring.curve, disp);
-            SpringResult {
+            let (reaction, _) = evaluate_soil_curve(&spring.curve, disp)?;
+            Ok(SpringResult {
                 node_id: spring.node_id,
                 direction: spring.direction,
                 displacement: disp,
-                reaction: reaction * spring.tributary_length,
+                reaction: reaction * spring.length_factor(),
                 secant_stiffness: spring_k[si],
-            }
+            })
         })
-        .collect();
+        .collect::<Result<_, String>>()?;
 
     // Compute constraint forces if constraints are active
     let constraint_forces = if let Some(ref fcs) = cs {
@@ -364,12 +387,12 @@ fn solve_ssi_2d_inner(input: &SSIInput) -> Result<SSIResult, String> {
 pub fn solve_ssi_3d(input: &SSIInput3D) -> Result<SSIResult3D, String> {
     let mut r = solve_ssi_3d_inner(input)?;
     crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_3d(&input.solver, crate::known_issues::Analysis::Ssi));
-    crate::known_issues::attach(&mut r.results.structured_diagnostics, crate::known_issues::for_ssi(&input.soil_springs.iter().map(|s| &s.curve).collect::<Vec<_>>()));
     Ok(r)
 }
 
 fn solve_ssi_3d_inner(input: &SSIInput3D) -> Result<SSIResult3D, String> {
     super::linear::validate_input_3d(&input.solver)?;
+    validate_springs(&input.soil_springs)?;
     super::feature_gates::refuse_3d(&input.solver, "Soil-structure interaction analysis", &[super::feature_gates::Feature::PrescribedDisplacements])?;
 
     // Expand curved beams before DOF numbering and assembly.
@@ -440,10 +463,10 @@ fn solve_ssi_3d_inner(input: &SSIInput3D) -> Result<SSIResult3D, String> {
 
     let mut spring_k: Vec<f64> = input.soil_springs.iter()
         .map(|s| {
-            let (_, k0) = evaluate_soil_curve(&s.curve, 1e-8);
-            k0 * s.tributary_length
+            let (_, k0) = evaluate_soil_curve(&s.curve, 1e-8)?;
+            Ok(k0 * s.length_factor())
         })
-        .collect();
+        .collect::<Result<_, String>>()?;
 
     let mut u_full = vec![0.0; n];
     let mut u_frame = vec![0.0; nf];
@@ -530,8 +553,8 @@ fn solve_ssi_3d_inner(input: &SSIInput3D) -> Result<SSIResult3D, String> {
                 .map(|&d| u_full[d])
                 .unwrap_or(0.0);
 
-            let (_reaction, k_secant) = evaluate_soil_curve(&spring.curve, disp);
-            let new_k = k_secant * spring.tributary_length;
+            let (_reaction, k_secant) = evaluate_soil_curve(&spring.curve, disp)?;
+            let new_k = k_secant * spring.length_factor();
 
             let old_k = spring_k[si];
             let change = (new_k - old_k).abs();
@@ -556,16 +579,16 @@ fn solve_ssi_3d_inner(input: &SSIInput3D) -> Result<SSIResult3D, String> {
             let disp = dof_num.map.get(&(spring.node_id, dir))
                 .map(|&d| u_full[d])
                 .unwrap_or(0.0);
-            let (reaction, _) = evaluate_soil_curve(&spring.curve, disp);
-            SpringResult {
+            let (reaction, _) = evaluate_soil_curve(&spring.curve, disp)?;
+            Ok(SpringResult {
                 node_id: spring.node_id,
                 direction: spring.direction,
                 displacement: disp,
-                reaction: reaction * spring.tributary_length,
+                reaction: reaction * spring.length_factor(),
                 secant_stiffness: spring_k[si],
-            }
+            })
         })
-        .collect();
+        .collect::<Result<_, String>>()?;
 
     // Compute constraint forces if constraints are active
     let constraint_forces = if let Some(ref fcs) = cs {

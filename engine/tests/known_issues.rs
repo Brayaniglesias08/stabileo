@@ -3,7 +3,7 @@
 
 mod common;
 use common::{make_3d_beam, make_beam};
-use dedaliano_engine::known_issues::{for_3d, for_ssi, Analysis};
+use dedaliano_engine::known_issues::{for_3d, Analysis};
 use dedaliano_engine::solver::linear::{prepare_static_2d, solve_2d};
 use dedaliano_engine::solver::constraints::{solve_constrained_2d, ConstrainedInput};
 use dedaliano_engine::solver::ssi::{solve_ssi_2d, SSIInput, SoilSpring};
@@ -109,15 +109,6 @@ fn cable_analysis_is_flagged() {
 }
 
 #[test]
-fn soil_curves_are_flagged_once_per_family() {
-    let soft = SoilCurve::PySoftClay { su: 50.0, gamma_eff: 8.0, d: 0.6, depth: 2.0, eps_50: 0.01 };
-    let tz = SoilCurve::Tz { t_ult: 40.0, z_ult: 0.005 };
-    let d = for_ssi(&[&soft, &soft, &tz]);
-    assert_eq!(ids(&d), vec!["AC-12".to_string(), "AC-16".to_string()]);
-    assert!(for_ssi(&[]).is_empty());
-}
-
-#[test]
 fn a_load_case_solve_carries_the_warnings_of_its_load_set() {
     // Load-case analyses and WASM load sessions solve through the prepared path.
     let input = make_beam(4, 4.0, E, 0.045, 3.375e-4, "fixed", None, vec![]);
@@ -130,18 +121,20 @@ fn a_load_case_solve_carries_the_warnings_of_its_load_set() {
 }
 
 #[test]
-fn ssi_results_carry_structural_and_soil_warnings_once() {
+fn ssi_results_carry_structural_warnings_once() {
     let mut loads = tip(-10.0);
     loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 10.0, dt_gradient: 0.0 }));
     let input = SSIInput {
         solver: make_beam(4, 4.0, E, 0.045, 3.375e-4, "fixed", None, loads),
-        soil_springs: vec![SoilSpring { node_id: 3, direction: 0, curve: SoilCurve::Tz { t_ult: 40.0, z_ult: 0.005 }, tributary_length: 1.0 }],
+        soil_springs: vec![SoilSpring { node_id: 3, direction: 0, curve: SoilCurve::Tz { t_ult: 40.0, z_ult: 0.005, perimeter: Some(1.885) }, tributary_length: 1.0 }],
         max_iter: 50,
         tolerance: 1e-8,
     };
     let r = solve_ssi_2d(&input).unwrap();
     let found = ids(&r.results.structured_diagnostics);
-    assert!(found.contains(&"FR-4".to_string()) && found.contains(&"AC-16".to_string()), "{found:?}");
+    assert!(found.contains(&"FR-4".to_string()), "{found:?}");
+    // AC-12, AC-13 and AC-16 (soil curves) are fixed (SA-2026-017): no soil warning.
+    assert!(!found.iter().any(|x| x.starts_with("AC-")), "{found:?}");
     assert_eq!(found.iter().filter(|x| *x == "FR-4").count(), 1, "attached once");
 }
 

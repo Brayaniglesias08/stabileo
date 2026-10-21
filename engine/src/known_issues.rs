@@ -31,17 +31,6 @@ const NL_MATERIAL: &str = "Material-nonlinear results are approximate: the model
 const CABLE: &str = "Cable tensions can be too low in statically indeterminate cable systems (the chord law's tangent is used as a secant); check the governing cable and anchorage forces independently";
 const THERMAL: &str = "Frame and truss temperature loads use α = 12·10⁻⁶ /°C and a depth of √(12·I/A) whatever the material and section; for other materials or real section depths the thermal forces are off in proportion";
 
-fn soil(curve: &crate::solver::soil_curves::SoilCurve) -> Option<(&'static str, u32, &'static str)> {
-    use crate::solver::soil_curves::SoilCurve as C;
-    match curve {
-        C::PySoftClay { .. } | C::PySand { .. } => Some(("AC-12", 421, "p-y curves depart from the cited references (soft clay without the J term, sand A = 0.9 and its k table); lateral pile and soil-spring results are off")),
-        C::PyStiffClay { .. } => Some(("AC-13", 422, "The \"stiff clay\" p-y curve is discontinuous at y50 and is not Reese's stiff-clay curve; lateral pile and soil-spring results are off")),
-        C::Tz { .. } | C::Qz { .. } => Some(("AC-16", 423, "t-z and q-z curves are missing the shaft perimeter or tip area (they return kPa·m, not kN); axial pile springs are off by that factor")),
-        #[allow(unreachable_patterns)]
-        _ => None,
-    }
-}
-
 /// The warnings an analysis carries whatever the model (the solver itself is affected).
 pub fn for_analysis(analysis: Analysis) -> Vec<StructuredDiagnostic> {
     match analysis {
@@ -117,21 +106,6 @@ pub fn attach(target: &mut Vec<StructuredDiagnostic>, new: Vec<StructuredDiagnos
 /// The 3D plastic-collapse warning (#511): the collapse factor depends on the order the solver
 /// visits members, so the same structure can report different factors, some unconservative.
 pub const PLASTIC_3D: &str = "3D plastic collapse: the collapse factor depends on the order the solver visits the members (renumbering or hash order), so the same structure can report different factors, some well above the true one; take the lowest of several runs only as a check, and verify the governing mechanism by hand (known issue #511, PC-3D; being fixed)";
-
-/// The warnings for an SSI analysis: one per soil-curve family the springs use.
-pub fn for_ssi(curves: &[&crate::solver::soil_curves::SoilCurve]) -> Vec<StructuredDiagnostic> {
-    let mut seen: Vec<&'static str> = Vec::new();
-    let mut out = Vec::new();
-    for c in curves {
-        if let Some((id, issue, msg)) = soil(c) {
-            if !seen.contains(&id) {
-                seen.push(id);
-                out.push(hit(id, issue, msg));
-            }
-        }
-    }
-    out
-}
 
 /// Nine nodes on one plane, to 1e-6 of the element's size.
 fn planar(nodes: &[usize; 9], xyz: &std::collections::HashMap<usize, [f64; 3]>) -> bool {
