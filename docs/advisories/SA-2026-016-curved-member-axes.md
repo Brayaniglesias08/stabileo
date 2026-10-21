@@ -62,8 +62,9 @@ and x the segment's axis, with (a, b) those the default rule gives on the arc's 
 middle of its sweep. The section does not roll along the arc: a plan curve keeps local z vertical
 exactly as before, and an arch keeps local y normal to its plane on every segment. In the engine,
 `expand_curved_beams_3d` sets it (`ArcSectionFrame`); in the app the arc tool sets it on the
-members it creates, and arcs saved before the fix take it when the project is opened (only members
-with no local y or roll of their own, and only where it changes their axes). Tests:
+members it creates, and arcs saved before the fix take it once when the project is opened (only
+members with no local y or roll of their own that still lie in the arc's plane, and only where it
+changes their axes; a member set back to automatic axes afterwards stays so). Tests:
 `engine/tests/derivation_special_elements.rs` (the arch against explicit members with local y
 along the plane normal at four plan angles; the same arch rotated about the vertical gives the
 same displacements and member forces; plan curves keep the default axes; tilted arcs do not roll)
