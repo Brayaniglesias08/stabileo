@@ -123,8 +123,11 @@ export function materializeStandingPlaneModel(model: ModelData, nextLoadId: () =
     if (s.dx) next.dx = s.dx;
     const dz = s.dz ?? s.dy;
     if (dz) next.dz = dz;
+    // The plane rotation θ (counter-clockwise as drawn) is a rotation about −Y once the model
+    // stands in X–Z, as the embedded solve sends it (#436): the space support's ry is −θ. Copied
+    // as is, converting a model reversed its imposed rotations (Codex review of batch 4).
     const dry = s.dry ?? s.drz;
-    if (dry) next.dry = dry;
+    if (dry) next.dry = -dry;
     supports.set(id, next);
   }
 

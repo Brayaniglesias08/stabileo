@@ -106,6 +106,23 @@ describe('a couple on a member of a plane model, solved standing in X–Z', () =
       expect(at(after.reactions, n).my).toBeCloseTo(at(before.reactions, n).my, 6);
     }
   });
+
+  it('made a space model, a prescribed support rotation keeps its sense', () => {
+    const A = modelStore.addNode(0, 0), B = modelStore.addNode(L, 0);
+    modelStore.addElement(A, B);
+    modelStore.addSupport(A, 'fixed', undefined, { dry: 0.002 } as never);
+    modelStore.addSupport(B, 'fixed');
+    const before = space();
+    let id = 1000;
+    expect(materializeStandingPlaneModel(modelStore.model as never, () => id++)).toBe(true);
+    const after = space();
+    expect(at(after.displacements, A).ry).toBeCloseTo(at(before.displacements, A).ry, 12);
+    expect(Math.abs(at(before.displacements, A).ry)).toBeCloseTo(0.002, 12);
+    for (const n of [A, B]) {
+      expect(at(after.reactions, n).fz).toBeCloseTo(at(before.reactions, n).fz, 6);
+      expect(at(after.reactions, n).my).toBeCloseTo(at(before.reactions, n).my, 6);
+    }
+  });
 });
 
 describe('loads along an inclined member of a plane model, solved standing in X–Z', () => {
