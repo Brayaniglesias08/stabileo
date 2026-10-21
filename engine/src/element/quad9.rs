@@ -1036,6 +1036,14 @@ pub fn quad9_pressure_load(coords: &[[f64; 3]; 9], pressure: f64) -> Vec<f64> {
 }
 
 /// Thermal load vector for quad9 element (54-DOF).
+///
+/// The uniform part is K·u_free, with u_free = α·ΔT·(x_i − c) the free (homothetic) expansion
+/// of the real nodes about the element centroid and no rotation. On a flat element this is
+/// exactly ∫Bᵀ·N_th (membrane only: the expansion has no drilling and no deflection). On a
+/// curved one the expansion also moves the midside and centre nodes off the facet plane,
+/// which the flat element sees as a deflection, so the quadrature load alone would strain a
+/// freely expanding curved element in transverse shear; K·u_free makes the free expansion
+/// stress-free, as the rigid links make the rigid motions strain-free (SH-7).
 pub fn quad9_thermal_load(
     coords: &[[f64; 3]; 9],
     e: f64,
@@ -1045,12 +1053,11 @@ pub fn quad9_thermal_load(
     dt_uniform: f64,
     dt_gradient: f64,
 ) -> Vec<f64> {
-    let (ex, ey, _ez) = quad9_local_axes(coords);
+    let (ex, ey, ez) = quad9_local_axes(coords);
     let pts = project_to_2d_9(coords, &ex, &ey);
     let ndof = 54;
     let mut f = vec![0.0; ndof];
 
-    let n_t = e * alpha * dt_uniform * t / (1.0 - nu);
     let m_t = e * alpha * dt_gradient * t * t / (12.0 * (1.0 - nu));
 
     let gauss = gauss_3x3();
@@ -1069,8 +1076,6 @@ pub fn quad9_thermal_load(
 
         for i in 0..9 {
             let di = i * 6;
-            f[di]     += dv * dn_dx[i] * n_t;
-            f[di + 1] += dv * dn_dy[i] * n_t;
             // Bending, with dt_gradient = T(+z face) − T(−z face) and right-handed
             // rotations: see `quad_thermal_load`. These signs were reversed.
             f[di + 3] -= dv * dn_dy[i] * m_t;
@@ -1079,6 +1084,23 @@ pub fn quad9_thermal_load(
     }
 
     warp_correct_forces_9(coords, &mut f);
+
+    // Uniform part: K·u_free (local axes; K carries the rigid links).
+    let eps = alpha * dt_uniform;
+    if eps != 0.0 {
+        let k = mitc9_local_stiffness(coords, e, nu, t);
+        let c: [f64; 3] = std::array::from_fn(|a| (0..9).map(|i| coords[i][a]).sum::<f64>() / 9.0);
+        let mut u = [0.0; 54];
+        for i in 0..9 {
+            let d = sub3(&coords[i], &c);
+            u[i * 6] = eps * dot3(&d, &ex);
+            u[i * 6 + 1] = eps * dot3(&d, &ey);
+            u[i * 6 + 2] = eps * dot3(&d, &ez);
+        }
+        for r in 0..ndof {
+            f[r] += (0..ndof).map(|j| k[r * ndof + j] * u[j]).sum::<f64>();
+        }
+    }
 
     // Transform from local to global: f_global = T^T * f_local
     let t_mat = quad9_transform_3d(coords);

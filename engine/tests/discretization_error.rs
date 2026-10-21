@@ -568,11 +568,16 @@ fn convergence_scordelis_lo() {
             }
         }
         if fam == Fam::Mitc9 {
-            // On the model as drawn the energy identity holds against the refined sequence.
-            let w: Vec<f64> = seq.iter().map(|(m, r)| energy_norm_sq(m, r)).collect();
-            let theta = estimate(&seq[0].0, &seq[0].1).error_norm / (w[3] - w[0]).sqrt();
-            println!("   MITC9 level 0: θ = {theta:.3}");
-            assert!(theta > 0.8 && theta < 1.2);
+            // MITC9 elements are flat facets (with rigid links to the curved nodes, SH-7), so,
+            // as for MITC4, refinement changes the geometry and ‖u‖²_E − ‖u_h‖²_E is not the
+            // error: the energies are not monotone (2435.5, 2421.4, 2431.7, 2442.5 before the
+            // SH-7 fix, 2439.9, 2422.8, 2432.4, 2442.7 after), and the effectivity 0.99 that
+            // this check used to find against w₃ − w₀ was a coincidence (1.57 after the fix,
+            // with nearly the same displacements and estimates). Only the estimate's fall under
+            // the first refinements is checked; the MITC9 effectivity is checked on the plate.
+            let eta: Vec<f64> = seq.iter().map(|(m, r)| estimate(m, r).error_norm).collect();
+            println!("   MITC9 estimates: {eta:?}");
+            assert!(eta[0] > eta[1] && eta[1] > eta[2], "MITC9 Scordelis–Lo estimates {eta:?}");
         }
     }
 }
@@ -1132,3 +1137,4 @@ fn richardson_roundoff_after_convergence_is_converged() {
     // A real reversal is still oscillating.
     assert_eq!(richardson(&[1.0, 1.001, 1.0005]).3, "oscillating");
 }
+
