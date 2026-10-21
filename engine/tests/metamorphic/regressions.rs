@@ -464,3 +464,135 @@ fn probe_plastic_file() {
         Err(e) => println!("err {e}"),
     }
 }
+
+/// The plastic-collapse input of a 3D case, as the "plastic collapse" analysis
+/// of the harness builds it (rectangles from A, I_y, I_z; f_y of the case).
+fn plastic_3d_input(c: &crate::case::Case3) -> PlasticInput3D {
+    let rect3 = |s: &SolverSection3D| ((12.0 * s.iy / s.a).sqrt(), (12.0 * s.iz / s.a).sqrt());
+    let sections = c
+        .s
+        .sections
+        .values()
+        .map(|x| {
+            let (b, h) = rect3(x);
+            let mat = c.s.elements.values().find(|e| e.section_id == x.id).map_or(1, |e| e.material_id);
+            (x.id.to_string(), PlasticSectionData3D { a: x.a, iy: x.iy, iz: x.iz, material_id: mat, b: Some(b), h: Some(h), d: Some(b) })
+        })
+        .collect();
+    let materials = c.s.materials.values().map(|x| (x.id.to_string(), PlasticMaterialData { fy: Some(c.p.fy) })).collect();
+    PlasticInput3D { solver: c.s.clone(), sections, materials, max_hinges: None, mp_overrides: None }
+}
+
+fn corpus_3d(name: &str) -> crate::case::Case3 {
+    let f = format!("{}/tests/metamorphic_corpus/differential/{name}.json", env!("CARGO_MANIFEST_DIR"));
+    crate::case::Case3::new(name, serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap())
+}
+
+/// The same structure for the certificate (`certify::plastic_3d`), which
+/// needs rational local axes: a roll angle becomes the local-y vector it
+/// gives, and a point load on a member becomes a nodal load at a node
+/// splitting the member there. Settlements are dropped: imposed deformations
+/// do not change a collapse load.
+fn certifiable(inp: &PlasticInput3D) -> PlasticInput3D {
+    let mut inp = inp.clone();
+    let s = &mut inp.solver;
+    for sup in s.supports.values_mut() {
+        (sup.dx, sup.dy, sup.dz, sup.drx, sup.dry, sup.drz) = (None, None, None, None, None, None);
+    }
+    let lh = s.left_hand.unwrap_or(false);
+    let node = |s: &SolverInput3D, id: usize| s.nodes.values().find(|n| n.id == id).unwrap().clone();
+    let keys: Vec<String> = s.elements.keys().cloned().collect();
+    for k in keys {
+        let e = s.elements[&k].clone();
+        if e.roll_angle.is_some() {
+            let (a, b) = (node(s, e.node_i), node(s, e.node_j));
+            let (_, ey, _) = dedaliano_engine::element::compute_local_axes_3d(a.x, a.y, a.z, b.x, b.y, b.z, e.local_yx, e.local_yy, e.local_yz, e.roll_angle, lh);
+            let el = s.elements.get_mut(&k).unwrap();
+            (el.local_yx, el.local_yy, el.local_yz, el.roll_angle) = (Some(ey[0]), Some(ey[1]), Some(ey[2]), None);
+        }
+    }
+    let mut next_n = s.nodes.values().map(|n| n.id).max().unwrap() + 1;
+    let mut next_e = s.elements.values().map(|e| e.id).max().unwrap() + 1;
+    for ld in std::mem::take(&mut s.loads) {
+        let SolverLoad3D::PointOnElement(pl) = &ld else {
+            s.loads.push(ld);
+            continue;
+        };
+        let k = s.elements.iter().find(|(_, e)| e.id == pl.element_id).unwrap().0.clone();
+        let e = s.elements[&k].clone();
+        let (a, b) = (node(s, e.node_i), node(s, e.node_j));
+        let t = pl.a / ((b.x - a.x).powi(2) + (b.y - a.y).powi(2) + (b.z - a.z).powi(2)).sqrt();
+        let (_, ey, ez) = dedaliano_engine::element::compute_local_axes_3d(a.x, a.y, a.z, b.x, b.y, b.z, e.local_yx, e.local_yy, e.local_yz, e.roll_angle, lh);
+        let (nid, eid) = (next_n, next_e);
+        (next_n, next_e) = (next_n + 1, next_e + 1);
+        s.nodes.insert(nid.to_string(), SolverNode3D { id: nid, x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y), z: a.z + t * (b.z - a.z) });
+        s.elements.insert(eid.to_string(), SolverElement3D { id: eid, node_i: nid, ..e.clone() });
+        s.elements.get_mut(&k).unwrap().node_j = nid;
+        let f: Vec<f64> = (0..3).map(|k| pl.py * ey[k] + pl.pz * ez[k]).collect();
+        s.loads.push(SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: nid, fx: f[0], fy: f[1], fz: f[2], mx: 0.0, my: 0.0, mz: 0.0, bw: None }));
+    }
+    inp
+}
+
+/// #511: a 3D plastic collapse factor is a property of the structure, not of
+/// how its members are numbered. The metamorphic relabel check found the
+/// differential frame3d-2 reporting 75.87, 101.7, 145.9, 241.1 or 424.3 for
+/// the same structure (its certified collapse factor is 176.47): the
+/// reversal checks of biaxial hinges cycled, the solver went on from
+/// whichever state of the cycle the element order left it in, and drove a
+/// closed section through the yield surface. Every renumbering must now give
+/// the same factor, and it must be a lower bound unless the result says it
+/// is approximate.
+#[test]
+fn plastic_3d_collapse_factor_does_not_depend_on_numbering() {
+    use dedaliano_engine::metamorphic::relabel::Relabel;
+    // the certified collapse factor of each model (`certify_plastic_3d` on
+    // `certifiable`), where the certificate applies
+    let cases: [(&str, Option<f64>); 6] = [
+        ("frame3d-2", Some(176.467325809)),
+        ("frame3d-0", None),
+        ("frame3d-4", None),
+        ("pdelta3d-1", Some(15.7479054153)),
+        ("building-1", None),
+        ("pdelta3d-3", None),
+    ];
+    for (name, certified) in cases {
+        let c = corpus_3d(name);
+        let base = plastic::solve_plastic_3d(&plastic_3d_input(&c)).unwrap();
+        for seed in 0..16 {
+            let rl = Relabel::random_3d(&c.s, seed);
+            let r = plastic::solve_plastic_3d(&plastic_3d_input(&c.relabel(&rl, seed))).unwrap();
+            close(r.collapse_factor, base.collapse_factor, 1e-7, &format!("{name} renumbered (seed {seed})"));
+            assert_eq!(r.is_mechanism, base.is_mechanism, "{name} seed {seed}");
+        }
+        if let Some(lc) = certified {
+            // above the collapse load only with the solver saying so
+            let flagged = base.warnings.iter().any(|w| w.contains("approximate") || w.contains("not guaranteed"));
+            assert!(base.collapse_factor <= lc * (1.0 + 1e-9) || flagged, "{name}: {} above λ_c = {lc}: {:?}", base.collapse_factor, base.warnings);
+            assert!(base.collapse_factor <= lc * 1.005, "{name}: {} vs λ_c = {lc}", base.collapse_factor);
+        }
+    }
+}
+
+/// frame3d-2 against its certificate: the solver stops where no consistent
+/// set of active hinges exists (λ = 73.71), says so, and that is a lower
+/// bound of the certified collapse factor 176.47 (static theorem; the
+/// field there is admissible). It used to go on to 75.87 with a moment field
+/// 1.40 times the yield surface, or, numbered otherwise, to 241.1.
+#[test]
+fn plastic_3d_frame3d_2_is_a_lower_bound_of_its_certificate() {
+    let c = corpus_3d("frame3d-2");
+    let inp = plastic_3d_input(&c);
+    let cert = dedaliano_engine::certify::plastic_3d::certify_collapse_3d(&certifiable(&inp), None);
+    assert!(cert.certified, "{cert:?}");
+    let (lo, up) = (cert.lambda_lower.unwrap(), cert.lambda_upper.unwrap());
+    assert!((lo - 176.467325809).abs() < 1e-6 && (up - lo) / up < 1e-9, "[{lo}, {up}]");
+    // the transformed model is the same structure for the solver too
+    let same = plastic::solve_plastic_3d(&certifiable(&inp)).unwrap();
+    assert!(same.collapse_factor <= lo, "{}", same.collapse_factor);
+    let r = plastic::solve_plastic_3d(&inp).unwrap();
+    close(r.collapse_factor, 73.707122, 1e-6, "frame3d-2");
+    assert!(r.collapse_factor <= lo && !r.is_mechanism, "{} vs [{lo}, {up}]", r.collapse_factor);
+    assert!(r.warnings.iter().any(|w| w.contains("no consistent set of active hinges") && w.contains("lower bound")), "{:?}", r.warnings);
+    assert!(!r.warnings.iter().any(|w| w.contains("exceeds the yield surface")), "{:?}", r.warnings);
+}
