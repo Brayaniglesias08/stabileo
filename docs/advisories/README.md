@@ -23,6 +23,7 @@ released.
 | [SA-2026-010](SA-2026-010-spectral-certificate-nonfinite.md) | Spectral certificate passed on non-finite results | Medium | [#335](https://github.com/lambdaclass/stabileo/issues/335) | #398 | `main`, deployed 2026-10-19 (next release) | Draft |
 | [SA-2026-011](SA-2026-011-springs-on-fixed-supports.md) | 3D support switched from spring to fixed or pinned was solved as elastic | High | [#488](https://github.com/lambdaclass/stabileo/issues/488) | #491 | `main`, deployed 2026-10-20 (next release) | Draft |
 | [SA-2026-012](SA-2026-012-material-nonlinear-member-forces.md) | Material-nonlinear solver (engine/WASM only) reported elastic member forces after yield (up to 100×) | Medium | [#427](https://github.com/lambdaclass/stabileo/issues/427) | #510 | `main` (next release) | Draft |
+| [SA-2026-017](SA-2026-017-soil-curves.md) | Soil-structure interaction p-y, t-z and q-z curves departed from their references (soft clay p_u a third to a half low, sand A, stiff clay jump, t-z/q-z units) | High | [#421](https://github.com/lambdaclass/stabileo/issues/421), [#422](https://github.com/lambdaclass/stabileo/issues/422), [#423](https://github.com/lambdaclass/stabileo/issues/423) | `fix/soil-curves` (in review) | — | Draft |
 
 Other open `safety` issues (the derivation-review findings #406–#433, #338, #439) get an advisory
 or a recorded "no advisory needed" when they are triaged; the list is on the

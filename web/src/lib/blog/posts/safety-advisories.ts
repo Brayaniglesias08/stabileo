@@ -39,6 +39,7 @@ export const safetyAdvisories: Post = {
           head: ['Aviso', 'Qué', 'Severidad', 'Estado'],
           rows: [
             ['SA-2026-011', 'Apoyo 3D cambiado de resorte a empotrado o articulado, calculado como resorte', 'Alta', 'Corregido el 20/10/2026'],
+            ['SA-2026-017', 'Interacción suelo-estructura: curvas p-y, t-z y q-z apartadas de sus referencias', 'Alta', 'Corrección en revisión'],
             ['SA-2026-008', 'Espectro de respuesta: corte basal SRSS con CQC; participación sin la masa acoplada a los apoyos', 'Alta', 'Corregido el 21/10/2026'],
             ['SA-2026-007', 'Pandeo 3D sin modos torsionales ni flexotorsionales', 'Alta', 'Corregido el 21/10/2026'],
             ['SA-2026-006', 'Modelo plano resuelto en 3D: momentos nodales y giros impuestos invertidos', 'Alta', 'Corregido el 21/10/2026'],
@@ -58,6 +59,7 @@ export const safetyAdvisories: Post = {
           head: ['Aviso', 'Caso', 'Correcto', 'Informado', 'Unidad'],
           rows: [
             ['SA-2026-011', 'Viga de 0, 4 y 8 m, apoyo dibujado como empotrado en 8 m: descenso en ese apoyo', '0', '-14,4', 'mm'],
+            ['SA-2026-017', 'Arcilla blanda c = 20 kPa, D = 1 m, z = 4 m: resistencia última del suelo p_u', '124', '84', 'kN/m'],
             ['SA-2026-008', 'Dos modos a ω y 1,1ω: corte basal relativo al valor CQC', '1,00', '0,81', '—'],
             ['SA-2026-007', 'Columna cruciforme de 200×10 mm y 1,5 m: carga crítica', '2993', '5860', 'kN'],
             ['SA-2026-006', 'Pórtico con momentos y fuerzas nodales: desplazamiento lateral', '0,92', '2,52', 'mm'],
@@ -78,6 +80,10 @@ export const safetyAdvisories: Post = {
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'SA-2026-011 completo', t: 'El aviso con la reproducción y el modelo de prueba:' },
+
+        { k: 'h', t: 'SA-2026-017: curvas de suelo en la interacción suelo-estructura' },
+        { k: 'p', t: 'Las curvas de suelo no seguían las referencias que citaban. La arcilla blanda omitía el término J de Matlock (resistencia última entre un tercio y la mitad baja cerca de la superficie); la arena usaba siempre el factor cíclico A = 0,9 y una tabla de k escalonada; la arcilla rígida saltaba de la mitad a la resistencia total en y50 y caía al 70 % después. Las curvas t-z y q-z (sólo motor y WASM) omitían el perímetro del fuste y el área de la punta. Afecta a PRO → Avanzado → Interacción suelo-estructura. Ahora el panel pide J y el tipo de carga de la arena, y el motor rechaza una curva a la que le falta un dato en lugar de suponerlo. Qué hacer: volvé a resolver esos modelos y revisá desplazamientos y momentos de los pilotes.' },
+        { k: 'ext', href: `${REPO}/SA-2026-017-soil-curves.md`, label: 'SA-2026-017 completo', t: 'El aviso, con los valores antes y después de cada curva:' },
 
         { k: 'h', t: 'SA-2026-012: esfuerzos de barra en el análisis no lineal de material' },
         { k: 'p', t: 'Después de que una barra fluía, el solver equilibraba las cargas con la rigidez reducida pero informaba los esfuerzos calculados con la rigidez elástica. Desplazamientos y reacciones eran correctos; los esfuerzos de barra y la utilización no: en una ménsula, el momento informado era 100 veces el real. Este solver sólo se usa desde el motor o su API WASM: ninguna pantalla de la aplicación lo llama, así que los resultados obtenidos en stabileo.com no están afectados.' },
@@ -171,6 +177,7 @@ export const safetyAdvisories: Post = {
           head: ['Advisory', 'What', 'Severity', 'Status'],
           rows: [
             ['SA-2026-011', '3D support switched from spring to fixed or pinned, solved as a spring', 'High', 'Fixed 2026-10-20'],
+            ['SA-2026-017', 'Soil-structure interaction: p-y, t-z and q-z curves departed from their references', 'High', 'Fix in review'],
             ['SA-2026-008', 'Response spectrum: base shear SRSS under CQC; participation without support-coupled mass', 'High', 'Fixed 2026-10-21'],
             ['SA-2026-007', '3D buckling without torsional or flexural-torsional modes', 'High', 'Fixed 2026-10-21'],
             ['SA-2026-006', 'Plane model solved in 3D: nodal moments and imposed rotations reversed', 'High', 'Fixed 2026-10-21'],
@@ -190,6 +197,7 @@ export const safetyAdvisories: Post = {
           head: ['Advisory', 'Case', 'Correct', 'Reported', 'Unit'],
           rows: [
             ['SA-2026-011', 'Beam at 0, 4 and 8 m, support drawn as fixed at 8 m: deflection at that support', '0', '-14.4', 'mm'],
+            ['SA-2026-017', 'Soft clay c = 20 kPa, D = 1 m, z = 4 m: ultimate soil resistance p_u', '124', '84', 'kN/m'],
             ['SA-2026-008', 'Two modes at ω and 1.1ω: base shear relative to the CQC value', '1.00', '0.81', '—'],
             ['SA-2026-007', '200×10 mm cruciform column, 1.5 m: critical load', '2993', '5860', 'kN'],
             ['SA-2026-006', 'Portal with nodal moments and forces: sway', '0.92', '2.52', 'mm'],
@@ -210,6 +218,10 @@ export const safetyAdvisories: Post = {
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'Full SA-2026-011', t: 'The advisory with the reproduction and the test model:' },
+
+        { k: 'h', t: 'SA-2026-017: soil curves in soil-structure interaction' },
+        { k: 'p', t: "The soil curves did not follow the references they cited. Soft clay omitted Matlock's J term (ultimate resistance a third to a half low near the surface); sand always used the cyclic factor A = 0.9 and a stepped k table; stiff clay jumped from half to full resistance at y50 and fell to 70 % beyond. The t-z and q-z curves (engine and WASM only) missed the shaft perimeter and the tip area. It concerns PRO → Advanced → Soil-structure interaction. The panel now asks for J and the sand loading, and the engine refuses a curve missing an input instead of assuming it. What to do: re-run those models and re-check pile deflections and moments." },
+        { k: 'ext', href: `${REPO}/SA-2026-017-soil-curves.md`, label: 'Full SA-2026-017', t: 'The advisory, with before and after values for each curve:' },
 
         { k: 'h', t: 'SA-2026-012: member forces in material-nonlinear analysis' },
         { k: 'p', t: 'After a member yielded, the solver balanced the loads with the reduced stiffness but reported forces computed with the elastic stiffness. Displacements and reactions were right; member forces and utilization were not: in a cantilever the reported moment was 100 times the real one. This solver is only reachable from the engine or its WASM API: no screen in the app calls it, so results obtained on stabileo.com are not affected.' },
@@ -303,6 +315,7 @@ export const safetyAdvisories: Post = {
           head: ['Aviso', 'O quê', 'Severidade', 'Situação'],
           rows: [
             ['SA-2026-011', 'Apoio 3D trocado de mola para engaste ou rótula, calculado como mola', 'Alta', 'Corrigido em 20/10/2026'],
+            ['SA-2026-017', 'Interação solo-estrutura: curvas p-y, t-z e q-z afastadas de suas referências', 'Alta', 'Correção em revisão'],
             ['SA-2026-008', 'Espectro de resposta: cortante basal SRSS com CQC; participação sem a massa acoplada aos apoios', 'Alta', 'Corrigido em 21/10/2026'],
             ['SA-2026-007', 'Flambagem 3D sem modos torcionais nem flexo-torcionais', 'Alta', 'Corrigido em 21/10/2026'],
             ['SA-2026-006', 'Modelo plano resolvido em 3D: momentos nodais e rotações impostas invertidos', 'Alta', 'Corrigido em 21/10/2026'],
@@ -322,6 +335,7 @@ export const safetyAdvisories: Post = {
           head: ['Aviso', 'Caso', 'Correto', 'Informado', 'Unidade'],
           rows: [
             ['SA-2026-011', 'Viga em 0, 4 e 8 m, apoio desenhado como engaste em 8 m: deslocamento nesse apoio', '0', '-14,4', 'mm'],
+            ['SA-2026-017', 'Argila mole c = 20 kPa, D = 1 m, z = 4 m: resistência última do solo p_u', '124', '84', 'kN/m'],
             ['SA-2026-008', 'Dois modos em ω e 1,1ω: cortante basal relativo ao valor CQC', '1,00', '0,81', '—'],
             ['SA-2026-007', 'Pilar cruciforme de 200×10 mm e 1,5 m: carga crítica', '2993', '5860', 'kN'],
             ['SA-2026-006', 'Pórtico com momentos e forças nodais: deslocamento lateral', '0,92', '2,52', 'mm'],
@@ -342,6 +356,10 @@ export const safetyAdvisories: Post = {
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'SA-2026-011 completo', t: 'O aviso com a reprodução e o modelo de teste:' },
+
+        { k: 'h', t: 'SA-2026-017: curvas de solo na interação solo-estrutura' },
+        { k: 'p', t: 'As curvas de solo não seguiam as referências que citavam. A argila mole omitia o termo J de Matlock (resistência última entre um terço e a metade baixa perto da superfície); a areia usava sempre o fator cíclico A = 0,9 e uma tabela de k em degraus; a argila rígida saltava da metade para a resistência total em y50 e caía a 70 % depois. As curvas t-z e q-z (só motor e WASM) omitiam o perímetro do fuste e a área da ponta. Afeta PRO → Avançado → Interação solo-estrutura. Agora o painel pede J e o tipo de carregamento da areia, e o motor recusa uma curva sem um dado em vez de supô-lo. O que fazer: resolva esses modelos novamente e revise deslocamentos e momentos das estacas.' },
+        { k: 'ext', href: `${REPO}/SA-2026-017-soil-curves.md`, label: 'SA-2026-017 completo', t: 'O aviso, com os valores antes e depois de cada curva:' },
 
         { k: 'h', t: 'SA-2026-012: esforços de barra na análise não linear de material' },
         { k: 'p', t: 'Depois que uma barra escoava, o solver equilibrava as cargas com a rigidez reduzida, mas informava os esforços calculados com a rigidez elástica. Deslocamentos e reações estavam corretos; esforços de barra e utilização não: num balanço, o momento informado era 100 vezes o real. Este solver só é usado a partir do motor ou da sua API WASM: nenhuma tela do aplicativo o chama, então os resultados obtidos em stabileo.com não são afetados.' },
