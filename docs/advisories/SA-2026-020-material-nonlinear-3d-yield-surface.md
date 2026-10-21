@@ -5,7 +5,7 @@
 | Severity | Medium |
 | Status | Draft (fix in review; untagged, next release) |
 | Issue | [#429](https://github.com/lambdaclass/stabileo/issues/429) (NL-6 in the element-derivation review) |
-| Fix | branch `fix/nl6-yield-surface` |
+| Fix | PR [#529](https://github.com/lambdaclass/stabileo/pull/529) |
 | Affected versions | every version with the 3D material-nonlinear solver (added 2026-03-07), up to 0.2.0 and `main` until the fix |
 | Re-check registry | not needed: no app workflow runs this solver |
 
