@@ -4419,6 +4419,13 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
 /// point-load positions). Split from `validate_input_2d` so multi-case solves
 /// can validate each case's loads independently of the structure.
 pub(crate) fn validate_loads_2d(input: &SolverInput, loads: &[SolverLoad]) -> Result<(), String> {
+    // A load set solved on a prepared model (load cases, WASM load sessions) skips the model
+    // validation, so the thermal properties are checked here too (#407).
+    for load in loads {
+        if let SolverLoad::Thermal(l) = load {
+            crate::types::check_frame_thermal_inputs(l.element_id, l.alpha, &[("depth", l.depth)])?;
+        }
+    }
     let node_ids: std::collections::HashSet<usize> =
         crate::ordered::values(&input.nodes).map(|n| n.id).collect();
     let elem_ids: std::collections::HashSet<usize> =
@@ -4895,6 +4902,12 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
 /// point-load positions). Split from `validate_input_3d` so multi-case solves
 /// can validate each case's loads independently of the structure.
 pub(crate) fn validate_loads_3d(input: &SolverInput3D, loads: &[SolverLoad3D]) -> Result<(), String> {
+    // As `validate_loads_2d`: prepared solves check the thermal properties here (#407).
+    for load in loads {
+        if let SolverLoad3D::Thermal(l) = load {
+            crate::types::check_frame_thermal_inputs(l.element_id, l.alpha, &[("depthY", l.depth_y), ("depthZ", l.depth_z)])?;
+        }
+    }
     let node_ids: std::collections::HashSet<usize> =
         crate::ordered::values(&input.nodes).map(|n| n.id).collect();
     let elem_ids: std::collections::HashSet<usize> =

@@ -307,3 +307,25 @@ fn a_load_without_the_new_fields_serializes_as_before() {
     let t = SolverThermalLoad3D { element_id: 1, dt_uniform: 1.0, dt_gradient_y: 2.0, dt_gradient_z: 3.0, alpha: Some(1e-5), depth_y: None, depth_z: Some(0.3) };
     assert_eq!(serde_json::to_value(&t).unwrap(), json!({"elementId": 1, "dtUniform": 1.0, "dtGradientY": 2.0, "dtGradientZ": 3.0, "alpha": 1e-5, "depthZ": 0.3}));
 }
+
+/// A load set solved on a prepared model (load cases, WASM load sessions) checks the thermal
+/// properties as a full solve does: an α of 12 or a zero depth is refused, not solved (Codex
+/// review of #407).
+#[test]
+fn prepared_solves_refuse_invalid_thermal_properties() {
+    use dedaliano_engine::solver::linear::prepare_static_3d;
+    let model = fixed_2d(2, 4.0, 200_000.0, 0.01, 1e-4, "frame", json!({"dtUniform": 0.0, "dtGradient": 0.0}));
+    let unloaded = SolverInput { loads: vec![], ..model };
+    let prepared = prepare_static_2d(&unloaded).unwrap();
+    for (alpha, depth) in [(Some(12.0), None), (None, Some(0.0)), (Some(-1e-5), None)] {
+        let load = SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 10.0, dt_gradient: 5.0, alpha, depth });
+        assert!(prepared.solve_loads(&[load]).is_err(), "2D alpha {alpha:?} depth {depth:?} solved");
+    }
+    let model = fixed_3d(200_000.0, 0.01, 1e-4, 1e-4, "frame", json!({"dtUniform": 0.0, "dtGradientY": 0.0, "dtGradientZ": 0.0}));
+    let unloaded = SolverInput3D { loads: vec![], ..model };
+    let prepared = prepare_static_3d(&unloaded).unwrap();
+    for (alpha, dy, dz) in [(Some(12.0), None, None), (None, Some(0.0), None), (None, None, Some(-0.3))] {
+        let load = SolverLoad3D::Thermal(SolverThermalLoad3D { element_id: 1, dt_uniform: 10.0, dt_gradient_y: 5.0, dt_gradient_z: 5.0, alpha, depth_y: dy, depth_z: dz });
+        assert!(prepared.solve_loads(&[load]).is_err(), "3D alpha {alpha:?} depths {dy:?} {dz:?} solved");
+    }
+}

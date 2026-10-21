@@ -77,7 +77,8 @@ function thermalAlphaOfElement(model: { elements: Map<number, { materialId: numb
  * through any section curves it by α·ΔT/h over its real depth h; without one the engine uses its
  * equivalent rectangle's √(12·I/A), which for an I section is about a third deeper.
  * An embedded plane model bends in its plane with `effectiveBendingInertia`; a section turned in
- * that plane has no single depth, and is sent without one, as is a section with no depth or width
+ * that plane by a half turn bends over h, by a quarter turn over b; at any other angle it has no
+ * single depth, and is sent without one, as is a section with no depth or width
  * (one stated by its properties only): the engine then keeps its rectangle and says so, and so do
  * the model's findings (`MODEL_THERMAL_DEPTH_UNKNOWN`).
  */
@@ -86,8 +87,12 @@ function thermalDepths(model: ModelData, elementId: number, embedded: boolean | 
   const s = e ? model.sections.get(e.sectionId) : undefined;
   if (!e || !s) return {};
   const real = (d: number | undefined) => (d && d > 0 ? d : undefined);
-  const turned = embedded && Math.abs(s.rotation ?? 0) > 1e-10;
-  return { y: real(s.b), z: turned ? undefined : real(s.h) };
+  if (!embedded) return { y: real(s.b), z: real(s.h) };
+  // Turned in the plane: by a half turn it still bends over h, by a quarter turn over b (Codex
+  // review of #407); at any other angle there is no single depth.
+  const r = ((((s.rotation ?? 0) % 180) + 180) % 180);
+  const z = Math.abs(r) < 1e-9 || Math.abs(r - 180) < 1e-9 ? real(s.h) : Math.abs(r - 90) < 1e-9 ? real(s.b) : undefined;
+  return { y: real(s.b), z };
 }
 
 // ─── ModelData interface ──────────────────────────────────────────
