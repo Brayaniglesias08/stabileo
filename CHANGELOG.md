@@ -177,6 +177,21 @@ structures and modal frequencies shift too). Re-run solid-shell models.
   both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
 ### Fixed
 
+#### 3D material-nonlinear yield surface matches 2D (2026-10-21, #429, NL-6, SA-2026-020)
+
+**BREAKING (results): 3D material-nonlinear members with axial force or biaxial bending yield
+earlier and report a higher utilization.** The 3D solver yielded at
+(N/Np)² + (My/Mpy)² + (Mz/Mpz)² > 1; squaring the moment ratios made a 3D member yield later
+than the same member in 2D ((N/Np)² + |M|/Mp): 15 % later about one axis at N = 0.5·Np,
+0.74 against 0.95 for the same planar state, and a tip moment of 0.6·Mp about each axis stayed
+elastic. It now uses (N/Np)² + |My|/Mpy + |Mz|/Mpz, in yield detection and in the utilization
+(from the reported secant forces): the 2D surface for bending about one axis, and between the
+axes the chord between the uniaxial limits. Engine and WASM API only; no app screen calls the
+solver. The NL-5 warning no longer mentions NL-6. Tests in `engine/tests/derivation_nonlinear.rs`;
+advisory `docs/advisories/SA-2026-020-material-nonlinear-3d-yield-surface.md`. Still open for 2D
+and 3D: the (N/Np)² term is the rectangle's and is unconservative for the strong axis of an
+I-section at high axial force.
+
 #### Silent errors from the element-derivations review: 2D-in-3D signs, settlements, Winkler, imperfections, constraints (2026-10-18)
 
 **BREAKING (results): a flat 2D model solved by the 3D solver now turns nodal moments and
