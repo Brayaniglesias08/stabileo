@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | High |
-| Status | Draft (retroactive; to publish with the 0.2.0 advisories) |
+| Status | Published 2026-10-21 (fixed in 0.2.0, released 2026-10-18) |
 | Issues / fix | PR #292 (safety wave), released in **0.2.0** (2026-10-18) |
 | Affected versions | every deployment before 2026-10-17 (untagged versions before 0.2.0); introduction not bisected |
 | Re-check registry | `cirsoc-combinations-and-loads`, `dead-load-default-2.52` (PR #328) |

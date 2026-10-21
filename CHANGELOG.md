@@ -9,6 +9,12 @@ It should capture what changed, not what should be built next.
 
 ## Unreleased
 
+## 0.3.0 (2026-10-21)
+
+Release notes: [`docs/releases/v0.3.0.md`](docs/releases/v0.3.0.md) (also in
+[Spanish](docs/releases/v0.3.0.es.md) and [Portuguese](docs/releases/v0.3.0.pt.md)). Safety advisories
+SA-2026-005…020 are fixed in this release; SA-2026-001…020 are published.
+
 ### Fixed
 
 #### Frame and truss temperature loads take the material's α and the section's depth (#407, FR-4)

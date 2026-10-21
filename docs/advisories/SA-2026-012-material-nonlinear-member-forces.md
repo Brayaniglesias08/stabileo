@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | Medium |
-| Status | Draft (fixed on `main`; untagged, next release) |
+| Status | Published 2026-10-21 (fixed in 0.3.0; live on stabileo.com since 2026-10-21) |
 | Issue | [#427](https://github.com/lambdaclass/stabileo/issues/427) (NL-4 in the element-derivation review) |
 | Fix | PR [#510](https://github.com/lambdaclass/stabileo/pull/510) |
 | Affected versions | every version with the material-nonlinear solver (added 2026-03-06), up to 0.2.0 and `main` until the fix |
@@ -41,7 +41,7 @@ member end forces do not balance the reactions at a support or the loads at a no
 
 ## Fixed in
 
-`main` (#510); it will ship in the next tagged release. Member forces are recovered from the
+`main` (#510); released in 0.3.0. Member forces are recovered from the
 stiffness the solve balanced (the secant section of each yielded member, keeping the assembled
 fixed-end and thermal forces), so they balance the reactions, and utilization is computed from
 them; two regression tests pin it (`derivation_nonlinear.rs`: a yielded cantilever, and the same

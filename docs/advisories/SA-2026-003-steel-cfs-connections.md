@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | Critical |
-| Status | Draft (retroactive) |
+| Status | Published 2026-10-21 (fixed in 0.2.0, released 2026-10-18) |
 | Issues / fix | PRs #286, #291, #293, #295, #301, #303, #308 (safety wave), released in **0.2.0** (2026-10-18) |
 | Affected versions | every deployment before 2026-10-17; introduction not bisected |
 | Re-check registry | `cirsoc301-member-checks`, `cirsoc301-tension-needs-connection`, `cirsoc301-ltb-top-flange`, `cirsoc301-biaxial-h11b`, `ec3-aisc-ltb-and-slender`, `aisi-cold-formed`, `weld-groups-end-loaded`, `section-properties-asymmetric` (PR #328) |

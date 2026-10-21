@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | High |
-| Status | Draft (fixed on `main`; untagged, next release) |
+| Status | Published 2026-10-21 (fixed in 0.3.0; live on stabileo.com since 2026-10-21) |
 | Issue | [#410](https://github.com/lambdaclass/stabileo/issues/410) (SH-6 in the element-derivation review) |
 | Fix | PR [#522](https://github.com/lambdaclass/stabileo/pull/522) |
 | Affected versions | every version with the curved-shell element, up to 0.2.0 and `main` until the fix; in the app, every version that solves a quad marked curved as a curved shell (from 2026-06-12) |
@@ -56,7 +56,7 @@ curved shell. Mechanical loads only: the membrane stresses were right, the momen
 
 ## Fixed in
 
-PR #522 (next release). The moments are the in-plane stresses integrated through the thickness
+PR #522 (0.3.0). The moments are the in-plane stresses integrated through the thickness
 (M = −∫σ·z dz by two-point Gauss quadrature in ζ, in the mid-surface frame; exact where the
 strain is linear in ζ, as on a flat element; same sign as the flat MITC4). Stresses, moments and corner Von Mises come from the mechanical strain
 ε − α·(ΔT + ζ·ΔTg/2), the free strain the thermal load vector uses, summed over every temperature

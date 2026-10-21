@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | High |
-| Status | Draft (fixed on `main` by the batch-4 integration, PR #507, deployed to stabileo.com 2026-10-21; untagged, next release) |
+| Status | Published 2026-10-21 (fixed in 0.3.0; live on stabileo.com since 2026-10-21) |
 | Issue | [#343](https://github.com/lambdaclass/stabileo/issues/343) |
 | Fix | PR [#437](https://github.com/lambdaclass/stabileo/pull/437) (rebase of #274; merged via #507, 2026-10-21) |
 | Affected versions | axial part: deployments from 2026-09-25 (commit `6c196dd0`, "loads in global axes") through 0.2.0 and `main` until the fix; member couples on the 3D path: not yet bisected, up to 0.2.0 |
@@ -36,7 +36,7 @@ are the most exposed.
 ## Fixed in
 
 `main` (#437 (rebase of #274), merged through the batch-4 integration PR #507 and deployed to stabileo.com on
-2026-10-21); it will ship in the next tagged release. The workaround below is for checking results
+2026-10-21); released in 0.3.0. The workaround below is for checking results
 obtained before that date; it must not be applied to new runs.
 
 ## Workaround

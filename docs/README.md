@@ -2,6 +2,10 @@
 
 ## Release notes · Notas de la versión
 
+**0.3.0 (2026-10-21): sixteen more fixes, every safety advisory published / dieciséis
+correcciones más, todos los avisos de seguridad publicados.** [English](releases/v0.3.0.md) ·
+[Español](releases/v0.3.0.es.md) · [Português](releases/v0.3.0.pt.md)
+
 **0.2.0 (2026-10-18): results change, re-run your projects / los resultados cambian, volvé a
 calcular tus proyectos.** [English](releases/v0.2.0.md) · [Español](releases/v0.2.0.es.md) ·
 [Português](releases/v0.2.0.pt.md)
