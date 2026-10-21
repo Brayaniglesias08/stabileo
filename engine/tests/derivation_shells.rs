@@ -544,6 +544,37 @@ fn shell_loads_must_name_their_own_family() {
     assert!((ux - 1e-5 * 20.0 * 2.0).abs() < 1e-9, "the heated curved shell expands: ux = {ux}");
 }
 
+/// The discretization-error samples sum the thermal loads on an element as the load vector
+/// does (SH-11): they kept only the last one, so two ΔT = 10 loads on a free shell left a
+/// spurious E·α·10/(1−ν) in every sample, read as discretization error.
+#[test]
+fn discretization_samples_sum_the_thermal_loads_on_a_free_shell() {
+    use dedaliano_engine::postprocess::discretization::samples::sample_elements;
+    let pts = [[0.0, 0.0, 0.0], [2.0, 0.1, 0.0], [2.2, 1.5, 0.0], [-0.1, 1.2, 0.0]];
+    let scale = E * 1e-5 * 20.0 / 0.7;
+    for curved in [false, true] {
+        let mut s = with_nodes(0.3, &pts);
+        if curved {
+            s.curved_shells.insert("1".into(), SolverCurvedShellElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2, normals: None });
+            s.loads.push(SolverLoad3D::CurvedShellThermal(thermal(1, 10.0, 5.0)));
+            s.loads.push(SolverLoad3D::CurvedShellThermal(thermal(1, 10.0, 5.0)));
+        } else {
+            s.quads.insert("1".into(), SolverQuadElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2 });
+            s.loads.push(SolverLoad3D::QuadThermal(thermal(1, 10.0, 5.0)));
+            s.loads.push(SolverLoad3D::QuadThermal(thermal(1, 10.0, 5.0)));
+        }
+        fix(&mut s, 1);
+        let r = solve_3d(&s).unwrap();
+        for el in sample_elements(&s, &r).unwrap() {
+            for smp in &el.samples {
+                for v in smp.sigma {
+                    assert!(v.abs() < 1e-6 * scale, "curved {curved}: sample σ {:?}", smp.sigma);
+                }
+            }
+        }
+    }
+}
+
 // ───────────────────── SH-7: curved (non-planar) MITC9 ─────────────────────
 
 /// SH-7 (OPEN). The MITC9 projects its nine nodes onto the corner-diagonal plane and has
