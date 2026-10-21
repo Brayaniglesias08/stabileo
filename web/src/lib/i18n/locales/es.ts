@@ -3704,7 +3704,6 @@ const es: Record<string, string> = {
   'knownIssue.AC-12': 'Las curvas p-y se apartan de sus referencias (arcilla blanda, arena); los resultados laterales de pilotes y resortes de suelo están desviados',
   'knownIssue.AC-13': 'La curva p-y de arcilla dura es discontinua y no es la de Reese; los resultados laterales de pilotes y resortes de suelo están desviados',
   'knownIssue.AC-16': 'Las curvas t-z y q-z omiten el perímetro del fuste o el área de la punta; los resortes axiales de pilotes están desviados en ese factor',
-  'knownIssue.PC-3D': 'Colapso plástico 3D: el factor de colapso depende del orden en que el solver recorre las barras, así que la misma estructura puede informar factores distintos, algunos muy por encima del real. Verificá el mecanismo que gobierna a mano',
   'diag.nodes': 'Nodos',
   'diag.shells': 'Cáscaras',
   'diag.verifFailFlexure': 'Verificación de flexión NO cumple',

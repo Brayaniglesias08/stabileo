@@ -3711,7 +3711,6 @@ const en: Record<string, string> = {
   'knownIssue.AC-12': 'p-y soil curves depart from their references (soft clay, sand); lateral pile and soil-spring results are off',
   'knownIssue.AC-13': 'The stiff-clay p-y curve is discontinuous and is not Reese’s curve; lateral pile and soil-spring results are off',
   'knownIssue.AC-16': 't-z and q-z curves miss the shaft perimeter or tip area; axial pile springs are off by that factor',
-  'knownIssue.PC-3D': '3D plastic collapse: the collapse factor depends on the order the solver visits the members, so the same structure can report different factors, some well above the true one. Verify the governing mechanism by hand',
   'diag.nodes': 'Nodes',
   'diag.shells': 'Shells',
   'diag.verifFailFlexure': 'Flexure check FAILED',
