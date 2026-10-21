@@ -430,6 +430,9 @@
   cursor: pointer;
   color: var(--lp-paper-2);
   flex: none;
+  /* On the blog the brand is a link (PublicLink), and links are underlined: the
+     logo is a mark, not a word in running text. */
+  text-decoration: none;
 }
 
 /*
