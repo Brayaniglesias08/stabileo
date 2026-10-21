@@ -21,6 +21,23 @@
         "pt": "As cascas curvas (quadriláteros marcados como curvos) informavam momentos fletores e torçores nulos, então as curvas de nível, os resultados e o relatório do Pro e qualquer dimensionamento de laje lido deles não viam flexão; sob uma carga de temperatura suas tensões mantinham a deformação térmica livre, e uma temperatura num quadrilátero curvo não era aplicada (SA-2026-013)."
       },
       "changelog": { "file": "docs/advisories/SA-2026-013-curved-shell-moments-and-thermal.md", "heading": "SA-2026-013: curved shells reported zero bending moments, and their stresses kept the free thermal strain" }
+      "id": "arc-member-local-axes",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [523],
+      "area": "analysis",
+      "when": { "any": ["arcMembers"] },
+      "title": {
+        "en": "Arcs: every member keeps the same section orientation along the curve",
+        "es": "Arcos: todas las barras mantienen la misma orientación de la sección a lo largo de la curva",
+        "pt": "Arcos: todas as barras mantêm a mesma orientação da seção ao longo da curva"
+      },
+      "explanation": {
+        "en": "Members drawn as an arc took the default local axes, which turn the near-vertical members at an arch's springings by 90° outside the X–Z plane, swapping Iy and Iz there (a 40-segment semicircle: crown deflection 15 % low). They now take the arc's own orientation, also in projects saved before; arcs in tilted planes change slightly (SA-2026-016).",
+        "es": "Las barras dibujadas como arco tomaban los ejes locales por defecto, que fuera del plano X–Z giran 90° las barras casi verticales de los arranques de un arco e intercambian ahí Iy e Iz (semicírculo de 40 tramos: descenso de la clave un 15 % bajo). Ahora toman la orientación del arco, también en los proyectos guardados antes; los arcos en planos inclinados cambian levemente (SA-2026-016).",
+        "pt": "As barras desenhadas como arco tomavam os eixos locais padrão, que fora do plano X–Z giram em 90° as barras quase verticais dos arranques de um arco e trocam ali Iy e Iz (semicírculo de 40 trechos: deslocamento do fecho 15 % baixo). Agora tomam a orientação do arco, também nos projetos salvos antes; arcos em planos inclinados mudam levemente (SA-2026-016)."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-016-curved-member-axes.md", "heading": "SA-2026-016: curved members: section axes turned by 90° on near-vertical segments of arches" }
     },
     {
       "id": "spectral-cqc-and-participation",

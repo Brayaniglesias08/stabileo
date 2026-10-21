@@ -91,16 +91,11 @@ fn curved_shells_and_warped_mitc9_and_arches_are_flagged_only_when_present() {
     s.quad9s.insert("9".into(), q9);
     assert!(ids(&for_3d(&s, Analysis::Linear)).contains(&"SH-7".to_string()));
 
-    // A plan curve is fine, an arch is flagged.
-    let curve = || CurvedBeamInput { node_start: 1, node_mid: 200, node_end: 5, material_id: 1, section_id: 1, num_segments: 4, hinge_start: false, hinge_end: false };
-    let mut s = base.clone();
-    s.nodes.insert("200".into(), SolverNode3D { id: 200, x: 2.0, y: 1.0, z: 0.0 });
-    s.curved_beams.push(curve());
-    assert!(!ids(&for_3d(&s, Analysis::Linear)).contains(&"SP-15".to_string()), "a horizontal curve is not affected");
+    // Arches are no longer flagged (SP-15, #418, fixed).
     let mut s = base;
     s.nodes.insert("200".into(), SolverNode3D { id: 200, x: 2.0, y: 0.0, z: 1.0 });
-    s.curved_beams.push(curve());
-    assert!(ids(&for_3d(&s, Analysis::Linear)).contains(&"SP-15".to_string()));
+    s.curved_beams.push(CurvedBeamInput { node_start: 1, node_mid: 200, node_end: 5, material_id: 1, section_id: 1, num_segments: 4, hinge_start: false, hinge_end: false });
+    assert!(!ids(&for_3d(&s, Analysis::Linear)).contains(&"SP-15".to_string()));
 }
 
 #[test]
