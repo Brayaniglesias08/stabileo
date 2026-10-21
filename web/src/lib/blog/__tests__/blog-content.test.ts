@@ -295,7 +295,7 @@ describe('the safety-advisories post quotes the advisories', () => {
   it('quotes each documented case exactly as its advisory states it', () => {
     // Correct / reported, per advisory: SA-011 uz (mm), SA-008 base shear /
     // CQC, SA-007 critical load (kN), SA-006 sway (mm), SA-005 rafter N at
-    // the base (kN), SA-009 plate stiffness ratio.
+    // the base (kN), SA-012 cantilever base moment (kN·m), SA-009 plate stiffness ratio.
     const cases = post!.i18n.en.blocks.filter((b) => b.k === 'table')[1] as Extract<Block, { k: 'table' }>;
     expect(cases.rows.map((r) => [r[0], r[2], r[3]])).toEqual([
       ['SA-2026-011', '0', '-14.4'],
@@ -303,6 +303,7 @@ describe('the safety-advisories post quotes the advisories', () => {
       ['SA-2026-007', '2993', '5860'],
       ['SA-2026-006', '0.92', '2.52'],
       ['SA-2026-005', '-56.67', '-41.67'],
+      ['SA-2026-012', '1012.5', '101250'],
       ['SA-2026-009', '1.000', '1.225'],
     ]);
   });
