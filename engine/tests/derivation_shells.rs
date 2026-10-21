@@ -388,6 +388,37 @@ fn sh6_curved_shell_reports_bending_moments() {
     }
 }
 
+/// SH-6 (FIXED), the advisory's case (SA-2026-013). A cantilever strip of curved shells,
+/// 4 m × 1 m × 0.2 m, clamped at x = 0, 10 kN down at the tip: statics gives the moment
+/// P·(L − x)/b at each element centre, 35 kN·m/m at the root element (x = 0.5 m). It was
+/// reported as 0.
+#[test]
+fn sh6_curved_shell_cantilever_reports_the_static_moment() {
+    let mut pts = vec![];
+    for j in 0..2 {
+        for i in 0..5 {
+            pts.push([i as f64, j as f64, 0.0]);
+        }
+    }
+    let mut s = with_nodes(0.3, &pts);
+    for i in 0..4 {
+        let id = i + 1;
+        s.curved_shells.insert(id.to_string(), SolverCurvedShellElement { id, nodes: [i + 1, i + 2, i + 7, i + 6], material_id: 1, thickness: 0.2, normals: None });
+    }
+    fix(&mut s, 1);
+    fix(&mut s, 6);
+    nodal(&mut s, 5, -5.0);
+    nodal(&mut s, 10, -5.0);
+    let r = solve_3d(&s).unwrap();
+    for q in &r.quad_stresses {
+        let x = q.element_id as f64 - 0.5;
+        let m = 10.0 * (4.0 - x);
+        assert!((q.mx.abs() - m).abs() < 0.02 * m, "element {}: mx = {} vs statics {m}", q.element_id, q.mx);
+        assert!(q.my.abs() < 0.35 * m, "element {}: my = {}", q.element_id, q.my);
+    }
+    eprintln!("root element: {:?}", r.quad_stresses.iter().find(|q| q.element_id == 1).unwrap());
+}
+
 /// SH-6 (FIXED), thermal part. Stresses and moments come from the mechanical strain
 /// ε − α·(ΔT + ζ·ΔTg/2). A free curved shell under a temperature load (uniform, gradient,
 /// two loads on one element) is stress-free; the recovery kept the free strain and
@@ -492,6 +523,25 @@ fn sh6_restrained_heated_curved_shell_matches_mitc4() {
     }
     let my_max = rc.quad_stresses.iter().map(|q| q.my.abs()).fold(0.0, f64::max);
     assert!(my_max > 0.1 * m_th, "the clamped edge restrains the gradient: max |my| {my_max}");
+}
+
+/// A shell load names an element of its own family: a `quadThermal` on a curved shell's id
+/// was accepted (the id existed, as a curved shell) and dropped by the quad assembly, so the
+/// shell was analysed unheated. Refused now; the curved shell's own load applies.
+#[test]
+fn shell_loads_must_name_their_own_family() {
+    let pts = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 1.5, 0.0], [0.0, 1.5, 0.0]];
+    let mut s = with_nodes(0.3, &pts);
+    s.curved_shells.insert("1".into(), SolverCurvedShellElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2, normals: None });
+    fix(&mut s, 1);
+    let mut wrong = s.clone();
+    wrong.loads.push(SolverLoad3D::QuadThermal(thermal(1, 20.0, 0.0)));
+    let err = solve_3d(&wrong).err().expect("a quad load on a curved shell is refused");
+    assert!(err.contains("Quad thermal load: element 1"), "{err}");
+    s.loads.push(SolverLoad3D::CurvedShellThermal(thermal(1, 20.0, 0.0)));
+    let r = solve_3d(&s).unwrap();
+    let ux = r.displacements.iter().find(|d| d.node_id == 2).unwrap().ux;
+    assert!((ux - 1e-5 * 20.0 * 2.0).abs() < 1e-9, "the heated curved shell expands: ux = {ux}");
 }
 
 // ───────────────────── SH-7: curved (non-planar) MITC9 ─────────────────────

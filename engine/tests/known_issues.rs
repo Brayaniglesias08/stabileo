@@ -63,14 +63,13 @@ fn curved_shells_and_warped_mitc9_and_arches_are_flagged_only_when_present() {
     let base = beam3d();
     assert!(ids(&for_3d(&base, Analysis::Linear)).is_empty());
 
-    // A curved shell: its moments are reported (SH-6, #410); only a temperature load on it
-    // is flagged (its stresses keep the free thermal strain), named with its family.
+    // A curved shell is not flagged, heated or not: its moments are recovered and its
+    // stresses subtract the free thermal strain (SH-6, #410, fixed).
     let mut s = base.clone();
     s.curved_shells.insert("7".into(), SolverCurvedShellElement { id: 7, nodes: [1, 2, 3, 4], material_id: 1, thickness: 0.2, normals: None });
-    assert!(!ids(&for_3d(&s, Analysis::Linear)).contains(&"SH-6".to_string()), "a mechanically loaded curved shell is not affected");
+    assert!(ids(&for_3d(&s, Analysis::Linear)).is_empty());
     let d = dedaliano_engine::known_issues::loads_3d(&[SolverLoad3D::CurvedShellThermal(SolverPlateThermalLoad { element_id: 7, dt_uniform: 0.0, dt_gradient: 10.0, alpha: None })]);
-    let sh6 = d.iter().find(|x| x.phase.as_deref() == Some("SH-6")).expect("SH-6");
-    assert_eq!((sh6.element_ids.clone(), sh6.element_kind), (vec![7], Some(ElementKind::CurvedShell)));
+    assert!(d.is_empty(), "{d:?}");
 
     // MITC9: flat is fine, warped is flagged.
     let add_nodes = |s: &mut SolverInput3D, pts: &[[f64; 3]]| {

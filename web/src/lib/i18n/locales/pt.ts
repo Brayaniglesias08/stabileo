@@ -1757,7 +1757,6 @@ const pt: Translations = {
   'knownIssue.NL-5': 'Os resultados não lineares de material são aproximados: o modelo é uma secante de barra inteira e não plasticidade, então a resposta salta no primeiro escoamento, e em 3D a superfície de escoamento é menos conservadora que em 2D. Confira o fator de colapso com colapso plástico',
   'knownIssue.SP-12': 'As trações em cabos podem ficar baixas em sistemas de cabos hiperestáticos; confira separadamente os esforços que governam em cabos e ancoragens',
   'knownIssue.FR-4': 'As cargas de temperatura em barras usam α = 12·10⁻⁶ /°C e uma altura √(12·I/A) qualquer que seja o material e a seção; para outros materiais ou alturas reais os esforços térmicos ficam desviados nessa proporção',
-  'knownIssue.SH-6': 'Sob uma carga de temperatura, as tensões e momentos das cascas curvas incluem a deformação térmica livre, que não deveriam incluir: não dimensione com eles',
   'knownIssue.SH-7': 'Os elementos MITC9 em geometria não plana têm deformações espúrias; refine a malha ou use elementos planos',
   'knownIssue.SP-15': 'As vigas curvas fora de um plano horizontal (arcos) podem trocar Iy e Iz em trechos quase verticais; confira a rigidez e os esforços desses trechos',
   'knownIssue.AC-12': 'As curvas p-y se afastam de suas referências (argila mole, areia); os resultados laterais de estacas e molas de solo estão desviados',

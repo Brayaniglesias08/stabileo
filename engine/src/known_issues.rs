@@ -64,13 +64,6 @@ pub fn loads_3d(loads: &[SolverLoad3D]) -> Vec<StructuredDiagnostic> {
     if !thermal.is_empty() {
         out.push(hit("FR-4", 407, THERMAL).with_elements(thermal));
     }
-    let shells: Vec<usize> = loads.iter().filter_map(|l| match l { SolverLoad3D::CurvedShellThermal(t) => Some(t.element_id), _ => None }).collect();
-    if !shells.is_empty() {
-        let mut d = hit("SH-6", 410, "Curved-shell stresses and moments under a temperature load include the free thermal strain, which they should not; do not design from them");
-        d.element_ids = shells;
-        d.element_kind = Some(ElementKind::CurvedShell);
-        out.push(d);
-    }
     out
 }
 

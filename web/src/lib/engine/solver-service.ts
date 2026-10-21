@@ -1582,7 +1582,8 @@ export function buildSolverLoads3D(
     } else if (l.type === 'thermalQuad3d') {
       const tq = l.data as ThermalLoadQuad3D;
       const quad = tq.on === 'plate' ? model.plates?.get(tq.quadId) : model.quads?.get(tq.quadId);
-      solverLoads.push(...convertThermalQuadLoad(tq, thermalAlphaOf(quad ? model.materials.get(quad.materialId) : undefined)));
+      const curved = tq.on !== 'plate' && !!model.quads?.get(tq.quadId)?.curved;
+      solverLoads.push(...convertThermalQuadLoad(tq, thermalAlphaOf(quad ? model.materials.get(quad.materialId) : undefined), curved));
     }
   }
 
