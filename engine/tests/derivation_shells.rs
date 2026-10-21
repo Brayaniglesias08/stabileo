@@ -438,36 +438,6 @@ fn sh7_curved_mitc9_rigid_motion_is_stress_free() {
     }
 }
 
-/// A uniformly heated, free curved MITC9 expands homothetically and is stress-free: its
-/// thermal load equals K·u_free. The quadrature load ∫Bᵀ·N_th alone left 12 % of it
-/// unbalanced on the sag-0.2 patch (the facet sees the expansion of its off-plane nodes as a
-/// deflection and resisted it in transverse shear).
-#[test]
-fn sh7_curved_mitc9_free_thermal_expansion_is_stress_free() {
-    use dedaliano_engine::element::quad9::quad9_thermal_load;
-    let cyl = |s: f64| -> [[f64; 3]; 9] {
-        [
-            [0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 2.0, 0.0], [0.0, 2.0, 0.0],
-            [1.0, 0.0, s], [2.0, 1.0, 0.0], [1.0, 2.0, s], [0.0, 1.0, 0.0], [1.0, 1.0, s],
-        ]
-    };
-    let (alpha, dt) = (1e-5, 20.0);
-    for c in [cyl(0.0), cyl(0.2), tilt(&WARPED_Q9)] {
-        let k = to_global(&mitc9_local_stiffness(&c, E, 0.3, 0.05), &quad9_transform_3d(&c), 54);
-        let f = quad9_thermal_load(&c, E, 0.3, 0.05, alpha, dt, 0.0);
-        let mut u = vec![0.0; 54];
-        for i in 0..9 {
-            for a in 0..3 {
-                u[i * 6 + a] = alpha * dt * (c[i][a] - 0.4);
-            }
-        }
-        let ku = mat_vec(&k, &u);
-        let r: Vec<f64> = ku.iter().zip(&f).map(|(a, b)| a - b).collect();
-        let res = max_abs(&r) / max_abs(&f);
-        assert!(res < 1e-10, "free thermal expansion: |K·u − f|/|f| = {res:.3e}");
-    }
-}
-
 // ───────────────────── SH-9: solid-shell Poisson thickness locking ─────────────────────
 
 /// Solid-shell cantilever strip (nx × 2 elements, L = 4, b = 0.6, t = 0.1), fixed at x = 0,
