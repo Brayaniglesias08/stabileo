@@ -361,7 +361,6 @@ fn material_nl_2d(solver: SolverInput, n_increments: usize) -> NonlinearMaterial
 /// the base moment is P·L whatever the stiffness. The reported member end
 /// moment must equal it and the base reaction.
 #[test]
-#[ignore = "open question NL-4: material-nonlinear member forces are the elastic K·u, not the forces the solve balanced"]
 fn nl_material_2d_member_forces_balance_the_reactions() {
     let (l, p) = (4.0, 1.2 * MP / 4.0);
     let solver = make_beam(4, l, E, A_SEC, IZ_SEC, "fixed", None,
@@ -372,6 +371,29 @@ fn nl_material_2d_member_forces_balance_the_reactions() {
     close(base.my.abs(), p * l, 1e-6, "base reaction moment = P·L");
     let ef = r.results.element_forces.iter().find(|f| f.element_id == 1).unwrap();
     close(ef.m_start.abs(), p * l, 1e-3, "member 1 start moment vs P·L");
+    // Utilization from the same forces: M/Mp = 1.2 (it read ~120 from K_el·u).
+    let st = r.element_status.iter().find(|s| s.element_id == 1).unwrap();
+    close(st.utilization, 1.2, 1e-3, "member 1 utilization vs P·L/Mp");
+}
+
+/// The same cantilever with a temperature gradient on every member: statically determinate, so
+/// the base moment is still P·L, and the yielded members' end moments must equal it. Recovering
+/// through the reduced section alone recomputed the thermal fixed-end moment with α·EI (Codex
+/// review of #510).
+#[test]
+fn nl_material_2d_member_forces_keep_the_assembled_thermal_loads() {
+    let (l, p) = (4.0, 1.2 * MP / 4.0);
+    let mut loads = vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 5, fx: 0.0, fz: -p, my: 0.0 })];
+    for e in 1..=4 {
+        loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: e, dt_uniform: 0.0, dt_gradient: 40.0 }));
+    }
+    let solver = make_beam(4, l, E, A_SEC, IZ_SEC, "fixed", None, loads);
+    let r = dedaliano_engine::solver::material_nonlinear::solve_nonlinear_material_2d(&material_nl_2d(solver, 10)).unwrap();
+    assert!(r.converged);
+    let base = r.results.reactions.iter().find(|x| x.node_id == 1).unwrap();
+    close(base.my.abs(), p * l, 1e-6, "base reaction moment = P·L");
+    let ef = r.results.element_forces.iter().find(|f| f.element_id == 1).unwrap();
+    close(ef.m_start.abs(), p * l, 1e-3, "member 1 start moment vs P·L with a thermal gradient");
 }
 
 /// Just past first yield the response of a hardening hinge is continuous: a
