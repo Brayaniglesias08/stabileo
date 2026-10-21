@@ -357,12 +357,12 @@ reactive readiness that screens computing before the engine arrives recompute on
 | `shell-combos.ts` `enrichComboShellStresses`, `combineShellStresses` (also used by `superposed` and the all-loads baseline) | TypeScript recombination when the kernel was not registered | Kernel only (a frame without shells needs none). Oracle: `differential/shell-combos-oracle.ts`, compared on 500 random batches. |
 | `verification-service.ts` `computeStationDemands` | JS `extractElementStations` without the engine or model | Throws; design-run reports `engine.unavailable`. Oracle: `differential/station-oracle.ts`. |
 | `wasm-solver.ts` design-check wrappers (13) | `catch { return null }`, losing the engine's reason | Throw `EngineUnavailableError` / `EngineCheckError`. `other-codes/run.ts` withdraws every row of the run and shows the message; `ProOtherCodesPanel` and `serviceability.ts` show it too. |
-| `codes/argentina/cirsoc201-section.ts` `prepareSection` (flexure calculator, P–M) | TypeScript `sectionPoint` integration when the RC kernel was missing | Throws; `sectionPoint` is reachable only through `useTypeScriptReferenceForTests`. |
+| `codes/argentina/cirsoc201-section.ts` `prepareSection` (flexure calculator, P–M) | TypeScript `sectionPoint` integration when the RC kernel was missing | Throws: every section evaluation (`prepareSection`, `sectionPoint`) goes to the engine's CIRSOC 201 section kernel through `cirsoc201-engine.ts`, which throws an engine-unavailable error when it is not loaded (`differential/cirsoc201-section.test.ts`, "without the engine nothing is computed"). The TypeScript integration it replaced is a test oracle under `__tests__/differential/oracle/`. |
 | `member-stresses.ts` | Bounding rectangle when the engine failed on a geometry-backed section (not a bound for angles/channels) | The section is not read and the table counts it as unread. |
 | `wasm-solver.ts` header, `App.svelte` | "falls back to JS solver" | Corrected; a failed engine load is a toast and `engineStatus.error`. |
 
 `__tests__/no-silent-fallback.test.ts` fails if app code imports an oracle or switches the RC
-section to its TypeScript reference, or if a design-check wrapper returns `null` again.
+section to a TypeScript reference, or if a design-check wrapper returns `null` again.
 
 ## What is left
 
@@ -443,7 +443,7 @@ In rough order of safety value:
 | `codes/argentina/index.ts` | 8 | d | - | low | Re-export barrel |
 | `codes/argentina/interaction-diagram.ts` | 261 | b | engine/src/postprocess/rc_check.rs (axial_flexure_capacity), column_capacity_kernel.rs | high | Rectangular two-layer P-M interaction diagram scan plus SVG |
 | `codes/argentina/losas.ts` | 449 | c | - | high | One-way/two-way/cantilever slab reinforcement design, support check, torsion corner steel |
-| `codes/argentina/rc-section-kernel.ts` | 10 | a | engine/src/rc_section_kernel.rs | high | WASM kernel registry/boundary for section integration |
+| `codes/argentina/cirsoc201-engine.ts` | 71 | a | engine/src/postprocess/cirsoc201_section.rs | high | WASM boundary for the CIRSOC 201 section kernel, basis, φ and design; throws when the engine is not loaded |
 | `codes/argentina/section-polygon.ts` | 194 | c | - | medium | Polygon area/centroid, half-plane clip, compressed zone for cracked sections |
 | `codes/argentina/section-shape.ts` | 16 | d | - | low | Section outline type |
 | `codes/argentina/serviceability.ts` | 146 | b | engine/src/postprocess/serviceability.rs | high | Crack width (Gergely-Lutz, TS-only part) and deflection limit check (known duplicate) |
