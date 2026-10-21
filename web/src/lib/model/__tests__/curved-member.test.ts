@@ -328,6 +328,11 @@ describe('the section orientation along the arc (#418)', () => {
     expect(migrateArcLocalAxes(loaded, nodes, (id) => id === 40)).toBe(1);
     expect(loaded.get(40)!.localYx).toBeUndefined();
     expect(loaded.get(1)!.localYx).toBeDefined();
+    // So is one with an end release (it is about a local axis).
+    const released = new Map<number, M & { releaseI?: Record<string, unknown> }>(pts.slice(0, -1).map((_, i) => [i + 1, { nodeI: i + 1, nodeJ: i + 2, arc: { spec } }]));
+    released.get(40)!.releaseI = { my: true };
+    expect(migrateArcLocalAxes(released, nodes)).toBe(1);
+    expect(released.get(40)!.localYx).toBeUndefined();
     // Members the arc tool built carry the mark and are not migrated.
     const built = new Map<number, M & { arc: { spec: typeof spec; axes?: 1 } }>([[1, { nodeI: 40, nodeJ: 41, arc: { spec, axes: 1 } }]]);
     expect(migrateArcLocalAxes(built, nodes)).toBe(0);

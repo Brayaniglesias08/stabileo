@@ -65,8 +65,9 @@ exactly as before, and an arch keeps local y normal to its plane on every segmen
 members it creates, and arcs saved before the fix take it once when the project is opened (only
 members with no local y or roll of their own whose ends are still on the arc, and only where their
 axes are turned, not merely reversed; a member set back to automatic axes afterwards stays so).
-A member that a load or a support refers to is **not** migrated, because its loads are given in
-its local axes and would turn with them: for those, the re-check notice is the signal, and the
+A member that a load or a support refers to, or that has end releases, semi-rigid ends, an offset
+or stiffness factors, is **not** migrated, because that data is given in
+the member's local axes and would turn with them: for those, the re-check notice is the signal, and the
 axes are set by hand (see the workaround). Tests:
 `engine/tests/derivation_special_elements.rs` (the arch against explicit members with local y
 along the plane normal at four plan angles; the same arch rotated about the vertical gives the

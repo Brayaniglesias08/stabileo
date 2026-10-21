@@ -237,10 +237,19 @@ export function arcMemberLocalYOverride(
   }
 }
 
+/** End releases, semi-rigid ends, offsets or stiffness factors: all given in local axes. */
+function hasOwnLocalData(e: ArcMember): boolean {
+  const released = (r?: object) => !!r && Object.values(r).some((v) => v === true);
+  return released(e.releaseI) || released(e.releaseJ) || e.semiRigid != null || e.offset != null || e.stiffness != null;
+}
+
 /** What `migrateArcLocalAxes` reads and writes of a member. */
 interface ArcMember {
   nodeI: number; nodeJ: number;
   arc?: { spec: ArcSpec; axes?: 1 };
+  /** Member data given in its local axes: a member with any of it is not migrated. */
+  releaseI?: object; releaseJ?: object;
+  semiRigid?: unknown; offset?: unknown; stiffness?: unknown;
   localYx?: number; localYy?: number; localYz?: number;
   rollAngle?: number;
 }
@@ -258,11 +267,12 @@ interface ArcMember {
  * and reopening. Returns how many members changed. Mutates `elements`.
  */
 export function migrateArcLocalAxes(
-  elements: Map<number, ArcMember>,
+  elements: Iterable<[number, ArcMember]>,
   nodes: ReadonlyMap<number, { x: number; y?: number; z?: number }>,
   /**
    * Members that local data refers to (a member load, a support in member axes). Left as they
-   * are: their loads are in local axes and would turn with them, so the physical loading would
+   * are, like members with releases, semi-rigid ends, offsets or stiffness factors of their own:
+   * that data is in local axes and would turn with them, so the loading or the connections would
    * change on reopening. The re-check notice (`arc-member-local-axes`) still names the change.
    */
   hasLocalData: (id: number) => boolean = () => false,
@@ -275,7 +285,7 @@ export function migrateArcLocalAxes(
   for (const [id, e] of elements) {
     if (!e.arc?.spec || e.arc.axes === 1) continue;
     e.arc = { ...e.arc, axes: 1 };
-    if (hasLocalData(id)) continue;
+    if (hasLocalData(id) || hasOwnLocalData(e)) continue;
     if (e.localYx !== undefined || e.localYy !== undefined || e.localYz !== undefined) continue;
     if (e.rollAngle !== undefined && e.rollAngle !== 0) continue;
     const pi = pos(e.nodeI), pj = pos(e.nodeJ);
