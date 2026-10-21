@@ -64,9 +64,11 @@ load on the element and taken per load case. The app sends a curved quad's tempe
 `curvedShellThermal`, and the engine now refuses a shell load that names an element of another
 family instead of dropping it. Tests (`engine/tests/derivation_shells.rs`): a flat curved shell
 reports the flat MITC4's bending and twisting moments to 1e-6; the cantilever strip reports
-P·(L − x)/b; a free flat or cylindrical curved shell under a uniform ΔT, a gradient or two stacked
-temperature loads reports zero stress and moment; restrained, −E·α·ΔT/(1−ν) and the gradient
-moment of the flat MITC4; a quad temperature on a curved shell is refused.
+P·(L − x)/b; a free flat curved shell under a uniform ΔT, a gradient or two stacked
+temperature loads reports zero stress and moment, and a free cylindrical or twisted one (varying
+directors) a residual under 5 % of the restrained value, the element's discretization error, which
+shrinks with the element (it was 100 %); restrained, −E·α·ΔT/(1−ν) and the gradient moment of the
+flat MITC4; a quad temperature on a curved shell is refused.
 
 ## Workaround
 
