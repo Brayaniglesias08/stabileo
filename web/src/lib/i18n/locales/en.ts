@@ -9955,6 +9955,10 @@ const en: Record<string, string> = {
   // ─── Certified results (docs/verification/CERTIFY.md) ───
   'certificate.certified': 'Certified: displacement error ≤ {abs} ({rel} relative)',
   'certificate.notCertified': 'Not certified: {reason}',
+  'certificate.e2eCertified': 'Checked end to end: an independent re-assembly of the model agrees; displacement error ≤ {abs}',
+  'certificate.e2eFailed': 'End-to-end check failed: {reason}',
+  'certificate.e2eNotChecked': 'Not checked end to end: {reason}',
+  'certificate.e2eTooltip': 'An independent checker rebuilt the model\'s stiffness and loads from its data (its own element formulas, in interval arithmetic). The engine\'s assembly agrees with it, and the bound holds for the exact solution of the model as written.',
   'certificate.pending': 'Certifying…',
   'certificate.tooltip': 'Rigorous a-posteriori bound, proved in Lean: the exact solution of the assembled linear system differs from the computed displacements by at most this amount (Euclidean norm over all free degrees of freedom, meters and radians together). The ± next to a member force bounds its error the same way.',
   'certificate.buckling': 'λ_cr ∈ [{lower}, {upper}] (certified)',

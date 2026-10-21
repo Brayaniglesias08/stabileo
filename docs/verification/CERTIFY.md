@@ -11,6 +11,10 @@ The solver returns an approximation `ũ`. Let `u*` be the exact real solution.
 
 `K` is *not* assumed bitwise symmetric (floating-point `Tᵀ k T` need not be).
 
+This certifies the solve of the `K` and `f` the engine assembled. For frame and truss
+models the linear result is also certified against an independent re-assembly of the
+model ("End-to-end certificates" below), which covers model → `K` → result.
+
 ## Theorem (coercivity error bound)
 
 Let `S = (K + Kᵀ)/2`, `σ > 0`. If `S − σI` is positive semidefinite then for all x:
@@ -124,6 +128,214 @@ assumed), `‖R‖₂² = λ_max(RᵀR) ≤ 1 + ‖RᵀR − I‖_F` with `RᵀR
 rotations. With inclined supports `abs_bound` is on the error over all DOFs in global
 axes (and `rel_bound` relative to `‖ũ_glob‖₂` over all DOFs). A node carrying several
 supports one of which is inclined is refused (`Uncertified`). Not yet formalized in Lean.
+
+## End-to-end certificates
+
+Everything above certifies the solution of the f64 `K` and `f` **the engine assembled**. An
+assembly bug (a wrong sign in a transformation, a missing Timoshenko term, a wrong
+fixed-end force) would be certified. The end-to-end check closes that gap: it rebuilds the
+model's `K` and `f` from the model JSON, independently of the engine, and certifies the
+returned displacements against that. Code: `engine/src/certify/reassembly/`; Lean:
+`verify/Certify/EndToEnd.lean`.
+
+### What it states
+
+`EndToEnd::Certified { absBound, … }` means: the model as written (every input number
+taken as the decimal of the JSON, enclosed by the half-ulp interval around its parsed
+f64) has a unique solution `u*`, and `‖u* − ũ‖₂ ≤ absBound` over every DOF the model
+determines, all DOFs in global axes, restrained ones included. The engine's own `K` and
+`f` play no part in that statement; they are compared separately (below).
+
+### The independent re-assembly
+
+Written for this checker from the mechanics, in interval arithmetic
+(`certify::interval` plus rigorous `sin`/`cos` by range reduction with an enclosure of
+π and a Taylor series with its remainder, so no libm), with its own DOF numbering
+(`(node, local dof)`, nodes by id). Nothing in `engine/src/element/` or the solver's
+assembly is called to build it.
+
+* **Bending** of each plane: the cantilever flexibility
+  `F = [[L³/3EI + L/(G·As), L²/2EI], [L²/2EI, L/EI]]` (Timoshenko: shear adds `L/(G·As)` to
+  the tip deflection, nothing to the section rotation), `k = F⁻¹`, and the other end by
+  equilibrium, `K = [[Γ k Γᵀ, Γ k], [k Γᵀ, k]]`, `Γ = [[−1, 0], [−L, −1]]`. In the x–z
+  plane of a 3D member `θy = −dw/dx`, so its block is the x–y one with the rotations
+  negated. Axial `EA/L`, torsion `GJ/L`.
+* **Releases and hinges**: static condensation of each released rotation, one at a time
+  (`K ← K − k_r k_rᵀ/k_rr`, `f ← f − k_r f_r/k_rr`). Both rotations of a plane released:
+  the plane carries nothing (its bending block has rank 2 and an invertible rotation
+  block, so the Schur complement is 0) and its loads reach the nodes as the simply
+  supported reactions. A torsion release at either end removes torsion.
+* **Equivalent nodal loads**: the work of the member load on the exact deflected shapes
+  of the unloaded Timoshenko member (the interdependent-interpolation functions
+  `N₁…N₄` for forces, the section rotations `ψ₁…ψ₄` for couples; cubic Hermite for
+  `φ = 0`), with the polynomial integrals over `[a, b]` in closed form
+  (`(b − a)∫₀¹ q(t) N(ξₐ + tΔξ) dt`, no division by `b − a`); axial loads on the linear
+  shapes; trusses and cables by the lever rule; thermal loads from `∫ Bᵀ D ε_th dx`
+  (axial `∓EAαΔT`, curvature moments `∓EI·α·Δt/h`).
+* **Local axes**: the model's conventions, re-derived (default: local z = global Z made
+  perpendicular to the member, global X for |x·Z| > 0.999; reference vector: local
+  z ∥ x × ref; roll angle in degrees; `leftHand` negates local y). A switch whose
+  interval straddles its threshold is refused, not guessed.
+* **Kinematics** `u = C q + p`: free DOFs; restrained DOFs at their prescribed value;
+  inclined supports as a tangent parametrization (`u = t q + n (n·d)/(n·n)`, 2D normal
+  `(sin θ, cos θ)`, 3D any exact basis of the plane `⟂ n`); springs (rotated in 2D) as
+  stiffness; rigid links, diaphragms, eccentric connections (rigid-body kinematics
+  `u_s = u_m + θ_m × r`), equal-DOF and linear MPCs (eliminating the largest free term)
+  by substitution, chains resolved, cycles refused.
+* **Self-weight** reaches the engine as member distributed loads (the app converts it),
+  so it is covered as such.
+
+### The certificate
+
+With `A = Cᵀ K C` enclosed entrywise (exact for every model in the input box):
+
+1. **Coercivity**: the Gram residual + Gershgorin test of "Scalable certificate" on the
+   interval `A` gives `λ_min(A) ≥ μ > 0`.
+2. **Residual** `r = Cᵀ(f − K w)`, `w = C q̃ + p`, with `q̃` read from `ũ` (any `q̃` is
+   valid). `K w` is formed element by element on deformations: `K_e w_e = K_e (w_e − ρ_e)`
+   for the rigid motion `ρ_e` that matches the element's first node (translation `t`,
+   rotation `θ`, `u_j = t + s θ × Δ` with `s = det R` of the local frame), which the
+   exact `K_e` annihilates. A stiff short member then contributes its small deformation
+   times its stiffness, not its displacement times its stiffness. A tripwire checks this
+   enclosure against the plain `f − K w` enclosure: both contain the same real numbers,
+   so they must intersect.
+3. **Bound**: `‖u* − ũ‖₂ ≤ √g · ‖r‖₂/μ + ‖w − ũ‖₂`, where `g` bounds every row sum of
+   `|CᵀC|` (so `‖C x‖ ≤ √g ‖x‖`).
+
+Lean (`verify/Certify/EndToEnd.lean`): `Certify.end_to_end_bound` (from
+`certified_error_bound_gram`: unique `q*`, the bound above), `Certify.virtual_work` (the
+reduced equations `Cᵀ K (C q + p) = Cᵀ f` are virtual work over the admissible
+variations `C v`), `Certify.vnorm_mulVec_le_of_rows` (`‖C x‖ ≤ √g ‖x‖`). In the axiom
+check.
+
+**DOFs the model does not determine** (a structurally empty row of `A`: the rotation of a
+truss-only node, of a node where every member is released) are left out of the bound and
+listed in `excludedDofs`. A load on such a DOF means the model has no solution:
+`Failed`.
+
+### Agreement with the engine, and statuses
+
+Besides the bound, the result must be the engine's answer to *this* model:
+
+* **Assembly**: the engine's `K` and `f`, exactly the assembly the solver factored for this
+  solve (`certify::solver_assembly_2d/3d`: dense below 64 free DOFs, sparse above, the
+  constrained paths; a dense assembly over `4 · MAX_CERTIFY_N` DOFs is not read and the
+  result is `uncertified`), rotated back at inclined supports, must lie within `1e-10` of
+  each entry's scale (`Σ|terms|`, or `√(K_ii K_jj)`) of the re-assembled enclosures. A NaN
+  or infinity anywhere in it is a failure. The engine's artificial stiffness on DOFs the
+  model does not determine is not compared.
+* **Kinematics**: `‖C q̃ + p − ũ‖ ≤ 1e-9 ‖ũ‖`: the returned displacements satisfy the
+  model's supports, settlements, inclined supports and constraints.
+
+| `endToEnd.status` | meaning |
+|---|---|
+| `certified` | both checks pass and the bound holds: `absBound`, `relBound`, `mu`, `residualNorm`, `kDiscrepancy`, `fDiscrepancy`, `excludedDofs` |
+| `failed` | the engine assembled a different `K` or `f`, returned displacements that violate the model's kinematics, or answered a model that has no solution |
+| `uncertified` | no bound against the model could be established (a mechanism the engine's artificial stiffness hides, or conditioning beyond what an `ε`-wide enclosure of the exact model allows) |
+| `outOfScope` | the model uses something not re-assembled (below) |
+
+`certificateLevel` on the certified linear result is `endToEnd` when both the
+assembled-level and the end-to-end certificates hold, `assembled` when only the former
+does, `none` otherwise. Wasm `certify_linear_2d` / `certify_linear_3d` return both.
+
+**Scope.** 2D and 3D frames (Euler–Bernoulli and Timoshenko), trusses and cables
+(linear), hinges and releases, local axes with reference vectors, roll angles and
+left-handed axes, supports with springs and settlements, inclined supports, rigid links,
+diaphragms, equal-DOF, eccentric connections, linear MPCs; nodal, distributed (full,
+partial, trapezoidal, axial), axial span (`axialDistributed`), point and thermal member
+loads. **Out of scope**
+(`outOfScope`): shells and solids, connectors, curved beams, warping torsion (sections
+with `Cw > 0` on frames) and bimoment loads, several non-plain supports on one node.
+There are no rigid end offsets in the model format. Shells are next.
+
+**Nothing is dropped.** Every input field the check reads is modelled or refused
+(`engine/tests/certify_end_to_end_inputs.rs`, one negative test per field): a load on a
+node, member or DOF the model does not have (a moment on a model with only trusses and
+cables, which has no rotations) is `failed` (nothing resists it); a support value its type
+does not use (a settlement on a DOF the support leaves free, an angle on a fixed support,
+a rotational spring or prescribed rotation without rotations, a normal on a support that is
+not inclined, warping restraints) and a constraint naming a DOF the model does not have
+(or needing a rotation it lacks for its offset) are `outOfScope`. Ignored by design, because
+they cannot change the mechanics: hinge flags and releases on trusses and cables (they
+carry no moment), a thermal gradient on a truss (a pin-ended bar curves freely), section
+properties a member type does not use.
+
+### Tests
+
+`engine/tests/certify_end_to_end.rs`, all in the normal suite:
+
+| set | models | certified end to end | engine assembly vs re-assembly |
+|---|---|---|---|
+| 2D fixtures (examples, web templates, `random-*`) | 82 | 82 (every assembled-level certified one) | identical (discrepancy 0) |
+| 3D fixtures (`ex-3d-*`, `random3d-*`) | 32 | 32 | identical |
+| stable random frames, 2D (`tests/e2e_models`) | 200 | 200 | identical |
+| stable random frames, 3D | 150 | 150 | identical |
+| fuzz generators (`fuzz_models`, rich and plain), 2D | 300 | 56; 42 out of scope (the rich generator puts settlements on DOFs their support leaves free, refused); 1 uncertified and 2 with no solution, see findings | identical |
+| fuzz generators, 3D | 240 | 20 (most are mechanisms the solver refuses); 4 out of scope; 1 uncertified (ill-conditioned beyond `ε`) | identical |
+| differential generators (`tools/differential`, 14 generators × 200, `e2e_dir`, run by hand) | 2800 | 2193; 201 out of scope (settlements on DOFs their support leaves free, refused); of the rest, every model the assembled-level certificate certifies except 6 (two `rich3d` models in three variants, singular in exact arithmetic, see findings) | identical |
+
+The differential models: `python3 tools/differential/dump_models.py DIR 200`, then
+`E2E_DIR=DIR cargo test --release --test certify_end_to_end e2e_dir -- --ignored --nocapture`.
+
+The stable generators cover every feature in scope: jittered multi-bay frames, braces,
+hinges and releases, shear areas, reference vectors, roll angles,
+springs (rotated), inclined supports with settlements, every member load type,
+diaphragms, rigid links, equal-DOF and MPCs.
+
+**Planted bugs.** `engine/tests/certify_end_to_end_mutations.rs` plants each bug by
+recomputing one element's contribution the buggy way (with the engine's own element
+routines), swapping it into the engine's assembled `K` or `f`, and solving the buggy
+system in f64 as the engine would. For each, the assembled-level certificate certifies
+the wrong answer, the end-to-end certificate fails ("disagrees with the re-assembled
+model"), and the end-to-end bound against the model still exceeds the real error:
+wrong sign in the 2D transformation, the `(2 − φ)` Timoshenko term dropped, a uniform-load
+fixed-end moment `qL²/8`, the 3D roll angle's sign, the 3D shear-area pairing swapped, the
+`q_z` moments not negated. `scripts/e2e-planted-bugs.sh` plants bugs in the engine's
+source (in a temporary git worktree of `HEAD`, never the checkout) instead and runs the end-to-end tests: all 15 caught (each fails the end-to-end tests; the assembled-level tests would pass): the 2D transform's `−sin`
+sign; the `(2 − φ)` and `(4 + φ)` Timoshenko terms; the hinge's condensed factor `12/(4 + φ)` as 3;
+the uniform-load end moment `qL²/12` as `qL²/8`; the sign of the Timoshenko moment correction of
+the fixed-end forces; the `q_z` moments not negated in 3D; the `(2 − φ)` ratio of the hinge
+fixed-end-force condensation; the thermal gradient moment's sign; the roll angle's sign;
+`leftHand` not applied; `φ_y` paired with `Iz`; the rotated 2D spring's coupling sign; the truss
+lever rule with its ends swapped; the thermal α 12e-6 as 1.2e-6.
+
+**Findings** (`engine/tests/certify_end_to_end_findings.rs`):
+
+* A **3D diaphragm in the XZ plane** tied the slaves with the rotation `θy` of the wrong
+  sign, and the end-to-end check failed such results. Fixed with #342, which also ties
+  each slave's in-plane rotation to the master's (the re-assembly follows: a diaphragm
+  moves its slaves as one rigid body, rotation included). Before the re-assembly
+  followed, the random 3D frames with diaphragms still certified end to end, but with
+  bounds up to 80× the displacement: the check stays honest when the meaning of an input
+  changes, it just stops being useful until the conventions are updated.
+* **2D, all members hinged at a node**: a nodal moment there (the model has no solution)
+  used to be absorbed by the artificial spring (1e-10 × the largest diagonal) and
+  certified at the assembled level; the engine now refuses it before the solve. A rigid
+  link from such a node still hides a real mechanism: the linked pair rotates freely,
+  the spring holds it, and the assembled-level certificate certifies a meaningless
+  answer (`relBound` 2e-15). The end-to-end check reports `failed` / `uncertified`.
+* **Singular in exact arithmetic, regular in f64**: a node reached by one member released
+  about its local y (`rich3d` 121 and 143) has a rotation about a skew axis that nothing
+  stiffens. The engine's orphan guard looks at diagonal entries only, the rounded `K` is
+  regular, and the assembled-level certificate certifies its solve. The end-to-end check
+  cannot bound the model (`uncertified`).
+* **`leftHand`**: with the local y negated the frame is improper (`det R = −1`) and the
+  engine transformed rotations like translations, so its member matrices annihilated the
+  *mirrored* rigid rotations, while rigid links, diaphragms and eccentric connections use
+  `+θ × r`. Decided on `main`: the engine refuses `leftHand: true` before the solve, and the
+  stable generators no longer produce it. The re-assembly still models it (the residual
+  uses `s = det R`).
+
+### What remains trusted
+
+The re-assembly encodes the model's mechanics and conventions; that encoding (the formulas
+of `element.rs`, the conventions of `model2d.rs`/`model3d.rs`) is trusted, written
+independently of the engine and checked against it, but not proved. The interval
+evaluation follows inclusion monotonicity (`Certify.Interval.mem_*`), not formalized
+step by step for this code. The Rust implementation is not proved to match the Lean
+algorithm (as for every Rust certificate). The engine's assembly is no longer trusted for
+a result certified end to end.
+
 ## Independent checking: certificate bundles
 
 The scalable certificate can be exported as a *bundle* and re-checked by a third party
@@ -1187,7 +1399,9 @@ reports `method` (`modal`, `modal+static`, `direct`), `modesUsed`, `nDof`,
 
 ## Which K is certified
 
-A certificate is about the K, f (and M, K_G) the solver assembled, right or wrong. That
+A certificate is about the K, f (and M, K_G) the solver assembled, right or wrong, except
+the linear static result certified end to end (see "End-to-end certificates"), which is
+about the model. That
 the dense, sparse, `_ex`, parallel and constrained paths assemble the same matrices, and
 that the certificates' own reduced systems (`reduced_sparse_2d/3d`, `buckling_system_2d/3d`)
 equal them, is checked separately by the cross-path assembly oracle,

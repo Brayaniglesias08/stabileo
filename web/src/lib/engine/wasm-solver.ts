@@ -877,8 +877,24 @@ export interface ShownBounds<S = StationBound2D | StationBound3D, R = ReactionBo
   reactionReason?: string;
 }
 
-export interface CertifiedLinear2D extends ShownBounds<StationBound2D, ReactionBound2D> { results: AnalysisResults; certificate: LinearCertificate; forceBounds: ForceBound2D[] }
-export interface CertifiedLinear3D extends ShownBounds<StationBound3D, ReactionBound3D> { results: AnalysisResults3D; certificate: LinearCertificate; forceBounds: ForceBound3D[]; shellBounds?: ShellBound[] }
+/**
+ * The linear result checked against an independent re-assembly of the model (docs/verification/
+ * CERTIFY.md, "End-to-end certificates"): `certified` bounds ‖u* − ũ‖₂ for the exact solution of the
+ * model as written, over every DOF it determines; `failed` means the engine's K, f or displacements
+ * disagree with the model; `uncertified` / `outOfScope` / `notChecked` say why there is no such bound.
+ */
+export type EndToEnd =
+  | { status: 'certified'; absBound: number; relBound: number | null; mu: number; residualNorm: number;
+      kDiscrepancy: number; fDiscrepancy: number; excludedDofs: Array<{ nodeId: number; dof: number }> }
+  | { status: 'failed' | 'uncertified' | 'outOfScope'; reason: string }
+  | { status: 'notChecked' };
+/** How much of model → K → result a certified linear result covers. */
+export type CertificateLevel = 'endToEnd' | 'assembled' | 'none';
+/** The end-to-end fields of a certified linear answer (absent from older WASM builds). */
+export interface EndToEndFields { endToEnd?: EndToEnd; certificateLevel?: CertificateLevel }
+
+export interface CertifiedLinear2D extends ShownBounds<StationBound2D, ReactionBound2D>, EndToEndFields { results: AnalysisResults; certificate: LinearCertificate; forceBounds: ForceBound2D[] }
+export interface CertifiedLinear3D extends ShownBounds<StationBound3D, ReactionBound3D>, EndToEndFields { results: AnalysisResults3D; certificate: LinearCertificate; forceBounds: ForceBound3D[]; shellBounds?: ShellBound[] }
 
 /** One load case of a certified multi-case solve: a linear certificate of its own. */
 export interface CaseCertificate<F> extends ShownBounds { name: string; certificate: LinearCertificate; forceBounds: F[] }
@@ -938,14 +954,14 @@ export function certifyLinearWire(dim: '2d' | '3d', wire: Record<string, any>): 
 }
 
 /** A linear certificate without the results it re-solved (3D carries the shells' bounds). */
-export interface LinearCertificateOnly extends ShownBounds {
+export interface LinearCertificateOnly extends ShownBounds, EndToEndFields {
   certificate: LinearCertificate; forceBounds: Array<ForceBound2D | ForceBound3D>; shellBounds?: ShellBound[];
 }
 
 /** A certify answer without its results (what a worker posts back). */
 export function certificateOnly(out: LinearCertificateOnly & { results?: unknown }): LinearCertificateOnly {
-  const { certificate, forceBounds, shellBounds, stationBounds, deflectionBounds, reactionBounds, reactionReason } = out;
-  return { certificate, forceBounds, shellBounds: shellBounds ?? [], stationBounds, deflectionBounds, reactionBounds, reactionReason };
+  const { certificate, forceBounds, shellBounds, stationBounds, deflectionBounds, reactionBounds, reactionReason, endToEnd, certificateLevel } = out;
+  return { certificate, forceBounds, shellBounds: shellBounds ?? [], stationBounds, deflectionBounds, reactionBounds, reactionReason, endToEnd, certificateLevel };
 }
 
 /**
