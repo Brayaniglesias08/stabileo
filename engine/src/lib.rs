@@ -71,6 +71,28 @@ pub fn solve_3d(input: JsValue) -> Result<JsValue, JsValue> {
     to_js_value(&results)
 }
 
+/// Solve a 3D linear static model and estimate its discretization (mesh) error
+/// (docs/verification/DISCRETIZATION.md): a Zienkiewicz–Zhu/SPR energy-norm estimate per shell
+/// element and for the model. An estimate, never a bound (`certified` is always false).
+#[wasm_bindgen]
+pub fn estimate_discretization_3d(input: JsValue) -> Result<JsValue, JsValue> {
+    let input: types::SolverInput3D = from_js_value(input)?;
+    let out = postprocess::discretization::solve_and_estimate_3d(&input).map_err(|e| JsValue::from_str(&e))?;
+    to_js_value(&out)
+}
+
+/// Convergence check of a 3D linear static model: re-solve on uniformly refined meshes and
+/// report the governing quantities with a Richardson extrapolation and observed order
+/// (docs/verification/DISCRETIZATION.md). `options` may be null for the defaults.
+#[wasm_bindgen]
+pub fn convergence_study_3d(input: JsValue, options: JsValue) -> Result<JsValue, JsValue> {
+    let input: types::SolverInput3D = from_js_value(input)?;
+    let opts: postprocess::discretization::convergence::ConvergenceOptions =
+        if options.is_null() || options.is_undefined() { Default::default() } else { from_js_value(options)? };
+    let out = postprocess::discretization::convergence::convergence_study_3d(&input, &opts).map_err(|e| JsValue::from_str(&e))?;
+    to_js_value(&out)
+}
+
 /// Solve 2D linear static analysis and certify the displacements
 /// (docs/verification/CERTIFY.md). JsValue in → `{ results, certificate }`.
 #[wasm_bindgen]

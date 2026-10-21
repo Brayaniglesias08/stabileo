@@ -7,6 +7,7 @@
   import ProResultScopes from './ProResultScopes.svelte';
   import ProNonlinearReport from './ProNonlinearReport.svelte';
   import CertificateStatus from '../CertificateStatus.svelte';
+  import DiscretizationStatus from '../DiscretizationStatus.svelte';
   import { certificateStore, formatBound } from '../../lib/store/certificate.svelte';
   import ProResultTableModes, { type TableMode } from './ProResultTableModes.svelte';
   import ProDeflectionTable from './ProDeflectionTable.svelte';
@@ -595,6 +596,7 @@
     <ProResultScopes />
     <ProNonlinearReport />
     <CertificateStatus />
+    <DiscretizationStatus />
 
     <!-- View mode selector -->
     {#if hasCombinations}

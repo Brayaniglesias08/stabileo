@@ -36,6 +36,36 @@ from such a node, is held by the artificial spring and the assembled-level certi
 certifies a model that has no solution.
 ### Changed
 
+#### Discretization error: estimated next to every certified shell result (2026-10-18)
+
+Certificates bound the algebraic error of the assembled system, not the mesh error. The engine
+now estimates the second one, and never presents it as certified (docs/verification/DISCRETIZATION.md).
+
+- `engine/src/postprocess/discretization/`: Zienkiewicz–Zhu estimator with superconvergent
+  patch recovery for DKT, MITC4, MITC9, curved shells and SHB8 solid-shells (element and global
+  energy-norm indicators; effectivity 1.01 for MITC4 and 1.10 for DKT at 16 × 16 on the Navier
+  plate); uniform h-refinement (smooth or faceted geometry, frames split, supports and loads
+  carried over) and a convergence study with Richardson extrapolation and observed order.
+  WASM `estimate_discretization_3d`, `convergence_study_3d`. Frames are stated exact.
+- Results panel: "algebraic error: certified ≤ X · discretization error: estimated ~Y% (not
+  certified)", a warning above 5 %, an element error map and an on-demand convergence check
+  (en/es/pt).
+- Degenerate cases are reported as such, never as "no error": a loaded mesh that carries no
+  strain (one simply supported element under pressure) is "cannot be estimated — refine the
+  mesh", not 0 %; members with warping torsion, curved beams and members of variable section
+  (solved as prismatic pieces) are not claimed exact.
+- **Fix (results): curved-shell self-weight was 1000× too heavy** (density taken in kN/m³
+  instead of kg/m³ like every other shell). Not reachable from the web app.
+- SHB8 solid-shells are estimated from the ANS + EAS strain the element is built from (#401):
+  on the Navier plate (t/a = 0.01) the centre deflection converges to Kirchhoff (0.972, 0.995,
+  1.000 at n = 4, 8, 16) with effectivity 1.34, 1.23, 1.12, asserted like the other families.
+- Refinement supports a new node only on an exterior edge between supported nodes: a slab on a
+  column grid meshed one element per bay keeps its interior columns as points (supporting every
+  edge between columns pinned the whole refined slab and reported it converged). When the rule
+  adds supports the study says so (caveat `supportsInferred`, with the count). A model whose
+  elements name a missing node is an error, not a panic; a non-finite estimate is `nonFinite`,
+  never a NaN percentage; a last Richardson step within round-off is converged, not oscillating.
+
 #### Design checks against published worked examples, part 2 (2026-10-18)
 
 **BREAKING (results): cold-formed columns, steel columns braced about their weak axis, masonry
