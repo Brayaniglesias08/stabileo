@@ -9,7 +9,7 @@ import { nodesOnMembers } from './nodes-on-members';
 import { localizeEngineText } from '../i18n/engine-text';
 import { createSectionWeight } from '../section/weight';
 import { expandSemiRigid3D, SemiRigidError } from './expand-semi-rigid-3d';
-import { solvableModel, applyStiffnessModifiers, solveStiffnessFactors, hasNonlinearBehaviour, solveNonlinear3D, withZeroRows } from './member-behaviour';
+import { solvableModel, applyStiffnessModifiers, hasNonlinearBehaviour, solveNonlinear3D, withZeroRows } from './member-behaviour';
 import { amplification } from './pdelta-amplification';
 import { sectionShearAreas } from '../section/shear-areas';
 import { transverseSign } from './transverse-sign-2d';
