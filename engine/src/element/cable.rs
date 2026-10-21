@@ -176,14 +176,19 @@ pub fn cable_chord_tension(ea: f64, w: f64, l_h: f64, strain: f64) -> f64 {
     // τ³ − β·τ² − 1 = 0, β = EA·ε/s.
     let (cw, cl) = (w.abs().cbrt(), l_h.abs().cbrt());
     let s = (ea / 24.0).cbrt() * cw * cl * cw * cl;
-    if !(s > 0.0) || !s.is_finite() {
-        return b.max(0.0);
+    if s == 0.0 {
+        return b.max(0.0); // no weight, or a vertical chord: the taut string
+    }
+    if !s.is_finite() || !b.is_finite() {
+        // Outside the floating-point range of any physical cable: refuse rather than return a
+        // plausible number.
+        return f64::NAN;
     }
     let beta = b / s;
     if !beta.is_finite() {
         // |EA·ε| overwhelms the sag scale: stretched, the taut string T = EA·ε (the sag term is
         // below round-off); shortened, the asymptote τ = 1/√(−β), i.e. T = s·√(s/(−EA·ε)).
-        return if beta > 0.0 { b } else { s * s.sqrt() / (-b).sqrt() };
+        return if beta > 0.0 { b } else { s * (s / -b).sqrt() };
     }
     // Bracket: β ≥ 0: τ ∈ [β, β + min(1, 1/β²)]; β < 0: τ ∈ [1/√(1−β), min(1, 1/√(−β))].
     let (mut lo, mut hi) = if beta >= 0.0 {

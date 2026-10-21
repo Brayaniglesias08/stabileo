@@ -960,6 +960,9 @@ fn cable_chord_tension_is_robust() {
     assert_eq!(cable_chord_tension(2e4, 0.0, 50.0, 1e-3), 20.0);
     assert_eq!(cable_chord_tension(2e4, 0.0, 50.0, -1e-3), 0.0);
     assert!(cable_chord_tension(1.0, 1.0, 1.0, f64::NAN).is_nan());
+    // Beyond the floating-point range: refused, never a plausible zero.
+    assert!(cable_chord_tension(1e308, 1e308, 12.5, -1.0).is_nan());
+    assert!(cable_chord_tension(1e200, 1.0, 1.0, -1e200).is_nan());
 }
 
 /// A cable ending on an inclined roller: the tangent correction and the chord-law
