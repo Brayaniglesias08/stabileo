@@ -177,6 +177,20 @@ structures and modal frequencies shift too). Re-run solid-shell models.
   both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
 ### Fixed
 
+#### Curved shells report their bending moments and thermal stresses (SH-6, #410, 2026-10-21)
+
+**BREAKING (results), advisory SA-2026-013.** `curved_shell_stresses` returned
+mx = my = mxy = 0 whatever the bending; the moments are now the in-plane stresses integrated
+through the thickness (two Gauss points in ζ, sign as the flat MITC4, which a flat curved shell
+matches to 1e-6). Under `curvedShellThermal` the stresses, moments and corner Von Mises kept the
+free thermal strain; they now use ε − α·(ΔT + ζ·ΔTg/2), summed over the element's temperature
+loads and per load case (the curved-shell Kg takes its membrane stress from the same recovery).
+The app sent a curved quad's temperature as `quadThermal`, which named no flat quad and was
+dropped, so the shell was analysed unheated; it is sent as `curvedShellThermal`, and the engine
+refuses a shell load naming an element of another family. A cantilever strip of curved shells
+reports the static root moment, 35 kN·m/m (was 0); a free heated curved shell reports zero
+stress (was E·α·ΔT/(1−ν)). The SH-6 known-issue warning is removed.
+
 #### Silent errors from the element-derivations review: 2D-in-3D signs, settlements, Winkler, imperfections, constraints (2026-10-18)
 
 **BREAKING (results): a flat 2D model solved by the 3D solver now turns nodal moments and

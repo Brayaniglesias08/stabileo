@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Severity | High |
-| Status | Draft (fix in PR #522; untagged, next release) |
+| Status | Draft (fixed on `main`; untagged, next release) |
 | Issue | [#410](https://github.com/lambdaclass/stabileo/issues/410) (SH-6 in the element-derivation review) |
 | Fix | PR [#522](https://github.com/lambdaclass/stabileo/pull/522) |
 | Affected versions | every version with the curved-shell element, up to 0.2.0 and `main` until the fix; in the app, every version that solves a quad marked curved as a curved shell (from 2026-09-30) |

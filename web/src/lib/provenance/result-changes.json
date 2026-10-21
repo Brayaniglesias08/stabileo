@@ -4,6 +4,25 @@
   "currentResultsVersion": 1,
   "changes": [
     {
+      "id": "curved-shell-moments-and-thermal",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [522],
+      "area": "analysis",
+      "when": { "any": ["curvedShells"] },
+      "title": {
+        "en": "Curved shells report their bending moments and their thermal stresses",
+        "es": "Las láminas curvas informan sus momentos flectores y sus tensiones térmicas",
+        "pt": "As cascas curvas informam seus momentos fletores e suas tensões térmicas"
+      },
+      "explanation": {
+        "en": "Curved shells (quads marked as curved) reported zero bending and twisting moments, so contours, the Pro results and report, and any slab design read from them saw no bending; under a temperature load their stresses kept the free thermal strain, and a temperature on a curved quad was not applied at all (SA-2026-013).",
+        "es": "Las láminas curvas (cuadriláteros marcados como curvos) informaban momentos flectores y torsores nulos, así que las curvas de nivel, los resultados y el informe de Pro y cualquier diseño de losa leído de ellos no veían flexión; bajo una carga de temperatura sus tensiones conservaban la deformación térmica libre, y una temperatura sobre un cuadrilátero curvo no se aplicaba (SA-2026-013).",
+        "pt": "As cascas curvas (quadriláteros marcados como curvos) informavam momentos fletores e torçores nulos, então as curvas de nível, os resultados e o relatório do Pro e qualquer dimensionamento de laje lido deles não viam flexão; sob uma carga de temperatura suas tensões mantinham a deformação térmica livre, e uma temperatura num quadrilátero curvo não era aplicada (SA-2026-013)."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-013-curved-shell-moments-and-thermal.md", "heading": "SA-2026-013: curved shells reported zero bending moments, and their stresses kept the free thermal strain" }
+    },
+    {
       "id": "spectral-cqc-and-participation",
       "resultsVersion": 1,
       "date": "2026-10-21",
