@@ -522,14 +522,13 @@ fn catenary_ordinate_and_length() {
     assert!(rel(s, ex) < 1e-10, "inclined S = {s} vs {ex}");
 }
 
-/// SP-11 (OPEN). Ernst's modulus is itself the TANGENT of the chord-tension
+/// SP-11 (FIXED, #415). Ernst's modulus is itself the TANGENT of the chord-tension
 /// law: the chord of an elastic cable of weight w per unit length satisfies
 /// ε(T) = T/EA − (w·l_h)²/(24T²) + const, so dT/dε = E·A/(1 + (w·l_h)²EA/(12T³)),
 /// which is `ernst_equivalent_modulus`. `ernst_tangent_modulus` returns
-/// E(1 + α(1 − 3α/(1+α)))/(1+α)² instead, which no derivation here reproduces.
-/// Unused by any solver; pinned by cable_advanced_ext_ernst_tangent_modulus.
+/// that derivative now; it used to return E(1 + α(1 − 3α/(1+α)))/(1+α)², which no
+/// derivation reproduces and which is negative here (−7.77e6 against 6.20e7 kN/m²).
 #[test]
-#[ignore = "open question SP-11: ernst_tangent_modulus is not the derivative of the chord-tension law"]
 fn ernst_tangent_modulus_is_the_chord_law_derivative() {
     let (e, a, w, lh, t): (f64, f64, f64, f64, f64) = (160e6, 2e-3, 0.2, 200.0, 300.0);
     let eps = |t: f64| t / (e * a) - (w * lh).powi(2) / (24.0 * t * t);
@@ -540,17 +539,18 @@ fn ernst_tangent_modulus_is_the_chord_law_derivative() {
         "ernst_tangent_modulus {} vs dT/dε/A {tangent}", ernst_tangent_modulus(e, a, w, lh, t));
 }
 
-/// SP-12 (OPEN). The cable solver recovers the tension with the Ernst modulus
-/// as a SECANT from the node geometry: T = E_eq(T)·A·ε, i.e.
+/// SP-12 (FIXED, #416). The cable solver used to recover the tension with the Ernst
+/// modulus as a SECANT from the node geometry: T = E_eq(T)·A·ε, i.e.
 /// ε = T/EA + (w·l_h)²/(12T²). The elastic-catenary chord law with the
 /// unstressed length equal to the chord is ε = T/EA − (w·l_h)²/(24T²): sag takes
 /// up chord length, so the elastic strain (and T) for a given chord strain is
 /// LARGER than EA·ε, not smaller. Statically determinate cables are unaffected
 /// (equilibrium fixes T); in an indeterminate system the cable is assigned too
 /// little tension. Here a horizontal steel cable shares a horizontal load with
-/// a parallel spring; the check is the chord law at the converged state.
+/// a parallel spring; the check is the chord law at the converged state and the
+/// closed form (spring and chord law re-solved by bisection): T = 9.5878 kN,
+/// where the secant law gave 9.3905 kN.
 #[test]
-#[ignore = "open question SP-12: cable tension uses Ernst's tangent modulus as a secant from the chord"]
 fn cable_tension_follows_the_elastic_catenary_chord_law() {
     let (l, a, rho) = (50.0, 1e-4, 7850.0);
     let mut input = common::make_input(
@@ -570,7 +570,104 @@ fn cable_tension_follows_the_elastic_catenary_chord_law() {
     let w = rho / 1000.0 * a * 9.80665;
     let ea = 200e6 * a;
     let chord_law = t / ea - (w * l).powi(2) / (24.0 * t * t);
-    assert!(rel(chord_law, ux / l) < 1e-3, "T = {t}: chord law ε = {chord_law}, solved ε = {}", ux / l);
+    assert!(rel(chord_law, ux / l) < 1e-9, "T = {t}: chord law ε = {chord_law}, solved ε = {}", ux / l);
+    // Independent re-solve: 20·u + T = 10 with u/l = T/EA − (w·l)²/(24T²).
+    let t_ref = bisect(|t| t / ea - (w * l).powi(2) / (24.0 * t * t) - (10.0 - t) / 20.0 / l, 1e-6, 10.0);
+    assert!(rel(t, t_ref) < 1e-9, "T = {t}, closed form {t_ref}");
+    assert!((t_ref - 9.587766).abs() < 1e-5, "closed form {t_ref}");
+    // Equilibrium at the roller: spring plus cable carry the load.
+    let rx: f64 = r.results.reactions.iter().map(|x| x.rx).sum();
+    assert!((rx + 10.0).abs() < 1e-9, "ΣRx = {rx}");
+    assert!(r.iterations < 15, "Newton on the chord law: {} passes", r.iterations);
+}
+
+/// Root of an increasing function on [lo, hi] by bisection.
+fn bisect(f: impl Fn(f64) -> f64, mut lo: f64, mut hi: f64) -> f64 {
+    for _ in 0..200 {
+        let m = 0.5 * (lo + hi);
+        if f(m) > 0.0 { hi = m } else { lo = m }
+    }
+    0.5 * (lo + hi)
+}
+
+/// SP-12 in 3D: the same horizontal cable and spring, along a skew horizontal
+/// direction (l_h is the XY projection), against the same closed form.
+#[test]
+fn cable_tension_follows_the_chord_law_in_3d() {
+    let (l, a, rho, k) = (50.0, 1e-4, 7850.0, 20.0);
+    let (cx, cy) = (0.6, 0.8);
+    let mut input = make_3d_input(
+        vec![(1, 0.0, 0.0, 3.0), (2, l * cx, l * cy, 3.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, a, 1e-8, 1e-8, 1e-8)],
+        vec![(1, "cable", 1, 2, 1, 1)],
+        vec![(1, vec![true; 6]), (2, vec![false, false, true, true, true, true])],
+        vec![SolverLoad3D::Nodal(SolverNodalLoad3D { node_id: 2, fx: 10.0 * cx, fy: 10.0 * cy, fz: 0.0, mx: 0.0, my: 0.0, mz: 0.0, bw: None })],
+    );
+    let s = input.supports.get_mut("2").unwrap();
+    s.kx = Some(k);
+    s.ky = Some(k);
+    let dens = HashMap::from([("1".to_string(), rho)]);
+    let r = cable::solve_cable_3d(&input, &dens, 200, 1e-12).unwrap();
+    assert!(r.converged);
+    let t = r.cable_forces[0].tension;
+    let ea = 200e6 * a;
+    let w = rho / 1000.0 * a * 9.80665;
+    let t_ref = bisect(|t| t / ea - (w * l).powi(2) / (24.0 * t * t) - (10.0 - t) / k / l, 1e-6, 10.0);
+    assert!(rel(t, t_ref) < 1e-6, "T = {t}, closed form {t_ref}");
+    let d = r.results.displacements.iter().find(|d| d.node_id == 2).unwrap();
+    let u = d.ux * cx + d.uy * cy;
+    assert!(rel(u, (10.0 - t_ref) / k) < 1e-6, "u = {u}");
+}
+
+/// Without weight the chord law is the taut string T = EA·ε: cable and spring
+/// share the load by stiffness, exactly as the linear solver shares it.
+#[test]
+fn weightless_cable_and_spring_share_by_stiffness() {
+    let (l, a, k) = (50.0, 1e-4, 20.0);
+    let mut input = common::make_input(
+        vec![(1, 0.0, 0.0), (2, l, 0.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, a, 1e-8)],
+        vec![(1, "cable", 1, 2, 1, 1, false, false)],
+        vec![(1, 1, "pinned"), (2, 2, "rollerX")],
+        vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: 10.0, fz: 0.0, my: 0.0 })],
+    );
+    input.supports.get_mut("2").unwrap().kx = Some(k);
+    let r = cable::solve_cable_2d(&input, &HashMap::new(), 50, 1e-12).unwrap();
+    assert!(r.converged);
+    let kc = 200e6 * a / l;
+    let t_ref = 10.0 * kc / (kc + k);
+    assert!(rel(r.cable_forces[0].tension, t_ref) < 1e-9, "T = {}, {t_ref}", r.cable_forces[0].tension);
+}
+
+/// The unstressed length is the modelled chord, so a cable with weight between
+/// two fixed points hangs at the tension that makes its sag fit: with no load,
+/// T³ = EA·(w·l_h)²/24. Here its far end rides on a roller held by a strut of two
+/// frame bars, which the cable compresses.
+#[test]
+fn unloaded_heavy_cable_hangs_at_the_chord_law_tension() {
+    let (l, a, rho) = (40.0, 5e-4, 7850.0);
+    let input = common::make_input(
+        vec![(1, 0.0, 0.0), (2, l / 2.0, 0.0), (3, l, 0.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, a, 1e-8)],
+        vec![(1, "cable", 1, 3, 1, 1, false, false), (2, "frame", 1, 2, 1, 1, false, false), (3, "frame", 2, 3, 1, 1, false, false)],
+        vec![(1, 1, "pinned"), (2, 3, "rollerX")],
+        vec![],
+    );
+    let dens = HashMap::from([("1".to_string(), rho)]);
+    let r = cable::solve_cable_2d(&input, &dens, 50, 1e-12).unwrap();
+    assert!(r.converged);
+    let w = rho / 1000.0 * a * 9.80665;
+    let ea = 200e6 * a;
+    let t_ref = (ea * (w * l).powi(2) / 24.0).cbrt();
+    // The parallel frame bars (EA/L each) shorten under the pull, so the chord
+    // shortens a little and the cable slackens a little: solve that too.
+    let k_bars = 200e6 * a / l; // two bars of EA/(l/2) in series
+    let t_sys = bisect(|t| t / ea - (w * l).powi(2) / (24.0 * t * t) + t / k_bars / l, 1e-6, 10.0 * t_ref);
+    let t = r.cable_forces[0].tension;
+    assert!(rel(t, t_sys) < 1e-9, "T = {t}, chord law with the bars {t_sys} (alone {t_ref})");
 }
 
 /// SP-13 (DOCUMENTED-CHOICE, pinned). The cable solver uses the cable density
@@ -969,4 +1066,112 @@ fn non_positive_shear_areas_are_refused() {
         s3.sections.get_mut("1").unwrap().as_z = Some(v);
         assert!(solve_3d(&s3).unwrap_err().contains("shear area"));
     }
+}
+
+/// SP-12, the advisory case (SA-2026-015): a 20 m mast fixed at its base, guyed
+/// from its top to an anchor 20 m out, 5 kN at the top away from the anchor.
+/// Mast and guy share the load, so the guy's tension depends on its law. The
+/// closed form condenses the mast to its top (3EI/L³ sideways, EA/L axially) and
+/// solves the chord law by bisection: T = 5.183 kN. The secant law gave
+/// 4.340 kN (16 % low, after 28 passes) and, at 2 kN, did not converge.
+#[test]
+fn guyed_mast_cable_tension_matches_the_chord_law() {
+    for (p, t_expected) in [(5.0, Some(5.1827)), (2.0, None)] {
+        let (a_c, rho, e) = (1e-4, 7850.0, 200e6);
+        let input = common::make_input(
+            vec![(1, 0.0, 0.0), (2, 0.0, 20.0), (3, 20.0, 0.0)],
+            vec![(1, 200_000.0, 0.3), (2, 200_000.0, 0.3)],
+            vec![(1, 5e-2, 2e-3), (2, a_c, 1e-10)],
+            vec![(1, "frame", 1, 2, 1, 1, false, false), (2, "cable", 2, 3, 2, 2, false, false)],
+            vec![(1, 1, "fixed"), (2, 3, "pinned")],
+            vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: -p, fz: 0.0, my: 0.0 })],
+        );
+        let dens = HashMap::from([("2".to_string(), rho)]);
+        let r = cable::solve_cable_2d(&input, &dens, 50, 1e-10).unwrap();
+        assert!(r.converged, "P = {p}: {} passes", r.iterations);
+        let (s2, l) = (std::f64::consts::SQRT_2, 20.0 * std::f64::consts::SQRT_2);
+        let (kh, kv, ea) = (3.0 * e * 2e-3 / 8000.0, e * 5e-2 / 20.0, e * a_c);
+        let w = rho / 1000.0 * a_c * 9.80665;
+        let t_ref = bisect(|t| {
+            let (ux, uz) = ((t / s2 - p) / kh, -t / s2 / kv);
+            t / ea - (w * 20.0).powi(2) / (24.0 * t * t) - (uz - ux) / s2 / l
+        }, 1e-6, 20.0);
+        if let Some(te) = t_expected { assert!((t_ref - te).abs() < 1e-4, "closed form {t_ref}"); }
+        let t = r.cable_forces[0].tension;
+        // Small-displacement closed form against the solver's deformed-chord strain.
+        assert!(rel(t, t_ref) < 1e-4, "P = {p}: T = {t}, closed form {t_ref}");
+        // The base reaction balances the load and the guy.
+        let rx: f64 = r.results.reactions.iter().map(|x| x.rx).sum();
+        assert!((rx - p).abs() < 1e-8 * p, "ΣRx = {rx}");
+    }
+}
+
+/// `cable_chord_tension` solves the chord law over the whole range of strains,
+/// including roots many orders of magnitude below the sag scale, without
+/// under- or overflow, and refuses an invalid strain rather than returning a
+/// plausible tension.
+#[test]
+fn cable_chord_tension_is_robust() {
+    use dedaliano_engine::element::cable_chord_tension;
+    let law = |ea: f64, w: f64, lh: f64, t: f64| t / ea - (w * lh).powi(2) / (24.0 * t * t);
+    for &(ea, w, lh) in &[(2e4, 7.7e-3, 50.0), (1.0, 1.0, 1.0), (1e6, 0.5, 300.0)] {
+        for &eps in &[-1e3, -1.0, -1e-3, -1e-9, 0.0, 1e-9, 1e-3, 1.0, 1e3] {
+            let t = cable_chord_tension(ea, w, lh, eps);
+            assert!(t > 0.0 && t.is_finite(), "T({eps}) = {t}");
+            let back = law(ea, w, lh, t);
+            let scale = eps.abs().max(t / ea).max((w * lh).powi(2) / (24.0 * t * t));
+            assert!((back - eps).abs() <= 1e-12 * scale, "ε({t}) = {back} vs {eps}");
+        }
+    }
+    // A root 40 orders of magnitude below the sag scale.
+    let t = cable_chord_tension(1.0, 1.0, 1.0, -1e200);
+    assert!(rel(t, (1.0 / 24.0 / 1e200f64).sqrt()) < 1e-12, "tiny root {t}");
+    // Huge and tiny scales: no under/overflow.
+    assert!(rel(cable_chord_tension(1e200, 1e-200, 1.0, 0.0), (1e200f64 / 24.0).cbrt() * 1e-200f64.cbrt().powi(2)) < 1e-12);
+    assert!(rel(cable_chord_tension(1e200, 1e60, 1.0, 0.0), (1e200f64 / 24.0).cbrt() * 1e60f64.cbrt().powi(2)) < 1e-12);
+    // Extreme scales that overflow intermediate products (Codex review).
+    assert!(rel(cable_chord_tension(24.0, 1e-150, 1.0, 4e206), 24.0 * 4e206) < 1e-12);
+    assert!(rel(cable_chord_tension(1e300, 1e-200, 1.0, -1.0), 1e-200 / 24f64.sqrt()) < 1e-9);
+    assert!(rel(cable_chord_tension(1e-300, 1e200, 1e200, 0.0), 10f64.powf(500.0 / 3.0) / 24f64.cbrt()) < 1e-9);
+    // Weightless: the taut string.
+    assert_eq!(cable_chord_tension(2e4, 0.0, 50.0, 1e-3), 20.0);
+    assert_eq!(cable_chord_tension(2e4, 0.0, 50.0, -1e-3), 0.0);
+    assert!(cable_chord_tension(1.0, 1.0, 1.0, f64::NAN).is_nan());
+    // Beyond the floating-point range: refused, never a plausible zero.
+    assert!(cable_chord_tension(1e308, 1e308, 12.5, -1.0).is_nan());
+    assert!(cable_chord_tension(1e200, 1.0, 1.0, -1e200).is_nan());
+}
+
+/// A cable ending on an inclined roller: the tangent correction and the chord-law
+/// forces are rotated with the support (they used to be added unrotated, so the
+/// iteration could stop away from equilibrium). The roller node is also held by a
+/// soft bar, so the cable law decides the share; closed form by bisection along
+/// the roller's free direction.
+#[test]
+fn cable_on_an_inclined_roller_follows_the_chord_law() {
+    let (l, a, rho, p, theta, a_bar) = (50.0, 1e-4, 7850.0, 10.0, 0.5_f64, 2e-6);
+    let mut input = common::make_input(
+        vec![(1, 0.0, 0.0), (2, l, 0.0), (3, l, -5.0)],
+        vec![(1, 200_000.0, 0.3)],
+        vec![(1, a, 1e-8), (2, a_bar, 1e-12)],
+        vec![(1, "cable", 1, 2, 1, 1, false, false), (2, "truss", 2, 3, 1, 2, false, false)],
+        vec![(1, 1, "pinned"), (2, 2, "inclinedRoller"), (3, 3, "pinned")],
+        vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: p, fz: 0.0, my: 0.0 })],
+    );
+    input.supports.get_mut("2").unwrap().angle = Some(theta);
+    let dens = HashMap::from([("1".to_string(), rho)]);
+    let r = cable::solve_cable_2d(&input, &dens, 100, 1e-12).unwrap();
+    assert!(r.converged);
+    let (tx, tz) = (-theta.cos(), theta.sin()); // the roller's free direction
+    let (ea, kb) = (200e6 * a, 200e6 * a_bar / 5.0);
+    let w = rho / 1000.0 * a * 9.80665;
+    let t_ref = bisect(|t| t / ea - (w * l).powi(2) / (24.0 * t * t) - tx * tx * (p - t) / (kb * tz * tz * l), 1e-6, p);
+    let t = r.cable_forces[0].tension;
+    assert!(rel(t, t_ref) < 1e-4, "T = {t}, closed form {t_ref}");
+    // The node moves along the roller only, and the statics close.
+    let d = r.results.displacements.iter().find(|d| d.node_id == 2).unwrap();
+    assert!((d.ux * theta.sin() + d.uz * theta.cos()).abs() < 1e-12, "normal displacement {d:?}");
+    let rx: f64 = r.results.reactions.iter().map(|x| x.rx).sum();
+    let rz: f64 = r.results.reactions.iter().map(|x| x.rz).sum();
+    assert!((rx + p).abs() < 1e-6 * p && rz.abs() < 1e-6 * p, "ΣR = ({rx}, {rz})");
 }

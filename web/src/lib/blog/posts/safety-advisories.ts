@@ -40,6 +40,7 @@ export const safetyAdvisories: Post = {
           rows: [
             ['SA-2026-013', 'Láminas curvas: momentos flectores informados como cero; tensiones con la deformación térmica libre', 'Alta', 'Corregido en main'],
             ['SA-2026-014', 'Colapso plástico 3D: el factor dependía de la numeración de las barras (hasta 2,4 veces la carga de colapso)', 'Alta', 'Corregido en main'],
+            ['SA-2026-015', 'Cables con peso propio con tracción baja en estructuras hiperestáticas', 'Alta', 'Corrección en revisión'],
             ['SA-2026-011', 'Apoyo 3D cambiado de resorte a empotrado o articulado, calculado como resorte', 'Alta', 'Corregido el 20/10/2026'],
             ['SA-2026-008', 'Espectro de respuesta: corte basal SRSS con CQC; participación sin la masa acoplada a los apoyos', 'Alta', 'Corregido el 21/10/2026'],
             ['SA-2026-007', 'Pandeo 3D sin modos torsionales ni flexotorsionales', 'Alta', 'Corregido el 21/10/2026'],
@@ -62,6 +63,7 @@ export const safetyAdvisories: Post = {
           rows: [
             ['SA-2026-013', 'Ménsula de cuatro láminas curvas de 4 × 1 × 0,2 m, 10 kN en la punta: mx en el elemento del empotramiento', '35,0', '0', 'kN·m/m'],
             ['SA-2026-014', 'Pórtico espacial de 10 barras (frame3d-2) renumerado: factor de colapso plástico', '176,47', '424,3', '—'],
+            ['SA-2026-015', 'Mástil de 20 m arriostrado con un cable de acero de 1 cm², 5 kN en el tope: tracción del cable', '5,18', '4,34', 'kN'],
             ['SA-2026-011', 'Viga de 0, 4 y 8 m, apoyo dibujado como empotrado en 8 m: descenso en ese apoyo', '0', '-14,4', 'mm'],
             ['SA-2026-008', 'Dos modos a ω y 1,1ω: corte basal relativo al valor CQC', '1,00', '0,81', '—'],
             ['SA-2026-007', 'Columna cruciforme de 200×10 mm y 1,5 m: carga crítica', '2993', '5860', 'kN'],
@@ -108,6 +110,17 @@ export const safetyAdvisories: Post = {
         { k: 'h', t: 'SA-2026-016: ejes de la sección en los tramos casi verticales de un arco' },
         { k: 'p', t: 'Los tramos rectos de un arco tomaban los ejes locales por defecto de una barra recta, que para una barra a menos de 2,56° de la vertical toman el eje X global como referencia. En un arco fuera del plano X–Z eso giraba 90° la sección de los tramos casi verticales de los arranques: Iy e Iz quedaban intercambiados ahí. En un semicírculo de 40 tramos en el plano Y–Z el descenso de la clave salía un 15 % bajo. Afecta las vigas curvas del motor y los arcos dibujados con la herramienta de arco de la pestaña Barras (PRO) cuando algún tramo queda casi vertical; los arcos en planta no están afectados. Los arcos guardados antes toman los ejes corregidos al abrir el proyecto.' },
         { k: 'ext', href: `${REPO}/SA-2026-016-curved-member-axes.md`, label: 'SA-2026-016 completo', t: 'El aviso, con el arco de prueba:' },
+        { k: 'h', t: 'SA-2026-015: tracción de cables con peso propio' },
+        { k: 'p', t: 'El análisis de cables usaba el módulo de Ernst, que es la tangente de la ley de la cuerda de un cable que cuelga con su peso, como si fuera una secante desde la cuerda recta. La flecha absorbe longitud de cuerda, así que un cable necesita más tracción que EA·ε para un alargamiento dado, no menos. Donde el equilibrio solo fija la fuerza del cable, la tracción era correcta; donde el cable comparte la carga con otras barras (un mástil arriostrado, un cable que rigidiza un pórtico), el cable quedaba con tracción baja y las barras vecinas con más esfuerzo: en el mástil de prueba, 4,34 kN en lugar de 5,18 kN, y con cargas menores la iteración no convergía. Afecta en la aplicación a los modelos 3D con barras de comportamiento «cable» cuyo material tiene densidad.' },
+        {
+          k: 'ul',
+          items: [
+            'Cómo saber si te afecta: el modelo tiene barras con comportamiento «cable», su material tiene densidad y el cable no es el único camino de la carga.',
+            'Qué hacer: verificá a mano las tracciones de cables y anclajes que gobiernan, o resolvé sin densidad en el material del cable (sin peso la ley era correcta); con la corrección publicada, volvé a resolver.',
+            'Estado: corrección en revisión. El cálculo de cables ahora resuelve por Newton la ley de la cuerda misma.',
+          ],
+        },
+        { k: 'ext', href: `${REPO}/SA-2026-015-cable-tension-chord-law.md`, label: 'SA-2026-015 completo', t: 'El aviso, con el mástil de prueba y la solución cerrada:' },
 
         { k: 'h', t: 'SA-2026-008: corte basal y participación modal en el análisis espectral' },
         { k: 'p', t: 'Con la regla CQC, el corte basal informado se combinaba igual con SRSS. Los cortes basales de los modos en una dirección tienen el mismo signo, así que CQC da más que SRSS: con dos modos cercanos el valor informado quedaba un 19 % bajo. Además, los factores de participación omitían la masa que la matriz de masa consistente acopla a los apoyos, lo que subestimaba la respuesta en modelos con pocas barras por columna.' },
@@ -198,6 +211,7 @@ export const safetyAdvisories: Post = {
           rows: [
             ['SA-2026-013', 'Curved shells: bending moments reported as zero; stresses kept the free thermal strain', 'High', 'Fixed on main'],
             ['SA-2026-014', '3D plastic collapse: the factor depended on the element numbering (up to 2.4 times the collapse load)', 'High', 'Fixed on main'],
+            ['SA-2026-015', 'Cables with self-weight got too little tension in indeterminate structures', 'High', 'Fix in review'],
             ['SA-2026-011', '3D support switched from spring to fixed or pinned, solved as a spring', 'High', 'Fixed 2026-10-20'],
             ['SA-2026-008', 'Response spectrum: base shear SRSS under CQC; participation without support-coupled mass', 'High', 'Fixed 2026-10-21'],
             ['SA-2026-007', '3D buckling without torsional or flexural-torsional modes', 'High', 'Fixed 2026-10-21'],
@@ -220,6 +234,7 @@ export const safetyAdvisories: Post = {
           rows: [
             ['SA-2026-013', 'Cantilever of four curved shells, 4 × 1 × 0.2 m, 10 kN at the tip: mx at the root element', '35.0', '0', 'kN·m/m'],
             ['SA-2026-014', '10-member space frame (frame3d-2), renumbered: plastic collapse factor', '176.47', '424.3', '—'],
+            ['SA-2026-015', '20 m guyed mast, 1 cm² steel guy, 5 kN at the top: guy tension', '5.18', '4.34', 'kN'],
             ['SA-2026-011', 'Beam at 0, 4 and 8 m, support drawn as fixed at 8 m: deflection at that support', '0', '-14.4', 'mm'],
             ['SA-2026-008', 'Two modes at ω and 1.1ω: base shear relative to the CQC value', '1.00', '0.81', '—'],
             ['SA-2026-007', '200×10 mm cruciform column, 1.5 m: critical load', '2993', '5860', 'kN'],
@@ -266,6 +281,17 @@ export const safetyAdvisories: Post = {
         { k: 'h', t: 'SA-2026-016: section axes on the near-vertical segments of an arch' },
         { k: 'p', t: 'The straight segments of an arc took the default local axes of a straight member, which for a member within 2.56° of vertical take global X as their reference. In an arch outside the X–Z plane that turned the section of the near-vertical segments at the springings by 90°: Iy and Iz were swapped there. In a 40-segment semicircle in the Y–Z plane the crown deflection came out 15 % low. It affects engine curved beams and arcs drawn with the arc tool of the Members tab (PRO) when a segment is nearly vertical; plan curves are not affected. Arcs saved before take the corrected axes when the project is opened.' },
         { k: 'ext', href: `${REPO}/SA-2026-016-curved-member-axes.md`, label: 'Full SA-2026-016', t: 'The advisory, with the test arch:' },
+        { k: 'h', t: 'SA-2026-015: tension of cables with self-weight' },
+        { k: 'p', t: 'The cable analysis used Ernst\'s modulus, the tangent of the chord law of a cable hanging under its own weight, as if it were a secant from the straight chord. Sag takes up chord length, so a cable needs more tension than EA·ε for a given stretch, not less. Where equilibrium alone fixes the cable force the tension was right; where the cable shares the load with other members (a guyed mast, a cable bracing a frame) the cable got too little tension and the members next to it too much: in the test mast, 4.34 kN instead of 5.18 kN, and with smaller loads the iteration did not converge. In the app it affects 3D models with members whose behaviour is "cable" and whose material has a density.' },
+        {
+          k: 'ul',
+          items: [
+            'How to tell: the model has members with the "cable" behaviour, their material has a density, and the cable is not the only load path.',
+            'What to do: check the governing cable and anchorage forces by hand, or solve without density on the cable material (without weight the law was right); once the fix is published, re-run.',
+            'Status: fix in review. The cable analysis now solves the chord law itself by Newton iteration.',
+          ],
+        },
+        { k: 'ext', href: `${REPO}/SA-2026-015-cable-tension-chord-law.md`, label: 'Full SA-2026-015', t: 'The advisory, with the test mast and its closed form:' },
 
         { k: 'h', t: 'SA-2026-008: base shear and modal participation in spectral analysis' },
         { k: 'p', t: 'With the CQC rule, the reported base shear was still combined with SRSS. The modal base shears in one direction share a sign, so CQC gives more than SRSS: with two close modes the reported value was 19 % low. The participation factors also omitted the mass that the consistent mass matrix couples to the supports, which underestimated the response in models with few elements per column.' },
@@ -356,6 +382,7 @@ export const safetyAdvisories: Post = {
           rows: [
             ['SA-2026-013', 'Cascas curvas: momentos fletores informados como zero; tensões com a deformação térmica livre', 'Alta', 'Corrigido no main'],
             ['SA-2026-014', 'Colapso plástico 3D: o fator dependia da numeração das barras (até 2,4 vezes a carga de colapso)', 'Alta', 'Corrigido no main'],
+            ['SA-2026-015', 'Cabos com peso próprio com tração baixa em estruturas hiperestáticas', 'Alta', 'Correção em revisão'],
             ['SA-2026-011', 'Apoio 3D trocado de mola para engaste ou rótula, calculado como mola', 'Alta', 'Corrigido em 20/10/2026'],
             ['SA-2026-008', 'Espectro de resposta: cortante basal SRSS com CQC; participação sem a massa acoplada aos apoios', 'Alta', 'Corrigido em 21/10/2026'],
             ['SA-2026-007', 'Flambagem 3D sem modos torcionais nem flexo-torcionais', 'Alta', 'Corrigido em 21/10/2026'],
@@ -378,6 +405,7 @@ export const safetyAdvisories: Post = {
           rows: [
             ['SA-2026-013', 'Balanço de quatro cascas curvas de 4 × 1 × 0,2 m, 10 kN na ponta: mx no elemento do engaste', '35,0', '0', 'kN·m/m'],
             ['SA-2026-014', 'Pórtico espacial de 10 barras (frame3d-2) renumerado: fator de colapso plástico', '176,47', '424,3', '—'],
+            ['SA-2026-015', 'Mastro de 20 m estaiado com cabo de aço de 1 cm², 5 kN no topo: tração do cabo', '5,18', '4,34', 'kN'],
             ['SA-2026-011', 'Viga em 0, 4 e 8 m, apoio desenhado como engaste em 8 m: deslocamento nesse apoio', '0', '-14,4', 'mm'],
             ['SA-2026-008', 'Dois modos em ω e 1,1ω: cortante basal relativo ao valor CQC', '1,00', '0,81', '—'],
             ['SA-2026-007', 'Pilar cruciforme de 200×10 mm e 1,5 m: carga crítica', '2993', '5860', 'kN'],
@@ -424,6 +452,17 @@ export const safetyAdvisories: Post = {
         { k: 'h', t: 'SA-2026-016: eixos da seção nos trechos quase verticais de um arco' },
         { k: 'p', t: 'Os trechos retos de um arco tomavam os eixos locais padrão de uma barra reta, que para uma barra a menos de 2,56° da vertical tomam o eixo X global como referência. Num arco fora do plano X–Z isso girava em 90° a seção dos trechos quase verticais dos arranques: Iy e Iz ficavam trocados ali. Num semicírculo de 40 trechos no plano Y–Z o deslocamento do fecho saía 15 % baixo. Afeta as vigas curvas do motor e os arcos desenhados com a ferramenta de arco da aba Barras (PRO) quando algum trecho fica quase vertical; os arcos em planta não são afetados. Os arcos salvos antes recebem os eixos corrigidos ao abrir o projeto.' },
         { k: 'ext', href: `${REPO}/SA-2026-016-curved-member-axes.md`, label: 'SA-2026-016 completo', t: 'O aviso, com o arco de teste:' },
+        { k: 'h', t: 'SA-2026-015: tração de cabos com peso próprio' },
+        { k: 'p', t: 'A análise de cabos usava o módulo de Ernst, que é a tangente da lei da corda de um cabo pendurado sob o próprio peso, como se fosse uma secante a partir da corda reta. A flecha consome comprimento de corda, então um cabo precisa de mais tração que EA·ε para um dado alongamento, não menos. Onde o equilíbrio sozinho fixa a força do cabo, a tração estava certa; onde o cabo divide a carga com outras barras (um mastro estaiado, um cabo que contraventa um pórtico), o cabo ficava com tração baixa e as barras vizinhas com esforço a mais: no mastro de teste, 4,34 kN em vez de 5,18 kN, e com cargas menores a iteração não convergia. No aplicativo afeta modelos 3D com barras de comportamento «cabo» cujo material tem densidade.' },
+        {
+          k: 'ul',
+          items: [
+            'Como saber se afeta você: o modelo tem barras com comportamento «cabo», o material delas tem densidade e o cabo não é o único caminho da carga.',
+            'O que fazer: confira à mão as trações de cabos e ancoragens que governam, ou resolva sem densidade no material do cabo (sem peso a lei estava certa); com a correção publicada, resolva de novo.',
+            'Estado: correção em revisão. A análise de cabos agora resolve a própria lei da corda por Newton.',
+          ],
+        },
+        { k: 'ext', href: `${REPO}/SA-2026-015-cable-tension-chord-law.md`, label: 'SA-2026-015 completo', t: 'O aviso, com o mastro de teste e a solução fechada:' },
 
         { k: 'h', t: 'SA-2026-008: cortante basal e participação modal na análise espectral' },
         { k: 'p', t: 'Com a regra CQC, o cortante basal informado continuava combinado com SRSS. Os cortantes basais modais numa direção têm o mesmo sinal, então CQC dá mais que SRSS: com dois modos próximos o valor informado ficava 19 % baixo. Além disso, os fatores de participação omitiam a massa que a matriz de massa consistente acopla aos apoios, o que subestimava a resposta em modelos com poucos elementos por pilar.' },
