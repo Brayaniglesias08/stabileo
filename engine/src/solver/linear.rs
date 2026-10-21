@@ -5878,6 +5878,8 @@ pub(crate) fn compute_quad_stresses(
     let loads_ref = loads.unwrap_or(&input.loads);
     let mut thermal_by_elem: std::collections::HashMap<(bool, usize), (f64, f64, f64)> =
         std::collections::HashMap::new();
+    let mut curved_thermal: std::collections::HashMap<usize, (f64, f64, f64)> =
+        std::collections::HashMap::new();
     for load in loads_ref {
         match load {
             // Summed as free strains, (1, Σα·ΔTu, Σα·ΔTg): an insert kept only the last
@@ -5888,6 +5890,13 @@ pub(crate) fn compute_quad_stresses(
                 let alpha = tl.alpha.unwrap_or(1.2e-5);
                 let key = (matches!(load, SolverLoad3D::Quad9Thermal(_)), tl.element_id);
                 let e = thermal_by_elem.entry(key).or_insert((1.0, 0.0, 0.0));
+                e.1 += alpha * tl.dt_uniform;
+                e.2 += alpha * tl.dt_gradient;
+            }
+            // Curved shells (their own id space), summed the same way (SH-6, #410).
+            SolverLoad3D::CurvedShellThermal(tl) => {
+                let alpha = tl.alpha.unwrap_or(1.2e-5);
+                let e = curved_thermal.entry(tl.element_id).or_insert((1.0, 0.0, 0.0));
                 e.1 += alpha * tl.dt_uniform;
                 e.2 += alpha * tl.dt_gradient;
             }
@@ -6017,8 +6026,9 @@ pub(crate) fn compute_quad_stresses(
         let u_elem: Vec<f64> = cs_dofs.iter().map(|&d| u[d]).collect();
         let mut u_arr = [0.0; 24];
         u_arr.copy_from_slice(&u_elem);
-        let s = crate::element::curved_shell::curved_shell_stresses(&coords, &dirs, &u_arr, e, nu, cs.thickness);
-        let nodal_vm = crate::element::curved_shell::curved_shell_nodal_von_mises(&coords, &dirs, &u_arr, e, nu, cs.thickness);
+        let (alpha, dt_uniform, dt_gradient) = curved_thermal.get(&cs.id).copied().unwrap_or((0.0, 0.0, 0.0));
+        let s = crate::element::curved_shell::curved_shell_stresses(&coords, &dirs, &u_arr, e, nu, cs.thickness, alpha, dt_uniform, dt_gradient);
+        let nodal_vm = crate::element::curved_shell::curved_shell_nodal_von_mises(&coords, &dirs, &u_arr, e, nu, cs.thickness, alpha, dt_uniform);
         stresses.push(QuadStress {
             element_id: cs.id,
             sigma_xx: s.sigma_xx,

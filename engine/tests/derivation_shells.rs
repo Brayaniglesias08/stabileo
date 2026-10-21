@@ -6,7 +6,7 @@
 
 use dedaliano_engine::element::curved_shell::{
     compute_element_directors, curved_shell_consistent_mass, curved_shell_pressure_load, curved_shell_stiffness,
-    curved_shell_stiffness_covariant, curved_shell_stiffness_no_ans, curved_shell_stresses,
+    curved_shell_stiffness_covariant, curved_shell_stiffness_no_ans, curved_shell_stresses, curved_shell_nodal_von_mises,
 };
 use dedaliano_engine::element::quad::{
     mitc4_local_stiffness, quad_geometric_stiffness, quad_pressure_load,
@@ -349,9 +349,9 @@ fn sh5_free_thermal_expansion_carries_no_geometric_stiffness() {
 
 // ───────────────────── SH-6: curved-shell moment recovery ─────────────────────
 
-/// SH-6 (OPEN). `curved_shell_stresses` returns mx = my = mxy = 0 whatever the
-/// displacement (only the mid-surface membrane stresses are computed), and the solver
-/// reports those zeros as the element's moments. A flat curved-shell element in pure
+/// SH-6 (FIXED). `curved_shell_stresses` returned mx = my = mxy = 0 whatever the
+/// displacement (only the mid-surface membrane stresses were computed), and the solver
+/// reported those zeros as the element's moments. A flat curved-shell element in pure
 /// bending (θy = κx, w = −κx²/2) must report |mx| = D·κ.
 #[test]
 fn sh6_curved_shell_reports_bending_moments() {
@@ -362,7 +362,7 @@ fn sh6_curved_shell_reports_bending_moments() {
         u[i * 6 + 2] = -0.5 * kappa * x * x;
         u[i * 6 + 4] = kappa * x;
     }
-    let s = curved_shell_stresses(&FLAT_SQUARE, &EZ_DIRS, &u, E, nu, h);
+    let s = curved_shell_stresses(&FLAT_SQUARE, &EZ_DIRS, &u, E, nu, h, 0.0, 0.0, 0.0);
     let d = E * h.powi(3) / (12.0 * (1.0 - nu * nu));
     assert!(s.mx.abs() > 0.5 * d * kappa, "mx = {} for D·κ = {}", s.mx, d * kappa);
     // The flat curved shell reports what the flat MITC4 reports, sign included.
@@ -380,12 +380,118 @@ fn sh6_curved_shell_reports_bending_moments() {
         t[i * 6 + 3] = kappa * x;
         t[i * 6 + 4] = -kappa * y;
     }
-    let st = curved_shell_stresses(&FLAT_SQUARE, &EZ_DIRS, &t, E, nu, h);
+    let st = curved_shell_stresses(&FLAT_SQUARE, &EZ_DIRS, &t, E, nu, h, 0.0, 0.0, 0.0);
     let qt = dedaliano_engine::element::quad::quad_stresses(&FLAT_SQUARE, &t, E, nu, h, 0.0, 0.0, 0.0);
     assert!(qt.mxy.abs() > 0.1 * d * kappa, "the twisting field twists: MITC4 mxy {}", qt.mxy);
     for (name, c, m) in [("mx", st.mx, qt.mx), ("my", st.my, qt.my), ("mxy", st.mxy, qt.mxy)] {
         assert!((c - m).abs() <= 1e-6 * (d * kappa), "twist {name}: curved {c} vs MITC4 {m}");
     }
+}
+
+/// SH-6 (FIXED), thermal part. Stresses and moments come from the mechanical strain
+/// ε − α·(ΔT + ζ·ΔTg/2). A free curved shell under a temperature load (uniform, gradient,
+/// two loads on one element) is stress-free; the recovery kept the free strain and
+/// reported σ = E·α·ΔT/(1−ν) and the matching moment for unrestrained expansion.
+#[test]
+fn sh6_free_heated_curved_shell_is_stress_free() {
+    let (nu, t) = (0.3, 0.2);
+    let scale = E * 1e-5 * 20.0 / (1.0 - nu);
+    let m_scale = scale * t * t / 6.0;
+    // A flat element and a cylindrical patch (R = 3, nodes on the cylinder).
+    let r = 3.0f64;
+    let cyl = |a: f64, y: f64| [r * a.sin(), y, r * (1.0 - a.cos())];
+    let flat = [[0.0, 0.0, 0.0], [2.0, 0.1, 0.0], [2.2, 1.5, 0.0], [-0.1, 1.2, 0.0]];
+    let curved = [cyl(-0.3, 0.0), cyl(0.3, 0.0), cyl(0.3, 1.5), cyl(-0.3, 1.5)];
+    for (name, pts) in [("flat", flat), ("cylindrical", curved)] {
+        for loads in [vec![(20.0, 0.0)], vec![(0.0, 20.0)], vec![(10.0, 5.0), (10.0, 5.0)]] {
+            let mut s = with_nodes(nu, &pts);
+            s.curved_shells.insert("1".into(), SolverCurvedShellElement { id: 1, nodes: [1, 2, 3, 4], material_id: 1, thickness: t, normals: None });
+            fix(&mut s, 1);
+            for &(du, dg) in &loads {
+                s.loads.push(SolverLoad3D::CurvedShellThermal(thermal(1, du, dg)));
+            }
+            let res = solve_3d(&s).unwrap();
+            let q = &res.quad_stresses[0];
+            for v in [q.sigma_xx, q.sigma_yy, q.tau_xy, q.von_mises] {
+                assert!(v.abs() < 1e-6 * scale, "{name} {loads:?}: σ {q:?} (scale {scale})");
+            }
+            for v in [q.mx, q.my, q.mxy] {
+                assert!(v.abs() < 1e-6 * m_scale, "{name} {loads:?}: m {q:?} (scale {m_scale})");
+            }
+            for v in &q.nodal_von_mises {
+                assert!(v.abs() < 1e-6 * scale, "{name} {loads:?}: nodal σvm {v}");
+            }
+        }
+    }
+}
+
+/// SH-6 (FIXED), thermal part. Fully restrained, the element reports the thermal stress
+/// −E·α·ΔT/(1−ν) and the restrained gradient moment, the values the flat MITC4 reports;
+/// and a partly restrained flat mesh of curved shells reports the stresses and moments of
+/// the same mesh of MITC4s.
+#[test]
+fn sh6_restrained_heated_curved_shell_matches_mitc4() {
+    let (nu, h, alpha, du, dg) = (0.3, 0.2, 1e-5, 20.0, 10.0);
+    let u0 = [0.0; 24];
+    let c = curved_shell_stresses(&FLAT_SQUARE, &EZ_DIRS, &u0, E, nu, h, alpha, du, dg);
+    let q = dedaliano_engine::element::quad::quad_stresses(&FLAT_SQUARE, &u0, E, nu, h, alpha, du, dg);
+    let s_th = -E * alpha * du / (1.0 - nu);
+    let m_th = E * h * h * alpha * dg / (12.0 * (1.0 - nu));
+    assert!((c.sigma_xx - s_th).abs() < 1e-9 * s_th.abs() && (c.sigma_yy - s_th).abs() < 1e-9 * s_th.abs(), "{c:?}");
+    assert!(c.tau_xy.abs() < 1e-9 * s_th.abs(), "{c:?}");
+    assert!((c.mx.abs() - m_th).abs() < 1e-9 * m_th && (c.my.abs() - m_th).abs() < 1e-9 * m_th, "{c:?} vs |m| {m_th}");
+    for (name, a, b, sc) in [("σxx", c.sigma_xx, q.sigma_xx, s_th.abs()), ("σyy", c.sigma_yy, q.sigma_yy, s_th.abs()),
+        ("mx", c.mx, q.mx, m_th), ("my", c.my, q.my, m_th), ("mxy", c.mxy, q.mxy, m_th)] {
+        assert!((a - b).abs() < 1e-9 * sc, "restrained {name}: curved {a} vs MITC4 {b}");
+    }
+    let vm = curved_shell_nodal_von_mises(&FLAT_SQUARE, &EZ_DIRS, &u0, E, nu, h, alpha, du);
+    for v in vm {
+        assert!((v - s_th.abs()).abs() < 1e-9 * s_th.abs(), "restrained nodal σvm {v} vs {}", s_th.abs());
+    }
+
+    // A 2×2 flat mesh, one edge clamped and every node on a y-roller, heated: curved shells
+    // vs MITC4. Membrane: ε_yy = 0, σ_xx = 0, so σ_yy = −E·α·ΔT exactly for both.
+    let mut pts = vec![];
+    for j in 0..3 {
+        for i in 0..3 {
+            pts.push([i as f64, 0.75 * j as f64, 0.0]);
+        }
+    }
+    let elems = [[1, 2, 5, 4], [2, 3, 6, 5], [4, 5, 8, 7], [5, 6, 9, 8]];
+    let build = |curved: bool| {
+        let mut s = with_nodes(nu, &pts);
+        for (k, n) in elems.iter().enumerate() {
+            let id = k + 1;
+            if curved {
+                s.curved_shells.insert(id.to_string(), SolverCurvedShellElement { id, nodes: *n, material_id: 1, thickness: h, normals: None });
+                s.loads.push(SolverLoad3D::CurvedShellThermal(thermal(id, du, dg)));
+            } else {
+                s.quads.insert(id.to_string(), SolverQuadElement { id, nodes: *n, material_id: 1, thickness: h });
+                s.loads.push(SolverLoad3D::QuadThermal(thermal(id, du, dg)));
+            }
+        }
+        for n in 1..=9 {
+            fix(&mut s, n);
+            if ![1, 4, 7].contains(&n) {
+                let sup = s.supports.get_mut(&n.to_string()).unwrap();
+                (sup.rx, sup.rz, sup.rrx, sup.rry, sup.rrz) = (false, false, false, false, false);
+            }
+        }
+        solve_3d(&s).unwrap()
+    };
+    let (rc, rq) = (build(true), build(false));
+    let by_id = |r: &AnalysisResults3D, id: usize| r.quad_stresses.iter().find(|q| q.element_id == id).unwrap().clone();
+    for id in 1..=4 {
+        let (a, b) = (by_id(&rc, id), by_id(&rq, id));
+        let s_y = -E * alpha * du;
+        for (name, x, y, sc) in [("σxx", a.sigma_xx, 0.0, s_th.abs()), ("σyy", a.sigma_yy, s_y, s_th.abs()),
+            ("τxy", a.tau_xy, 0.0, s_th.abs()), ("MITC4 σyy", b.sigma_yy, s_y, s_th.abs()),
+            ("mx", a.mx, b.mx, m_th), ("my", a.my, b.my, m_th), ("mxy", a.mxy, b.mxy, m_th)] {
+            assert!((x - y).abs() < 1e-6 * sc, "mesh element {id} {name}: curved {x} vs {y}\n curved {a:?}\n MITC4 {b:?}");
+        }
+    }
+    let my_max = rc.quad_stresses.iter().map(|q| q.my.abs()).fold(0.0, f64::max);
+    assert!(my_max > 0.1 * m_th, "the clamped edge restrains the gradient: max |my| {my_max}");
 }
 
 // ───────────────────── SH-7: curved (non-planar) MITC9 ─────────────────────

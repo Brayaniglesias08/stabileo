@@ -1185,7 +1185,13 @@ pub fn curved_shell_geometric_stiffness(
 
 // ==================== Stress Recovery ====================
 
-/// Compute centroidal stresses for the curved shell element.
+/// Compute centroidal stresses for the curved shell element: mid-surface membrane stresses
+/// and the bending/twisting moments, both from the mechanical strain ε − ε_th, where
+/// ε_th = α·(ΔT + ζ·ΔTg/2) is the free thermal strain of `curved_shell_thermal_load`
+/// (`alpha`, `dt_uniform`, `dt_gradient` as there; pass zeros without a temperature load).
+/// Keeping the free strain reported stresses and moments for unrestrained thermal
+/// expansion (SH-6, #410).
+#[allow(clippy::too_many_arguments)]
 pub fn curved_shell_stresses(
     coords: &[[f64; 3]; 4],
     dirs: &[[f64; 3]; 4],
@@ -1193,6 +1199,9 @@ pub fn curved_shell_stresses(
     e_mod: f64,
     nu: f64,
     h: f64,
+    alpha: f64,
+    dt_uniform: f64,
+    dt_gradient: f64,
 ) -> QuadStressResult {
     let c = e_mod / (1.0 - nu * nu);
     let d_mat = [
@@ -1222,7 +1231,10 @@ pub fn curved_shell_stresses(
         }
     }
 
-    // Membrane stresses
+    // Membrane stresses, from the mechanical strain (the gradient has no mid-surface part)
+    let eps_th0 = alpha * dt_uniform;
+    strain[0] -= eps_th0;
+    strain[1] -= eps_th0;
     let sigma_xx = d_mat[0][0] * strain[0] + d_mat[0][1] * strain[1];
     let sigma_yy = d_mat[1][0] * strain[0] + d_mat[1][1] * strain[1];
     let tau_xy = d_mat[2][2] * strain[2];
@@ -1248,6 +1260,9 @@ pub fn curved_shell_stresses(
                 *e += bz[k][col] * u[col];
             }
         }
+        let eps_th = alpha * (dt_uniform + zeta * dt_gradient / 2.0);
+        ez[0] -= eps_th;
+        ez[1] -= eps_th;
         let (sx, sy, txy) = (d_mat[0][0] * ez[0] + d_mat[0][1] * ez[1], d_mat[1][0] * ez[0] + d_mat[1][1] * ez[1], d_mat[2][2] * ez[2]);
         let z = zeta * h / 2.0;
         let w = h / 2.0; // Gauss weight 1 times dz/dζ
@@ -1328,7 +1343,8 @@ pub fn curved_shell_stress_samples(
     out
 }
 
-/// Compute nodal von Mises stresses (at 4 Gauss points, extrapolated to nodes).
+/// Compute nodal von Mises stresses (at 4 Gauss points, extrapolated to nodes), mid-surface
+/// membrane, from the mechanical strain: the free α·ΔT (`dt_uniform`) is subtracted.
 pub fn curved_shell_nodal_von_mises(
     coords: &[[f64; 3]; 4],
     dirs: &[[f64; 3]; 4],
@@ -1336,6 +1352,8 @@ pub fn curved_shell_nodal_von_mises(
     e_mod: f64,
     nu: f64,
     h: f64,
+    alpha: f64,
+    dt_uniform: f64,
 ) -> Vec<f64> {
     let c = e_mod / (1.0 - nu * nu);
     let d_mat = [
@@ -1364,6 +1382,8 @@ pub fn curved_shell_nodal_von_mises(
                 strain[s] += b[s][col] * u[col];
             }
         }
+        strain[0] -= alpha * dt_uniform;
+        strain[1] -= alpha * dt_uniform;
 
         let sxx = d_mat[0][0] * strain[0] + d_mat[0][1] * strain[1];
         let syy = d_mat[1][0] * strain[0] + d_mat[1][1] * strain[1];
