@@ -168,34 +168,45 @@ pub fn ernst_tangent_modulus(e: f64, a: f64, w: f64, l_h: f64, tension: f64) -> 
 /// exactly one positive root for any ε, and dT/dε is Ernst's modulus times A
 /// (`ernst_equivalent_modulus`), the stiffness a Newton iteration on this law must use.
 pub fn cable_chord_tension(ea: f64, w: f64, l_h: f64, strain: f64) -> f64 {
-    let d = ea * (w * l_h).powi(2) / 24.0;
-    if !(d > 0.0) {
-        return (ea * strain).max(0.0);
+    if !strain.is_finite() {
+        return f64::NAN; // never a plausible tension from an invalid strain
     }
     let b = ea * strain;
-    // g(T) = T²(T − b) − d: g(0) = −d < 0, increasing wherever it is positive.
-    let g = |t: f64| t * t * (t - b) - d;
-    let (mut lo, mut hi) = (0.0_f64, b.max(0.0) + d.cbrt());
-    while g(hi) <= 0.0 {
-        hi *= 2.0;
+    // Scale T = s·τ with s³ = EA·(w·l_h)²/24, formed without squaring (no under/overflow):
+    // τ³ − β·τ² − 1 = 0, β = EA·ε/s.
+    let s = (ea / 24.0).cbrt() * (w * l_h).abs().cbrt().powi(2);
+    if !(s > 0.0) || !s.is_finite() {
+        return b.max(0.0);
     }
-    // Newton from the upper end (g is convex there, so it stays above the root), bisection
-    // whenever a step leaves the bracket.
+    let beta = b / s;
+    if !beta.is_finite() {
+        // The sag term is negligible against the stretch (or the chord is shortened by orders of
+        // magnitude more than the sag can take up): the taut string, or a vanishing tension.
+        return if beta > 0.0 { b } else { 0.0 };
+    }
+    // Bracket: β ≥ 0: τ ∈ [β, β + min(1, 1/β²)]; β < 0: τ ∈ [1/√(1−β), min(1, 1/√(−β))].
+    let (mut lo, mut hi) = if beta >= 0.0 {
+        (beta, beta + 1.0_f64.min(1.0 / (beta * beta)))
+    } else {
+        (1.0 / (1.0 - beta).sqrt(), 1.0_f64.min(1.0 / (-beta).sqrt()))
+    };
+    let g = |t: f64| t * t * (t - beta) - 1.0;
+    // Newton from the upper end, bisection whenever a step leaves the bracket.
     let mut t = hi;
     for _ in 0..200 {
         let gt = g(t);
         if gt > 0.0 { hi = t } else { lo = t }
-        let dg = 3.0 * t * t - 2.0 * b * t;
+        let dg = 3.0 * t * t - 2.0 * beta * t;
         let mut next = if dg > 0.0 { t - gt / dg } else { f64::NAN };
         if !(next > lo && next < hi) {
             next = 0.5 * (lo + hi);
         }
-        if (next - t).abs() <= 1e-15 * t.abs().max(f64::MIN_POSITIVE) {
-            return next;
+        if (next - t).abs() <= 4.0 * f64::EPSILON * t || hi - lo <= 4.0 * f64::EPSILON * hi {
+            return s * next;
         }
         t = next;
     }
-    t
+    s * t
 }
 
 /// 2D cable global stiffness matrix (4×4) using Ernst equivalent modulus.

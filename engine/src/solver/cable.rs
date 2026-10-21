@@ -532,6 +532,8 @@ fn solve_cable_2d_inner(
         }
 
         let mut max_tension_change = 0.0_f64;
+        let mut tension_scale = 0.0_f64;
+        let mut reactivated = false;
 
         for ci in &cables {
             let u_xi = dof_num.global_dof(ci.node_i_id, 0).map(|d| u_geom[d]).unwrap_or(0.0);
@@ -552,16 +554,25 @@ fn solve_cable_2d_inner(
             // no assembled stiffness; positive strain gives it tension again, which forces
             // another pass with its stiffness restored before a result can converge.
             let tension = element::cable_chord_tension(ci.ea, ci.w, horizontal_projection_2d(ci), strain);
-            cable_eps_lin.insert(ci.elem_id, (ci.cos_a * (u_xj - u_xi) + ci.sin_a * (u_yj - u_yi)) / ci.l0);
-
-            let change = (tension - old_tension).abs();
-            let ref_val = old_tension.abs().max(tension.abs()).max(1.0);
-            max_tension_change = max_tension_change.max(change / ref_val);
+            let eps_lin = (ci.cos_a * (u_xj - u_xi) + ci.sin_a * (u_yj - u_yi)) / ci.l0;
+            let old_eps_lin = cable_eps_lin.insert(ci.elem_id, eps_lin).unwrap_or(0.0);
+            // The force the solved system gave the cable (its linearised law at the new strain):
+            // at a solution it is the chord-law tension of the new chord.
+            let t_sys = old_tension + factor * ci.ea * (eps_lin - old_eps_lin);
+            let change = (tension - old_tension).abs().max((tension - t_sys).abs());
+            max_tension_change = max_tension_change.max(change);
+            tension_scale = tension_scale.max(old_tension.abs()).max(tension.abs());
+            // A slack cable that takes tension again has to be solved with its stiffness back.
+            if factor == 0.0 && tension > 0.0 {
+                reactivated = true;
+            }
 
             cable_tensions.insert(ci.elem_id, tension);
         }
 
-        if max_tension_change < tolerance && iter > 0 {
+        // Relative to the largest cable tension of the model, so a model of small forces is held
+        // to the same tolerance as one of large forces.
+        if !reactivated && max_tension_change <= tolerance * tension_scale && iter > 0 {
             converged = true;
             break;
         }
@@ -626,12 +637,14 @@ fn solve_cable_2d_inner(
     // Compute constraint forces if constraints are active. Uses u_f/f_global
     // (pre-reversal, rotated-frame convention) — u_full has already been
     // reversed above for reporting, so it can no longer be sliced here.
+    // The base K gives each cable EA·ε_lin; its force is T: K·u − (f − r_cable) on the free DOFs.
+    let f_constraint: Vec<f64> = (0..nf).map(|i| f_global[i] - r_cable[i]).collect();
     let constraint_forces = if let Some(ref fcs) = cs {
         let raw = if let Some(ref s) = sparse_stiff {
-            fcs.compute_constraint_forces_sparse(&s.k_ff, &u_f, &f_global[..nf])
+            fcs.compute_constraint_forces_sparse(&s.k_ff, &u_f, &f_constraint)
         } else {
             let k_ff = extract_submatrix(&dense_asm.as_ref().unwrap().k, n, &free_idx, &free_idx);
-            fcs.compute_constraint_forces(&k_ff, &u_f, &f_global[..nf])
+            fcs.compute_constraint_forces(&k_ff, &u_f, &f_constraint)
         };
         fcs.constraint_forces(&raw, &dof_num)
     } else {
@@ -973,6 +986,8 @@ fn solve_cable_3d_inner(
         }
 
         let mut max_tension_change = 0.0_f64;
+        let mut tension_scale = 0.0_f64;
+        let mut reactivated = false;
 
         for ci in &cables {
             let u_i: Vec<f64> = (0..3).map(|d| {
@@ -996,16 +1011,25 @@ fn solve_cable_3d_inner(
             // no assembled stiffness; positive strain gives it tension again, which forces
             // another pass with its stiffness restored before a result can converge.
             let tension = element::cable_chord_tension(ci.ea, ci.w, horizontal_projection_3d(ci), strain);
-            cable_eps_lin.insert(ci.elem_id, (0..3).map(|d| ci.dir[d] * (u_j[d] - u_i[d])).sum::<f64>() / ci.l0);
-
-            let change = (tension - old_tension).abs();
-            let ref_val = old_tension.abs().max(tension.abs()).max(1.0);
-            max_tension_change = max_tension_change.max(change / ref_val);
+            let eps_lin = (0..3).map(|d| ci.dir[d] * (u_j[d] - u_i[d])).sum::<f64>() / ci.l0;
+            let old_eps_lin = cable_eps_lin.insert(ci.elem_id, eps_lin).unwrap_or(0.0);
+            // The force the solved system gave the cable (its linearised law at the new strain):
+            // at a solution it is the chord-law tension of the new chord.
+            let t_sys = old_tension + factor * ci.ea * (eps_lin - old_eps_lin);
+            let change = (tension - old_tension).abs().max((tension - t_sys).abs());
+            max_tension_change = max_tension_change.max(change);
+            tension_scale = tension_scale.max(old_tension.abs()).max(tension.abs());
+            // A slack cable that takes tension again has to be solved with its stiffness back.
+            if factor == 0.0 && tension > 0.0 {
+                reactivated = true;
+            }
 
             cable_tensions.insert(ci.elem_id, tension);
         }
 
-        if max_tension_change < tolerance && iter > 0 {
+        // Relative to the largest cable tension of the model, so a model of small forces is held
+        // to the same tolerance as one of large forces.
+        if !reactivated && max_tension_change <= tolerance * tension_scale && iter > 0 {
             converged = true;
             break;
         }
@@ -1067,12 +1091,14 @@ fn solve_cable_3d_inner(
 
     // Compute constraint forces if constraints are active. Uses u_f/f_global
     // (pre-reversal, rotated-frame convention) — see 2D solve_cable for why.
+    // The base K gives each cable EA·ε_lin; its force is T: K·u − (f − r_cable) on the free DOFs.
+    let f_constraint: Vec<f64> = (0..nf).map(|i| f_global[i] - r_cable[i]).collect();
     let constraint_forces = if let Some(ref fcs) = cs {
         let raw = if let Some(ref s) = sparse_asm {
-            fcs.compute_constraint_forces_sparse(&s.k_ff, &u_f, &f_global[..nf])
+            fcs.compute_constraint_forces_sparse(&s.k_ff, &u_f, &f_constraint)
         } else {
             let k_ff = extract_submatrix(&dense_asm.as_ref().unwrap().k, n, &free_idx, &free_idx);
-            fcs.compute_constraint_forces(&k_ff, &u_f, &f_global[..nf])
+            fcs.compute_constraint_forces(&k_ff, &u_f, &f_constraint)
         };
         fcs.constraint_forces(&raw, &dof_num)
     } else {

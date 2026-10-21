@@ -70,6 +70,18 @@ Two consequences to know:
   tension T₀ with T₀³ = EA·(w·l_h)²/24 even with no load (that is the tension at which a cable
   exactly as long as its chord sags), and a cable with weight whose chord shortens keeps a small
   tension instead of going exactly slack. There is no pretension or unstressed-length input yet.
+  For light cables T₀ is a few kN (a 20 m guy of 1 cm²: 2.7 kN, the tension of a guy erected taut
+  with a sag of about 1/140 of its span); for heavy members modelled as cables it is large, and it
+  is a self-stress the rest of the structure carries. Example: a tripod of three cables with the
+  area of an IPN 300 (6.9 cm²) hanging a hub, plus a vertical tie from the hub to the ground that the
+  load compresses: before the fix the tie went slack; now the three legs hang at T₀ ≈ 85 kN and pull
+  the hub up, and the tie carries 74 kN with the ground support taking that as uplift
+  (`web/src/lib/engine/__tests__/cable-behaviour.test.ts`). Model heavy members as trusses, not
+  cables, until an unstressed-length input exists.
+- Convergence: the app's "the cables did not converge" note came from the old fixed-point
+  iteration oscillating; Newton on the chord law converges where it used to oscillate (the column
+  with a head tie in the same test file), and convergence now also requires the solved system's
+  cable forces to match the chord law and a reactivated slack cable to be solved with its stiffness.
 - Cables without density: the solved system now balances the tension of the deformed chord, as
   reported, instead of its small-displacement value; the difference is second order (rotation
   squared over strain).
@@ -77,6 +89,7 @@ Two consequences to know:
 Tests: `derivation_special_elements.rs` — `cable_tension_follows_the_elastic_catenary_chord_law`,
 `cable_tension_follows_the_chord_law_in_3d`, `guyed_mast_cable_tension_matches_the_chord_law`,
 `weightless_cable_and_spring_share_by_stiffness`, `unloaded_heavy_cable_hangs_at_the_chord_law_tension`,
+`cable_chord_tension_is_robust`,
 `ernst_tangent_modulus_is_the_chord_law_derivative`; the statics tests in `cable_statics.rs` still
 pass (determinate tensions unchanged).
 

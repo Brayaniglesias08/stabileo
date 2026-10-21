@@ -928,3 +928,32 @@ fn guyed_mast_cable_tension_matches_the_chord_law() {
         assert!((rx - p).abs() < 1e-8 * p, "ΣRx = {rx}");
     }
 }
+
+/// `cable_chord_tension` solves the chord law over the whole range of strains,
+/// including roots many orders of magnitude below the sag scale, without
+/// under- or overflow, and refuses an invalid strain rather than returning a
+/// plausible tension.
+#[test]
+fn cable_chord_tension_is_robust() {
+    use dedaliano_engine::element::cable_chord_tension;
+    let law = |ea: f64, w: f64, lh: f64, t: f64| t / ea - (w * lh).powi(2) / (24.0 * t * t);
+    for &(ea, w, lh) in &[(2e4, 7.7e-3, 50.0), (1.0, 1.0, 1.0), (1e6, 0.5, 300.0)] {
+        for &eps in &[-1e3, -1.0, -1e-3, -1e-9, 0.0, 1e-9, 1e-3, 1.0, 1e3] {
+            let t = cable_chord_tension(ea, w, lh, eps);
+            assert!(t > 0.0 && t.is_finite(), "T({eps}) = {t}");
+            let back = law(ea, w, lh, t);
+            let scale = eps.abs().max(t / ea).max((w * lh).powi(2) / (24.0 * t * t));
+            assert!((back - eps).abs() <= 1e-12 * scale, "ε({t}) = {back} vs {eps}");
+        }
+    }
+    // A root 40 orders of magnitude below the sag scale.
+    let t = cable_chord_tension(1.0, 1.0, 1.0, -1e200);
+    assert!(rel(t, (1.0 / 24.0 / 1e200f64).sqrt()) < 1e-12, "tiny root {t}");
+    // Huge and tiny scales: no under/overflow.
+    assert!(rel(cable_chord_tension(1e200, 1e-200, 1.0, 0.0), (1e200f64 / 24.0).cbrt() * 1e-200f64.cbrt().powi(2)) < 1e-12);
+    assert!(rel(cable_chord_tension(1e200, 1e60, 1.0, 0.0), (1e200f64 / 24.0).cbrt() * 1e60f64.cbrt().powi(2)) < 1e-12);
+    // Weightless: the taut string.
+    assert_eq!(cable_chord_tension(2e4, 0.0, 50.0, 1e-3), 20.0);
+    assert_eq!(cable_chord_tension(2e4, 0.0, 50.0, -1e-3), 0.0);
+    assert!(cable_chord_tension(1.0, 1.0, 1.0, f64::NAN).is_nan());
+}
