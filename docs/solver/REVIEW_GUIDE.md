@@ -98,8 +98,8 @@ warning:
   - Winkler member forces omit the foundation reaction.
   - Some settlements are dropped without a message.
 - **AC-12, AC-13, AC-16:** the p-y, t-z and q-z soil curves depart from the cited references.
-- **SH-6, SH-7, SH-9:**
-  - Curved-shell bending moments are reported as zero.
+- **SH-6 (fixed), SH-7, SH-9:**
+  - Curved-shell bending moments were reported as zero (fixed, SA-2026-013).
   - MITC9 on curved geometry does not reproduce rigid-body motion exactly.
   - The solid shell has Poisson thickness locking.
 - **SP-12, SP-14, SP-15:**

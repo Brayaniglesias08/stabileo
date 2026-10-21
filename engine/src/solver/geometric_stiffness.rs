@@ -1012,15 +1012,14 @@ pub fn add_curved_shell_geometric_stiffness_3d(
         let mut u_arr = [0.0; 24];
         u_arr.copy_from_slice(&u_elem);
 
-        let s = crate::element::curved_shell::curved_shell_stresses(&coords, &dirs, &u_arr, e, nu, cs.thickness);
-        // Mechanical membrane strain at the mid-surface (SH-5): the free thermal strain
-        // α·ΔT_uniform is isotropic in the tangent plane, so it removes
+        // Mechanical membrane strain at the mid-surface (SH-5): `curved_shell_stresses`
+        // subtracts the free thermal strain α·ΔT_uniform (SH-6), which removes
         // E·α·ΔT/(1−ν) from σ11 and σ22 and nothing from σ12. The gradient has no
         // mid-surface part.
-        let (_, eps_th, _) = shell_thermal(input, ShellFamily::Curved, cs.id);
-        let s_th = e / (1.0 - nu) * eps_th;
-        let nxx = (s.sigma_xx - s_th) * cs.thickness;
-        let nyy = (s.sigma_yy - s_th) * cs.thickness;
+        let (alpha, eps_u, eps_g) = shell_thermal(input, ShellFamily::Curved, cs.id);
+        let s = crate::element::curved_shell::curved_shell_stresses(&coords, &dirs, &u_arr, e, nu, cs.thickness, alpha, eps_u, eps_g);
+        let nxx = s.sigma_xx * cs.thickness;
+        let nyy = s.sigma_yy * cs.thickness;
         let nxy = s.tau_xy * cs.thickness;
 
         let kg_elem = crate::element::curved_shell::curved_shell_geometric_stiffness(&coords, &dirs, cs.thickness, nxx, nyy, nxy);

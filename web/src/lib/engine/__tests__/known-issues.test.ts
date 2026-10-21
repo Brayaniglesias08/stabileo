@@ -5,15 +5,15 @@ import { setLocale } from '../../i18n';
 afterEach(() => setLocale('en'));
 
 describe('known-issue warnings in the reader’s language', () => {
-  const d = { code: 'known_issue', phase: 'SH-6', value: 410, message: 'engine English (known issue #410, SH-6; being fixed)' };
+  const d = { code: 'known_issue', phase: 'SH-7', value: 411, message: 'engine English (known issue #411, SH-7; being fixed)' };
 
   it('shows the app’s sentence for the id, with the issue number', () => {
     setLocale('es');
     const es = knownIssueMessage(d);
-    expect(es).toMatch(/láminas curvas/);
-    expect(es).toMatch(/#410/);
+    expect(es).toMatch(/geometría no plana/);
+    expect(es).toMatch(/#411/);
     setLocale('en');
-    expect(knownIssueMessage(d)).toMatch(/Curved shells/);
+    expect(knownIssueMessage(d)).toMatch(/non-planar geometry/);
   });
 
   it('keeps the engine’s text for an id the app does not know, and leaves other codes alone', () => {
@@ -22,7 +22,7 @@ describe('known-issue warnings in the reader’s language', () => {
   });
 
   it('has a sentence for every finding the engine contains, in es, en and pt', () => {
-    for (const id of ['NL-5', 'SP-12', 'FR-4', 'SH-6', 'SH-7', 'SP-15', 'AC-12', 'AC-13', 'AC-16', 'PC-3D']) {
+    for (const id of ['NL-5', 'SP-12', 'FR-4', 'SH-7', 'SP-15', 'AC-12', 'AC-13', 'AC-16', 'PC-3D']) {
       for (const loc of ['es', 'en', 'pt'] as const) {
         setLocale(loc);
         expect(knownIssueMessage({ code: 'known_issue', phase: id, message: 'ENGINE' }), `${id} ${loc}`).not.toBe('ENGINE');

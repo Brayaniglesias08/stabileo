@@ -138,7 +138,12 @@ fn thermal_map(loads: &[SolverLoad3D]) -> ThermalMap {
             SolverLoad3D::CurvedShellThermal(tl) => (Family::CurvedShell, tl),
             _ => continue,
         };
-        m.insert((fam, tl.element_id), (tl.alpha.unwrap_or(1.2e-5), tl.dt_uniform, tl.dt_gradient));
+        // Summed as free strains, (1, Σα·ΔTu, Σα·ΔTg), as the load vector sums them (SH-11):
+        // an insert kept only the last thermal load on an element.
+        let a = tl.alpha.unwrap_or(1.2e-5);
+        let e = m.entry((fam, tl.element_id)).or_insert((1.0, 0.0, 0.0));
+        e.1 += a * tl.dt_uniform;
+        e.2 += a * tl.dt_gradient;
     }
     m
 }

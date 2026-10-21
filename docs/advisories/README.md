@@ -23,6 +23,7 @@ released.
 | [SA-2026-010](SA-2026-010-spectral-certificate-nonfinite.md) | Spectral certificate passed on non-finite results | Medium | [#335](https://github.com/lambdaclass/stabileo/issues/335) | #398 | `main`, deployed 2026-10-19 (next release) | Draft |
 | [SA-2026-011](SA-2026-011-springs-on-fixed-supports.md) | 3D support switched from spring to fixed or pinned was solved as elastic | High | [#488](https://github.com/lambdaclass/stabileo/issues/488) | #491 | `main`, deployed 2026-10-20 (next release) | Draft |
 | [SA-2026-012](SA-2026-012-material-nonlinear-member-forces.md) | Material-nonlinear solver (engine/WASM only) reported elastic member forces after yield (up to 100×) | Medium | [#427](https://github.com/lambdaclass/stabileo/issues/427) | #510 | `main` (next release) | Draft |
+| [SA-2026-013](SA-2026-013-curved-shell-moments-and-thermal.md) | Curved shells reported zero bending moments; their stresses kept the free thermal strain, and the app's curved-quad temperatures were dropped | High | [#410](https://github.com/lambdaclass/stabileo/issues/410) | #522 | `main` (next release) | Draft |
 
 Other open `safety` issues (the derivation-review findings #406–#433, #338, #439) get an advisory
 or a recorded "no advisory needed" when they are triaged; the list is on the

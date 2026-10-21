@@ -116,7 +116,7 @@ export interface ModelData {
   materials: Map<number, Material>;
   sections: Map<number, Section>;
   plates?: Map<number, { id: number; nodes: [number, number, number]; materialId: number; thickness: number }>;
-  quads?: Map<number, { id: number; nodes: [number, number, number, number]; materialId: number; thickness: number }>;
+  quads?: Map<number, { id: number; nodes: [number, number, number, number]; materialId: number; thickness: number; curved?: boolean }>;
   constraints?: Constraint3D[];
   connectors?: Map<number, import('./types-3d').ConnectorElement>;
   /** The project's analysis rules (`analysis-settings.ts`). Absent: the older ones. */
@@ -1582,7 +1582,8 @@ export function buildSolverLoads3D(
     } else if (l.type === 'thermalQuad3d') {
       const tq = l.data as ThermalLoadQuad3D;
       const quad = tq.on === 'plate' ? model.plates?.get(tq.quadId) : model.quads?.get(tq.quadId);
-      solverLoads.push(...convertThermalQuadLoad(tq, thermalAlphaOf(quad ? model.materials.get(quad.materialId) : undefined)));
+      const curved = tq.on !== 'plate' && !!model.quads?.get(tq.quadId)?.curved;
+      solverLoads.push(...convertThermalQuadLoad(tq, thermalAlphaOf(quad ? model.materials.get(quad.materialId) : undefined), curved));
     }
   }
 

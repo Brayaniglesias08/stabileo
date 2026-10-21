@@ -38,6 +38,7 @@ export const safetyAdvisories: Post = {
           caption: 'Avisos publicados. Severidad: crítica cuando la capacidad o la demanda podían quedar muy del lado inseguro sin señal visible.',
           head: ['Aviso', 'Qué', 'Severidad', 'Estado'],
           rows: [
+            ['SA-2026-013', 'Láminas curvas: momentos flectores informados como cero; tensiones con la deformación térmica libre', 'Alta', 'Corregido en main'],
             ['SA-2026-011', 'Apoyo 3D cambiado de resorte a empotrado o articulado, calculado como resorte', 'Alta', 'Corregido el 20/10/2026'],
             ['SA-2026-008', 'Espectro de respuesta: corte basal SRSS con CQC; participación sin la masa acoplada a los apoyos', 'Alta', 'Corregido el 21/10/2026'],
             ['SA-2026-007', 'Pandeo 3D sin modos torsionales ni flexotorsionales', 'Alta', 'Corregido el 21/10/2026'],
@@ -57,6 +58,7 @@ export const safetyAdvisories: Post = {
           caption: 'Casos documentados en cada aviso: el valor correcto y el que informaba Stabileo.',
           head: ['Aviso', 'Caso', 'Correcto', 'Informado', 'Unidad'],
           rows: [
+            ['SA-2026-013', 'Ménsula de cuatro láminas curvas de 4 × 1 × 0,2 m, 10 kN en la punta: mx en el elemento del empotramiento', '35,0', '0', 'kN·m/m'],
             ['SA-2026-011', 'Viga de 0, 4 y 8 m, apoyo dibujado como empotrado en 8 m: descenso en ese apoyo', '0', '-14,4', 'mm'],
             ['SA-2026-008', 'Dos modos a ω y 1,1ω: corte basal relativo al valor CQC', '1,00', '0,81', '—'],
             ['SA-2026-007', 'Columna cruciforme de 200×10 mm y 1,5 m: carga crítica', '2993', '5860', 'kN'],
@@ -78,6 +80,18 @@ export const safetyAdvisories: Post = {
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'SA-2026-011 completo', t: 'El aviso con la reproducción y el modelo de prueba:' },
+
+        { k: 'h', t: 'SA-2026-013: momentos y tensiones térmicas de las láminas curvas' },
+        { k: 'p', t: 'Las láminas curvas (los cuadriláteros marcados como curvos) informaban mx = my = mxy = 0 cualquiera fuera la flexión, y bajo una carga de temperatura sus tensiones conservaban la deformación térmica libre: una lámina libre de dilatarse informaba E·α·ΔT/(1−ν) y una restringida, nada. Además, la aplicación enviaba la temperatura de un cuadrilátero curvo como la de uno plano, y el motor la descartaba: la lámina se calculaba sin calentar. Lo leían las curvas de nivel de láminas (también en las figuras exportadas), la tabla de resultados y el informe PDF de Pro, y el diseño de losas si un paño era un cuadrilátero curvo; las tablas del libro de resultados y el CSV ya dejaban esos momentos en blanco.' },
+        {
+          k: 'ul',
+          items: [
+            'Cómo saber si te afecta: el modelo tiene cuadriláteros curvos y usaste sus momentos (curvas de nivel, tabla o informe de Pro, diseño de losas), o tiene una carga de temperatura sobre un cuadrilátero curvo.',
+            'Qué hacer: volvé a resolver esos modelos y repetí el diseño o la verificación que leyó sus momentos o sus tensiones bajo temperatura. Mientras tanto, modelá la superficie con cuadriláteros planos (MITC4).',
+            'Estado: corregido en main; se publica en stabileo.com con su despliegue.',
+          ],
+        },
+        { k: 'ext', href: `${REPO}/SA-2026-013-curved-shell-moments-and-thermal.md`, label: 'SA-2026-013 completo', t: 'El aviso, con la ménsula de prueba y los casos térmicos:' },
 
         { k: 'h', t: 'SA-2026-012: esfuerzos de barra en el análisis no lineal de material' },
         { k: 'p', t: 'Después de que una barra fluía, el solver equilibraba las cargas con la rigidez reducida pero informaba los esfuerzos calculados con la rigidez elástica. Desplazamientos y reacciones eran correctos; los esfuerzos de barra y la utilización no: en una ménsula, el momento informado era 100 veces el real. Este solver sólo se usa desde el motor o su API WASM: ninguna pantalla de la aplicación lo llama, así que los resultados obtenidos en stabileo.com no están afectados.' },
@@ -170,6 +184,7 @@ export const safetyAdvisories: Post = {
           caption: 'Published advisories. Severity: critical when capacity or demand could be far on the unsafe side with no visible sign.',
           head: ['Advisory', 'What', 'Severity', 'Status'],
           rows: [
+            ['SA-2026-013', 'Curved shells: bending moments reported as zero; stresses kept the free thermal strain', 'High', 'Fixed on main'],
             ['SA-2026-011', '3D support switched from spring to fixed or pinned, solved as a spring', 'High', 'Fixed 2026-10-20'],
             ['SA-2026-008', 'Response spectrum: base shear SRSS under CQC; participation without support-coupled mass', 'High', 'Fixed 2026-10-21'],
             ['SA-2026-007', '3D buckling without torsional or flexural-torsional modes', 'High', 'Fixed 2026-10-21'],
@@ -189,6 +204,7 @@ export const safetyAdvisories: Post = {
           caption: 'Cases documented in each advisory: the correct value and the one Stabileo reported.',
           head: ['Advisory', 'Case', 'Correct', 'Reported', 'Unit'],
           rows: [
+            ['SA-2026-013', 'Cantilever of four curved shells, 4 × 1 × 0.2 m, 10 kN at the tip: mx at the root element', '35.0', '0', 'kN·m/m'],
             ['SA-2026-011', 'Beam at 0, 4 and 8 m, support drawn as fixed at 8 m: deflection at that support', '0', '-14.4', 'mm'],
             ['SA-2026-008', 'Two modes at ω and 1.1ω: base shear relative to the CQC value', '1.00', '0.81', '—'],
             ['SA-2026-007', '200×10 mm cruciform column, 1.5 m: critical load', '2993', '5860', 'kN'],
@@ -210,6 +226,18 @@ export const safetyAdvisories: Post = {
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'Full SA-2026-011', t: 'The advisory with the reproduction and the test model:' },
+
+        { k: 'h', t: 'SA-2026-013: curved-shell moments and thermal stresses' },
+        { k: 'p', t: 'Curved shells (quads marked as curved) reported mx = my = mxy = 0 whatever the bending, and under a temperature load their stresses kept the free thermal strain: a shell free to expand reported E·α·ΔT/(1−ν), and a restrained one nothing. The app also sent a curved quad’s temperature as a flat quad’s, which the engine dropped: the shell was analysed unheated. These results were read by the shell contour plots (also in exported figures), the Pro results table and PDF report, and the slab design when a panel was a curved quad; the results workbook and CSV already left those moments blank.' },
+        {
+          k: 'ul',
+          items: [
+            'How to tell if it affects you: the model has curved quads and you used their moments (contours, the Pro table or report, slab design), or it has a temperature load on a curved quad.',
+            'What to do: re-run those models and repeat any design or check that read their moments or their stresses under temperature. Until then, model the surface with flat quads (MITC4).',
+            'Status: fixed on main; it reaches stabileo.com with its deployment.',
+          ],
+        },
+        { k: 'ext', href: `${REPO}/SA-2026-013-curved-shell-moments-and-thermal.md`, label: 'Full SA-2026-013', t: 'The advisory, with the test cantilever and the thermal cases:' },
 
         { k: 'h', t: 'SA-2026-012: member forces in material-nonlinear analysis' },
         { k: 'p', t: 'After a member yielded, the solver balanced the loads with the reduced stiffness but reported forces computed with the elastic stiffness. Displacements and reactions were right; member forces and utilization were not: in a cantilever the reported moment was 100 times the real one. This solver is only reachable from the engine or its WASM API: no screen in the app calls it, so results obtained on stabileo.com are not affected.' },
@@ -302,6 +330,7 @@ export const safetyAdvisories: Post = {
           caption: 'Avisos publicados. Severidade: crítica quando a capacidade ou a solicitação podiam ficar muito contra a segurança sem sinal visível.',
           head: ['Aviso', 'O quê', 'Severidade', 'Situação'],
           rows: [
+            ['SA-2026-013', 'Cascas curvas: momentos fletores informados como zero; tensões com a deformação térmica livre', 'Alta', 'Corrigido no main'],
             ['SA-2026-011', 'Apoio 3D trocado de mola para engaste ou rótula, calculado como mola', 'Alta', 'Corrigido em 20/10/2026'],
             ['SA-2026-008', 'Espectro de resposta: cortante basal SRSS com CQC; participação sem a massa acoplada aos apoios', 'Alta', 'Corrigido em 21/10/2026'],
             ['SA-2026-007', 'Flambagem 3D sem modos torcionais nem flexo-torcionais', 'Alta', 'Corrigido em 21/10/2026'],
@@ -321,6 +350,7 @@ export const safetyAdvisories: Post = {
           caption: 'Casos documentados em cada aviso: o valor correto e o que o Stabileo informava.',
           head: ['Aviso', 'Caso', 'Correto', 'Informado', 'Unidade'],
           rows: [
+            ['SA-2026-013', 'Balanço de quatro cascas curvas de 4 × 1 × 0,2 m, 10 kN na ponta: mx no elemento do engaste', '35,0', '0', 'kN·m/m'],
             ['SA-2026-011', 'Viga em 0, 4 e 8 m, apoio desenhado como engaste em 8 m: deslocamento nesse apoio', '0', '-14,4', 'mm'],
             ['SA-2026-008', 'Dois modos em ω e 1,1ω: cortante basal relativo ao valor CQC', '1,00', '0,81', '—'],
             ['SA-2026-007', 'Pilar cruciforme de 200×10 mm e 1,5 m: carga crítica', '2993', '5860', 'kN'],
@@ -342,6 +372,18 @@ export const safetyAdvisories: Post = {
           ],
         },
         { k: 'ext', href: `${REPO}/SA-2026-011-springs-on-fixed-supports.md`, label: 'SA-2026-011 completo', t: 'O aviso com a reprodução e o modelo de teste:' },
+
+        { k: 'h', t: 'SA-2026-013: momentos e tensões térmicas das cascas curvas' },
+        { k: 'p', t: 'As cascas curvas (os quadriláteros marcados como curvos) informavam mx = my = mxy = 0 qualquer que fosse a flexão, e sob uma carga de temperatura suas tensões mantinham a deformação térmica livre: uma casca livre para dilatar informava E·α·ΔT/(1−ν), e uma restringida, nada. Além disso, o aplicativo enviava a temperatura de um quadrilátero curvo como a de um plano, e o motor a descartava: a casca era calculada sem aquecimento. Esses resultados eram lidos pelas curvas de nível de cascas (também nas figuras exportadas), pela tabela de resultados e pelo relatório PDF do Pro, e pelo dimensionamento de lajes quando um painel era um quadrilátero curvo; as tabelas da pasta de resultados e o CSV já deixavam esses momentos em branco.' },
+        {
+          k: 'ul',
+          items: [
+            'Como saber se afeta você: o modelo tem quadriláteros curvos e você usou seus momentos (curvas de nível, tabela ou relatório do Pro, dimensionamento de lajes), ou tem uma carga de temperatura num quadrilátero curvo.',
+            'O que fazer: resolva de novo esses modelos e repita o dimensionamento ou a verificação que leu seus momentos ou suas tensões sob temperatura. Enquanto isso, modele a superfície com quadriláteros planos (MITC4).',
+            'Situação: corrigido no main; chega ao stabileo.com com sua implantação.',
+          ],
+        },
+        { k: 'ext', href: `${REPO}/SA-2026-013-curved-shell-moments-and-thermal.md`, label: 'SA-2026-013 completo', t: 'O aviso, com o balanço de teste e os casos térmicos:' },
 
         { k: 'h', t: 'SA-2026-012: esforços de barra na análise não linear de material' },
         { k: 'p', t: 'Depois que uma barra escoava, o solver equilibrava as cargas com a rigidez reduzida, mas informava os esforços calculados com a rigidez elástica. Deslocamentos e reações estavam corretos; esforços de barra e utilização não: num balanço, o momento informado era 100 vezes o real. Este solver só é usado a partir do motor ou da sua API WASM: nenhuma tela do aplicativo o chama, então os resultados obtidos em stabileo.com não são afetados.' },
