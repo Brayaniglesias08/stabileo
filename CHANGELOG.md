@@ -177,6 +177,20 @@ structures and modal frequencies shift too). Re-run solid-shell models.
   both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
 ### Fixed
 
+#### Cable tension follows the elastic-catenary chord law (2026-10-21, #416, #415)
+
+**BREAKING (results): cables with self-weight in statically indeterminate structures carry more
+tension.** The cable solve used Ernst's modulus (the tangent of the chord law) as a secant from the
+straight chord, ε = T/EA + (w·l_h)²/(12T²) instead of T/EA − (w·l_h)²/(24T²), so a cable that
+shares its load got too little tension (guyed mast: 4.34 kN instead of 5.18 kN) and the iteration
+often oscillated. It now runs Newton on the chord law (`element::cable_chord_tension`), with Ernst's
+modulus as the tangent and the rest of the linearised law as nodal forces, so the converged state
+satisfies the law exactly; reactions balance the reported tensions. With the unstressed length equal
+to the modelled chord, a cable with weight hangs at T₀³ = EA·(w·l_h)²/24 with no load and no longer
+goes exactly slack; a vertical cable has no sag term. `ernst_tangent_modulus` now returns the
+chord-law derivative (it was negative for moderate α). Known issue SP-12 removed. Advisory
+SA-2026-015.
+
 #### Silent errors from the element-derivations review: 2D-in-3D signs, settlements, Winkler, imperfections, constraints (2026-10-18)
 
 **BREAKING (results): a flat 2D model solved by the 3D solver now turns nodal moments and
