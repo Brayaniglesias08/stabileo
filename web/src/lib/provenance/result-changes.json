@@ -66,7 +66,7 @@
       "date": "2026-10-21",
       "prs": [437],
       "area": "analysis",
-      "when": { "allOf": [["members"], ["memberLoads"]] },
+      "when": { "any": ["members"] },
       "title": {
         "en": "Axial force of inclined members includes the load along them",
         "es": "El axil de las barras inclinadas incluye la carga a lo largo de la barra",
