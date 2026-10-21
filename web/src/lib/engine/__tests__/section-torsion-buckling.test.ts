@@ -106,7 +106,7 @@ describe('IPE 300 column, 2 m, fork supports', () => {
     const first = r.modes[0]!;
     expect(rel(first.loadFactor, pe)).toBeLessThan(2e-3);
     expect(twistShare(first as never).rz).toBeLessThan(1e-9);
-    const torsional = r.modes.find((m) => { const s = twistShare(m as never); return s.rz > 0 && s.tr < 1e-6 * s.rz; });
+    const torsional = r.modes.find((m: unknown) => { const s = twistShare(m as never); return s.rz > 0 && s.tr < 1e-6 * s.rz; });
     expect(torsional, 'a pure twist mode among the first six').toBeDefined();
     // Eight cubic elements: from above, within 0.1 %.
     expect(torsional!.loadFactor).toBeGreaterThanOrEqual(pt * (1 - 1e-6));
@@ -150,7 +150,7 @@ describe('UPN 200 column, 2 m: flexural-torsional through the shear centre', () 
     const r = solveBuckling3D(input(), 6);
     // The weak-axis flexural mode is uncoupled and governs this column.
     expect(rel(r.modes[0]!.loadFactor, Math.min(pv, pft))).toBeLessThan(2e-3);
-    const coupled = r.modes.find((m) => twistShare(m as never).rz > 1e-6);
+    const coupled = r.modes.find((m: unknown) => twistShare(m as never).rz > 1e-6);
     expect(coupled).toBeDefined();
     expect(coupled!.loadFactor).toBeGreaterThanOrEqual(pft * (1 - 1e-6));
     expect(rel(coupled!.loadFactor, pft)).toBeLessThan(2e-3);
@@ -172,7 +172,7 @@ describe('Tee column: flexural-torsional with Cw ≈ 0', () => {
     // Symmetric about the vertical axis: the offset z0 couples the twist with v (bending about z).
     const pft = flexuralTorsional(pv, pt, r0sq, z0);
     const r = solveBuckling3D(input(), 6);
-    const coupled = r.modes.find((m) => twistShare(m as never).rz > 1e-6);
+    const coupled = r.modes.find((m: unknown) => twistShare(m as never).rz > 1e-6);
     expect(coupled).toBeDefined();
     expect(rel(coupled!.loadFactor, pft)).toBeLessThan(3e-3);
     expect(r.modes[0]!.loadFactor).toBeLessThanOrEqual(Math.min(pw, pft) * (1 + 3e-3));
