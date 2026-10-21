@@ -7,7 +7,7 @@
       "id": "soil-curves-references",
       "resultsVersion": 1,
       "date": "2026-10-21",
-      "prs": [0],
+      "prs": [526],
       "area": "analysis",
       "when": { "allOf": [["members"], ["analysis:ssi"]] },
       "title": {

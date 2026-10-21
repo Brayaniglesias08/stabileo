@@ -5,7 +5,7 @@
 | Severity | High |
 | Status | Draft (fix in review; untagged, next release) |
 | Issue | [#421](https://github.com/lambdaclass/stabileo/issues/421) (AC-12), [#422](https://github.com/lambdaclass/stabileo/issues/422) (AC-13), [#423](https://github.com/lambdaclass/stabileo/issues/423) (AC-16) in the element-derivation review |
-| Fix | PR to be linked (branch `fix/soil-curves`) |
+| Fix | PR [#526](https://github.com/lambdaclass/stabileo/pull/526) |
 | Affected versions | every version with the SSI solver (added 2026-03-08), up to 0.2.0 and `main` until the fix |
 | Re-check registry | `soil-curves-references`: models with members, the soil-structure interaction analysis counted as run (it is solved in PRO Advanced from springs a file does not save) |
 
@@ -60,7 +60,7 @@ a `py_soft_clay`, `py_sand`, `py_stiff_clay`, `tz` or `qz` curve.
 
 ## Fixed in
 
-The fix PR on `fix/soil-curves`; it will ship in the next tagged release. The curves now need the
+PR #526 (in review); it will ship in the next tagged release. The curves now need the
 inputs their references need and refuse a curve without them rather than assume a value: J for the
 clays (0.25–0.5), `loading` (static or cyclic) for sand, `free_water: false` for stiff clay (the
 submerged stiff-clay curve of Reese, Cox & Koop 1975 is not implemented and is refused), the shaft

@@ -177,7 +177,7 @@ structures and modal frequencies shift too). Re-run solid-shell models.
   both equator points outward with the equator held in z (the reported "4e-4 membrane locking").
 ### Fixed
 
-#### Soil curves follow their references (2026-10-21, #421, #422, #423, SA-2026-017)
+#### Soil curves follow their references (2026-10-21, #421, #422, #423, PR #526, SA-2026-017)
 
 The SSI soil curves departed from the references they cited. Soft clay omitted Matlock's
 J·c·z/D term (p_u 84 instead of 124 kN/m in the test); it is now API RP 2A's tabulation of
