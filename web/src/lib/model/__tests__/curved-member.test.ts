@@ -239,9 +239,23 @@ describe('the section orientation along the arc (#418)', () => {
     });
   }
 
-  it('gives no local y to a member moved out of the arc plane', () => {
+  it('gives no local y to a member moved off the arc', () => {
     const a = arch(90);
     expect(arcMemberLocalY(a, P(0, -5, 0), P(1, -4.9, 0.5))).toBeNull();
+    // In the plane but away from the circle.
+    expect(arcMemberLocalY(a, P(0, 10, 0), P(0, 10, 3))).toBeNull();
+    // Moved out of the plane entirely, still vertical.
+    expect(arcMemberLocalY(a, P(10, 0, 0), P(10, 0, 3))).toBeNull();
+  });
+
+  it('does not migrate an X–Z arch, whose springing axes were only reversed', () => {
+    const a = arch(0);
+    const spec = { start: a.start, through: a.through, end: a.end, segments: 40 };
+    const pts = arcPoints(spec);
+    const nodes = new Map(pts.map((p, i) => [i + 1, p]));
+    const els = new Map(pts.slice(0, -1).map((_, i) => [i + 1, { nodeI: i + 1, nodeJ: i + 2, arc: { spec } } as { nodeI: number; nodeJ: number; arc: { spec: typeof spec; axes?: 1 }; localYx?: number }]));
+    expect(migrateArcLocalAxes(els, nodes)).toBe(0);
+    expect([...els.values()].every((e) => e.localYx === undefined && e.arc.axes === 1)).toBe(true);
   });
 
   it('leaves a plan curve on the axes the default rule gives it', () => {

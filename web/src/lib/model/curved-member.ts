@@ -194,8 +194,12 @@ export function arcMemberLocalY(spec: Pick<ArcSpec, 'start' | 'through' | 'end'>
     a /= l; b /= l;
   }
   const d = sub(nodeJ, nodeI);
-  // A member no longer in the arc's plane (its nodes were moved) is not a segment of this arc.
-  if (!(Math.abs(dot(d, n)) <= 1e-3 * len(d))) return null;
+  // A member whose ends are no longer on the arc (its nodes were moved) is not a segment of it.
+  const offArc = (p: Vec3) => {
+    const r = sub(p, geo.centre);
+    return !(Math.abs(dot(r, n)) <= 1e-3 * geo.radius && Math.abs(len(r) - geo.radius) <= 1e-3 * geo.radius);
+  };
+  if (offArc(nodeI) || offArc(nodeJ)) return null;
   const ex0 = sub(d, mul(n, dot(d, n)));
   const l = len(ex0);
   if (!(l > 1e-12)) return null;
@@ -215,14 +219,19 @@ export function arcMemberLocalY(spec: Pick<ArcSpec, 'start' | 'through' | 'end'>
  * are right. That matters beyond tidiness: a flat model drawn in X–Y is embedded in X–Z for the
  * 3D solve, where automatic axes follow the projection and a stored X–Y reference would not.
  */
-export function arcMemberLocalYOverride(spec: Pick<ArcSpec, 'start' | 'through' | 'end'>, nodeI: Vec3, nodeJ: Vec3): Vec3 | null {
+export function arcMemberLocalYOverride(
+  spec: Pick<ArcSpec, 'start' | 'through' | 'end'>, nodeI: Vec3, nodeJ: Vec3,
+  /** Only where the axes are turned (Iy and Iz swapped), not merely reversed. */
+  onlyTurned = false,
+): Vec3 | null {
   const ly = arcMemberLocalY(spec, nodeI, nodeJ);
   if (!ly) return null;
   try {
     const [ni, nj] = [{ id: 0, ...nodeI }, { id: 1, ...nodeJ }];
     const d = computeLocalAxes3D(ni, nj).ey;
     const a = computeLocalAxes3D(ni, nj, ly).ey;
-    return d[0] * a[0] + d[1] * a[1] + d[2] * a[2] > 1 - 1e-9 ? null : ly;
+    const c = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+    return (onlyTurned ? Math.abs(c) : c) > 1 - 1e-9 ? null : ly;
   } catch {
     return null; // a zero-length member: validation reports it
   }
@@ -240,8 +249,9 @@ interface ArcMember {
  * Read-migration for arcs drawn before #418: their members were left on the default local axes,
  * which turns the near-vertical members of an arch by 90° (Iy and Iz swapped on them). Each
  * member tagged with an arc and with no orientation of its own (no local y, no roll) takes
- * `arcMemberLocalY` — only where that changes its axes, so a plan curve, whose axes the default
- * rule already gives, is left as it is. Runs once per member: every arc member it looks at is
+ * `arcMemberLocalY` — only where its axes are turned (Iy and Iz swapped), so a plan curve, whose
+ * axes the default rule already gives, and a member whose axes are merely reversed are left as
+ * they are; members whose ends are no longer on the arc too. Runs once per member: every arc member it looks at is
  * marked `arc.axes = 1` (as the arc tool marks the members it builds), and marked members are
  * never looked at again, so a member later set back to automatic axes stays so through undo, redo
  * and reopening. Returns how many members changed. Mutates `elements`.
@@ -262,7 +272,10 @@ export function migrateArcLocalAxes(
     if (e.rollAngle !== undefined && e.rollAngle !== 0) continue;
     const pi = pos(e.nodeI), pj = pos(e.nodeJ);
     if (!pi || !pj) continue;
-    const ly = arcMemberLocalYOverride(e.arc.spec, pi, pj);
+    // Only members whose axes are turned: one merely reversed (local y and z both negated, e.g. the
+    // springings of an X–Z arch) has the right stiffness, and flipping it would reverse the local
+    // loads already on it.
+    const ly = arcMemberLocalYOverride(e.arc.spec, pi, pj, true);
     if (!ly) continue;
     e.localYx = ly.x; e.localYy = ly.y; e.localYz = ly.z;
     changed++;
