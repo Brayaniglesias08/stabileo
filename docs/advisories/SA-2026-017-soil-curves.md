@@ -38,11 +38,11 @@ units the solver assumed:
 
 | Case | Quantity | Before | After (reference) |
 |---|---|---|---|
-| Soft clay c = 20 kPa, γ' = 6 kN/m³, D = 1 m, z = 4 m | p_u | 84 kN/m | 124 kN/m |
+| Soft clay c = 20 kPa, γ' = 6 kN/m³, D = 1 m, z = 4 m, J = 0.5 | p_u | 84 kN/m | 124 kN/m |
 | Sand φ = 30°, γ' = 10 kN/m³, D = 1 m, z = 2 m, static | A·p_u | 116.8 kN/m | 181.7 kN/m (A = 1.4) |
 | same, y = 10 mm | p | 111.2 kN/m | 152.1 kN/m |
 | Sand φ = 33° | k | 22 MN/m³ | 17.6 MN/m³ |
-| Stiff clay c = 100 kPa, γ' = 9 kN/m³, D = 1 m, z = 3 m, y just past y50 | p | 327 kN/m (jump) | 238.5 kN/m |
+| Stiff clay c = 100 kPa, γ' = 9 kN/m³, D = 1 m, z = 3 m, J = 0.5, y just past y50 | p | 327 kN/m (jump) | 238.5 kN/m |
 | same, y = 16·y50 | p | 228.9 kN/m | 477 kN/m |
 | t-z t_ult = 50 kPa, D = 0.5 m, 1 m of shaft | ultimate force | 50 "kN" | 78.5 kN |
 | q-z q_ult = 5000 kPa, D = 0.6 m, tributary length 1 m | ultimate tip force | 5000 "kN" | 1413.7 kN |
@@ -66,16 +66,17 @@ clays (0.25–0.5), `loading` (static or cyclic) for sand, `free_water: false` f
 submerged stiff-clay curve of Reese, Cox & Koop 1975 is not implemented and is refused), the shaft
 `perimeter` for t-z and the `tip_area` for q-z. Sand with φ outside 25°–40° (the range of API's k
 table) is refused. The app's SSI panel asks for J and the sand loading. The q-z tip spring is a
-force and is no longer multiplied by a tributary length. Tests: `soil_curves_references.rs` (hand
+force and is no longer multiplied by a tributary length, and it bears only in compression (the node moving in the negative direction of the spring's axis), never in uplift. A spring on a node the model does not have, or along a rotation, is refused (it used to read a zero displacement or load a rotation). Tests: `soil_curves_references.rs` (hand
 values from the references at several depths and displacements, laterally loaded piles on each
 p-y family, a single pile whose shaft and tip forces match t·π·D·L and q·A), and the demonstrations
 `py_soft_clay_ultimate_includes_j_term` and `py_stiff_clay_is_continuous`, no longer ignored.
 
 Documented choices that remain: the soft clay curve is API's piecewise-linear tabulation of
 Matlock's cube root (exact at its points), and the stiff clay curve is Welch & Reese's quarter power
-sampled at the same normalised points, so both have a finite initial stiffness the secant iteration
-can converge on; t-z keeps its simplified √(z/z_ult) shape (not API's t-z table); q-z resists in
-both directions (a tip in uplift should be given no q-z spring).
+sampled at y/y50 = 0.001, 0.003, 0.01, … 3, 8, 16 (at most 3.3 % below it from 0.001 to 16 y50), so
+both have a finite initial stiffness the secant iteration can converge on (with the exact power laws
+the nodes near zero deflection never settle); t-z keeps its simplified √(z/z_ult) shape (not API's
+t-z table).
 
 ## Workaround
 

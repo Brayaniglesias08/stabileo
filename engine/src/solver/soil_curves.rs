@@ -116,7 +116,9 @@ pub enum SoilCurve {
     /// Tip bearing q-z curve (API RP 2A §6.4.3 table: Q/Qp = 0.25, 0.50, 0.75,
     /// 0.90, 1.00 at z/D = 0.002, 0.013, 0.042, 0.073, 0.100, linear between),
     /// times the tip area, so the reaction is a force (kN). A point spring:
-    /// the tributary length does not apply.
+    /// the tributary length does not apply. Compression only: the tip bears
+    /// when the node moves in the negative direction of the spring's axis
+    /// (down, for a vertical pile with the vertical axis up), never in uplift.
     #[serde(rename = "qz")]
     Qz {
         /// Ultimate unit end bearing (kPa)
@@ -342,16 +344,17 @@ pub fn py_sand(phi: f64, gamma_eff: f64, d: f64, depth: f64, loading: SandLoadin
 /// Stiff clay without free water, static loading (Welch & Reese 1972;
 /// Reese & Welch 1975): p = 0.5 p_u (y/y50)^(1/4) up to 16 y50, p_u beyond;
 /// y50 = 2.5 ε50 D, p_u from [`matlock_pu`]. Sampled the way API tabulates
-/// Matlock's curve — exact at y/y50 = 0.1, 0.3, 1, 3, 8, 16, linear between —
-/// so the initial stiffness is finite (the quarter power's is infinite, on
-/// which the SSI secant iteration does not settle). Continuous everywhere.
+/// Matlock's curve — exact at [`WELCH_REESE_ABSCISSAE`], linear between, at
+/// most 3.3 % below the quarter power from 0.001 y50 to 16 y50 — so the
+/// initial stiffness is finite (the quarter power's is infinite, on which the
+/// SSI secant iteration does not settle). Continuous everywhere.
 pub fn py_stiff_clay(su: f64, gamma_eff: f64, d: f64, depth: f64, eps_50: f64, j: f64, y: f64) -> (f64, f64) {
     let pts = WELCH_REESE_ABSCISSAE.map(|r| (r, if r == 0.0 { 0.0 } else { 0.5 * f64::powf(r, 0.25) }));
     normalized_curve(matlock_pu(su, gamma_eff, d, depth, j), 2.5 * eps_50 * d, &pts, y)
 }
 
 /// The y/y50 at which [`py_stiff_clay`] samples Welch & Reese's curve.
-pub const WELCH_REESE_ABSCISSAE: [f64; 7] = [0.0, 0.1, 0.3, 1.0, 3.0, 8.0, 16.0];
+pub const WELCH_REESE_ABSCISSAE: [f64; 11] = [0.0, 0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 8.0, 16.0];
 
 /// Unit shaft friction t-z curve (kPa, kPa/m): t = t_ult √(z/z_ult) for
 /// z ≤ z_ult, t_ult beyond. [`evaluate_soil_curve`] multiplies by the shaft
@@ -371,7 +374,10 @@ pub fn tz_curve(t_ult: f64, z_ult: f64, z: f64) -> (f64, f64) {
 const API_QZ: [(f64, f64); 6] = [(0.0, 0.0), (0.002, 0.25), (0.013, 0.50), (0.042, 0.75), (0.073, 0.90), (0.100, 1.00)];
 
 /// Unit tip bearing q-z curve (kPa, kPa/m) per the API RP 2A table.
-/// [`evaluate_soil_curve`] multiplies by the tip area.
+/// [`evaluate_soil_curve`] multiplies by the tip area. The tip bears only in
+/// compression: when the node moves in the negative direction of the spring's
+/// axis (down, for a vertical pile with the vertical axis up). Moving the other
+/// way it gives no resistance (secant 0), never tension.
 pub fn qz_curve(q_ult: f64, d: f64, z: f64) -> (f64, f64) {
     let ratio = |za: f64| {
         let r = za / d;
@@ -386,6 +392,9 @@ pub fn qz_curve(q_ult: f64, d: f64, z: f64) -> (f64, f64) {
     if z_abs < 1e-15 {
         // The first segment is linear: its slope.
         return (0.0, q_ult * API_QZ[1].1 / (API_QZ[1].0 * d));
+    }
+    if z > 0.0 {
+        return (0.0, 0.0);
     }
     let q = q_ult * ratio(z_abs);
     (q * z.signum(), q / z_abs)

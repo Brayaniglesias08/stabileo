@@ -81,6 +81,21 @@ fn validate_springs(springs: &[SoilSpring]) -> Result<(), String> {
     Ok(())
 }
 
+/// Refuse a spring on a node the model does not have, or along a direction that
+/// is not a translation (2D: 0 = X, 1 = Z; 3D: 0, 1, 2): its displacement would
+/// be read as zero, or a soil force put on a rotation.
+fn check_spring_dofs(springs: &[SoilSpring], dof_num: &DofNumbering, n_trans: usize) -> Result<(), String> {
+    for (i, s) in springs.iter().enumerate() {
+        if s.direction >= n_trans {
+            return Err(format!("Soil spring {i} (node {}): direction {} is not a translation (0 to {})", s.node_id, s.direction, n_trans - 1));
+        }
+        if !dof_num.map.contains_key(&(s.node_id, s.direction)) {
+            return Err(format!("Soil spring {i}: node {} is not in the model", s.node_id));
+        }
+    }
+    Ok(())
+}
+
 /// SSI analysis input (2D).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -154,6 +169,7 @@ fn solve_ssi_2d_inner(input: &SSIInput) -> Result<SSIResult, String> {
     super::feature_gates::refuse_2d(&input.solver, "Soil-structure interaction analysis", &[super::feature_gates::Feature::PrescribedDisplacements])?;
 
     let dof_num = DofNumbering::build_2d(&input.solver);
+    check_spring_dofs(&input.soil_springs, &dof_num, 2)?;
     if dof_num.n_free == 0 {
         return Err("No free DOFs".into());
     }
@@ -220,7 +236,7 @@ fn solve_ssi_2d_inner(input: &SSIInput) -> Result<SSIResult, String> {
     // Initialize secant stiffnesses (use initial tangent from curves)
     let mut spring_k: Vec<f64> = input.soil_springs.iter()
         .map(|s| {
-            let (_, k0) = evaluate_soil_curve(&s.curve, 1e-8)?;
+            let (_, k0) = evaluate_soil_curve(&s.curve, 0.0)?;
             Ok(k0 * s.length_factor())
         })
         .collect::<Result<_, String>>()?;
@@ -398,6 +414,7 @@ fn solve_ssi_3d_inner(input: &SSIInput3D) -> Result<SSIResult3D, String> {
     // Expand curved beams before DOF numbering and assembly.
     let expanded_solver = super::linear::expand_curved_beams_3d(&input.solver);
     let dof_num = DofNumbering::build_3d(&expanded_solver);
+    check_spring_dofs(&input.soil_springs, &dof_num, 3)?;
     if dof_num.n_free == 0 {
         return Err("No free DOFs".into());
     }
@@ -463,7 +480,7 @@ fn solve_ssi_3d_inner(input: &SSIInput3D) -> Result<SSIResult3D, String> {
 
     let mut spring_k: Vec<f64> = input.soil_springs.iter()
         .map(|s| {
-            let (_, k0) = evaluate_soil_curve(&s.curve, 1e-8)?;
+            let (_, k0) = evaluate_soil_curve(&s.curve, 0.0)?;
             Ok(k0 * s.length_factor())
         })
         .collect::<Result<_, String>>()?;

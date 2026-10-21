@@ -81,8 +81,15 @@ fn stiff_clay_is_welch_reese_quarter_power_to_16_y50() {
     // p_u = (300 + 27 + 150)·1 = 477 kN/m (< 9c·D = 900); y50 = 2.5·0.005·1 = 0.0125 m.
     // p = 0.5 p_u (y/y50)^(1/4) at the sampled points.
     let c = stiff(Some(false));
-    for (r, ratio) in [(0.1, 0.281171), (0.3, 0.370041), (1.0, 0.5), (3.0, 0.658037), (8.0, 0.840896), (16.0, 1.0)] {
+    for (r, ratio) in [(0.001, 0.088914), (0.01, 0.158114), (0.1, 0.281171), (0.3, 0.370041), (1.0, 0.5), (3.0, 0.658037), (8.0, 0.840896), (16.0, 1.0)] {
         close(&format!("y = {r} y50"), eval(&c, r * 0.0125), ratio * 477.0, 3e-6);
+    }
+    // Between the sampled points it stays within 3.3 % below the quarter power.
+    for k in 0..=400 {
+        let r = 0.001 * f64::powf(16_000.0, k as f64 / 400.0);
+        let exact = 0.5 * f64::powf(r, 0.25) * 477.0;
+        let got = eval(&c, r * 0.0125);
+        assert!(got <= exact * (1.0 + 1e-12) && got >= 0.967 * exact, "y = {r} y50: {got} vs {exact}");
     }
     // Linear between: 4 y50 is a fifth of the way from 3 to 8 y50.
     close("y = 4 y50", eval(&c, 0.05), (0.658037 + 0.2 * (0.840896 - 0.658037)) * 477.0, 3e-6); // 331.33
@@ -162,9 +169,12 @@ fn qz_follows_api_table_times_tip_area() {
     // q_ult = 5000 kPa, D = 0.6 m, A = π·0.6²/4 = 0.282743 m².
     let area = std::f64::consts::PI * 0.36 / 4.0;
     let c = SoilCurve::Qz { q_ult: 5000.0, d: 0.6, tip_area: Some(area) };
+    // Compression: the tip moves down (negative along the spring's axis).
     for (z_over_d, ratio) in [(0.001, 0.125), (0.002, 0.25), (0.013, 0.50), (0.0275, 0.625), (0.042, 0.75), (0.073, 0.90), (0.1, 1.0), (0.2, 1.0)] {
-        close(&format!("Q at z/D = {z_over_d}"), eval(&c, z_over_d * 0.6), ratio * 5000.0 * area, 1e-9);
+        close(&format!("Q at z/D = {z_over_d}"), -eval(&c, -z_over_d * 0.6), ratio * 5000.0 * area, 1e-9);
     }
+    // Uplift: no tip resistance, never tension.
+    assert_eq!(evaluate_soil_curve(&c, 0.06).unwrap(), (0.0, 0.0));
     assert!(c.is_point_spring());
     let old: SoilCurve = serde_json::from_value(json!({"type": "qz", "q_ult": 5000, "d": 0.6})).unwrap();
     assert!(evaluate_soil_curve(&old, 0.001).unwrap_err().contains("tip area"));
@@ -260,4 +270,18 @@ fn lateral_piles_converge_on_every_py_family() {
         let springs: f64 = r.spring_results.iter().map(|s| s.reaction).sum();
         close(&format!("{name}: ΣH"), springs, 200.0, 1e-4);
     }
+}
+
+/// A spring on a node the model does not have, or along a rotation, is refused:
+/// it used to read a zero displacement, or put a soil force on a rotation.
+#[test]
+fn springs_on_missing_nodes_or_rotations_are_refused() {
+    let tz = SoilCurve::Tz { t_ult: 50.0, z_ult: 0.01, perimeter: Some(1.0) };
+    let run = |node_id: usize, direction: usize| {
+        let solver = pile(4, 4.0, 2.0e5, 0.1, 1e-3, "pinned", SolverNodalLoad { node_id: 1, fx: 1.0, fz: 0.0, my: 0.0 });
+        solve_ssi_2d(&SSIInput { solver, soil_springs: vec![SoilSpring { node_id, direction, curve: tz.clone(), tributary_length: 1.0 }], max_iter: 20, tolerance: 1e-6 })
+    };
+    assert!(run(99, 0).unwrap_err().contains("not in the model"));
+    assert!(run(2, 2).unwrap_err().contains("not a translation"));
+    assert!(run(2, 0).is_ok());
 }
