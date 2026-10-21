@@ -5,15 +5,15 @@ import { setLocale } from '../../i18n';
 afterEach(() => setLocale('en'));
 
 describe('known-issue warnings in the reader’s language', () => {
-  const d = { code: 'known_issue', phase: 'SH-7', value: 411, message: 'engine English (known issue #411, SH-7; being fixed)' };
+  const d = { code: 'known_issue', phase: 'NL-5', value: 428, message: 'engine English (known issue #428, NL-5; being fixed)' };
 
   it('shows the app’s sentence for the id, with the issue number', () => {
     setLocale('es');
     const es = knownIssueMessage(d);
-    expect(es).toMatch(/geometría no plana/);
-    expect(es).toMatch(/#411/);
+    expect(es).toMatch(/no lineales de material/);
+    expect(es).toMatch(/#428/);
     setLocale('en');
-    expect(knownIssueMessage(d)).toMatch(/non-planar geometry/);
+    expect(knownIssueMessage(d)).toMatch(/Material-nonlinear/);
   });
 
   it('keeps the engine’s text for an id the app does not know, and leaves other codes alone', () => {

@@ -73,6 +73,8 @@ it('sends a curved quad\'s temperature to the curved shell, not to a flat quad (
   expect(convertThermalQuadLoad(tq, .000012, true)[0]!.type).toBe('curvedShellThermal');
   expect(convertThermalQuadLoad(tq, .000012, true)[0]!.data).toMatchObject({ elementId: 7, dtUniform: 20, dtGradient: 5, alpha: .000012 });
   expect(convertThermalQuadLoad({ ...tq, on: 'plate' }, undefined, true)[0]!.type).toBe('plateThermal');
+});
+
 it.each([1.5, 0, -1])('factors a member temperature by %s, keeping its α and section depths (#407)', factor => {
   const thermal = { type: 'thermal', data: { elementId: 3, dtUniform: 20, dtGradientY: 4, dtGradientZ: 10, alpha: 23e-6, depthY: 0.15, depthZ: 0.3 } } as unknown as Parameters<typeof scaleSolverLoad>[0];
   const l = scaleSolverLoad(thermal, factor);
