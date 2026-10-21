@@ -371,6 +371,9 @@ fn nl_material_2d_member_forces_balance_the_reactions() {
     close(base.my.abs(), p * l, 1e-6, "base reaction moment = P·L");
     let ef = r.results.element_forces.iter().find(|f| f.element_id == 1).unwrap();
     close(ef.m_start.abs(), p * l, 1e-3, "member 1 start moment vs P·L");
+    // Utilization from the same forces: M/Mp = 1.2 (it read ~120 from K_el·u).
+    let st = r.element_status.iter().find(|s| s.element_id == 1).unwrap();
+    close(st.utilization, 1.2, 1e-3, "member 1 utilization vs P·L/Mp");
 }
 
 /// The same cantilever with a temperature gradient on every member: statically determinate, so

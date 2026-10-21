@@ -343,8 +343,8 @@ fn solve_nonlinear_material_2d_inner(
     let mut element_forces = secant_member_forces_2d(solver, &states, &dof_num, &u_geom);
     element_forces.sort_by_key(|ef| ef.element_id);
 
-    // Build element plastic status.
-    let element_status = build_element_status(solver, input, &dof_num, &u_geom, &states);
+    // Utilization from the same forces (NL-4): from K_el·u it read ~100× high after yield.
+    let element_status = build_element_status(solver, input, &dof_num, &u_geom, &element_forces, &states);
 
     let final_load_factor = last_converged_factor;
 
@@ -765,7 +765,9 @@ fn update_element_states(
     states: &mut Vec<(usize, ElementState)>,
 ) {
     // Compute internal forces using the full elastic stiffness for yield check.
-    // This gives us the "demand" forces on each element.
+    // This gives us the "demand" forces on each element. A yielded member's K_el·u stays above
+    // its capacity, so once yielded it stays yielded: part of the secant model (NL-5, #428); the
+    // reported forces and utilization use the secant forces (NL-4).
     let element_forces = super::linear::compute_internal_forces_2d(solver, dof_num, u);
 
     let elem_by_id: std::collections::HashMap<usize, &SolverElement> =
@@ -868,15 +870,15 @@ fn build_element_status(
     input: &NonlinearMaterialInput,
     dof_num: &DofNumbering,
     u: &[f64],
+    element_forces: &[ElementForces],
     states: &[(usize, ElementState)],
 ) -> Vec<ElementPlasticStatus> {
-    let element_forces = super::linear::compute_internal_forces_2d(solver, dof_num, u);
     let mut statuses = Vec::new();
 
     let elem_by_id: std::collections::HashMap<usize, &SolverElement> =
         solver.elements.values().map(|e| (e.id, e)).collect();
 
-    for ef in &element_forces {
+    for ef in element_forces {
         let elem = match elem_by_id.get(&ef.element_id) {
             Some(e) => *e,
             None => continue,
@@ -1230,7 +1232,7 @@ fn solve_nonlinear_material_3d_inner(
     let mut element_forces = secant_member_forces_3d(solver, &states, &dof_num, &u_geom);
     element_forces.sort_by_key(|ef| ef.element_id);
 
-    let element_status = build_element_status_3d(solver, input, &dof_num, &u_geom, &states);
+    let element_status = build_element_status_3d(solver, input, &dof_num, &u_geom, &element_forces, &states);
 
     // Compute constraint forces if constraints are active
     let constraint_forces = if let Some(ref fcs) = cs {
@@ -1705,15 +1707,15 @@ fn build_element_status_3d(
     input: &NonlinearMaterialInput3D,
     dof_num: &DofNumbering,
     u: &[f64],
+    element_forces: &[ElementForces3D],
     states: &[(usize, ElementState3D)],
 ) -> Vec<ElementPlasticStatus3D> {
-    let element_forces = super::linear::compute_internal_forces_3d(solver, dof_num, u);
     let mut statuses = Vec::new();
 
     let elem_by_id: std::collections::HashMap<usize, &SolverElement3D> =
         solver.elements.values().map(|e| (e.id, e)).collect();
 
-    for ef in &element_forces {
+    for ef in element_forces {
         let elem = match elem_by_id.get(&ef.element_id) {
             Some(e) => *e,
             None => continue,
