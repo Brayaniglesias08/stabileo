@@ -28,7 +28,32 @@ fn hit(id: &str, issue: u32, message: &str) -> StructuredDiagnostic {
 }
 
 const NL_MATERIAL: &str = "Material-nonlinear results are approximate: the model is a whole-member secant rather than plasticity, so the response jumps at first yield (NL-5). Check the collapse load factor with plastic collapse";
-const THERMAL: &str = "Frame and truss temperature loads use α = 12·10⁻⁶ /°C and a depth of √(12·I/A) whatever the material and section; for other materials or real section depths the thermal forces are off in proportion";
+const THERMAL_ALPHA: &str = "These temperature loads state no coefficient of thermal expansion, so α = 12·10⁻⁶ /°C (steel's) was assumed; for another material the thermal forces scale with its real α (concrete about 10·10⁻⁶, aluminium 23·10⁻⁶): give the load its material's `alpha`";
+const THERMAL_DEPTH: &str = "These temperature gradients state no section depth, so the depth of the section's equivalent solid rectangle, √(12·I/A), was assumed; that is exact only for a solid rectangle (an I section or a tube is shallower than that rectangle, so its gradient moment came out too low, by about 30 % for an IPE): give the load the section's real depth";
+
+/// A frame thermal load solved with a default the input did not state (FR-4, #407 fixed the
+/// fixed α and depth: a load now carries them). Not a defect, but a result built on a guess
+/// the reader should see: code `ThermalDefaultAssumed`, the default in `phase`.
+fn assumed(phase: &str, message: &str, elements: Vec<usize>) -> StructuredDiagnostic {
+    let mut d = StructuredDiagnostic::global(DiagnosticCode::ThermalDefaultAssumed, Severity::Warning, message.to_string());
+    d.phase = Some(phase.to_string());
+    d.element_kind = Some(ElementKind::Frame);
+    d.with_elements(elements)
+}
+
+/// The defaults warnings of a set of frame thermal loads, as (element, α stated, depths
+/// missing for a non-zero gradient).
+fn thermal_defaults(loads: impl Iterator<Item = (usize, bool, bool)>) -> Vec<StructuredDiagnostic> {
+    let (mut no_alpha, mut no_depth) = (Vec::new(), Vec::new());
+    for (id, alpha_missing, depth_missing) in loads {
+        if alpha_missing && !no_alpha.contains(&id) { no_alpha.push(id); }
+        if depth_missing && !no_depth.contains(&id) { no_depth.push(id); }
+    }
+    let mut out = Vec::new();
+    if !no_alpha.is_empty() { out.push(assumed("alpha", THERMAL_ALPHA, no_alpha)); }
+    if !no_depth.is_empty() { out.push(assumed("depth", THERMAL_DEPTH, no_depth)); }
+    out
+}
 
 /// The warnings an analysis carries whatever the model (the solver itself is affected).
 pub fn for_analysis(analysis: Analysis) -> Vec<StructuredDiagnostic> {
@@ -38,31 +63,35 @@ pub fn for_analysis(analysis: Analysis) -> Vec<StructuredDiagnostic> {
     }
 }
 
-/// The warnings a 2D load set carries (frame temperature loads).
+/// The warnings a 2D load set carries: frame temperature loads solved with an assumed α or
+/// section depth (a load that states both, or changes no temperature, carries none).
 pub fn loads_2d(loads: &[SolverLoad]) -> Vec<StructuredDiagnostic> {
-    let thermal: Vec<usize> = loads.iter().filter_map(|l| match l { SolverLoad::Thermal(t) => Some(t.element_id), _ => None }).collect();
-    if thermal.is_empty() { vec![] } else { vec![hit("FR-4", 407, THERMAL).with_elements(thermal)] }
+    thermal_defaults(loads.iter().filter_map(|l| match l {
+        SolverLoad::Thermal(t) => Some((
+            t.element_id,
+            t.alpha.is_none() && (t.dt_uniform != 0.0 || t.dt_gradient != 0.0),
+            t.depth.is_none() && t.dt_gradient != 0.0,
+        )),
+        _ => None,
+    }))
 }
 
-/// The warnings a 3D load set carries (frame temperature loads).
+/// The warnings a 3D load set carries: as [`loads_2d`], a depth per gradient.
 pub fn loads_3d(loads: &[SolverLoad3D]) -> Vec<StructuredDiagnostic> {
-    let mut out = Vec::new();
-    let thermal: Vec<usize> = loads.iter().filter_map(|l| match l { SolverLoad3D::Thermal(t) => Some(t.element_id), _ => None }).collect();
-    if !thermal.is_empty() {
-        out.push(hit("FR-4", 407, THERMAL).with_elements(thermal));
-    }
-    out
+    thermal_defaults(loads.iter().filter_map(|l| match l {
+        SolverLoad3D::Thermal(t) => Some((
+            t.element_id,
+            t.alpha.is_none() && (t.dt_uniform != 0.0 || t.dt_gradient_y != 0.0 || t.dt_gradient_z != 0.0),
+            (t.depth_y.is_none() && t.dt_gradient_y != 0.0) || (t.depth_z.is_none() && t.dt_gradient_z != 0.0),
+        )),
+        _ => None,
+    }))
 }
 
-/// The warnings a 3D model carries whatever its loads: warped MITC9.
-/// The warnings a 3D model carries whatever its loads: curved shells, arches.
-/// Read from the model as given, before its curved beams are expanded into members.
-pub fn model_3d(input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
-    let mut out = Vec::new();
-    // One id index for every element check: a lookup per node made the pass O(elements × nodes).
-    let xyz: std::collections::HashMap<usize, [f64; 3]> = crate::ordered::values(&input.nodes).map(|n| (n.id, [n.x, n.y, n.z])).collect();
-    }
-    out
+/// The warnings a 3D model carries whatever its loads. None is open now: curved shells (SH-6),
+/// warped MITC9 (SH-7) and arches (SP-15) are fixed. Kept as the place a model-level finding goes.
+pub fn model_3d(_input: &SolverInput3D) -> Vec<StructuredDiagnostic> {
+    Vec::new()
 }
 
 /// The known-issue warnings that apply to a 2D result of `analysis` on `input`.
@@ -84,7 +113,7 @@ pub fn for_3d(input: &SolverInput3D, analysis: Analysis) -> Vec<StructuredDiagno
 /// (a prepared solve under the solve that called it) does not repeat it.
 pub fn attach(target: &mut Vec<StructuredDiagnostic>, new: Vec<StructuredDiagnostic>) {
     for d in new {
-        let seen = target.iter().any(|t| t.code == DiagnosticCode::KnownIssue && t.phase == d.phase);
+        let seen = target.iter().any(|t| t.code == d.code && t.phase == d.phase);
         if !seen {
             target.push(d);
         }

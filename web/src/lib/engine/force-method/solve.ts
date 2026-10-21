@@ -29,6 +29,7 @@
  */
 import type { SolverInput, SolverLoad } from '../types';
 import { solveDetailed, type DSMStepData } from '../solver-detailed';
+import { loadAlpha, loadDepth } from '../thermal-alpha';
 import {
   countIndeterminacy, candidates, buildPrimary, restrainedComponents, removedBarEnds,
   type Redundant,
@@ -43,8 +44,6 @@ export type { Redundant, IndeterminacyCount } from './primary';
 export type { BarState, StateResult, TermRow, Geometry, ForceMethodResult } from './result-types';
 export { numbered, chooseRedundants, restraintCarries, FM_MAX_GH, fallbackBudget } from './redundants';
 export { solveSystem } from './internal';
-
-const ALPHA = 1.2e-5;
 
 // ─── Small helpers ──────────────────────────────────────────────
 
@@ -331,12 +330,20 @@ export function solveForceMethod(input: SolverInput): ForceMethodResult {
     }
   }
 
+  /* The free thermal strain α·ΔT and curvature α·ΔTg/h of a bar, each load with its own α and
+     depth as the analysis reads them (`thermal-alpha.ts`). */
   const thermalOf = (elementId: number) => {
-    let dtU = 0, dtG = 0;
+    let epsU = 0, kapG = 0;
+    const e = input.elements.get(elementId);
+    const sec = e && input.sections.get(e.sectionId);
     for (const l of input.loads) {
-      if (l.type === 'thermal' && l.data.elementId === elementId) { dtU += l.data.dtUniform; dtG += l.data.dtGradient; }
+      if (l.type === 'thermal' && l.data.elementId === elementId) {
+        const alpha = loadAlpha(l.data);
+        epsU += alpha * l.data.dtUniform;
+        if (l.data.dtGradient && sec) kapG += (alpha * l.data.dtGradient) / loadDepth(l.data.depth, sec.a, sec.iz);
+      }
     }
-    return { dtU, dtG };
+    return { epsU, kapG };
   };
 
   const delta0Terms: TermRow[][] = [];
@@ -345,27 +352,26 @@ export function solveForceMethod(input: SolverInput): ForceMethodResult {
     const rows = mohr(unit[i], none, s0, realLoads);
     /* Temperature: the unit state's forces working through the free thermal strains. */
     for (const bar of bars) {
-      const { dtU, dtG } = thermalOf(bar.e.id);
-      if (!dtU && !dtG) continue;
+      const { epsU, kapG } = thermalOf(bar.e.id);
+      if (!epsU && !kapG) continue;
       const f = unit[i].forces(bar.e.id)!;
       let v = 0;
-      if (dtU) v += (-f[0]) * ALPHA * dtU * bar.L;
-      if (dtG && bar.e.type === 'frame') {
-        const h = Math.sqrt((12 * bar.sec.iz) / bar.sec.a);
+      if (epsU) v += (-f[0]) * epsU * bar.L;
+      if (kapG && bar.e.type === 'frame') {
         /* A hotter top face curves the bar so that, in the diagrams' sign, it
            works against a positive m — hence the minus. Pinned by the test
            that reads δᵢ₀ both ways on a heated fixed-fixed beam. */
-        const kappa = -(ALPHA * dtG) / h;
+        const kappa = -kapG;
         v += integrate([0, bar.L], (x) => internalAt(endAt(f), NO_LOADS, x).m) * kappa;
       }
       rows.push({ elementId: bar.e.id, source: 'thermal', value: v });
     }
     const ri = redundants[i];
     if (ri.kind === 'barForce') {
-      const { dtU } = thermalOf(ri.elementId!);
-      if (dtU) {
+      const { epsU } = thermalOf(ri.elementId!);
+      if (epsU) {
         const e = input.elements.get(ri.elementId!)!;
-        rows.push({ elementId: e.id, source: 'thermal', value: ALPHA * dtU * lenOf(input, e.nodeI, e.nodeJ) });
+        rows.push({ elementId: e.id, source: 'thermal', value: epsU * lenOf(input, e.nodeI, e.nodeJ) });
       }
     }
     /* Settlements of the supports that stayed: −Σ Rₖ⁽ⁱ⁾·Δₖ. */

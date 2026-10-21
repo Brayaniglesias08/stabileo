@@ -222,14 +222,14 @@ fn mixed_loads() -> Vec<Vec<SolverLoad>> {
             SolverLoad::Distributed(SolverDistributedLoad {
                 element_id: 40, q_i: -3.0, q_j: -5.0, a: Some(1.0), b: Some(3.5),
             }),
-            SolverLoad::Thermal(SolverThermalLoad { element_id: 5, dt_uniform: 12.0, dt_gradient: 6.0 }),
+            SolverLoad::Thermal(SolverThermalLoad { element_id: 5, dt_uniform: 12.0, dt_gradient: 6.0, alpha: None, depth: None }),
         ],
         // Point-on-element
         vec![
             SolverLoad::PointOnElement(SolverPointLoadOnElement {
                 element_id: 45, a: 2.5, p: -20.0, px: Some(-3.0), my: Some(1.0),
             }),
-            SolverLoad::Thermal(SolverThermalLoad { element_id: 50, dt_uniform: -8.0, dt_gradient: 0.0 }),
+            SolverLoad::Thermal(SolverThermalLoad { element_id: 50, dt_uniform: -8.0, dt_gradient: 0.0, alpha: None, depth: None }),
         ],
     ]
 }
@@ -269,7 +269,7 @@ fn parity_sparse_2d_long_beam() {
         vec![
             SolverLoad::Nodal(SolverNodalLoad { node_id: 26, fx: 0.0, fz: -40.0, my: 0.0 }),
             SolverLoad::Nodal(SolverNodalLoad { node_id: 76, fx: 0.0, fz: -40.0, my: 0.0 }),
-            SolverLoad::Thermal(SolverThermalLoad { element_id: 40, dt_uniform: 20.0, dt_gradient: 10.0 }),
+            SolverLoad::Thermal(SolverThermalLoad { element_id: 40, dt_uniform: 20.0, dt_gradient: 10.0, alpha: None, depth: None }),
         ],
         vec![
             SolverLoad::PointOnElement(SolverPointLoadOnElement {

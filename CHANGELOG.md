@@ -9,6 +9,18 @@ It should capture what changed, not what should be built next.
 
 ## Unreleased
 
+### Fixed
+
+#### Frame and truss temperature loads take the material's α and the section's depth (#407, FR-4)
+
+Member thermal loads were computed with α = 12·10⁻⁶ /°C and the depth √(12·I/A) of the
+equivalent solid rectangle, whatever the material and section (an IPE's gradient moment 30 %
+low; aluminium's thermal force about half). A `thermal` load now takes `alpha` and the section
+depth (`depth` in 2D, `depthY`/`depthZ` in 3D), and the app sends them instead of scaling the
+load; a load without them is solved with the old defaults and carries a
+`thermal_default_assumed` warning. The end-to-end certificate re-assembles thermal loads with the
+same inputs. Advisory SA-2026-019.
+
 ### Added
 
 #### End-to-end certificates for frames and trusses (2026-10-18)

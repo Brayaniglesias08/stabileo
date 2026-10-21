@@ -90,6 +90,10 @@ export interface SolverThermalLoad {
   elementId: number;
   dtUniform: number;  // °C — uniform temperature change (causes axial expansion)
   dtGradient: number; // °C — temperature difference top-bottom (causes bending)
+  /** The material's α, 1/°C. Absent: the engine's 12·10⁻⁶, with a warning (#407). */
+  alpha?: number;
+  /** The section's real depth the gradient acts across. Absent: √(12·Iz/A), with a warning. */
+  depth?: number;
 }
 
 export type SolverLoad =

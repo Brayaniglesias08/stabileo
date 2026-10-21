@@ -372,6 +372,7 @@ fn piping_thermal_expansion_loop() {
     let loads_straight: Vec<SolverLoad> = (0..n).map(|i| {
         SolverLoad::Thermal(SolverThermalLoad {
             element_id: i + 1, dt_uniform: dt, dt_gradient: 0.0,
+            alpha: None, depth: None,
         })
     }).collect();
 

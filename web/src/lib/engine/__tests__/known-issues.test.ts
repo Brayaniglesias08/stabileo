@@ -21,8 +21,18 @@ describe('known-issue warnings in the reader’s language', () => {
     expect(knownIssueMessage({ code: 'residual_high', message: 'r' })).toBe('r');
   });
 
+  it('says a thermal default was assumed in the reader’s language (#407)', () => {
+    for (const phase of ['alpha', 'depth']) {
+      for (const loc of ['es', 'en', 'pt'] as const) {
+        setLocale(loc);
+        expect(knownIssueMessage({ code: 'thermal_default_assumed', phase, message: 'ENGINE' }), `${phase} ${loc}`).not.toBe('ENGINE');
+      }
+    }
+    expect(knownIssueMessage({ code: 'thermal_default_assumed', phase: 'other', message: 'ENGINE' })).toBe('ENGINE');
+  });
+
   it('has a sentence for every finding the engine contains, in es, en and pt', () => {
-    for (const id of ['NL-5', 'FR-4']) {
+    for (const id of ['NL-5']) {
       for (const loc of ['es', 'en', 'pt'] as const) {
         setLocale(loc);
         expect(knownIssueMessage({ code: 'known_issue', phase: id, message: 'ENGINE' }), `${id} ${loc}`).not.toBe('ENGINE');

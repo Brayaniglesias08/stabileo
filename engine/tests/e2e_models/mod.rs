@@ -149,6 +149,8 @@ pub fn stable_2d(seed: u64) -> SolverInput {
             })),
             _ => loads.push(SolverLoad::Thermal(SolverThermalLoad {
                 element_id, dt_uniform: rng.gen_range(-30.0..30.0), dt_gradient: rng.gen_range(-15.0..15.0),
+                // Some members state α and depth (#407), without drawing from the RNG.
+                alpha: if element_id % 2 == 0 { Some(23e-6) } else { None }, depth: if element_id % 3 == 0 { Some(0.3) } else { None },
             })),
         }
     }
@@ -357,6 +359,8 @@ pub fn stable_3d(seed: u64) -> SolverInput3D {
             _ => loads.push(SolverLoad3D::Thermal(SolverThermalLoad3D {
                 element_id, dt_uniform: rng.gen_range(-30.0..30.0),
                 dt_gradient_y: rng.gen_range(-10.0..10.0), dt_gradient_z: rng.gen_range(-10.0..10.0),
+                alpha: if element_id % 2 == 0 { Some(23e-6) } else { None },
+                depth_y: if element_id % 3 == 0 { Some(0.15) } else { None }, depth_z: if element_id % 3 != 1 { Some(0.3) } else { None },
             })),
         }
     }

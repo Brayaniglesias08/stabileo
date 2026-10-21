@@ -4302,6 +4302,9 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
         if !finite {
             return Err("Load contains non-finite (NaN/Inf) values".to_string());
         }
+        if let SolverLoad::Thermal(l) = load {
+            crate::types::check_frame_thermal_inputs(l.element_id, l.alpha, &[("depth", l.depth)])?;
+        }
     }
 
     let node_ids: std::collections::HashSet<usize> =
@@ -4416,6 +4419,13 @@ pub(crate) fn validate_input_2d(input: &SolverInput) -> Result<(), String> {
 /// point-load positions). Split from `validate_input_2d` so multi-case solves
 /// can validate each case's loads independently of the structure.
 pub(crate) fn validate_loads_2d(input: &SolverInput, loads: &[SolverLoad]) -> Result<(), String> {
+    // A load set solved on a prepared model (load cases, WASM load sessions) skips the model
+    // validation, so the thermal properties are checked here too (#407).
+    for load in loads {
+        if let SolverLoad::Thermal(l) = load {
+            crate::types::check_frame_thermal_inputs(l.element_id, l.alpha, &[("depth", l.depth)])?;
+        }
+    }
     let node_ids: std::collections::HashSet<usize> =
         crate::ordered::values(&input.nodes).map(|n| n.id).collect();
     let elem_ids: std::collections::HashSet<usize> =
@@ -4645,6 +4655,9 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
         };
         if !finite {
             return Err("Load contains non-finite (NaN/Inf) values".to_string());
+        }
+        if let SolverLoad3D::Thermal(l) = load {
+            crate::types::check_frame_thermal_inputs(l.element_id, l.alpha, &[("depthY", l.depth_y), ("depthZ", l.depth_z)])?;
         }
     }
     for e in crate::ordered::values(&input.elements) {
@@ -4889,6 +4902,12 @@ pub(crate) fn validate_input_3d(input: &SolverInput3D) -> Result<(), String> {
 /// point-load positions). Split from `validate_input_3d` so multi-case solves
 /// can validate each case's loads independently of the structure.
 pub(crate) fn validate_loads_3d(input: &SolverInput3D, loads: &[SolverLoad3D]) -> Result<(), String> {
+    // As `validate_loads_2d`: prepared solves check the thermal properties here (#407).
+    for load in loads {
+        if let SolverLoad3D::Thermal(l) = load {
+            crate::types::check_frame_thermal_inputs(l.element_id, l.alpha, &[("depthY", l.depth_y), ("depthZ", l.depth_z)])?;
+        }
+    }
     let node_ids: std::collections::HashSet<usize> =
         crate::ordered::values(&input.nodes).map(|n| n.id).collect();
     let elem_ids: std::collections::HashSet<usize> =
@@ -5173,8 +5192,7 @@ pub fn compute_internal_forces_2d_with_loads(
             for load in loads_by_elem.get(&elem.id).unwrap_or(&empty_loads) {
                 match load {
                     SolverLoad::Thermal(tl) if tl.element_id == elem.id => {
-                        let alpha = 12e-6;
-                        n_axial -= e * sec.a * alpha * tl.dt_uniform;
+                        n_axial -= e * sec.a * tl.alpha() * tl.dt_uniform;
                     }
                     // An axial point load, and an axial span load: their consistent end loads
                     // (f = K*u - FEF) make N vary along the bar, n_start = EAδ/L + f_i and
@@ -5288,8 +5306,8 @@ pub fn compute_internal_forces_2d_with_loads(
                         });
                     }
                     SolverLoad::Thermal(tl) if tl.element_id == elem.id => {
-                        let alpha = 12e-6;
-                        let h = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
+                        let alpha = tl.alpha();
+                        let h = tl.depth(sec.a, sec.iz);
                         let mut fef = crate::element::fef_thermal_2d(
                             e, sec.a, sec.iz, l,
                             tl.dt_uniform, tl.dt_gradient, alpha, h,
@@ -5408,8 +5426,7 @@ pub fn compute_internal_forces_3d_with_loads(
             for load in loads_by_elem.get(&elem.id).unwrap_or(&empty_loads) {
                 if let SolverLoad3D::Thermal(tl) = load {
                     if tl.element_id == elem.id {
-                        let alpha = 12e-6;
-                        n_axial -= e * sec.a * alpha * tl.dt_uniform;
+                        n_axial -= e * sec.a * tl.alpha() * tl.dt_uniform;
                     }
                 }
             }
@@ -5592,9 +5609,9 @@ pub fn compute_internal_forces_3d_with_loads(
                     pt_loads_z.push(PointLoadInfo3D { a: pl.a, p: pl.pz });
                 }
                 SolverLoad3D::Thermal(tl) if tl.element_id == elem.id => {
-                    let alpha = 12e-6;
-                    let hy = if sec.a > 1e-15 { (12.0 * sec.iz / sec.a).sqrt() } else { 0.1 };
-                    let hz = if sec.a > 1e-15 { (12.0 * sec.iy / sec.a).sqrt() } else { 0.1 };
+                    let alpha = tl.alpha();
+                    let hy = tl.depth_y(sec.a, sec.iz);
+                    let hz = tl.depth_z(sec.a, sec.iy);
                     let mut fef12 = element::fef_thermal_3d(
                         e, sec.a, sec.iy, sec.iz, l,
                         tl.dt_uniform, tl.dt_gradient_y, tl.dt_gradient_z,

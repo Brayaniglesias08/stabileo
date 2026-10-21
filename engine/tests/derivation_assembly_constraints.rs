@@ -263,9 +263,9 @@ fn moment_on_all_hinged_node_is_refused() {
 
 // ─── Load assembly (section 5) ─────────────────────────────────────────────
 
-/// AC-8 (DOCUMENTED-CHOICE): frame and truss thermal loads use α = 12e-6 /°C
-/// whatever the material; the web scales ΔT to the material's α before the
-/// call. A fixed–fixed member under ΔT carries N = −E·A·α·ΔT.
+/// AC-8 / FR-4 (FIXED, #407): a frame or truss thermal load takes its
+/// material's α (`alpha`); without one it keeps α = 12e-6 /°C and says so
+/// (`ThermalDefaultAssumed`). A fixed–fixed member under ΔT carries N = −E·A·α·ΔT.
 #[test]
 fn thermal_load_uses_fixed_alpha() {
     let input = in2(json!({
@@ -279,6 +279,14 @@ fn thermal_load_uses_fixed_alpha() {
     let r = solve_2d(&input).unwrap();
     let rx2 = r.reactions.iter().find(|x| x.node_id == 2).unwrap().rx;
     close("end reaction", rx2.abs(), E * 0.01 * 12e-6 * 20.0, 1e-9);
+    assert!(r.structured_diagnostics.iter().any(|d| d.code == DiagnosticCode::ThermalDefaultAssumed));
+    let mut stated = input.clone();
+    if let SolverLoad::Thermal(t) = &mut stated.loads[0] {
+        t.alpha = Some(23e-6);
+    }
+    let r = solve_2d(&stated).unwrap();
+    let rx2 = r.reactions.iter().find(|x| x.node_id == 2).unwrap().rx;
+    close("end reaction, aluminium", rx2.abs(), E * 0.01 * 23e-6 * 20.0, 1e-9);
 }
 
 // ─── Constraints (section 6) ───────────────────────────────────────────────

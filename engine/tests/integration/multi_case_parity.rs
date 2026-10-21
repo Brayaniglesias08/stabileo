@@ -539,9 +539,11 @@ fn parity_2d_dense_multi_case() {
                 loads: vec![
                     SolverLoad::Thermal(SolverThermalLoad {
                         element_id: 1, dt_uniform: 15.0, dt_gradient: 8.0,
+                        alpha: None, depth: None,
                     }),
                     SolverLoad::Thermal(SolverThermalLoad {
                         element_id: 3, dt_uniform: -10.0, dt_gradient: 0.0,
+                        alpha: None, depth: None,
                     }),
                 ],
             },
@@ -606,9 +608,11 @@ fn parity_2d_sparse_multi_case() {
                 loads: vec![
                     SolverLoad::Thermal(SolverThermalLoad {
                         element_id: 5, dt_uniform: 20.0, dt_gradient: 12.0,
+                        alpha: None, depth: None,
                     }),
                     SolverLoad::Thermal(SolverThermalLoad {
                         element_id: 25, dt_uniform: 0.0, dt_gradient: -15.0,
+                        alpha: None, depth: None,
                     }),
                 ],
             },
@@ -677,6 +681,7 @@ fn parity_3d_dense_multi_case() {
                 loads: vec![
                     SolverLoad3D::Thermal(SolverThermalLoad3D {
                         element_id: 1, dt_uniform: 12.0, dt_gradient_y: 6.0, dt_gradient_z: 0.0,
+                        alpha: None, depth_y: None, depth_z: None,
                     }),
                     SolverLoad3D::QuadThermal(SolverPlateThermalLoad {
                         element_id: 1, dt_uniform: 10.0, dt_gradient: 5.0, alpha: None,
@@ -750,6 +755,7 @@ fn parity_3d_sparse_multi_case() {
                 loads: vec![
                     SolverLoad3D::Thermal(SolverThermalLoad3D {
                         element_id: 2, dt_uniform: 18.0, dt_gradient_y: 4.0, dt_gradient_z: -3.0,
+                        alpha: None, depth_y: None, depth_z: None,
                     }),
                     SolverLoad3D::QuadThermal(SolverPlateThermalLoad {
                         element_id: 1006, dt_uniform: 15.0, dt_gradient: 6.0, alpha: None,

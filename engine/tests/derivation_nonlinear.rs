@@ -385,7 +385,7 @@ fn nl_material_2d_member_forces_keep_the_assembled_thermal_loads() {
     let (l, p) = (4.0, 1.2 * MP / 4.0);
     let mut loads = vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 5, fx: 0.0, fz: -p, my: 0.0 })];
     for e in 1..=4 {
-        loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: e, dt_uniform: 0.0, dt_gradient: 40.0 }));
+        loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: e, dt_uniform: 0.0, dt_gradient: 40.0, alpha: None, depth: None }));
     }
     let solver = make_beam(4, l, E, A_SEC, IZ_SEC, "fixed", None, loads);
     let r = dedaliano_engine::solver::material_nonlinear::solve_nonlinear_material_2d(&material_nl_2d(solver, 10)).unwrap();

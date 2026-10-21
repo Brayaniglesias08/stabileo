@@ -18,6 +18,11 @@ fn ids(d: &[StructuredDiagnostic]) -> Vec<String> {
     d.iter().filter(|x| x.code == DiagnosticCode::KnownIssue).map(|x| x.phase.clone().unwrap_or_default()).collect()
 }
 
+/// The thermal defaults a result was solved with (#407 fixed FR-4: a load states α and depth).
+fn assumed(d: &[StructuredDiagnostic]) -> Vec<String> {
+    d.iter().filter(|x| x.code == DiagnosticCode::ThermalDefaultAssumed).map(|x| x.phase.clone().unwrap_or_default()).collect()
+}
+
 fn tip(fz: f64) -> Vec<SolverLoad> {
     vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 5, fx: 0.0, fz, my: 0.0 })]
 }
@@ -29,15 +34,18 @@ fn a_plain_frame_carries_no_known_issue() {
 }
 
 #[test]
-fn a_frame_temperature_load_is_flagged_on_its_members() {
+fn a_frame_temperature_load_is_no_known_issue_but_an_unstated_alpha_is_named() {
     let mut loads = tip(-10.0);
-    loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 2, dt_uniform: 20.0, dt_gradient: 0.0 }));
+    loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 2, dt_uniform: 20.0, dt_gradient: 0.0, alpha: None, depth: None }));
     let r = solve_2d(&make_beam(4, 4.0, E, 0.045, 3.375e-4, "fixed", None, loads)).unwrap();
-    let d = r.structured_diagnostics.iter().find(|x| x.phase.as_deref() == Some("FR-4")).expect("FR-4");
-    assert_eq!(d.severity, Severity::Warning);
-    assert_eq!(d.value, Some(407.0));
-    assert_eq!(d.element_ids, vec![2]);
-    assert!(d.message.contains("#407"));
+    assert!(!ids(&r.structured_diagnostics).contains(&"FR-4".to_string()), "FR-4 is fixed (#407)");
+    let d = r.structured_diagnostics.iter().find(|x| x.code == DiagnosticCode::ThermalDefaultAssumed).expect("alpha assumed");
+    assert_eq!((d.severity, d.phase.as_deref(), d.element_ids.clone()), (Severity::Warning, Some("alpha"), vec![2]));
+    // Stated: nothing assumed.
+    let mut loads = tip(-10.0);
+    loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 2, dt_uniform: 20.0, dt_gradient: 5.0, alpha: Some(1e-5), depth: Some(0.3) }));
+    let r = solve_2d(&make_beam(4, 4.0, E, 0.045, 3.375e-4, "fixed", None, loads)).unwrap();
+    assert!(assumed(&r.structured_diagnostics).is_empty());
 }
 
 #[test]
@@ -103,17 +111,17 @@ fn a_load_case_solve_carries_the_warnings_of_its_load_set() {
     // Load-case analyses and WASM load sessions solve through the prepared path.
     let input = make_beam(4, 4.0, E, 0.045, 3.375e-4, "fixed", None, vec![]);
     let prepared = prepare_static_2d(&input).unwrap();
-    let thermal = vec![SolverLoad::Thermal(SolverThermalLoad { element_id: 3, dt_uniform: 10.0, dt_gradient: 0.0 })];
+    let thermal = vec![SolverLoad::Thermal(SolverThermalLoad { element_id: 3, dt_uniform: 10.0, dt_gradient: 0.0, alpha: None, depth: None })];
     let r = prepared.solve_loads(&thermal).unwrap();
-    assert!(ids(&r.structured_diagnostics).contains(&"FR-4".to_string()));
+    assert!(assumed(&r.structured_diagnostics).contains(&"alpha".to_string()));
     let r = prepared.solve_loads(&tip(-1.0)).unwrap();
-    assert!(ids(&r.structured_diagnostics).is_empty(), "a mechanical load set carries none");
+    assert!(ids(&r.structured_diagnostics).is_empty() && assumed(&r.structured_diagnostics).is_empty(), "a mechanical load set carries none");
 }
 
 #[test]
 fn ssi_results_carry_structural_warnings_once() {
     let mut loads = tip(-10.0);
-    loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 10.0, dt_gradient: 0.0 }));
+    loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 10.0, dt_gradient: 0.0, alpha: None, depth: None }));
     let input = SSIInput {
         solver: make_beam(4, 4.0, E, 0.045, 3.375e-4, "fixed", None, loads),
         soil_springs: vec![SoilSpring { node_id: 3, direction: 0, curve: SoilCurve::Tz { t_ult: 40.0, z_ult: 0.005, perimeter: Some(1.885) }, tributary_length: 1.0 }],
@@ -122,23 +130,23 @@ fn ssi_results_carry_structural_warnings_once() {
     };
     let r = solve_ssi_2d(&input).unwrap();
     let found = ids(&r.results.structured_diagnostics);
-    assert!(found.contains(&"FR-4".to_string()), "{found:?}");
-    // AC-12, AC-13 and AC-16 (soil curves) are fixed (SA-2026-017): no soil warning.
-    assert!(!found.iter().any(|x| x.starts_with("AC-")), "{found:?}");
-    assert_eq!(found.iter().filter(|x| *x == "FR-4").count(), 1, "attached once");
+    // FR-4 (#407) and the soil curves AC-12/13/16 (SA-2026-017) are fixed: no known issue, and the
+    // structural thermal default is attached once.
+    assert!(found.is_empty(), "{found:?}");
+    assert_eq!(assumed(&r.results.structured_diagnostics), vec!["alpha".to_string()], "attached once");
 }
 
 #[test]
 fn a_direct_constrained_solve_carries_its_warnings_once() {
     let mut loads = tip(-10.0);
-    loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 10.0, dt_gradient: 0.0 }));
+    loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 10.0, dt_gradient: 0.0, alpha: None, depth: None }));
     let solver = make_beam(4, 4.0, E, 0.045, 3.375e-4, "fixed", None, loads);
     let tie = Constraint::EqualDOF(EqualDOFConstraint { master_node: 2, slave_node: 3, dofs: vec![1] });
     let r = solve_constrained_2d(&ConstrainedInput { solver: solver.clone(), constraints: vec![tie.clone()] }).unwrap();
-    assert_eq!(ids(&r.structured_diagnostics).iter().filter(|x| *x == "FR-4").count(), 1);
+    assert_eq!(assumed(&r.structured_diagnostics), vec!["alpha".to_string()]);
     // Through solve_2d (which delegates to the constrained solver): still once.
     let mut with = solver;
     with.constraints = vec![tie];
     let r = solve_2d(&with).unwrap();
-    assert_eq!(ids(&r.structured_diagnostics).iter().filter(|x| *x == "FR-4").count(), 1);
+    assert_eq!(assumed(&r.structured_diagnostics), vec!["alpha".to_string()]);
 }

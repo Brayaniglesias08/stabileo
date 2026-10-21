@@ -342,7 +342,7 @@ fn a_mechanism_at_size_still_falls_through_and_is_named() {
 fn sparse_proof_agrees_with_the_dense_path_on_a_heated_frame() {
     // A thermal load adds nothing to the count but exercises the load-agnostic path.
     let mut input = big_portal(6, 8, false);
-    input.loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 20.0, dt_gradient: 0.0 }));
+    input.loads.push(SolverLoad::Thermal(SolverThermalLoad { element_id: 1, dt_uniform: 20.0, dt_gradient: 0.0, alpha: None, depth: None }));
     let result = analyze_kinematics_2d(&input);
     assert!(result.is_solvable);
     assert_eq!(result.mechanism_modes, 0);

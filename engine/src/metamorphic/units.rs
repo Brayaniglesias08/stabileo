@@ -118,7 +118,8 @@ pub fn scale_load_2d(l: &mut SolverLoad, u: &Units) {
             d.a = opt(d.a, u.length);
             d.b = opt(d.b, u.length);
         }
-        SolverLoad::Thermal(_) => {}
+        // α is per °C and temperature is not rescaled; a stated depth is a length.
+        SolverLoad::Thermal(t) => t.depth = opt(t.depth, u.length),
     }
 }
 
@@ -179,7 +180,11 @@ pub fn scale_load_3d(l: &mut SolverLoad3D, u: &Units) {
             p.py *= u.force;
             p.pz *= u.force;
         }
-        L::Thermal(_) | L::PlateThermal(_) | L::QuadThermal(_) | L::Quad9Thermal(_) | L::CurvedShellThermal(_) => {}
+        L::Thermal(t) => {
+            t.depth_y = opt(t.depth_y, u.length);
+            t.depth_z = opt(t.depth_z, u.length);
+        }
+        L::PlateThermal(_) | L::QuadThermal(_) | L::Quad9Thermal(_) | L::CurvedShellThermal(_) => {}
         L::Bimoment(b) => b.bimoment *= u.moment() * u.length,
         L::Pressure(p) | L::QuadPressure(p) | L::Quad9Pressure(p) | L::SolidShellPressure(p) | L::CurvedShellPressure(p) => {
             p.pressure *= u.stress()
