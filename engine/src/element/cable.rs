@@ -188,7 +188,7 @@ pub fn cable_chord_tension(ea: f64, w: f64, l_h: f64, strain: f64) -> f64 {
     if !beta.is_finite() {
         // |EA·ε| overwhelms the sag scale: stretched, the taut string T = EA·ε (the sag term is
         // below round-off); shortened, the asymptote τ = 1/√(−β), i.e. T = s·√(s/(−EA·ε)).
-        return if beta > 0.0 { b } else { s * (s / -b).sqrt() };
+        return if beta > 0.0 { b } else { s * (s.sqrt() / (-b).sqrt()) };
     }
     // Bracket: β ≥ 0: τ ∈ [β, β + min(1, 1/β²)]; β < 0: τ ∈ [1/√(1−β), min(1, 1/√(−β))].
     let (mut lo, mut hi) = if beta >= 0.0 {
