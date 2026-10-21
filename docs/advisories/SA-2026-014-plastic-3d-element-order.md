@@ -62,9 +62,9 @@ PR #510 also carried the known-issue notice PC-3D (#511) on every 3D plastic col
   (frame3d-2: 73.71 against 176.47).
 - Every choice among hinges is made by rate (the section reaching the yield surface first, the
   hinge turning backwards or loaded outward the most), never by element number.
-- A span peak within 0.1 % of the member length of a node of the member (an end or a hinge
-  already formed in the span) is that node's peak moved, as the existing "the moment peak moves
-  along a member" warning says, not a new hinge.
+- A span peak within 0.1 % of the member length of a hinge of the member (one formed in the
+  span, or a hinged end) is that hinge's peak moved, not a new hinge cutting a sliver of the
+  member; beside an open hinge the result says so ("the moment peak moves along a member").
 
 Regression tests: `plastic_3d_collapse_factor_does_not_depend_on_numbering` (six corpus models,
 16 renumberings each, the factor identical and below the certified one unless the result says it

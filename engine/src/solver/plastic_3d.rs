@@ -28,8 +28,8 @@ struct Member3 {
     orig_rel: [[bool; 2]; 2],
 }
 
-/// Span sections closer than this (fraction of the member length) to a node
-/// of the member are that node (see the event search).
+/// Span sections closer than this (fraction of the member length) to a hinge
+/// of the member are that hinge (see the event search).
 const HINGE_GAP: f64 = 1e-3;
 
 /// A plastic hinge formed by the analysis (never a release of the model).
@@ -1036,15 +1036,20 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
             let (out, sup) = span_candidates(&bounds, m.loaded, &m.breakpoints, hinged, dfun, tol_d);
             suppressed = suppressed.min(sup);
             for (t, d) in out {
-                // A span peak this close to a node of the member (an end, or a
-                // hinge formed in the span) is that section's peak, moved: a
-                // hinge there would cut a sliver of the member whose stiffness
-                // swamps the solve in round-off, and the order of the
-                // elements then decided the next events (#511).
-                if let Some(&b) = bounds.iter().find(|&&b| b != t && (b - t).abs() < HINGE_GAP) {
-                    if hinged(b) {
-                        suppressed = suppressed.min(d);
-                    }
+                // A span peak this close to a hinge of the member (one formed
+                // in the span, open or closed, or a hinged end) is that
+                // hinge's peak, moved: a hinge there would cut a sliver of the
+                // member whose stiffness swamps the solve in round-off, and
+                // the order of the elements then decided the next events
+                // (#511). It is reported as a peak moving past the hinge, so
+                // the result says it is approximate. An unhinged member end
+                // keeps its own peaks, and so does a load breakpoint (a point
+                // load or the edge of a partial load): that peak is where the
+                // load is, not a drift.
+                let at_load = m.breakpoints.iter().any(|&x| (x - t).abs() < SNAP);
+                let near = bounds.iter().any(|&b| b != t && (b - t).abs() < HINGE_GAP && ((b > 0.0 && b < 1.0) || hinged(b)));
+                if near && !at_load {
+                    suppressed = suppressed.min(d);
                     continue;
                 }
                 cands.push((mi, t, d));
@@ -1081,7 +1086,9 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
         }
         // In the order they reach the yield surface, not in element-id order:
         // the spin rule below and the tie resolution of the next step keep
-        // the first ones.
+        // the first ones. Only increments equal to the last bit fall back to
+        // the member order (twin sections of a symmetric structure, where
+        // either choice gives the same factor).
         chosen.sort_by(|a, b| a.2.total_cmp(&b.2).then(a.0.cmp(&b.0)).then(a.1.total_cmp(&b.1)));
         // A node whose every frame end turns freely in bending, and whose
         // rotation neither the members' torsion nor a support restrains,
@@ -1197,14 +1204,6 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
     // A stalled analysis stops short of a mechanism.
     let is_mechanism = !stalled && mechanism(&current_input);
 
-    if stalled {
-        warnings.push(format!(
-            "at λ = {cumulative_factor:.6} a hinge rotation reverses and no consistent set of active hinges \
-             exists (biaxial hinges hold the moment vector they formed with): the analysis stops there, \
-             before a mechanism forms. The collapse factor is a lower bound (the moment field is in \
-             equilibrium and within the yield surface); the collapse load may be higher"
-        ));
-    }
     if !exhausted && !is_mechanism && !stalled {
         return Err(super::no_bending_collapse(cumulative_factor));
     }
@@ -1248,6 +1247,23 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
                 worst = worst.max((-v).max(0.0).sqrt());
             }
         }
+    }
+    if stalled {
+        // a lower bound only when the field it stopped with is admissible
+        warnings.push(if worst > 1.0 + 1e-6 {
+            format!(
+                "at λ = {cumulative_factor:.6} a hinge rotation reverses and no consistent set of active hinges \
+                 exists (biaxial hinges hold the moment vector they formed with): the analysis stops there, \
+                 before a mechanism forms"
+            )
+        } else {
+            format!(
+                "at λ = {cumulative_factor:.6} a hinge rotation reverses and no consistent set of active hinges \
+                 exists (biaxial hinges hold the moment vector they formed with): the analysis stops there, \
+                 before a mechanism forms. The collapse factor is a lower bound (the moment field is in \
+                 equilibrium and within the yield surface); the collapse load may be higher"
+            )
+        });
     }
     if worst > 1.0 + 1e-6 {
         warnings.push(format!(

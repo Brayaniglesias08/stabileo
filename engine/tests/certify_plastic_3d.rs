@@ -256,6 +256,25 @@ fn space_portal_collapse_factor_does_not_depend_on_numbering() {
     }
 }
 
+/// A point load beside a hinged member end is a real peak, not a hinge
+/// drifting (the #511 fix treats span peaks within 0.1 % of a hinge as that
+/// hinge): the beam, pinned at both ends (released at the start), still
+/// collapses at P a (L − a) / L = Mp with a = 0.002, L = 4.
+#[test]
+fn point_load_beside_a_hinged_end_still_forms_its_hinge() {
+    let mut s = frame(
+        vec![(1, 0.0, 0.0, 0.0), (2, 4.0, 0.0, 0.0)],
+        vec![(1, 1, 2)],
+        vec![(1, FIXED), (2, [true, true, true, true, false, false])],
+        vec![SolverLoad3D::PointOnElement(SolverPointLoad3D { element_id: 1, a: 0.002, py: 0.0, pz: -1.0 })],
+    );
+    let e = s.elements.get_mut("1").unwrap();
+    (e.release_my_start, e.release_mz_start) = (true, true);
+    let res = solve_plastic_3d(&plastic(s, 100.0, 100.0)).unwrap();
+    let exact = 100.0 * 4.0 / (0.002 * 3.998);
+    assert!((res.collapse_factor - exact).abs() <= 1e-6 * exact && res.is_mechanism, "{} vs {exact}: {:?}", res.collapse_factor, res.warnings);
+}
+
 #[test]
 fn moment_sign_conventions_match_solver() {
     // cantilever along X, tip force fz = 1 and a nodal couple my = −1 adding
