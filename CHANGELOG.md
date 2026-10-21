@@ -227,6 +227,20 @@ to the modelled chord, a cable with weight hangs at T₀³ = EA·(w·l_h)²/24 w
 goes exactly slack; a vertical cable has no sag term. `ernst_tangent_modulus` now returns the
 chord-law derivative (it was negative for moderate α). Known issue SP-12 removed. Advisory
 SA-2026-015.
+#### Soil curves follow their references (2026-10-21, #421, #422, #423, PR #526, SA-2026-017)
+
+The SSI soil curves departed from the references they cited. Soft clay omitted Matlock's
+J·c·z/D term (p_u 84 instead of 124 kN/m in the test); it is now API RP 2A's tabulation of
+Matlock's static curve with J a required input (0.25–0.5). Sand always used the cyclic A = 0.9
+and a step k table; it now takes `loading` (static A = max(3 − 0.8 z/D, 0.9), or cyclic) and
+interpolates k in API RP 2GEO Table 5, refusing φ outside 25–40°. The "stiff clay" curve jumped
+from 0.5·p_u to p_u at y50; it is now Welch & Reese (1972) stiff clay without free water,
+continuous (`free_water: true` is refused). t-z and q-z returned stresses: t-z now needs the
+shaft perimeter and q-z the tip area (kN/m and kN), q-z follows API's table, and the q-z tip
+spring is no longer multiplied by a tributary length and bears only in compression. Springs on
+missing nodes or along rotations are refused. Missing inputs are refused, never assumed.
+The app's SSI panel asks for J and the sand loading. Known-issue warnings AC-12, AC-13 and
+AC-16 removed. Tests: `engine/tests/soil_curves_references.rs`.
 
 #### Silent errors from the element-derivations review: 2D-in-3D signs, settlements, Winkler, imperfections, constraints (2026-10-18)
 

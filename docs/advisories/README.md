@@ -27,6 +27,7 @@ released.
 | [SA-2026-013](SA-2026-013-curved-shell-moments-and-thermal.md) | Curved shells reported zero bending moments; their stresses kept the free thermal strain, and the app's curved-quad temperatures were dropped | High | [#410](https://github.com/lambdaclass/stabileo/issues/410) | #522 | `main` (next release) | Draft |
 | [SA-2026-016](SA-2026-016-curved-member-axes.md) | Curved members (engine curved beams, app arc tool): Iy/Iz swapped on near-vertical segments of arches outside the X–Z plane (crown deflection 15 % low) | Medium | [#418](https://github.com/lambdaclass/stabileo/issues/418) | #523 | next release | Draft |
 | [SA-2026-015](SA-2026-015-cable-tension-chord-law.md) | Cables with self-weight got too little tension in indeterminate structures (guyed mast 16 % low) | High | [#416](https://github.com/lambdaclass/stabileo/issues/416) | #525 | next release | Draft |
+| [SA-2026-017](SA-2026-017-soil-curves.md) | Soil-structure interaction p-y, t-z and q-z curves departed from their references (soft clay p_u a third to a half low, sand A, stiff clay jump, t-z/q-z units) | High | [#421](https://github.com/lambdaclass/stabileo/issues/421), [#422](https://github.com/lambdaclass/stabileo/issues/422), [#423](https://github.com/lambdaclass/stabileo/issues/423) | #526 (in review) | — | Draft |
 
 Other open `safety` issues (the derivation-review findings #406–#433, #338, #439) get an advisory
 or a recorded "no advisory needed" when they are triaged; the list is on the

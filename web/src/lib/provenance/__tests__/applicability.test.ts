@@ -129,6 +129,8 @@ describe('versions and recorded analyses (a later registry)', () => {
   it('counts the analyses the stamp cannot see as run', () => {
     const f = modelFeatures(steel, { analysesRun: ['linear'] });
     expect(f.has('analysis:timeHistory')).toBe(true);
+    // Soil-structure interaction is solved in the PRO panel from springs a file never carries.
+    expect(f.has('analysis:ssi')).toBe(true);
     expect(f.has('analysis:modal')).toBe(false);
   });
 });

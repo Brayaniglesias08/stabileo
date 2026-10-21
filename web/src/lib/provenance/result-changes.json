@@ -72,6 +72,23 @@
         "pt": "As barras com comportamento de cabo cujo material tem densidade ficavam com tração baixa onde dividem a carga com outras barras (um mastro estaiado: 4,34 kN em vez de 5,18 kN), e as barras vizinhas com esforço a mais; além disso a iteração podia não convergir (SA-2026-015). Afeta modelos 3D com barras cabo."
       },
       "changelog": { "file": "docs/advisories/SA-2026-015-cable-tension-chord-law.md", "heading": "SA-2026-015: cable analysis gave cables with self-weight too little tension in statically indeterminate structures" }
+      "id": "soil-curves-references",
+      "resultsVersion": 1,
+      "date": "2026-10-21",
+      "prs": [526],
+      "area": "analysis",
+      "when": { "allOf": [["members"], ["analysis:ssi"]] },
+      "title": {
+        "en": "Soil-structure interaction: p-y curves follow their references",
+        "es": "Interacción suelo-estructura: las curvas p-y siguen sus referencias",
+        "pt": "Interação solo-estrutura: as curvas p-y seguem suas referências"
+      },
+      "explanation": {
+        "en": "The soft-clay curve omitted Matlock's J term (ultimate soil resistance a third to a half low near the surface), sand always used the cyclic factor A = 0.9 and a stepped k table, and the stiff-clay curve jumped from half to full resistance at y50 and fell to 70 % beyond (SA-2026-017). It concerns models solved with soil springs in PRO Advanced; re-run them.",
+        "es": "La curva de arcilla blanda omitía el término J de Matlock (resistencia última del suelo entre un tercio y la mitad baja cerca de la superficie), la arena usaba siempre el factor cíclico A = 0,9 y una tabla de k escalonada, y la curva de arcilla rígida saltaba de la mitad a la resistencia total en y50 y caía al 70 % después (SA-2026-017). Afecta a modelos resueltos con resortes de suelo en PRO Avanzado; vuelva a resolverlos.",
+        "pt": "A curva de argila mole omitia o termo J de Matlock (resistência última do solo entre um terço e a metade baixa perto da superfície), a areia usava sempre o fator cíclico A = 0,9 e uma tabela de k em degraus, e a curva de argila rígida saltava da metade para a resistência total em y50 e caía a 70 % depois (SA-2026-017). Afeta modelos resolvidos com molas de solo no PRO Avançado; resolva-os novamente."
+      },
+      "changelog": { "file": "docs/advisories/SA-2026-017-soil-curves.md", "heading": "SA-2026-017: Soil-structure interaction p-y, t-z and q-z curves departed from their references" }
     },
     {
       "id": "spectral-cqc-and-participation",

@@ -293,7 +293,7 @@ describe('the safety-advisories post quotes the advisories', () => {
   });
 
   it('quotes each documented case exactly as its advisory states it', () => {
-    // Correct / reported, per advisory: SA-011 uz (mm), SA-008 base shear /
+    // Correct / reported, per advisory: SA-017 soft-clay p_u (kN/m), SA-011 uz (mm), SA-008 base shear /
     // CQC, SA-007 critical load (kN), SA-006 sway (mm), SA-005 rafter N at
     // the base (kN), SA-012 cantilever base moment (kN·m), SA-016 arch crown deflection (mm),
     // SA-009 plate stiffness ratio, SA-013 curved-shell cantilever root moment (kN·m/m).
@@ -307,6 +307,7 @@ describe('the safety-advisories post quotes the advisories', () => {
       ['SA-2026-014', '176.47', '424.3'],
       ['SA-2026-015', '5.18', '4.34'],
       ['SA-2026-011', '0', '-14.4'],
+      ['SA-2026-017', '124', '84'],
       ['SA-2026-008', '1.00', '0.81'],
       ['SA-2026-007', '2993', '5860'],
       ['SA-2026-006', '0.92', '2.52'],

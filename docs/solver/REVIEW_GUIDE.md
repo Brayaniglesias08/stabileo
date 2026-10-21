@@ -97,7 +97,7 @@ warning:
 - **AC-7, AC-10:**
   - Winkler member forces omit the foundation reaction.
   - Some settlements are dropped without a message.
-- **AC-12, AC-13, AC-16:** the p-y, t-z and q-z soil curves depart from the cited references.
+- **AC-12, AC-13, AC-16 (fixed, SA-2026-017):** the p-y, t-z and q-z soil curves departed from the cited references.
 - **SH-6 (fixed), SH-7, SH-9:**
   - Curved-shell bending moments were reported as zero (fixed, SA-2026-013).
   - MITC9 on curved geometry does not reproduce rigid-body motion exactly.

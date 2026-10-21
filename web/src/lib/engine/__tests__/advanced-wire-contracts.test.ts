@@ -106,7 +106,7 @@ describe('advanced analyses: 3D payloads the engine accepts', () => {
       solver: input3D(),
       soilSprings: [{
         nodeId: 2, direction: 1, tributaryLength: 1,
-        curve: { type: 'py_soft_clay', su: 50, gamma_eff: 18, d: 0.6, depth: 5, eps_50: 0.01 },
+        curve: { type: 'py_soft_clay', su: 50, gamma_eff: 18, d: 0.6, depth: 5, eps_50: 0.01, j: 0.5 },
       }],
       maxIter: 20, tolerance: 1e-4,
     });
