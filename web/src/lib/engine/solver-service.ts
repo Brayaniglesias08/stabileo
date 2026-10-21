@@ -38,7 +38,7 @@ import { expandShellOffsets, modelHasShellOffsets } from './shell-offsets';
 import { enrichComboShellStresses, envelopeShellStresses } from './shell-combos';
 import { axialShares, combineShares, giveBackAxialShares } from './axial-shares';
 import { addSettlementCase, addSettlementCase2D, hasSettlement, withoutSettlement, SETTLEMENT_CASE_ID } from './settlement-case';
-import { memberThermalScale, thermalAlphaOf, ENGINE_ALPHA } from './thermal-alpha';
+import { memberAlphaOf, thermalAlphaOf, ENGINE_ALPHA } from './thermal-alpha';
 import { pointToSolver, pointToEnds, PointLoadNeedsCut, planePointLoad3D, pointWithCoupleToEnds } from './member-point-loads';
 import { prestressToSolver } from './prestress';
 import { hasCaseDisplacements, imposedOf, imposedUnsupported, supportsWithImposed, casesWithDisplacements } from './case-displacements';
@@ -63,47 +63,31 @@ import type {
 } from '../store/model.svelte';
 
 /**
- * The factor a member's ΔT is sent with, so the engine's fixed α becomes its material's
- * (`thermal-alpha.ts`). 1 when the element or its material is missing.
+ * The α a member's thermal load is sent with: its material's (`thermal-alpha.ts`), or undefined
+ * when the app does not know it (the engine then keeps 12·10⁻⁶ and says so).
  */
-function thermalScaleOfElement(model: { elements: Map<number, { materialId: number }>; materials: Map<number, Material> }, elementId: number): number {
+function thermalAlphaOfElement(model: { elements: Map<number, { materialId: number }>; materials: Map<number, Material> }, elementId: number): number | undefined {
   const e = model.elements.get(elementId);
-  return memberThermalScale(e ? model.materials.get(e.materialId) : undefined);
+  return memberAlphaOf(e ? model.materials.get(e.materialId) : undefined);
 }
 
 /**
- * The engine bends a member under a temperature gradient across the depth of its section's
- * equivalent rectangle, √(12·I/A). A temperature varying linearly through any section curves it by
- * α·ΔT/h over the section's real depth h, which for an I section is a quarter less than that
- * rectangle's. The load is linear in ΔT, so the gradient is scaled by the ratio of the two depths,
- * for each axis (`y` across local y, the width; `z` across local z, the depth): exact, as α's is.
- * The same section and factors the engine gets (`buildSolverInput3D`, `solveStiffnessFactors`):
- * a plane model embedded in XZ bends in its plane with `effectiveBendingInertia`, a section turned
- * in that plane over no single depth, and is left as the engine has it. The plane solve (`plane`)
- * takes that same inertia and area with no stiffness factors (`solverFrame2D`), so a plane model
- * bends alike in 2D and in 3D.
- *
- * A section with no depth or width (one stated by its properties only) has no real depth to scale
- * to: the engine's rectangle stands, and the model's findings say so (`MODEL_THERMAL_DEPTH_UNKNOWN`).
+ * The section's real depths a member's temperature gradients act across (#407): `y` across local
+ * y (the width, `b`), `z` across local z (the depth, `h`). A temperature varying linearly
+ * through any section curves it by α·ΔT/h over its real depth h; without one the engine uses its
+ * equivalent rectangle's √(12·I/A), which for an I section is about a third deeper.
+ * An embedded plane model bends in its plane with `effectiveBendingInertia`; a section turned in
+ * that plane has no single depth, and is sent without one, as is a section with no depth or width
+ * (one stated by its properties only): the engine then keeps its rectangle and says so, and so do
+ * the model's findings (`MODEL_THERMAL_DEPTH_UNKNOWN`).
  */
-function thermalDepthScale(model: ModelData, elementId: number, embedded: boolean | 'plane' = false): { y: number; z: number } {
+function thermalDepths(model: ModelData, elementId: number, embedded: boolean | 'plane' = false): { y?: number; z?: number } {
   const e = model.elements.get(elementId);
   const s = e ? model.sections.get(e.sectionId) : undefined;
-  if (!e || !s) return { y: 1, z: 1 };
-  const p = solverProperties(s);
-  const f = embedded === 'plane' ? { a: 1, iy: 1, iz: 1 } : solveStiffnessFactors(model, elementId);
-  const a = p.a * f.a;
-  if (!(a > 0)) return { y: 1, z: 1 };
-  const ratio = (inertia: number | undefined, depth: number | undefined) =>
-    inertia && inertia > 0 && depth && depth > 0 ? Math.sqrt((12 * inertia) / a) / depth : 1;
-  const canonical = p.source === 'canonical';
-  const iz = (canonical ? p.iz : s.iz) ?? 0;
-  if (embedded) {
-    const turned = Math.abs(s.rotation ?? 0) > 1e-10;
-    return { y: ratio(iz * f.iz, s.b), z: turned ? 1 : ratio(effectiveBendingInertia(s, p) * f.iy, s.h) };
-  }
-  const iy = (canonical ? p.iy : (s.iy ?? (s.b && s.h ? (s.b * s.h ** 3) / 12 : s.iz))) ?? 0;
-  return { y: ratio(iz * f.iz, s.b), z: ratio(iy * f.iy, s.h) };
+  if (!e || !s) return {};
+  const real = (d: number | undefined) => (d && d > 0 ? d : undefined);
+  const turned = embedded && Math.abs(s.rotation ?? 0) > 1e-10;
+  return { y: real(s.b), z: turned ? undefined : real(s.h) };
 }
 
 // ─── ModelData interface ──────────────────────────────────────────
@@ -280,12 +264,22 @@ function buildSolverLoads2D(model: ModelData, loads: Load[], includeSelfWeight: 
       });
     } else if (l.type === 'thermal') {
       const d = l.data as ThermalLoad;
-      // The material's own α (thermal-alpha.ts), and the gradient in the drawn axes.
-      const k = thermalScaleOfElement(model, d.elementId);
-      // An initial strain is the temperature change that gives it, ε/α, in the engine's own α.
-      // The gradient over the section's real depth, as in the space solve (`thermalDepthScale`).
-      const depth = d.dtGradient ? thermalDepthScale(model, d.elementId, 'plane').z : 1;
-      solverLoads.push({ type: 'thermal' as const, data: { elementId: d.elementId, dtUniform: d.dtUniform * k + (d.strain ?? 0) / ENGINE_ALPHA, dtGradient: sOf(d.elementId) * d.dtGradient * k * depth } });
+      // The material's own α and the section's real depth (#407), and the gradient in the drawn
+      // axes. An initial strain is the temperature change that gives it, ε/α: with no
+      // temperature change in the load it is sent with the engine's α, exactly, not a guess.
+      const known = thermalAlphaOfElement(model, d.elementId);
+      const alpha = known ?? (d.dtUniform || d.dtGradient ? undefined : ENGINE_ALPHA);
+      const depth = d.dtGradient ? thermalDepths(model, d.elementId, 'plane').z : undefined;
+      solverLoads.push({
+        type: 'thermal' as const,
+        data: {
+          elementId: d.elementId,
+          dtUniform: d.dtUniform + (d.strain ?? 0) / (alpha ?? ENGINE_ALPHA),
+          dtGradient: sOf(d.elementId) * d.dtGradient,
+          ...(alpha !== undefined ? { alpha } : {}),
+          ...(depth !== undefined ? { depth } : {}),
+        },
+      });
     } else if (l.type === 'pointOnElement') {
       const d = l.data as PointLoadOnElement;
       const angle = d.angle ?? 0;
@@ -1545,15 +1539,15 @@ export function buildSolverLoads3D(
       solverLoads.push(...convertSurfaceLoad(l.data as SurfaceLoad3D, model.quads, model.nodes, model.plates));
     } else if (l.type === 'thermal') {
       const d = l.data as ThermalLoad;
-      const k = thermalScaleOfElement(model, d.elementId);
-      // The member's real depth, not its equivalent rectangle's, on a space model and an embedded
-      // plane one alike (each with the inertia the engine gets).
-      const depth = thermalDepthScale(model, d.elementId, project2DToXZ);
+      // The material's own α and the member's real depths, on a space model and an embedded plane
+      // one alike (#407).
+      const alpha = thermalAlphaOfElement(model, d.elementId);
+      const depth = thermalDepths(model, d.elementId, project2DToXZ);
       solverLoads.push({
         type: 'thermal' as const,
         data: {
           elementId: d.elementId,
-          dtUniform: d.dtUniform * k,
+          dtUniform: d.dtUniform,
           /*
            * ΔTg is the course's ∇T·h = ΔT(bottom face) − ΔT(top face), top
            * being the drawn z side — the plane solve's convention. It is a
@@ -1571,13 +1565,16 @@ export function buildSolverLoads3D(
            * cantilever with its −y face hotter bends to +y). Local y is the displayed axis, which
            * the left-handed convention flips.
            */
-          dtGradientY: (d.dtGradientY ?? 0) * k * depth.y * (userLeftHand ? -1 : 1),
-          dtGradientZ: -d.dtGradient * k * depth.z,
+          dtGradientY: (d.dtGradientY ?? 0) * (userLeftHand ? -1 : 1),
+          dtGradientZ: -d.dtGradient,
+          ...(alpha !== undefined ? { alpha } : {}),
+          ...(d.dtGradientY && depth.y !== undefined ? { depthY: depth.y } : {}),
+          ...(d.dtGradient && depth.z !== undefined ? { depthZ: depth.z } : {}),
         },
       });
       if (d.strain) {
-        // An initial strain, ε/α in the engine's own α: exact, and independent of the material's.
-        solverLoads.push({ type: 'thermal' as const, data: { elementId: d.elementId, dtUniform: d.strain / ENGINE_ALPHA, dtGradientY: 0, dtGradientZ: 0 } });
+        // An initial strain, ε/α with the α it is sent with: exact, and independent of the material's.
+        solverLoads.push({ type: 'thermal' as const, data: { elementId: d.elementId, dtUniform: d.strain / ENGINE_ALPHA, dtGradientY: 0, dtGradientZ: 0, alpha: ENGINE_ALPHA } });
       }
     } else if (l.type === 'thermalQuad3d') {
       const tq = l.data as ThermalLoadQuad3D;
