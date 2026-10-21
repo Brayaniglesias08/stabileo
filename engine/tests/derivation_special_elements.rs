@@ -890,3 +890,41 @@ fn non_positive_shear_areas_are_refused() {
         assert!(solve_3d(&s3).unwrap_err().contains("shear area"));
     }
 }
+
+/// SP-12, the advisory case (SA-2026-015): a 20 m mast fixed at its base, guyed
+/// from its top to an anchor 20 m out, 5 kN at the top away from the anchor.
+/// Mast and guy share the load, so the guy's tension depends on its law. The
+/// closed form condenses the mast to its top (3EI/L³ sideways, EA/L axially) and
+/// solves the chord law by bisection: T = 5.183 kN. The secant law gave
+/// 4.340 kN (16 % low, after 28 passes) and, at 2 kN, did not converge.
+#[test]
+fn guyed_mast_cable_tension_matches_the_chord_law() {
+    for (p, t_expected) in [(5.0, Some(5.1827)), (2.0, None)] {
+        let (a_c, rho, e) = (1e-4, 7850.0, 200e6);
+        let input = common::make_input(
+            vec![(1, 0.0, 0.0), (2, 0.0, 20.0), (3, 20.0, 0.0)],
+            vec![(1, 200_000.0, 0.3), (2, 200_000.0, 0.3)],
+            vec![(1, 5e-2, 2e-3), (2, a_c, 1e-10)],
+            vec![(1, "frame", 1, 2, 1, 1, false, false), (2, "cable", 2, 3, 2, 2, false, false)],
+            vec![(1, 1, "fixed"), (2, 3, "pinned")],
+            vec![SolverLoad::Nodal(SolverNodalLoad { node_id: 2, fx: -p, fz: 0.0, my: 0.0 })],
+        );
+        let dens = HashMap::from([("2".to_string(), rho)]);
+        let r = cable::solve_cable_2d(&input, &dens, 50, 1e-10).unwrap();
+        assert!(r.converged, "P = {p}: {} passes", r.iterations);
+        let (s2, l) = (std::f64::consts::SQRT_2, 20.0 * std::f64::consts::SQRT_2);
+        let (kh, kv, ea) = (3.0 * e * 2e-3 / 8000.0, e * 5e-2 / 20.0, e * a_c);
+        let w = rho / 1000.0 * a_c * 9.80665;
+        let t_ref = bisect(|t| {
+            let (ux, uz) = ((t / s2 - p) / kh, -t / s2 / kv);
+            t / ea - (w * 20.0).powi(2) / (24.0 * t * t) - (uz - ux) / s2 / l
+        }, 1e-6, 20.0);
+        if let Some(te) = t_expected { assert!((t_ref - te).abs() < 1e-4, "closed form {t_ref}"); }
+        let t = r.cable_forces[0].tension;
+        // Small-displacement closed form against the solver's deformed-chord strain.
+        assert!(rel(t, t_ref) < 1e-4, "P = {p}: T = {t}, closed form {t_ref}");
+        // The base reaction balances the load and the guy.
+        let rx: f64 = r.results.reactions.iter().map(|x| x.rx).sum();
+        assert!((rx - p).abs() < 1e-8 * p, "ΣRx = {rx}");
+    }
+}
