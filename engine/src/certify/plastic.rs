@@ -377,6 +377,11 @@ pub fn build_model(input: &PlasticInput) -> Result<PlasticModel, String> {
                 let ta = frac(e, pl.a, "point load")?;
                 elems[ei].loads.push(ElemLoad::Point { ta, p, px, my });
             }
+            SolverLoad::AxialDistributed(al) => {
+                if al.q_i != 0.0 || al.q_j != 0.0 {
+                    return Err("axial span loads are not part of the plastic certificate".into());
+                }
+            }
             SolverLoad::Thermal(tl) => {
                 if tl.dt_uniform != 0.0 || tl.dt_gradient != 0.0 {
                     return Err("thermal loads are not part of the plastic certificate".into());

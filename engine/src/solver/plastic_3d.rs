@@ -4,7 +4,7 @@
 //! and hinge bookkeeping it shares), with the biaxial yield condition
 //! `(My/Mp_y)² + (Mz/Mp_z)² ≤ 1` (local axes) at every section.
 
-use super::{golden_min, span_candidates, unique_key, Piece, PlasticHinge3D, PlasticResult3D, PlasticStep3D, SNAP, STATIONS};
+use super::{golden_min, span_candidates, unique_key, Piece, PlasticHinge3D, PlasticResult3D, PlasticStep3D, SNAP, STATIONS, TIE};
 use crate::element;
 use crate::types::*;
 use std::collections::{HashMap, HashSet};
@@ -702,7 +702,14 @@ fn mechanism(input: &SolverInput3D) -> bool {
 /// loaded outward reopens. When the structure is a mechanism, a hinge that
 /// would unload under the mechanism's motion closes and loading continues.
 /// `warnings` lists what keeps the result from being the collapse load.
+/// 3D plastic collapse, with the known-issue warning attached (#511).
 pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, String> {
+    let mut r = solve_plastic_3d_inner(input)?;
+    r.warnings.push(crate::known_issues::PLASTIC_3D.to_string());
+    Ok(r)
+}
+
+fn solve_plastic_3d_inner(input: &PlasticInput3D) -> Result<PlasticResult3D, String> {
     // Same reason as the 2D entry: keep `Err` from the inner solve meaning
     // "mechanism", and nothing else.
     super::super::linear::validate_input_3d(&input.solver)?;
@@ -719,6 +726,11 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
     super::super::feature_gates::refuse_3d(&input.solver, "Plastic (pushover) analysis", &[
         super::super::feature_gates::Feature::Constraints, super::super::feature_gates::Feature::Connectors, super::super::feature_gates::Feature::SupportSprings,
     ])?;
+    // Imposed deformations alone: see the 2D solver.
+    let m_ref = load_moment_scale_3d(&input.solver);
+    if !(m_ref > 0.0) {
+        return Err(super::NO_MECHANICAL_LOAD.into());
+    }
     let max_hinges = input.max_hinges.unwrap_or(30);
 
     let mut mp_map: HashMap<usize, (f64, f64)> = HashMap::new();
@@ -960,7 +972,7 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
         }
 
         // ---- next event: smallest increment to the yield surface anywhere
-        let tol_m = unit_moment_scale(&results) * 1e-12;
+        let tol_m = (unit_moment_scale(&results) * 1e-12).max(m_ref * 1e-9);
         let tol_d = 1e-10 * cumulative_factor;
         let unit_vals: Vec<[f64; 12]> = members.iter().map(|m| m.unit_vals(&by_id)).collect();
         let mut cands: Vec<(usize, f64, f64)> = Vec::new();
@@ -994,7 +1006,16 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
             ));
         }
         suppressed = f64::INFINITY;
-        let tie = 1e-10 * (cumulative_factor + min_delta);
+        // Sections reaching Mp within the event search's own resolution form
+        // together. Interior peaks are located by golden-section search to
+        // ~1e-9 in position (and snapped at SNAP = 1e-6), so a symmetric
+        // structure's twin sections differ by that much after the first
+        // interior hinge; a 1e-10 tie split them into two events, the second
+        // twin never formed, and a symmetric portal "collapsed" 15% above its
+        // mechanism load with an inadmissible moment field (found by the
+        // metamorphic rotation check: the rotated portal gave the right
+        // answer). The tie matches SNAP; the factor moves by at most that.
+        let tie = TIE * (cumulative_factor + min_delta);
         let mut chosen: Vec<(usize, f64)> = Vec::new();
         for &(mi, t, d) in &cands {
             if d - min_delta <= tie && !chosen.iter().any(|&(mj, tj)| mj == mi && (tj - t).abs() < SNAP) {
@@ -1121,6 +1142,9 @@ pub fn solve_plastic_3d(input: &PlasticInput3D) -> Result<PlasticResult3D, Strin
              the collapse factor is not guaranteed"
                 .into(),
         );
+    }
+    if !exhausted && !is_mechanism {
+        return Err(super::no_bending_collapse(cumulative_factor));
     }
     if exhausted && !is_mechanism {
         warnings.push(format!(
@@ -1290,4 +1314,31 @@ mod tests {
         // outside and moving out: never
         assert!(increment_to_yield((2.0, 0.0), (1.0, 0.0), (1.0, 1.0)).is_infinite());
     }
+}
+
+/// Σ|load| × model size (see the 2D `load_moment_scale_2d`).
+fn load_moment_scale_3d(input: &SolverInput3D) -> f64 {
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for n in input.nodes.values() {
+        for (k, v) in [n.x, n.y, n.z].into_iter().enumerate() {
+            lo[k] = lo[k].min(v);
+            hi[k] = hi[k].max(v);
+        }
+    }
+    let l = (0..3).map(|k| hi[k] - lo[k]).fold(f64::MIN_POSITIVE, f64::max);
+    let len = |id: usize| {
+        input.elements.values().find(|e| e.id == id).and_then(|e| {
+            let a = input.nodes.values().find(|n| n.id == e.node_i)?;
+            let b = input.nodes.values().find(|n| n.id == e.node_j)?;
+            Some(((b.x - a.x).powi(2) + (b.y - a.y).powi(2) + (b.z - a.z).powi(2)).sqrt())
+        }).unwrap_or(0.0)
+    };
+    let f: f64 = input.loads.iter().map(|ld| match ld {
+        SolverLoad3D::Nodal(n) => n.fx.abs() + n.fy.abs() + n.fz.abs() + (n.mx.abs() + n.my.abs() + n.mz.abs()) / l,
+        SolverLoad3D::Distributed(d) => [d.q_xi, d.q_xj, d.q_yi, d.q_yj, d.q_zi, d.q_zj].iter().fold(0.0f64, |a, b| a.max(b.abs())) * len(d.element_id),
+        SolverLoad3D::PointOnElement(p) => p.py.abs() + p.pz.abs(),
+        _ => 0.0,
+    }).sum();
+    f * l
 }

@@ -229,7 +229,7 @@ fn input_2d(ids: [usize; 3], types: [&str; 2], hinges: [bool; 4], sups: [Option<
     }
     SolverInput {
         nodes, materials, sections, elements, supports,
-        loads: vec![], constraints: vec![], connectors: HashMap::new(), solver_options: None,
+        loads: vec![], constraints: vec![], connectors: HashMap::new(), solver_options: None, masses: Default::default(),
     }
 }
 

@@ -138,7 +138,7 @@ impl B2 {
                 loads: vec![],
                 constraints: vec![],
                 connectors: HashMap::new(),
-                solver_options: None,
+                solver_options: None, masses: Default::default(),
             },
             moment_nodes,
             lchar,
@@ -463,6 +463,16 @@ fn applied_resultant(input: &SolverInput) -> ([f64; 3], f64, f64) {
                 let ((xi, zi), _l, c, s) = elem_geom(input, e);
                 let px = pl.px.unwrap_or(0.0);
                 push(c * px - s * pl.p, s * px + c * pl.p, pl.my.unwrap_or(0.0), xi + c * pl.a, zi + s * pl.a);
+            }
+            SolverLoad::AxialDistributed(al) => {
+                let e = &input.elements[&al.element_id.to_string()];
+                let ((xi, zi), l, c, s) = elem_geom(input, e);
+                let a = al.a.unwrap_or(0.0);
+                let b = al.b.unwrap_or(l);
+                let span = b - a;
+                for (w, xc) in [(al.q_i * span, a + span / 2.0), ((al.q_j - al.q_i) * span / 2.0, a + 2.0 * span / 3.0)] {
+                    push(c * w, s * w, 0.0, xi + c * xc, zi + s * xc);
+                }
             }
             SolverLoad::Thermal(_) => {}
         }

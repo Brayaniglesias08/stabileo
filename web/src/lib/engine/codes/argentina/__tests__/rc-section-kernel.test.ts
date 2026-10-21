@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RcSectionGeometry } from '../../../../wasm/dedaliano_engine.js';
 import { getRcSectionKernel, registerRcSectionKernel } from '../rc-section-kernel';
-import { interactionCurve, prepareSection, sectionPoint, type Bar, type Materials, type Outline, type SectionPoint } from '../cirsoc201-section';
+import { EngineUnavailableError } from '../../../engine-unavailable';
+import { interactionCurve, prepareSection, sectionPoint, useTypeScriptReferenceForTests, type Bar, type Materials, type Outline, type SectionPoint } from '../cirsoc201-section';
 import { momentCapacityAtAxial, surfaceCut, refine } from '../cirsoc-flex-surface';
 
 const bars: Bar[] = Array.from({ length: 16 }, (_, i) => ({
@@ -20,12 +21,19 @@ function samePoint(actual: SectionPoint, expected: SectionPoint) {
   }
 }
 function reference<T>(run: () => T): T {
-  const constructor = getRcSectionKernel(); registerRcSectionKernel(null);
-  try { return run(); } finally { registerRcSectionKernel(constructor); }
+  const constructor = getRcSectionKernel(); registerRcSectionKernel(null); useTypeScriptReferenceForTests(true);
+  try { return run(); } finally { useTypeScriptReferenceForTests(false); registerRcSectionKernel(constructor); }
 }
 describe('prepared RC section kernel', () => {
   it('is enabled after production WASM initialization', () => {
     expect(getRcSectionKernel()).not.toBeNull();
+  });
+  it('without the kernel the section is refused, not integrated in TypeScript', () => {
+    const constructor = getRcSectionKernel(); registerRcSectionKernel(null);
+    try {
+      expect(() => prepareSection(outlines[0]!, bars, { fc: 30, fy: 420 })).toThrow(EngineUnavailableError);
+      expect(() => interactionCurve(outlines[0]!, bars, { fc: 30, fy: 420 }, 0)).toThrow(EngineUnavailableError);
+    } finally { registerRcSectionKernel(constructor); }
   });
   for (const outline of outlines) it(`matches TS for ${JSON.stringify(outline)}`, () => {
     for (const confinement of ['ties', 'spiral'] as const) for (const deductDisplacedConcrete of [false, true]) {

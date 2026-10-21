@@ -16,6 +16,7 @@ import { classifyElement } from '../../codes/argentina/cirsoc201';
 import type { CheckReading, MemberContext, OtherCode, OtherCodeRow, OtherCodeRun, MemberCertificate, StationBound3D, DemandBound } from './types';
 import type { CertifiedMemberCheck } from '../../certificate-types';
 import { isDesignedMember, maskDemands } from '../behaviour-demands';
+import { isEngineUnavailable, engineFailureText } from '../../engine-unavailable';
 
 export interface RunModel {
   nodes: Map<number, Node>;
@@ -102,11 +103,21 @@ export function runOtherCode(code: OtherCode, contexts: MemberContext[]): OtherC
       else batch.push({ ctx: r.ctx, base: r.data, data: at.data, extra: [...r.flags, ...(at.unevaluated ?? [])] });
     }
     if (batch.length === 0) continue;
-    const results = code.run({
-      members: batch.map((r) => r.data),
-      forces: batch.map((r) => code.forces(r.ctx, r.ctx.demands[k]!, r.base)),
-    });
-    if (!results) return { code: code.id, rows: [...rows.values()], errorKey: 'otherCodes.error.engine' };
+    let results: unknown[];
+    try {
+      results = code.run({
+        members: batch.map((r) => r.data),
+        forces: batch.map((r) => code.forces(r.ctx, r.ctx.demands[k]!, r.base)),
+      });
+    } catch (err) {
+      // The engine's reason travels with the failure, and nothing of this run counts as checked:
+      // a member read in an earlier round was not read under this round's demand, so the rows
+      // it already has are withdrawn rather than shown as a verdict.
+      const errorKey = isEngineUnavailable(err) ? 'engine.unavailable' : 'otherCodes.error.engine';
+      const withdrawn: OtherCodeRow[] = [...rows.values()].map((r) => r.status === 'checked' ? { elementId: r.elementId, status: 'skipped', reasonKey: errorKey } : r);
+      for (const r of ready) if (!rows.has(r.ctx.elementId)) withdrawn.push({ elementId: r.ctx.elementId, status: 'skipped', reasonKey: errorKey });
+      return { code: code.id, rows: withdrawn.sort((a, b) => a.elementId - b.elementId), errorKey, errorMessage: engineFailureText(err) };
+    }
     // By id, once per round: a scan of the batch per result was quadratic in the members.
     const byId = new Map(batch.map((b) => [b.ctx.elementId, b]));
     for (const res of results as Array<Record<string, unknown>>) {

@@ -80,7 +80,7 @@ fn validation_bce_settlement_moment() {
         dx: None, dz: Some(-delta), dry: None, angle: None,
     });
     let input = SolverInput {
-        solver_options: None,
+        solver_options: None, masses: Default::default(),
         nodes, materials: mats, sections: secs,
         elements: elems, supports: sups, loads: vec![], constraints: vec![],
         connectors: HashMap::new(), };

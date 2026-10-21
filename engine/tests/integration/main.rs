@@ -16,6 +16,8 @@ mod eccentric_connections;
 mod ec2_check;
 mod ec3_check;
 mod foundation_check;
+mod isolated_footing;
+mod loads_cirsoc;
 mod harmonic;
 mod influence_3d;
 mod load_cases;

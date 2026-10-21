@@ -49,6 +49,7 @@ fn steel_member(fy: f64) -> SteelMemberData {
         depth: Some(0.348),
         flange_slenderness: None,
         compression_elements: None,
+        lcz: None,
         load_position: None,
     }
 }
@@ -165,7 +166,8 @@ fn timber_nan_demand_does_not_panic() {
             element_id: 1,
             fb: 12e6, ft: 6e6, fc: 12e6, fv: 1e6,
             e: 10e9, e_min: Some(2e9),
-            b: 0.10, d: 0.30, le: 3.0, lu: None,
+            b: 0.10, d: 0.30, le: 3.0, lu: None, le_b: None,
+            le_bending: None,
             cd: None, cm: None, ct: None,
             cf_bending: None, cf_tension: None, cf_compression: None,
             cfu: None, ci: None, cr: None,
@@ -259,7 +261,7 @@ fn masonry_zero_capacity_does_not_pass() {
             fm: 0.0, fy: 420e6, em: None,
             b: 1.0, t: 0.20, d: 0.10,
             as_tension: 0.0,
-            h: 3.0, k: Some(1.0), an: None, av: None, s_stirrup: None,
+            h: 3.0, k: Some(1.0), an: None, av: None, s_stirrup: None, laterally_tied: None, gamma_g: None,
         }],
         forces: vec![MasonryDesignForces {
             element_id: 1, pu: Some(200e3), mu: Some(50e3), vu: Some(30e3),
@@ -282,7 +284,7 @@ fn foundation_missing_allowable_pressure_does_not_pass() {
             length: 2.0, width: 2.0, thickness: 0.5, depth: 1.0,
             q_allowable: 0.0,
             gamma_soil: 18_000.0, fc: 28e6,
-            col_length: 0.4, col_width: 0.4, d: None, mu_sliding: None, rho_w: None,
+            col_length: 0.4, col_width: 0.4, d: None, mu_sliding: None, rho_w: None, neglect_size_effect: None,
         }],
         forces: vec![SpreadFootingForces {
             footing_id: 1, p: 500e3, mx: None, my: None, h: None,

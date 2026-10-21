@@ -12,6 +12,8 @@ import { conceptualAdvanced } from './posts/conceptual-advanced';
 import { cirsoc201Flexure } from './posts/cirsoc-201-flexure';
 import { torsionTheories } from './posts/torsion-theories';
 import { barsOrFiniteElements } from './posts/bars-or-finite-elements';
+import { safetyAdvisories } from './posts/safety-advisories';
+import { howStabileoChecksItsResults } from './posts/how-stabileo-checks-its-results';
 
 /**
  * By `order`, not by date.
@@ -26,6 +28,8 @@ export const POSTS: Post[] = [
   cirsoc201Flexure,
   torsionTheories,
   barsOrFiniteElements,
+  safetyAdvisories,
+  howStabileoChecksItsResults,
 ].sort((a, b) => a.order - b.order);
 
 export function findPost(slug: string): Post | undefined {

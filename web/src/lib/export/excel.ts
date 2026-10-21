@@ -24,6 +24,7 @@
  * reachable only from `exportToExcel`, which awaits the import first. That is
  * why this is a `let` rather than being threaded through ten signatures.
  */
+import { runEngineActionAsync } from '../store/engine-action';
 import { memberSectionLabel } from '../section/variable';
 // Type-only: erased at build time, so it costs the bundle nothing.
 import type * as Xlsx from 'xlsx';
@@ -581,7 +582,15 @@ export function combinationPeakRows(): Array<[string, number, number, number, nu
   return data;
 }
 
+/**
+ * Write the workbook. Its result sheets read station forces and checks from the engine; without
+ * it, or when it refuses, the export says so (an error toast) instead of failing silently.
+ */
 export async function exportToExcel(options: ExcelExportOptions = {}): Promise<void> {
+  await runEngineActionAsync(() => exportToExcelWithEngine(options));
+}
+
+async function exportToExcelWithEngine(options: ExcelExportOptions): Promise<void> {
   if (!(await loadXlsxModule())) return;
 
   /*

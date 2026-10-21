@@ -5,7 +5,8 @@ name: Differential
 # singularity-detection bugs that the result certificates cannot (they certify
 # the assembled system, right or wrong). Nightly and on demand; the random
 # seed moves daily and is printed, so a failure reproduces locally with
-# `tools/differential/ci.sh PROGRAM SEED`.
+# `tools/differential/ci.sh PROGRAM SEED`. A failed scheduled run opens or
+# updates a `verification-failure` issue (verification-alert.yml).
 
 on:
   schedule:
@@ -15,6 +16,9 @@ on:
       seed:
         description: "seed-start (default: day-based)"
         required: false
+
+permissions:
+  contents: read
 
 jobs:
   differential:
