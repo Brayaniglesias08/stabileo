@@ -1761,7 +1761,6 @@ const pt: Translations = {
   'knownIssue.AC-12': 'As curvas p-y se afastam de suas referências (argila mole, areia); os resultados laterais de estacas e molas de solo estão desviados',
   'knownIssue.AC-13': 'A curva p-y de argila rija é descontínua e não é a de Reese; os resultados laterais de estacas e molas de solo estão desviados',
   'knownIssue.AC-16': 'As curvas t-z e q-z omitem o perímetro do fuste ou a área da ponta; as molas axiais de estacas estão desviadas nesse fator',
-  'knownIssue.PC-3D': 'Colapso plástico 3D: o fator de colapso depende da ordem em que o solver percorre as barras, então a mesma estrutura pode informar fatores diferentes, alguns muito acima do real. Confira à mão o mecanismo que governa',
   'diag.errors': 'Erros',
   'diag.errorsFound': '{count} erro(s) detectado(s)',
   'diag.info': 'Informação',

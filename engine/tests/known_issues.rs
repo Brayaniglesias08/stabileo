@@ -155,13 +155,3 @@ fn a_direct_constrained_solve_carries_its_warnings_once() {
     let r = solve_2d(&with).unwrap();
     assert_eq!(ids(&r.structured_diagnostics).iter().filter(|x| *x == "FR-4").count(), 1);
 }
-
-#[test]
-fn plastic_collapse_3d_results_carry_the_order_warning() {
-    use dedaliano_engine::solver::plastic::solve_plastic_3d;
-    let s: SolverInput3D = serde_json::from_str(&std::fs::read_to_string("tests/metamorphic_corpus/differential/frame3d-2.json").unwrap()).unwrap();
-    let sections = s.sections.values().map(|x| (x.id.to_string(), PlasticSectionData3D { a: x.a, iy: x.iy, iz: x.iz, material_id: 1, b: Some((12.0 * x.iy / x.a).sqrt()), h: Some((12.0 * x.iz / x.a).sqrt()), d: None })).collect();
-    let materials = s.materials.values().map(|x| (x.id.to_string(), PlasticMaterialData { fy: Some(250.0) })).collect();
-    let r = solve_plastic_3d(&PlasticInput3D { solver: s, sections, materials, max_hinges: None, mp_overrides: None }).unwrap();
-    assert!(r.warnings.iter().any(|w| w.contains("#511")), "{:?}", r.warnings);
-}

@@ -39,6 +39,7 @@ export const safetyAdvisories: Post = {
           head: ['Aviso', 'Qué', 'Severidad', 'Estado'],
           rows: [
             ['SA-2026-013', 'Láminas curvas: momentos flectores informados como cero; tensiones con la deformación térmica libre', 'Alta', 'Corregido en main'],
+            ['SA-2026-014', 'Colapso plástico 3D: el factor dependía de la numeración de las barras (hasta 2,4 veces la carga de colapso)', 'Alta', 'Corregido en main'],
             ['SA-2026-011', 'Apoyo 3D cambiado de resorte a empotrado o articulado, calculado como resorte', 'Alta', 'Corregido el 20/10/2026'],
             ['SA-2026-008', 'Espectro de respuesta: corte basal SRSS con CQC; participación sin la masa acoplada a los apoyos', 'Alta', 'Corregido el 21/10/2026'],
             ['SA-2026-007', 'Pandeo 3D sin modos torsionales ni flexotorsionales', 'Alta', 'Corregido el 21/10/2026'],
@@ -60,6 +61,7 @@ export const safetyAdvisories: Post = {
           head: ['Aviso', 'Caso', 'Correcto', 'Informado', 'Unidad'],
           rows: [
             ['SA-2026-013', 'Ménsula de cuatro láminas curvas de 4 × 1 × 0,2 m, 10 kN en la punta: mx en el elemento del empotramiento', '35,0', '0', 'kN·m/m'],
+            ['SA-2026-014', 'Pórtico espacial de 10 barras (frame3d-2) renumerado: factor de colapso plástico', '176,47', '424,3', '—'],
             ['SA-2026-011', 'Viga de 0, 4 y 8 m, apoyo dibujado como empotrado en 8 m: descenso en ese apoyo', '0', '-14,4', 'mm'],
             ['SA-2026-008', 'Dos modos a ω y 1,1ω: corte basal relativo al valor CQC', '1,00', '0,81', '—'],
             ['SA-2026-007', 'Columna cruciforme de 200×10 mm y 1,5 m: carga crítica', '2993', '5860', 'kN'],
@@ -70,6 +72,10 @@ export const safetyAdvisories: Post = {
             ['SA-2026-009', 'Placa delgada en flexión, ν = 0,3: rigidez relativa a la correcta', '1,000', '1,225', '—'],
           ],
         },
+
+        { k: 'h', t: 'SA-2026-014: colapso plástico 3D dependiente de la numeración' },
+        { k: 'p', t: 'Con flexión biaxial, los controles que cierran una rótula que gira hacia atrás y reabren una cerrada que sale de la superficie de fluencia podían entrar en ciclo. El solver seguía desde el estado en que el orden de las barras lo dejaba y llevaba una sección cerrada fuera de la superficie de fluencia: la misma estructura, renumerada, informaba factores de colapso entre 75,9 y 424,3, con un valor certificado de 176,47. Ahora el análisis se detiene en el último estado consistente e informa ese factor como cota inferior, con un aviso, el mismo con cualquier numeración. Afecta el pushover de la pestaña Pro en 3D.' },
+        { k: 'ext', href: `${REPO}/SA-2026-014-plastic-3d-element-order.md`, label: 'SA-2026-014 completo', t: 'El aviso, con el modelo de prueba y el valor certificado:' },
 
         { k: 'h', t: 'SA-2026-011: apoyo 3D cambiado de resorte a empotrado' },
         { k: 'p', t: 'Al cambiar el tipo de un apoyo que tenía resortes, el apoyo conservaba las constantes de resorte. En modo 3D se enviaban al solver junto con la restricción, y el solver resolvía ese grado de libertad como elástico: el apoyo dibujado como empotrado se calculaba como un resorte. Afecta los modelos resueltos en modo 3D, incluidos los planos resueltos en 3D; el modo 2D no está afectado.' },
@@ -191,6 +197,7 @@ export const safetyAdvisories: Post = {
           head: ['Advisory', 'What', 'Severity', 'Status'],
           rows: [
             ['SA-2026-013', 'Curved shells: bending moments reported as zero; stresses kept the free thermal strain', 'High', 'Fixed on main'],
+            ['SA-2026-014', '3D plastic collapse: the factor depended on the element numbering (up to 2.4 times the collapse load)', 'High', 'Fixed on main'],
             ['SA-2026-011', '3D support switched from spring to fixed or pinned, solved as a spring', 'High', 'Fixed 2026-10-20'],
             ['SA-2026-008', 'Response spectrum: base shear SRSS under CQC; participation without support-coupled mass', 'High', 'Fixed 2026-10-21'],
             ['SA-2026-007', '3D buckling without torsional or flexural-torsional modes', 'High', 'Fixed 2026-10-21'],
@@ -212,6 +219,7 @@ export const safetyAdvisories: Post = {
           head: ['Advisory', 'Case', 'Correct', 'Reported', 'Unit'],
           rows: [
             ['SA-2026-013', 'Cantilever of four curved shells, 4 × 1 × 0.2 m, 10 kN at the tip: mx at the root element', '35.0', '0', 'kN·m/m'],
+            ['SA-2026-014', '10-member space frame (frame3d-2), renumbered: plastic collapse factor', '176.47', '424.3', '—'],
             ['SA-2026-011', 'Beam at 0, 4 and 8 m, support drawn as fixed at 8 m: deflection at that support', '0', '-14.4', 'mm'],
             ['SA-2026-008', 'Two modes at ω and 1.1ω: base shear relative to the CQC value', '1.00', '0.81', '—'],
             ['SA-2026-007', '200×10 mm cruciform column, 1.5 m: critical load', '2993', '5860', 'kN'],
@@ -222,6 +230,10 @@ export const safetyAdvisories: Post = {
             ['SA-2026-009', 'Thin plate in bending, ν = 0.3: stiffness relative to the correct value', '1.000', '1.225', '—'],
           ],
         },
+
+        { k: 'h', t: 'SA-2026-014: 3D plastic collapse depended on the numbering' },
+        { k: 'p', t: 'Under biaxial bending, the checks that close a hinge turning backwards and reopen a closed one pushed out of the yield surface could cycle. The solver went on from whichever state the element order left it in and pushed a closed section through the yield surface: the same structure, renumbered, reported collapse factors from 75.9 to 424.3, against a certified 176.47. The analysis now stops at the last consistent state and reports that factor as a lower bound, with a warning, the same for any numbering. It affects the 3D pushover of the Pro tab.' },
+        { k: 'ext', href: `${REPO}/SA-2026-014-plastic-3d-element-order.md`, label: 'Full SA-2026-014', t: 'The advisory, with the test model and the certified value:' },
 
         { k: 'h', t: 'SA-2026-011: 3D support switched from spring to fixed' },
         { k: 'p', t: 'Changing the type of a support that had springs kept its spring constants. In 3D mode they were sent to the solver along with the restraint, and the solver treated that degree of freedom as elastic: the support drawn as fixed was solved as a spring. It affects models solved in 3D mode, including plane models solved in 3D; 2D mode is not affected.' },
@@ -343,6 +355,7 @@ export const safetyAdvisories: Post = {
           head: ['Aviso', 'O quê', 'Severidade', 'Situação'],
           rows: [
             ['SA-2026-013', 'Cascas curvas: momentos fletores informados como zero; tensões com a deformação térmica livre', 'Alta', 'Corrigido no main'],
+            ['SA-2026-014', 'Colapso plástico 3D: o fator dependia da numeração das barras (até 2,4 vezes a carga de colapso)', 'Alta', 'Corrigido no main'],
             ['SA-2026-011', 'Apoio 3D trocado de mola para engaste ou rótula, calculado como mola', 'Alta', 'Corrigido em 20/10/2026'],
             ['SA-2026-008', 'Espectro de resposta: cortante basal SRSS com CQC; participação sem a massa acoplada aos apoios', 'Alta', 'Corrigido em 21/10/2026'],
             ['SA-2026-007', 'Flambagem 3D sem modos torcionais nem flexo-torcionais', 'Alta', 'Corrigido em 21/10/2026'],
@@ -364,6 +377,7 @@ export const safetyAdvisories: Post = {
           head: ['Aviso', 'Caso', 'Correto', 'Informado', 'Unidade'],
           rows: [
             ['SA-2026-013', 'Balanço de quatro cascas curvas de 4 × 1 × 0,2 m, 10 kN na ponta: mx no elemento do engaste', '35,0', '0', 'kN·m/m'],
+            ['SA-2026-014', 'Pórtico espacial de 10 barras (frame3d-2) renumerado: fator de colapso plástico', '176,47', '424,3', '—'],
             ['SA-2026-011', 'Viga em 0, 4 e 8 m, apoio desenhado como engaste em 8 m: deslocamento nesse apoio', '0', '-14,4', 'mm'],
             ['SA-2026-008', 'Dois modos em ω e 1,1ω: cortante basal relativo ao valor CQC', '1,00', '0,81', '—'],
             ['SA-2026-007', 'Pilar cruciforme de 200×10 mm e 1,5 m: carga crítica', '2993', '5860', 'kN'],
@@ -374,6 +388,10 @@ export const safetyAdvisories: Post = {
             ['SA-2026-009', 'Placa fina em flexão, ν = 0,3: rigidez relativa à correta', '1,000', '1,225', '—'],
           ],
         },
+
+        { k: 'h', t: 'SA-2026-014: colapso plástico 3D dependente da numeração' },
+        { k: 'p', t: 'Com flexão biaxial, as verificações que fecham uma rótula que gira para trás e reabrem uma fechada que sai da superfície de escoamento podiam entrar em ciclo. O solver seguia a partir do estado em que a ordem das barras o deixava e levava uma seção fechada para fora da superfície de escoamento: a mesma estrutura, renumerada, informava fatores de colapso entre 75,9 e 424,3, com um valor certificado de 176,47. Agora a análise para no último estado consistente e informa esse fator como limite inferior, com um aviso, o mesmo com qualquer numeração. Afeta o pushover da aba Pro em 3D.' },
+        { k: 'ext', href: `${REPO}/SA-2026-014-plastic-3d-element-order.md`, label: 'SA-2026-014 completo', t: 'O aviso, com o modelo de teste e o valor certificado:' },
 
         { k: 'h', t: 'SA-2026-011: apoio 3D trocado de mola para engaste' },
         { k: 'p', t: 'Ao trocar o tipo de um apoio que tinha molas, o apoio mantinha as constantes de mola. No modo 3D elas iam para o solver junto com a restrição, e o solver tratava esse grau de liberdade como elástico: o apoio desenhado como engaste era calculado como mola. Afeta modelos resolvidos no modo 3D, inclusive modelos planos resolvidos em 3D; o modo 2D não é afetado.' },
