@@ -207,6 +207,27 @@ export function arcMemberLocalY(spec: Pick<ArcSpec, 'start' | 'through' | 'end'>
   return mul(yp, 1 / len(yp));
 }
 
+/**
+ * `arcMemberLocalY`, but only where it differs from the default axes; null where the default rule
+ * already gives the arc's orientation (every member of a plan curve, most members of an arch).
+ *
+ * The arc tool and the migration store only these, so a member keeps automatic axes wherever they
+ * are right. That matters beyond tidiness: a flat model drawn in X–Y is embedded in X–Z for the
+ * 3D solve, where automatic axes follow the projection and a stored X–Y reference would not.
+ */
+export function arcMemberLocalYOverride(spec: Pick<ArcSpec, 'start' | 'through' | 'end'>, nodeI: Vec3, nodeJ: Vec3): Vec3 | null {
+  const ly = arcMemberLocalY(spec, nodeI, nodeJ);
+  if (!ly) return null;
+  try {
+    const [ni, nj] = [{ id: 0, ...nodeI }, { id: 1, ...nodeJ }];
+    const d = computeLocalAxes3D(ni, nj).ey;
+    const a = computeLocalAxes3D(ni, nj, ly).ey;
+    return d[0] * a[0] + d[1] * a[1] + d[2] * a[2] > 1 - 1e-9 ? null : ly;
+  } catch {
+    return null; // a zero-length member: validation reports it
+  }
+}
+
 /** What `migrateArcLocalAxes` reads and writes of a member. */
 interface ArcMember {
   nodeI: number; nodeJ: number;
@@ -241,18 +262,8 @@ export function migrateArcLocalAxes(
     if (e.rollAngle !== undefined && e.rollAngle !== 0) continue;
     const pi = pos(e.nodeI), pj = pos(e.nodeJ);
     if (!pi || !pj) continue;
-    const ly = arcMemberLocalY(e.arc.spec, pi, pj);
+    const ly = arcMemberLocalYOverride(e.arc.spec, pi, pj);
     if (!ly) continue;
-    let same: boolean;
-    try {
-      const [ni, nj] = [{ id: e.nodeI, ...pi }, { id: e.nodeJ, ...pj }];
-      const d = computeLocalAxes3D(ni, nj);
-      const a = computeLocalAxes3D(ni, nj, ly);
-      same = d.ey[0] * a.ey[0] + d.ey[1] * a.ey[1] + d.ey[2] * a.ey[2] > 1 - 1e-9;
-    } catch {
-      continue; // a zero-length member: validation reports it
-    }
-    if (same) continue;
     e.localYx = ly.x; e.localYy = ly.y; e.localYz = ly.z;
     changed++;
   }
@@ -296,9 +307,10 @@ export interface ArcBuildTarget {
   /** Called once per created member, with the tag to remember. */
   tag: (elementId: number, tag: ArcTag) => void;
   /**
-   * Called once per created member with its local-y reference (`arcMemberLocalY`), so every
-   * member of the arc has the same section orientation relative to the curve (#418). Not called
-   * for a straight (collinear) arc.
+   * Called for each created member whose automatic axes differ from the arc's orientation, with
+   * its local-y reference (`arcMemberLocalYOverride`), so every member of the arc has the same
+   * section orientation relative to the curve (#418). Not called where the automatic axes are
+   * already right (a plan curve, most of an arch) nor for a straight (collinear) arc.
    */
   setLocalY?: (elementId: number, localY: Vec3) => void;
   /** Where a node is, for the local axes of the members joining existing nodes. */
@@ -358,7 +370,7 @@ export function buildArc(
     if (target.setLocalY) {
       const pi = target.nodePosition?.(ids[i]) ?? pts[i];
       const pj = target.nodePosition?.(ids[i + 1]) ?? pts[i + 1];
-      const ly = arcMemberLocalY(spec, pi, pj);
+      const ly = arcMemberLocalYOverride(spec, pi, pj);
       if (ly) target.setLocalY(id, ly);
     }
     made.push(id);

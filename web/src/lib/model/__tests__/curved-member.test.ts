@@ -263,11 +263,28 @@ describe('the section orientation along the arc (#418)', () => {
       tag: () => {},
       setLocalY: (id, v) => set.set(id, v),
     }, 1);
+    // 8 segments: no member is within 2.56° of vertical, so automatic axes are already right.
     expect(made.length).toBe(8);
-    for (const id of made) {
-      const v = set.get(id)!;
-      expect(Math.abs(v.x * a.normal.x + v.y * a.normal.y + v.z * a.normal.z)).toBeCloseTo(1, 12);
+    expect(set.size).toBe(0);
+    set.clear(); nextNode = 100; nextEl = 1;
+    const made40 = buildArc({ ...a, segments: 40 }, {
+      addNode: () => nextNode++,
+      addElement: () => nextEl++,
+      tag: () => {},
+      setLocalY: (id, v) => set.set(id, v),
+    }, 1);
+    // 40 segments: the two springing members are near vertical and get the plane normal.
+    expect([...set.keys()]).toEqual([made40[0], made40[39]]);
+    for (const v of set.values()) {
+      expect(v.x * a.normal.x + v.y * a.normal.y + v.z * a.normal.z).toBeCloseTo(1, 12);
     }
+  });
+
+  it('sets nothing on a flat X–Y arc, which a flat model solves embedded in X–Z', () => {
+    const set = new Map<number, unknown>();
+    let k = 1;
+    buildArc({ ...HALF, segments: 40 }, { addNode: () => 100 + k, addElement: () => k++, tag: () => {}, setLocalY: (id, v) => set.set(id, v) }, 1);
+    expect(set.size).toBe(0);
   });
 
   it('migrates an arch saved without them, and leaves plan curves and stated axes alone', () => {
