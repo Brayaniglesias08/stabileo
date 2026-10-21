@@ -3,9 +3,9 @@
 | | |
 |---|---|
 | Severity | High |
-| Status | Draft (fix not merged) |
+| Status | Draft (fixed on `main` by the batch-4 integration, PR #507, deployed to stabileo.com 2026-10-21; untagged, next release) |
 | Issue | [#405](https://github.com/lambdaclass/stabileo/issues/405) (related: [#424](https://github.com/lambdaclass/stabileo/issues/424)) |
-| Fix | PR [#434](https://github.com/lambdaclass/stabileo/pull/434) (open) |
+| Fix | PR [#434](https://github.com/lambdaclass/stabileo/pull/434) (merged via #507, 2026-10-21) |
 | Affected versions | up to 0.2.0 and `main` until the fix; introduction not yet bisected |
 | Re-check registry | to add with the fix |
 
@@ -35,7 +35,9 @@ coarsely meshed members connected to supports, and grows as fewer elements are u
 
 ## Fixed in
 
-Not yet fixed (PR #434).
+`main` (#434, merged through the batch-4 integration PR #507 and deployed to stabileo.com on
+2026-10-21); it will ship in the next tagged release. The workaround below is for checking results
+obtained before that date; it must not be applied to new runs.
 
 ## Workaround
 

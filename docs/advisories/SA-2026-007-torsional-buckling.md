@@ -3,9 +3,9 @@
 | | |
 |---|---|
 | Severity | High |
-| Status | Draft (fix not merged) |
+| Status | Draft (fixed on `main` by the batch-4 integration, PR #507, deployed to stabileo.com 2026-10-21; untagged, next release) |
 | Issue | [#404](https://github.com/lambdaclass/stabileo/issues/404) (related: [#439](https://github.com/lambdaclass/stabileo/issues/439)) |
-| Fix | PR [#434](https://github.com/lambdaclass/stabileo/pull/434) (open) |
+| Fix | PR [#434](https://github.com/lambdaclass/stabileo/pull/434) (merged via #507, 2026-10-21) |
 | Affected versions | every version with 3D buckling, up to 0.2.0 and `main` until the fix |
 | Re-check registry | to add with the fix |
 
@@ -33,8 +33,9 @@ buckling factors used for stability (e.g. amplification, effective lengths) are.
 
 ## Fixed in
 
-Not yet fixed (PR #434). When it lands, 3D sections without Cw and with the fallback J (#439) can
-govern differently; supply J and Cw.
+`main` (#434, merged through the batch-4 integration PR #507 and deployed to stabileo.com on
+2026-10-21); it will ship in the next tagged release. The workaround below is for checking results
+obtained before that date; it must not be applied to new runs.
 
 ## Workaround
 
