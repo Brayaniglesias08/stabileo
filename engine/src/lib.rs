@@ -1527,6 +1527,63 @@ pub fn cirsoc201_beam_batch(data: &[f64]) -> Result<Vec<f64>, JsValue> {
     postprocess::cirsoc201_check::beam_batch(data).map_err(JsValue::from_str)
 }
 
+/// The CIRSOC 201 provisions every section shares, for one material and section.
+///
+/// In: `[edition (2005 | 2025), fc, fy, Es, confinement (0 ties | 1 spiral), Ag, Ast, bw, d]`
+/// (Pa, m², m). Out: `[β1, φ compression-controlled, εty, εt tension-controlled, εt,min for a
+/// beam (9.3.3.1), Po, φPn,max, As,min of a beam (9.6.1.2), ρ min, ρ max of a column (10.6.1.1)]`.
+#[wasm_bindgen]
+pub fn cirsoc201_basis(input: &[f64]) -> Result<Vec<f64>, JsValue> {
+    use postprocess::cirsoc201_check as c;
+    use postprocess::cirsoc201_section as s;
+    if input.len() != 9 || input.iter().any(|v| !v.is_finite()) {
+        return Err(JsValue::from_str("cirsoc201_basis: expected 9 finite values"));
+    }
+    let edition = rc_section_kernel::edition_of(input[0]).map_err(JsValue::from_str)?;
+    let confinement = rc_section_kernel::confinement_of(input[4]).map_err(JsValue::from_str)?;
+    let (fc, fy, es, ag, ast, bw, d) = (input[1], input[2], input[3], input[5], input[6], input[7], input[8]);
+    if !(fc > 0.0 && fy > 0.0 && es > 0.0) {
+        return Err(JsValue::from_str("cirsoc201_basis: f'c, fy and Es must be positive"));
+    }
+    Ok(vec![
+        c::beta1(fc),
+        s::phi_compression(edition, confinement),
+        fy / es,
+        c::tension_controlled_strain(edition, fy, es),
+        c::ductility_strain(edition, fy, es),
+        s::squash_load(fc, fy, ag, ast),
+        s::axial_cap(edition, confinement, fc, fy, ag, ast),
+        s::min_flexural_steel(fc, fy, bw, d),
+        s::COLUMN_STEEL_RATIO_MIN,
+        s::COLUMN_STEEL_RATIO_MAX,
+    ])
+}
+
+/// Least flexural reinforcement the CIRSOC 201 beam check passes; layout in
+/// `postprocess::cirsoc201_design::design_batch`.
+#[wasm_bindgen]
+pub fn cirsoc201_design_beam(data: &[f64]) -> Result<Vec<f64>, JsValue> {
+    postprocess::cirsoc201_design::design_batch(data).map_err(JsValue::from_str)
+}
+
+/// Slab minimum steel and maximum spacings; layout in
+/// `postprocess::cirsoc201_design::slab_provisions`.
+#[wasm_bindgen]
+pub fn cirsoc201_slab_provisions(data: &[f64]) -> Result<Vec<f64>, JsValue> {
+    postprocess::cirsoc201_design::slab_provisions(data).map_err(JsValue::from_str)
+}
+
+/// φ (Tabla 21.2.2) for each net tensile strain in `strains`.
+#[wasm_bindgen]
+pub fn cirsoc201_phi(edition: f64, confinement: f64, fy: f64, es: f64, strains: &[f64]) -> Result<Vec<f64>, JsValue> {
+    let edition = rc_section_kernel::edition_of(edition).map_err(JsValue::from_str)?;
+    let confinement = rc_section_kernel::confinement_of(confinement).map_err(JsValue::from_str)?;
+    if !(fy > 0.0 && es > 0.0 && fy.is_finite() && es.is_finite()) || strains.iter().any(|e| e.is_nan()) {
+        return Err(JsValue::from_str("cirsoc201_phi: invalid input"));
+    }
+    Ok(strains.iter().map(|&e| postprocess::cirsoc201_section::phi(edition, confinement, e, fy, es)).collect())
+}
+
 #[wasm_bindgen]
 pub fn check_cirsoc201_members(json: &str) -> Result<String, JsValue> {
     let input: postprocess::cirsoc201_check::Cirsoc201CheckInput =

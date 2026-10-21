@@ -2,7 +2,7 @@ import { registerColumnCapacityKernel } from './column-capacity-kernel';
 import { registerCirsoc201BeamKernel } from './codes/argentina/cirsoc201-beam-kernel';
 import { registerCirsoc301Kernel } from './codes/argentina/cirsoc301-kernel';
 import { packedShellCombinationKernel, registerShellCombinationKernel } from './shell-combination-kernel';
-import { registerRcSectionKernel } from './codes/argentina/rc-section-kernel';
+import { registerCirsoc201Engine } from './codes/argentina/cirsoc201-engine';
 import { registerCollisionKernel } from './detailing/collision-kernel';
 /**
  * WASM solver wrapper — replaces the pure-TS solver pipeline.
@@ -219,7 +219,10 @@ export async function initSolver(): Promise<void> {
       await wasm.default(await getWasmBytes());
     }
     registerCollisionKernel(wasm.CollisionGeometry ?? null);
-    registerRcSectionKernel(wasm.RcSectionGeometry ?? null);
+    registerCirsoc201Engine({
+      Section: wasm.Cirsoc201SectionKernel, basis: wasm.cirsoc201_basis, phi: wasm.cirsoc201_phi,
+      designBeam: wasm.cirsoc201_design_beam, slabProvisions: wasm.cirsoc201_slab_provisions,
+    });
     registerColumnCapacityKernel(wasm.solve_column_capacity_batch ?? null);
     registerCirsoc201BeamKernel(wasm.cirsoc201_beam_batch ?? null);
     registerCirsoc301Kernel({ check: wasm.check_cirsoc301_members ?? null, certify: wasm.certify_cirsoc301_members ?? null });

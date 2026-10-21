@@ -16,6 +16,8 @@ pub mod isolated_footing;
 pub mod cfs_check;
 pub mod ec2_check;
 pub mod cirsoc201_check;
+pub mod cirsoc201_section;
+pub mod cirsoc201_design;
 pub mod cirsoc301_check;
 pub mod ec3_check;
 pub mod masonry_check;

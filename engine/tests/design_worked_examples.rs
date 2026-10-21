@@ -1328,6 +1328,8 @@ fn inti_cirsoc(as_comp: Option<f64>) -> Cirsoc201MemberData {
         fyt: None,
         ag: None,
         lambda: None,
+        bf: None,
+        hf: None,
         // INTI's worked examples follow CIRSOC 201-2005.
         edition: dedaliano_engine::postprocess::cirsoc201_check::Cirsoc201Edition::E2005,
     }

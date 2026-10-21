@@ -5728,6 +5728,7 @@ const pt: Translations = {
   'flex.step.badDimension': '⚠ {name} deve ser maior que 0. Revise o dado.',
   'flex.step.badCover': '⚠ {name} deve estar entre 0 e {limit} cm: com esse valor as barras ficam fora da seção.',
   'flex.step.badHole': '⚠ O vazio deve caber na seção: b_h menor que b e h_h menor que h.',
+  'flex.step.badDemand': '⚠ As solicitações (Pu, Mu, Muy) devem ser números.',
   'flex.step.badSteel': '⚠ A armadura dada deve ser uma área em cm², 0 ou mais.',
   'flex.step.badFlange': '⚠ hf deve ser menor que h: uma mesa mais alta que a viga não forma uma seção T.',
   'flex.step.flangeNarrow': '⚠ bf é menor que bw: a mesa fica mais estreita que a alma e a seção não é um T. Se a largura é uma só, use a planilha retangular.',
