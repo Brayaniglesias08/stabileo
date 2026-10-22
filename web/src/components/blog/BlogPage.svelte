@@ -10,7 +10,7 @@
    * pays for a reload.
    */
   import { tPublic as t, tpPublic as tp, publicI18n } from '../../lib/i18n/store.svelte';
-  import { applyPageMeta, restorePageMeta } from '../../lib/page-meta';
+  import { applyPageMeta, restorePageMeta, postImageUrl } from '../../lib/page-meta';
   import { publicUrl } from '../../lib/i18n/public-routes';
   import { POSTS, POSTS_NEWEST_FIRST, findPost, formatPostDate, postReadingMinutes } from '../../lib/blog';
   import { enterApp } from '../landing/landing-utils';
@@ -38,6 +38,24 @@
   });
 
   const post = $derived(slug ? findPost(slug) : undefined);
+
+  /*
+   * What to read next: the posts that share the most topics with this one (newest first among
+   * equals), and the newer and older neighbours by date. A reader at the end of a post had only
+   * "All posts" to go to.
+   */
+  const related = $derived.by(() => {
+    if (!post) return [];
+    return POSTS_NEWEST_FIRST.filter((p) => p.slug !== post.slug)
+      .map((p) => ({ p, shared: p.tagKeys.filter((k) => post.tagKeys.includes(k)).length }))
+      .filter((r) => r.shared > 0)
+      .sort((a, b) => b.shared - a.shared)
+      .slice(0, 3)
+      .map((r) => r.p);
+  });
+  const position = $derived(post ? POSTS_NEWEST_FIRST.findIndex((p) => p.slug === post.slug) : -1);
+  const newer = $derived(position > 0 ? POSTS_NEWEST_FIRST[position - 1] : undefined);
+  const older = $derived(position >= 0 && position < POSTS_NEWEST_FIRST.length - 1 ? POSTS_NEWEST_FIRST[position + 1] : undefined);
   const body = $derived(post ? post.i18n[publicI18n.locale] : undefined);
 
   let pageEl: HTMLDivElement | undefined = $state();
@@ -63,6 +81,7 @@
               url: publicUrl(`/blog/${post.slug}`, publicI18n.locale),
               locale: publicI18n.locale,
               crumbs: { home: 'Stabileo', blog: 'Blog' },
+              image: postImageUrl(post.slug, publicI18n.locale),
             }
           : undefined,
       // The index states itself as the blog and lists its posts, so a search engine reads the
@@ -141,6 +160,42 @@
           <button class="btn btn-primary" onclick={() => enterApp()}>{t('blog.openEditor')}</button>
           <PublicLink to="/blog" class="link-arrow">{t('blog.allPosts')}</PublicLink>
         </div>
+
+        {#if related.length > 0}
+          <section class="post-related" aria-labelledby="post-related-title">
+            <h2 id="post-related-title" class="post-related-title">{t('blog.keepReading')}</h2>
+            <ul class="post-related-list">
+              {#each related as r (r.slug)}
+                {@const rb = r.i18n[publicI18n.locale]}
+                <li>
+                  <article class="post-card post-card--compact" data-slug={r.slug}>
+                    <div class="post-card-meta">
+                      <time datetime={r.date}>{formatPostDate(r.date, publicI18n.locale)}</time>
+                    </div>
+                    <h3><PublicLink to={`/blog/${r.slug}`} class="post-card-title">{rb.title}</PublicLink></h3>
+                  </article>
+                </li>
+              {/each}
+            </ul>
+          </section>
+        {/if}
+
+        {#if newer || older}
+          <nav class="post-pager" aria-label={t('blog.morePosts')}>
+            {#if newer}
+              <PublicLink to={`/blog/${newer.slug}`} class="post-pager-link post-pager-newer">
+                <span class="post-pager-dir">← {t('blog.newer')}</span>
+                <span class="post-pager-title">{newer.i18n[publicI18n.locale].title}</span>
+              </PublicLink>
+            {/if}
+            {#if older}
+              <PublicLink to={`/blog/${older.slug}`} class="post-pager-link post-pager-older">
+                <span class="post-pager-dir">{t('blog.older')} →</span>
+                <span class="post-pager-title">{older.i18n[publicI18n.locale].title}</span>
+              </PublicLink>
+            {/if}
+          </nav>
+        {/if}
       </div>
     </article>
   {:else}
