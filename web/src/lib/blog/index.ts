@@ -15,6 +15,8 @@ import { barsOrFiniteElements } from './posts/bars-or-finite-elements';
 import { safetyAdvisories } from './posts/safety-advisories';
 import { howStabileoChecksItsResults } from './posts/how-stabileo-checks-its-results';
 import { release030 } from './posts/release-0-3-0';
+import { endToEndCertificates } from './posts/end-to-end-certificates';
+import { sameModelSameNumbers } from './posts/same-model-same-numbers';
 
 /**
  * By `order`, not by date.
@@ -32,6 +34,8 @@ export const POSTS: Post[] = [
   safetyAdvisories,
   howStabileoChecksItsResults,
   release030,
+  endToEndCertificates,
+  sameModelSameNumbers,
 ].sort((a, b) => a.order - b.order);
 
 export function findPost(slug: string): Post | undefined {
