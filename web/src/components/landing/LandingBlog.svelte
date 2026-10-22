@@ -14,9 +14,9 @@
    */
   import { tPublic as t, tpPublic as tp, publicI18n } from '../../lib/i18n/store.svelte';
   import PublicLink from './PublicLink.svelte';
-  import { POSTS, formatPostDate, postReadingMinutes } from '../../lib/blog';
+  import { POSTS_NEWEST_FIRST, formatPostDate, postReadingMinutes } from '../../lib/blog';
 
-  const latest = $derived(POSTS[0]);
+  const latest = $derived(POSTS_NEWEST_FIRST[0]);
   const body = $derived(latest?.i18n[publicI18n.locale]);
 </script>
 

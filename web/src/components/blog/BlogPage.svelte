@@ -12,7 +12,7 @@
   import { tPublic as t, tpPublic as tp, publicI18n } from '../../lib/i18n/store.svelte';
   import { applyPageMeta, restorePageMeta } from '../../lib/page-meta';
   import { publicUrl } from '../../lib/i18n/public-routes';
-  import { POSTS, findPost, formatPostDate, postReadingMinutes } from '../../lib/blog';
+  import { POSTS, POSTS_NEWEST_FIRST, findPost, formatPostDate, postReadingMinutes } from '../../lib/blog';
   import { enterApp } from '../landing/landing-utils';
   import BlogNav from './BlogNav.svelte';
   import PublicLink from '../landing/PublicLink.svelte';
@@ -161,7 +161,7 @@
           <p class="lead">{t('blog.empty')}</p>
         {:else}
           <ul class="post-cards">
-            {#each POSTS as p (p.slug)}
+            {#each POSTS_NEWEST_FIRST as p (p.slug)}
               {@const b = p.i18n[publicI18n.locale]}
               <li>
                 <article class="post-card" data-slug={p.slug}>
