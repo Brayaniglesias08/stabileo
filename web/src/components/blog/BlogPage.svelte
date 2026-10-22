@@ -57,11 +57,36 @@
               headline: body.title,
               description: body.excerpt,
               datePublished: post.date,
+              dateModified: post.updated,
               authors: post.authors,
+              keywords: post.tagKeys.map((k) => t(k)),
               url: publicUrl(`/blog/${post.slug}`, publicI18n.locale),
               locale: publicI18n.locale,
+              crumbs: { home: 'Stabileo', blog: 'Blog' },
             }
           : undefined,
+      // The index states itself as the blog and lists its posts, so a search engine reads the
+      // series as one publication rather than eight unrelated pages.
+      graph: post
+        ? undefined
+        : [
+            {
+              '@type': 'Blog',
+              '@id': publicUrl('/blog', publicI18n.locale),
+              name: t('blog.indexTitle'),
+              description: t('blog.lead'),
+              url: publicUrl('/blog', publicI18n.locale),
+              inLanguage: publicI18n.locale,
+              publisher: { '@id': 'https://stabileo.com/#organization' },
+              blogPost: POSTS.map((p) => ({
+                '@type': 'BlogPosting',
+                headline: p.i18n[publicI18n.locale].title,
+                url: publicUrl(`/blog/${p.slug}`, publicI18n.locale),
+                datePublished: p.date,
+                dateModified: p.updated ?? p.date,
+              })),
+            },
+          ],
     });
     return restorePageMeta;
   });

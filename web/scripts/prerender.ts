@@ -132,6 +132,13 @@ function serveDist(port: number) {
   });
 }
 
+/**
+ * A post's last change, for its sitemap entry: `updated` when the post states one, else its
+ * publication date. The build day said every post changed on every deploy, which teaches a
+ * crawler to ignore lastmod.
+ */
+const POST_LASTMOD = new Map<string, string>();
+
 /** Every public route, without its language prefix. Posts are read from the bundle. */
 async function publicPaths(): Promise<string[]> {
   const source = await readFile(join(ROOT, 'src/lib/blog/index.ts'), 'utf8');
@@ -140,7 +147,11 @@ async function publicPaths(): Promise<string[]> {
   for (const file of imports) {
     const post = await readFile(join(ROOT, `src/lib/blog/posts/${file}.ts`), 'utf8');
     const slug = post.match(/slug:\s*'([^']+)'/)?.[1];
-    if (slug) slugs.push(slug);
+    if (slug) {
+      slugs.push(slug);
+      const day = post.match(/\bupdated:\s*'(\d{4}-\d{2}-\d{2})'/)?.[1] ?? post.match(/\bdate:\s*'(\d{4}-\d{2}-\d{2})'/)?.[1];
+      if (day) POST_LASTMOD.set(`/blog/${slug}`, day);
+    }
   }
   if (slugs.length === 0) throw new Error('prerender: found no blog posts — the scan is broken');
   return ['/', '/blog', ...slugs.map((s) => `/blog/${s}`)];
@@ -282,7 +293,7 @@ async function main() {
             // pointed the default of every URL in the file at the English home
             // page instead of at the page declaring it.
             const xDefault = `${ORIGIN}/${DEFAULT_LOCALE}${path === '/' ? '' : path}/`;
-            return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${TODAY}</lastmod>\n${alts}\n    <xhtml:link rel="alternate" hreflang="x-default" href="${xDefault}"/>\n  </url>`;
+            return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${POST_LASTMOD.get(path) ?? TODAY}</lastmod>\n${alts}\n    <xhtml:link rel="alternate" hreflang="x-default" href="${xDefault}"/>\n  </url>`;
           }),
         ).join('\n') +
         `\n</urlset>\n`,

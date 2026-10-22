@@ -19,6 +19,7 @@ const REPO = 'https://github.com/lambdaclass/stabileo/blob/main/docs/advisories'
 export const safetyAdvisories: Post = {
   slug: 'safety-advisories',
   date: '2026-10-20',
+  updated: '2026-10-21',
   order: 6,
   authors: ['Federico Carrone'],
   tagKeys: ['blog.tag.safety', 'blog.tag.verification'],

@@ -170,8 +170,7 @@ test.describe('@smoke prerender', () => {
         // The byline on screen is prose; this is the machine-readable one, and
         // it has to survive into the file rather than only exist at runtime.
         const raw = await page.locator('script[type="application/ld+json"]').textContent();
-        const data = JSON.parse(raw!);
-        expect(data['@type']).toBe('BlogPosting');
+        const data = (JSON.parse(raw!)['@graph'] as Array<Record<string, any>>).find((n) => n['@type'] === 'BlogPosting')!;
         expect(data.inLanguage).toBe(locale);
         expect(data.url).toBe(`${ORIGIN}/${locale}/blog/${SLUG}/`);
       } finally {

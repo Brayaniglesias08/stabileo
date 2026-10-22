@@ -48,32 +48,90 @@ export type ArticleMeta = {
 	description: string;
 	/** ISO day. */
 	datePublished: string;
+	/** ISO day of the last substantive edit; the publication day when absent. */
+	dateModified?: string;
 	authors: string[];
+	/** The post's topics, in the reader's language: `keywords` and `article:tag`. */
+	keywords?: string[];
 	/** Absolute; the page's own canonical. */
 	url: string;
 	locale: PublicLocale;
+	/** The breadcrumb's names for the home page and the blog, in the reader's language. */
+	crumbs?: { home: string; blog: string };
 };
 
-function setArticleData(article: ArticleMeta | undefined) {
+const ORG = { '@type': 'Organization', '@id': 'https://stabileo.com/#organization', name: 'Stabileo', url: 'https://stabileo.com', logo: 'https://stabileo.com/og/stabileo-social.png' };
+
+/** The structured data a page states: a post's article and breadcrumb, or a page's own graph. */
+function setStructuredData(article: ArticleMeta | undefined, graph: object[] | undefined) {
 	document.querySelector(JSONLD)?.remove();
-	if (!article) return;
+	const nodes: object[] = [];
+	if (article) {
+		nodes.push({
+			'@type': 'BlogPosting',
+			headline: article.headline,
+			description: article.description,
+			datePublished: article.datePublished,
+			dateModified: article.dateModified ?? article.datePublished,
+			inLanguage: article.locale,
+			author: article.authors.map((name) => ({ '@type': 'Person', name })),
+			publisher: { '@id': ORG['@id'] },
+			mainEntityOfPage: { '@type': 'WebPage', '@id': article.url },
+			url: article.url,
+			image: 'https://stabileo.com/og/stabileo-social.png',
+			...(article.keywords?.length ? { keywords: article.keywords.join(', ') } : {}),
+			isPartOf: { '@type': 'Blog', '@id': publicUrl('/blog', article.locale) }
+		});
+		if (article.crumbs) {
+			nodes.push({
+				'@type': 'BreadcrumbList',
+				itemListElement: [
+					{ '@type': 'ListItem', position: 1, name: article.crumbs.home, item: publicUrl('/', article.locale) },
+					{ '@type': 'ListItem', position: 2, name: article.crumbs.blog, item: publicUrl('/blog', article.locale) },
+					{ '@type': 'ListItem', position: 3, name: article.headline, item: article.url }
+				]
+			});
+		}
+		nodes.push(ORG);
+	}
+	if (graph) nodes.push(...graph);
+	if (nodes.length === 0) return;
 	const el = document.createElement('script');
 	el.setAttribute('type', 'application/ld+json');
 	el.setAttribute('data-page-meta', '');
-	el.textContent = JSON.stringify({
-		'@context': 'https://schema.org',
-		'@type': 'BlogPosting',
-		headline: article.headline,
-		description: article.description,
-		datePublished: article.datePublished,
-		inLanguage: article.locale,
-		author: article.authors.map((name) => ({ '@type': 'Person', name })),
-		publisher: { '@type': 'Organization', name: 'Stabileo', url: 'https://stabileo.com' },
-		mainEntityOfPage: { '@type': 'WebPage', '@id': article.url },
-		url: article.url,
-		image: 'https://stabileo.com/og/stabileo-social.png'
-	});
+	el.textContent = JSON.stringify({ '@context': 'https://schema.org', '@graph': nodes });
 	document.head.appendChild(el);
+}
+
+/** The Organization a page's own graph can refer to. */
+export const STABILEO_ORGANIZATION = ORG;
+
+const ARTICLE_OG = 'meta[data-page-meta-og]';
+
+/**
+ * Open Graph says what kind of thing the page is: `article` on a post, with its dates, author and
+ * topics (`article:*`), `website` everywhere else, as index.html ships it.
+ */
+function setOgArticle(article: ArticleMeta | undefined) {
+	for (const el of document.querySelectorAll(ARTICLE_OG)) el.remove();
+	const type = document.querySelector('meta[property="og:type"]');
+	type?.setAttribute('content', article ? 'article' : 'website');
+	if (!article || !type?.parentNode) return;
+	const values: [string, string][] = [
+		['article:published_time', article.datePublished],
+		['article:modified_time', article.dateModified ?? article.datePublished],
+		...article.authors.map((a): [string, string] => ['article:author', a]),
+		...(article.keywords ?? []).map((k): [string, string] => ['article:tag', k])
+	];
+	let after: Node = type;
+	for (const [property, content] of values) {
+		const el = document.createElement('meta');
+		el.setAttribute('property', property);
+		el.setAttribute('content', content);
+		el.setAttribute('data-page-meta-og', '');
+		type.parentNode.insertBefore(el, after.nextSibling);
+		after = el;
+	}
 }
 
 type Hreflang = { hreflang: string; href: string };
@@ -175,6 +233,8 @@ export function applyPageMeta(meta: {
 	path: string;
 	/** Present on a post; absent everywhere else. */
 	article?: ArticleMeta;
+	/** Schema.org nodes the page states about itself (the landing's app, the blog's index). */
+	graph?: object[];
 }) {
 	if (!original) {
 		original = {
@@ -196,7 +256,8 @@ export function applyPageMeta(meta: {
 	setMeta('meta[name="twitter:title"]', meta.title);
 	setMeta('meta[name="twitter:description"]', meta.description);
 	setLinks(meta.path, meta.locale);
-	setArticleData(meta.article);
+	setOgArticle(meta.article);
+	setStructuredData(meta.article, meta.graph);
 }
 
 export function restorePageMeta() {
@@ -221,5 +282,6 @@ export function restorePageMeta() {
 	 * why it would have stayed wrong.
 	 */
 	setHreflangs(original.hreflangs, canonical ?? document.head.lastElementChild);
-	setArticleData(undefined);
+	setOgArticle(undefined);
+	setStructuredData(undefined, undefined);
 }
