@@ -638,3 +638,9 @@
   font-size: 1.05rem;
   line-height: 1.25;
 }
+
+/* ─── STANDING PAGE ──────────────────────────────────────────────────────── */
+
+.landing.blog .standing-cta {
+  margin: 1.75rem 0 0;
+}

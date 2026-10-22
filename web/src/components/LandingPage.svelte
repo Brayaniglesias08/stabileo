@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { tPublic as t, publicI18n } from '../lib/i18n/store.svelte';
-  import { applyPageMeta, restorePageMeta, STABILEO_ORGANIZATION } from '../lib/page-meta';
+  import { applyPageMeta, restorePageMeta, STABILEO_ORGANIZATION, ERGODIC_GROUP, LAMBDA_CLASS } from '../lib/page-meta';
   import { publicUrl } from '../lib/i18n/public-routes';
   import LandingNav from './landing/LandingNav.svelte';
   import LandingHero from './landing/LandingHero.svelte';
@@ -30,8 +30,10 @@
    */
   function syncMetadata() {
     applyPageMeta({
-      title: `Stabileo — ${t('landing.heroH')}`,
-      description: t('landing.heroP'),
+      // What someone searching would type: "free structural analysis software", "in the browser",
+      // "CIRSOC". The hero's own line stays the page's heading.
+      title: t('landing.metaTitle'),
+      description: t('landing.metaDescription'),
       locale: publicI18n.locale,
       path: '/',
       // What the site is, for search engines: the site itself, who makes it, and the application
@@ -48,13 +50,15 @@
         STABILEO_ORGANIZATION,
         {
           '@type': 'SoftwareApplication',
+          '@id': 'https://stabileo.com/#software',
           name: 'Stabileo',
-          description: t('landing.heroP'),
+          description: t('landing.metaDescription'),
           url: publicUrl('/', publicI18n.locale),
           applicationCategory: 'EngineeringApplication',
           operatingSystem: 'Web browser',
           inLanguage: ['es', 'en', 'pt'],
-          publisher: { '@id': STABILEO_ORGANIZATION['@id'] },
+          publisher: ERGODIC_GROUP,
+          author: LAMBDA_CLASS,
         },
       ],
     });
