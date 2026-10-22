@@ -241,11 +241,19 @@ async function publicPaths(): Promise<string[]> {
     }
   }
   if (slugs.length === 0) throw new Error('prerender: found no blog posts — the scan is broken');
-  // Standing pages, with their last edit for the sitemap.
-  const cirsoc = await readFile(join(ROOT, 'src/lib/blog/pages/cirsoc.ts'), 'utf8');
-  const cirsocDay = cirsoc.match(/\bupdated:\s*'(\d{4}-\d{2}-\d{2})'/)?.[1];
-  if (cirsocDay) POST_LASTMOD.set('/cirsoc', cirsocDay);
-  return ['/', '/cirsoc', '/blog', ...slugs.map((s) => `/blog/${s}`)];
+  // Standing pages, read from their own files, with their last edit for the sitemap.
+  const pageIndex = await readFile(join(ROOT, 'src/lib/blog/pages/index.ts'), 'utf8');
+  const pageFiles = [...pageIndex.matchAll(/from '\.\/([\w-]+)'/g)].map((m) => m[1]);
+  const pages: string[] = [];
+  for (const file of pageFiles) {
+    const src = await readFile(join(ROOT, `src/lib/blog/pages/${file}.ts`), 'utf8');
+    const pagePath = src.match(/\bpath:\s*'(\/[\w-]+)'/)?.[1];
+    if (!pagePath) continue;
+    pages.push(pagePath);
+    const day = src.match(/\bupdated:\s*'(\d{4}-\d{2}-\d{2})'/)?.[1];
+    if (day) POST_LASTMOD.set(pagePath, day);
+  }
+  return ['/', ...pages, '/blog', ...slugs.map((s) => `/blog/${s}`)];
 }
 
 /**

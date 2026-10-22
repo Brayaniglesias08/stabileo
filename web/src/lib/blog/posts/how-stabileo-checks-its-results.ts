@@ -23,6 +23,7 @@ const REPO = 'https://github.com/lambdaclass/stabileo/blob/main';
 export const howStabileoChecksItsResults: Post = {
   slug: 'how-stabileo-checks-its-results',
   date: '2026-10-20',
+  updated: '2026-10-22',
   order: 7,
   authors: ['Federico Carrone'],
   tagKeys: ['blog.tag.verification', 'blog.tag.solver', 'blog.tag.ai'],
@@ -69,7 +70,7 @@ export const howStabileoChecksItsResults: Post = {
         {
           k: 'ul',
           items: [
-            'Un certificado acota el error de resolver el sistema tal como se armó. No prueba que ese sistema represente el modelo: el armado de la matriz de rigidez y de las cargas está probado de las formas de arriba, pero no certificado. Cuando faltaba el pandeo torsional (SA-2026-007), el certificado certificaba el problema equivocado. Los certificados de extremo a extremo, que vuelven a armar el sistema de forma independiente, están en desarrollo.',
+            'Un certificado acota el error de resolver el sistema tal como se armó. No prueba que ese sistema represente el modelo: el armado de la matriz de rigidez y de las cargas está probado de las formas de arriba, pero no certificado. Cuando faltaba el pandeo torsional (SA-2026-007), el certificado certificaba el problema equivocado. Desde la 0.3.0, los certificados de punta a punta vuelven a armar el sistema de forma independiente para pórticos y reticulados y verifican el resultado contra el modelo mismo; láminas, sólidos y conectores todavía no están cubiertos.',
             'Lean demuestra la matemática; que el código Rust implemente exactamente ese algoritmo no está demostrado, salvo en los verificadores que son código de Lean.',
             'Las verificaciones certificadas de las normas evalúan sus fórmulas con aritmética de intervalos, pero las fórmulas en sí no están formalizadas: se comparan con ejemplos resueltos publicados donde los hay, y la cobertura de cada norma (qué cláusulas, qué ejemplos) está en la matriz de madurez. Mampostería, uniones, fundaciones y servicio no están certificadas.',
             'Ninguna verificación del programa verifica el modelo. Las cargas, los apoyos y la idealización son decisiones del ingeniero; la revisión del modelo avisa de errores comunes, pero no reemplaza el criterio.',
@@ -130,7 +131,7 @@ export const howStabileoChecksItsResults: Post = {
         {
           k: 'ul',
           items: [
-            'A certificate bounds the error of solving the system as it was assembled. It does not prove that the system represents the model: the assembly of the stiffness matrix and the loads is tested in the ways above, but not certified. When torsional buckling was missing (SA-2026-007), the certificate certified the wrong problem. End-to-end certificates, which re-assemble the system independently, are in progress.',
+            'A certificate bounds the error of solving the system as it was assembled. It does not prove that the system represents the model: the assembly of the stiffness matrix and the loads is tested in the ways above, but not certified. When torsional buckling was missing (SA-2026-007), the certificate certified the wrong problem. Since 0.3.0, end-to-end certificates re-assemble the system independently for frames and trusses and check the result against the model itself; shells, solids and connectors are not covered yet.',
             'Lean proves the mathematics; that the Rust code implements exactly that algorithm is not proved, except for the checkers that are Lean code.',
             'The certified design checks evaluate their formulas in interval arithmetic, but the formulas themselves are not formalized: they are compared with published worked examples where those exist, and each code’s coverage (which clauses, which examples) is in the maturity matrix. Masonry, connections, foundations and serviceability are not certified.',
             'No verification of the program verifies the model. Loads, supports and idealisation are the engineer’s decisions; the model review warns about common mistakes, but it does not replace judgement.',
@@ -191,7 +192,7 @@ export const howStabileoChecksItsResults: Post = {
         {
           k: 'ul',
           items: [
-            'Um certificado limita o erro de resolver o sistema tal como foi montado. Não prova que esse sistema represente o modelo: a montagem da matriz de rigidez e das cargas é testada das formas acima, mas não certificada. Quando faltava a flambagem torcional (SA-2026-007), o certificado certificava o problema errado. Os certificados de ponta a ponta, que remontam o sistema de forma independente, estão em desenvolvimento.',
+            'Um certificado limita o erro de resolver o sistema tal como foi montado. Não prova que esse sistema represente o modelo: a montagem da matriz de rigidez e das cargas é testada das formas acima, mas não certificada. Quando faltava a flambagem torcional (SA-2026-007), o certificado certificava o problema errado. Desde a 0.3.0, os certificados de ponta a ponta remontam o sistema de forma independente para pórticos e treliças e verificam o resultado contra o próprio modelo; cascas, sólidos e conectores ainda não estão cobertos.',
             'Lean demonstra a matemática; que o código Rust implemente exatamente esse algoritmo não está demonstrado, exceto nos verificadores que são código Lean.',
             'As verificações certificadas das normas avaliam suas fórmulas com aritmética de intervalos, mas as fórmulas em si não estão formalizadas: são comparadas com exemplos resolvidos publicados onde existem, e a cobertura de cada norma (quais cláusulas, quais exemplos) está na matriz de maturidade. Alvenaria, ligações, fundações e serviço não são certificadas.',
             'Nenhuma verificação do programa verifica o modelo. As cargas, os apoios e a idealização são decisões do engenheiro; a revisão do modelo avisa de erros comuns, mas não substitui o critério.',

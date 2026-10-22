@@ -18,7 +18,7 @@
   import PublicLink from '../landing/PublicLink.svelte';
   import LandingFooter from '../landing/LandingFooter.svelte';
   import BlogBlocks from './BlogBlocks.svelte';
-  import { cirsocPage } from '../../lib/blog/pages/cirsoc';
+  import { findStandingPage } from '../../lib/blog/pages';
   import '../landing/landing.css';
   import './blog.css';
 
@@ -34,7 +34,7 @@
    * looks like it worked. It is a missing post, and it should say so.
    */
   /** A standing page (not a post) at this path, if any. */
-  const standing = $derived(path.replace(/\/$/, '') === cirsocPage.path ? cirsocPage : undefined);
+  const standing = $derived(findStandingPage(path));
   const standingBody = $derived(standing ? standing.i18n[publicI18n.locale] : undefined);
 
   const slug = $derived.by(() => {
@@ -96,9 +96,13 @@
             operatingSystem: 'Web browser',
             isAccessibleForFree: true,
             license: 'https://www.gnu.org/licenses/agpl-3.0.html',
-            featureList: standingBody.blocks
-              .filter((b) => b.k === 'table')
-              .flatMap((b) => (b.k === 'table' ? b.rows.map((r) => `${r[0]}: ${r[1]}`) : [])),
+            ...(standingBody.blocks.some((b) => b.k === 'table')
+              ? {
+                  featureList: standingBody.blocks.flatMap((b) =>
+                    b.k === 'table' ? b.rows.map((r) => `${r[0]}: ${r[1]}`) : [],
+                  ),
+                }
+              : {}),
           },
           {
             '@type': 'FAQPage',

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { cirsocPage } from '../pages/cirsoc';
+import { STANDING_PAGES } from '../pages';
 import { findPost } from '..';
 
 const LOCALES = ['es', 'en', 'pt'] as const;
@@ -36,7 +37,24 @@ describe('the CIRSOC page', () => {
       const text = JSON.stringify(cirsocPage.i18n[l]);
       expect(text).toMatch(/experimental/);
       expect(text).toMatch(/2025/);
-      expect(text).toMatch(/2005/);
+      expect(text).toMatch(/2005/); // the edition the engine is compared with, and selectable for older projects
     }
   });
+});
+
+describe('every standing page', () => {
+  for (const page of STANDING_PAGES) {
+    it(`${page.path}: same structure in every language, descriptions that fit, links that exist`, () => {
+      const shape = (l: (typeof LOCALES)[number]) =>
+        page.i18n[l].blocks.map((b) =>
+          b.k === 'table' ? `table:${b.head.length}x${b.rows.length}` : b.k === 'ul' ? `ul:${b.items.length}` : b.k === 'link' ? `link:${b.slug}` : b.k === 'ext' ? `ext:${b.href}` : b.k,
+        );
+      for (const l of LOCALES) {
+        expect(shape(l), l).toEqual(shape('en'));
+        expect(page.i18n[l].faq.length, l).toBe(page.i18n.en.faq.length);
+        expect(page.i18n[l].description.length, `${l} description`).toBeLessThanOrEqual(160);
+        for (const b of page.i18n[l].blocks) if (b.k === 'link') expect(findPost(b.slug), b.slug).toBeTruthy();
+      }
+    });
+  }
 });

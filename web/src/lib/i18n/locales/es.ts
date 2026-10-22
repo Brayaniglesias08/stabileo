@@ -109,6 +109,8 @@ const es: Record<string, string> = {
   'landing.footRepo': 'GitHub',
   'landing.footDocs': 'Documentación',
   'landing.footBlog': 'Blog',
+  'landing.footReliability': 'Confiabilidad',
+  'landing.footSap2000': 'Alternativa a SAP2000',
   'landing.footRights': 'Software libre bajo AGPL-3.0.',
   'landing.footLaunch': 'Abrir el editor',
   'landing.footSocial': 'Seguinos',

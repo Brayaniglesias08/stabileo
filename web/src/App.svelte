@@ -336,6 +336,7 @@
   import { runLiveCalc, runGlobalSolve } from './lib/engine/live-calc';
   import LandingPage from './components/LandingPage.svelte';
   import BlogPage from './components/blog/BlogPage.svelte';
+  import { findStandingPage } from './lib/blog/pages';
   import { parsePublicPath, publicHref } from './lib/i18n/public-routes';
   import { publicI18n } from './lib/i18n/store.svelte';
   import AiDrawer from './components/AiDrawer.svelte';
@@ -391,8 +392,8 @@
   function isBlogRoute(pathname: string) {
     const { path } = publicRoute(pathname);
     // `/blog/` is covered by the prefix test; only the bare form needs naming.
-    // `/cirsoc` is a standing page rendered by the same component as the blog.
-    return path === '/blog' || path.startsWith('/blog/') || path === '/cirsoc';
+    // Standing pages (/cirsoc, /reliability, …) are rendered by the same component as the blog.
+    return path === '/blog' || path.startsWith('/blog/') || !!findStandingPage(path);
   }
 
   /**

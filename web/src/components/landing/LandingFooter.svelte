@@ -26,6 +26,8 @@
         <a href={REPO_URL} target="_blank" rel="noreferrer">{t('landing.footRepo')}</a>
         <PublicLink to="/blog">{t('landing.footBlog')}</PublicLink>
         <PublicLink to="/cirsoc">CIRSOC</PublicLink>
+        <PublicLink to="/reliability">{t('landing.footReliability')}</PublicLink>
+        <PublicLink to="/sap2000-alternative">{t('landing.footSap2000')}</PublicLink>
         <button onclick={() => enterApp()}>{t('landing.footLaunch')}</button>
       </nav>
 

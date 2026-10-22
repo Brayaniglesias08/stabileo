@@ -107,6 +107,8 @@ const pt: Translations = {
   'landing.footRepo': 'GitHub',
   'landing.footDocs': 'Documentação',
   'landing.footBlog': 'Blog',
+  'landing.footReliability': 'Confiabilidade',
+  'landing.footSap2000': 'Alternativa ao SAP2000',
   'landing.footRights': 'Software livre sob AGPL-3.0.',
   'landing.footLaunch': 'Abrir o editor',
   'landing.footSocial': 'Siga-nos',
