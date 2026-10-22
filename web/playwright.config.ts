@@ -185,7 +185,12 @@ export default defineConfig({
      * waiting for hooks that bundle does not contain.
      */
     reuseExistingServer: !process.env.CI && !process.env.E2E_PORT && !distIsStale(),
-    timeout: 240_000,
+    /*
+     * The command builds the whole site, prerender included, before serving it. On a busy CI
+     * runner that passed 240 s twice on 2026-10-22 ("Timed out waiting 240000ms from
+     * config.webServer"), failing a shard before any test ran; 10 minutes leaves room.
+     */
+    timeout: 600_000,
     stdout: 'pipe',
     stderr: 'pipe',
   },
