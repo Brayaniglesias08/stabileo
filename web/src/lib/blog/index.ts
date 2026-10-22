@@ -14,6 +14,7 @@ import { torsionTheories } from './posts/torsion-theories';
 import { barsOrFiniteElements } from './posts/bars-or-finite-elements';
 import { safetyAdvisories } from './posts/safety-advisories';
 import { howStabileoChecksItsResults } from './posts/how-stabileo-checks-its-results';
+import { release030 } from './posts/release-0-3-0';
 
 /**
  * By `order`, not by date.
@@ -30,6 +31,7 @@ export const POSTS: Post[] = [
   barsOrFiniteElements,
   safetyAdvisories,
   howStabileoChecksItsResults,
+  release030,
 ].sort((a, b) => a.order - b.order);
 
 export function findPost(slug: string): Post | undefined {
