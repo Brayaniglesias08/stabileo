@@ -89,3 +89,29 @@ fn static_method_values() {
     let a = static_method_applicable(4, "A", 31.0, 10, "regular", None, None);
     assert!(!a.allowed && a.dynamic_required);
 }
+
+/// #580: with H, the principal load not acting is a combination of its own. 1,2 D + 1,6 H is not
+/// between 1,4 D and 1,2 D + 1,6 L + 1,6 H when D and H act in opposite senses, so whatever the
+/// sense of H, the set reaches it; and 0,9 D + 1,6 H with the wind away.
+#[test]
+fn with_earth_pressure_the_principal_load_not_acting_is_generated() {
+    let has = |c: &[Combination], want: &[(LoadSymbol, f64)]| {
+        c.iter().any(|c| {
+            let t: Vec<_> = c.terms.iter().filter(|t| t.factor != 0.0).map(|t| (t.symbol, t.factor)).collect();
+            t.len() == want.len() && want.iter().all(|w| t.contains(w))
+        })
+    };
+    for action in [EarthPressureAction::Adds, EarthPressureAction::Unknown] {
+        let i = CombinationInputs {
+            present: Present { l: true, w: true, h: true, ..Default::default() },
+            earth_pressure_action: Some(action),
+            ..Default::default()
+        };
+        let c = generate_combinations(&i);
+        assert!(has(&c, &[(LoadSymbol::D, 1.2), (LoadSymbol::H, 1.6)]), "{action:?}: {:?}", labels(&c));
+        assert!(has(&c, &[(LoadSymbol::D, 0.9), (LoadSymbol::H, 1.6)]), "{action:?}: {:?}", labels(&c));
+    }
+    // Without H, nothing changes: the principal stays in every combination that prints it.
+    let i = CombinationInputs { present: Present { l: true, ..Default::default() }, ..Default::default() };
+    assert!(!has(&generate_combinations(&i), &[(LoadSymbol::D, 1.2)]));
+}

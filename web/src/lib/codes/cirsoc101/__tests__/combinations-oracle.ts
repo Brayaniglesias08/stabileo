@@ -42,7 +42,9 @@
  * effect opposes the principal one (a live load whose moment counters the wind's in a column)
  * lowers the combination, and the printed one alone does not reach the case where it is absent.
  * Taking the principal load away needs no combination of its own: what is left lies between
- * 1,4 D and a combination the set already holds, so its effect is inside their envelope.
+ * 1,4 D and a combination the set already holds, so its effect is inside their envelope. Except
+ * with H: 1,2 D + 1,6 H is not between them when D and H act in opposite senses, so a
+ * combination with H is also emitted without its principal load (1,2 D + 1,6 H, 0,9 D + 1,6 H).
  *
  * Seismic combinations. INPRES-CIRSOC 103-2018 Parte I §3.7.1 defines the combinations that
  * include the earthquake as [3.16] 1,2 D ± 1,0 E + f1 L + f2 S and [3.17] 0,9 D ± 1,0 E, f1 and
@@ -140,7 +142,7 @@ const REF_103_COMB = clause('inpres-cirsoc-103-i', '2018', '3.7.1', 'combinació
 
 /** The principal load of each printed combination: the others in it are its companions. */
 const PRINCIPAL: Readonly<Record<number, readonly LoadSymbol[]>> = {
-  2: ['L'], 3: ['Lr', 'S', 'R'], 4: ['W'], 5: ['E'],
+  2: ['L'], 3: ['Lr', 'S', 'R'], 4: ['W'], 5: ['E'], 6: ['W'], 7: ['E'],
 };
 /** Loads a combination can be investigated without: the variable ones. D, F, H stay. */
 const COMPANION: ReadonlySet<LoadSymbol> = new Set(['L', 'Lr', 'S', 'R', 'W', 'E']);
@@ -327,7 +329,9 @@ export function generateCombinations(inputs: CombinationInputs): LoadCombination
       const c = out[k]!;
       const principal = PRINCIPAL[c.basic ?? 0];
       if (!principal) continue;
-      const companions = c.terms.filter((t) => COMPANION.has(t.symbol) && !principal.includes(t.symbol) && t.factor !== 0);
+      // With H in it, the principal load goes too: 1,2 D + 1,6 H is not inside the envelope.
+      const withH = c.terms.some((t) => t.symbol === 'H' && t.factor !== 0);
+      const companions = c.terms.filter((t) => COMPANION.has(t.symbol) && (withH || !principal.includes(t.symbol)) && t.factor !== 0);
       // Combination 2 with no L takes its roof load as the principal: it has no companion then.
       if (!c.terms.some((t) => principal.includes(t.symbol))) continue;
       for (let mask = 1; mask < 1 << companions.length; mask++) {
