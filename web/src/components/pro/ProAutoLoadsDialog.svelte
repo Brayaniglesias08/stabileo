@@ -344,7 +344,11 @@
   function windStructurePlan(): NonNullable<LoadPlanInput['wind']>['structure'] {
     const w = windStructure;
     switch (w.kind) {
-      case 'freeRoof': return { kind: 'freeRoof', roof: w.roof, blocked: w.blocked };
+      case 'freeRoof': {
+        // Af per axis for §2.1.5; an axis left at 0 takes the whole vertical projection.
+        const area = { ...((w.areaX ?? 0) > 0 ? { x: w.areaX } : {}), ...((w.areaY ?? 0) > 0 ? { y: w.areaY } : {}) };
+        return { kind: 'freeRoof', roof: w.roof, blocked: w.blocked, ...(Object.keys(area).length ? { area } : {}) };
+      }
       case 'latticeTower': return { kind: 'latticeTower', section: w.towerSection, round: w.round, solidity: w.solidity, diagonal: w.diagonal, ...(w.width > 0 ? { width: w.width } : {}) };
       case 'openSign': return { kind: 'openSign', members: w.members, solidity: w.solidity, ...(w.width > 0 ? { width: w.width } : {}) };
       case 'solidSign': return { kind: 'solidSign', clearance: w.clearance };
@@ -936,7 +940,8 @@
                         </select>
                       </label>
                       <label class="al-field"><span class="al-label">{t('autoLoad.windAltitude')}</span>
-                        <QuantityInput bind:value={windAltitude} quantity="length" min={0} testid="al-wind-altitude" wrap="al-unit-field" />
+                        <!-- Below sea level Ke > 1 (Tabla 1.12-1, note 2): down to −105 m in the Gran Bajo de San Julián. It stopped at 0, so Ke stayed 1 there. -->
+                        <QuantityInput bind:value={windAltitude} quantity="length" min={-500} testid="al-wind-altitude" wrap="al-unit-field" />
                       </label>
                       <label class="al-field"><span class="al-label">{t('autoLoad.windRoofSlope')}</span>
                         <span class="al-unit-field"><input type="number" bind:value={windRoofSlope} min={0} max={90} step={1} data-testid="al-wind-slope" /><span>°</span></span>

@@ -262,8 +262,8 @@ fn principal(basic: u8) -> &'static [LoadSymbol] {
     match basic {
         2 => &[LoadSymbol::L],
         3 => &[LoadSymbol::Lr, LoadSymbol::S, LoadSymbol::R],
-        4 => &[LoadSymbol::W],
-        5 => &[LoadSymbol::E],
+        4 | 6 => &[LoadSymbol::W],
+        5 | 7 => &[LoadSymbol::E],
         _ => &[],
     }
 }
@@ -398,10 +398,13 @@ pub fn generate_combinations(i: &CombinationInputs) -> Vec<Combination> {
             if prin.is_empty() {
                 continue;
             }
+            // With H in it, the principal load is droppable too: 1,2 D + 1,6 H is not between
+            // 1,4 D and a printed combination when D and H act in opposite senses (LOADS.md).
+            let with_h = c.terms.iter().any(|t| t.symbol == H && t.factor != 0.0);
             let companions: Vec<LoadSymbol> = c
                 .terms
                 .iter()
-                .filter(|t| is_companion(t.symbol) && !prin.contains(&t.symbol) && t.factor != 0.0)
+                .filter(|t| is_companion(t.symbol) && (with_h || !prin.contains(&t.symbol)) && t.factor != 0.0)
                 .map(|t| t.symbol)
                 .collect();
             if !c.terms.iter().any(|t| prin.contains(&t.symbol)) {
