@@ -93,6 +93,21 @@ export type ArticleMeta = {
  * The organization, with what it is and where else it lives: a search engine otherwise confuses it
  * with STABILO, the pen brand. `sameAs` are the profiles the footer links to.
  */
+/** The backer and publisher. LambdaClass is its development arm, credited as the developer. */
+export const ERGODIC_GROUP = {
+	'@type': 'Organization',
+	'@id': 'https://ergodicgroup.com/#organization',
+	name: 'Ergodic Group',
+	url: 'https://ergodicgroup.com/'
+};
+
+export const LAMBDA_CLASS = {
+	'@type': 'Organization',
+	name: 'LambdaClass',
+	url: 'https://lambdaclass.com',
+	parentOrganization: { '@id': ERGODIC_GROUP['@id'] }
+};
+
 const ORG = {
 	'@type': 'Organization',
 	'@id': 'https://stabileo.com/#organization',
@@ -100,6 +115,7 @@ const ORG = {
 	url: 'https://stabileo.com',
 	logo: 'https://stabileo.com/og/stabileo-social.png',
 	description: 'Stabileo is open-source structural analysis and design software (Argentine CIRSOC codes) that runs in the browser.',
+	parentOrganization: ERGODIC_GROUP,
 	sameAs: [
 		'https://github.com/lambdaclass/stabileo',
 		'https://www.linkedin.com/company/stabileo',

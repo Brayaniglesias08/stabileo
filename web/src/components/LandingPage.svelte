@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { tPublic as t, publicI18n } from '../lib/i18n/store.svelte';
-  import { applyPageMeta, restorePageMeta, STABILEO_ORGANIZATION } from '../lib/page-meta';
+  import { applyPageMeta, restorePageMeta, STABILEO_ORGANIZATION, ERGODIC_GROUP, LAMBDA_CLASS } from '../lib/page-meta';
   import { publicUrl } from '../lib/i18n/public-routes';
   import LandingNav from './landing/LandingNav.svelte';
   import LandingHero from './landing/LandingHero.svelte';
@@ -57,7 +57,8 @@
           applicationCategory: 'EngineeringApplication',
           operatingSystem: 'Web browser',
           inLanguage: ['es', 'en', 'pt'],
-          publisher: { '@id': STABILEO_ORGANIZATION['@id'] },
+          publisher: ERGODIC_GROUP,
+          author: LAMBDA_CLASS,
         },
       ],
     });

@@ -10,7 +10,7 @@
    * pays for a reload.
    */
   import { tPublic as t, tpPublic as tp, publicI18n } from '../../lib/i18n/store.svelte';
-  import { applyPageMeta, restorePageMeta, postImageUrl } from '../../lib/page-meta';
+  import { applyPageMeta, restorePageMeta, postImageUrl, ERGODIC_GROUP, LAMBDA_CLASS } from '../../lib/page-meta';
   import { publicUrl } from '../../lib/i18n/public-routes';
   import { POSTS, POSTS_NEWEST_FIRST, findPost, formatPostDate, postReadingMinutes } from '../../lib/blog';
   import { enterApp } from '../landing/landing-utils';
@@ -96,6 +96,8 @@
             operatingSystem: 'Web browser',
             isAccessibleForFree: true,
             license: 'https://www.gnu.org/licenses/agpl-3.0.html',
+            publisher: ERGODIC_GROUP,
+            author: LAMBDA_CLASS,
             ...(standingBody.blocks.some((b) => b.k === 'table')
               ? {
                   featureList: standingBody.blocks.flatMap((b) =>

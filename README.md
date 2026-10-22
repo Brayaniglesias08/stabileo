@@ -190,9 +190,12 @@ To report a vulnerability, email security@lambdaclass.com.
 
 ## Built by
 
+Stabileo is backed by [Ergodic Group](https://ergodicgroup.com/) and developed by
+[LambdaClass](https://lambdaclass.com), its development arm.
+
 - **Bautista Chesta**: Civil Engineer (FIUBA), UX/UI and project management
 - **Diego Kingston**: Ph.D. in Engineering (UBA), product–solver integration
-- **Federico Carrone**: Founder of [Lambda Class](https://lambdaclass.com), solver lead
+- **Federico Carrone**: Founder of [LambdaClass](https://lambdaclass.com), solver lead
 
 With contributions from mathematicians, physicists, computer engineers and computer scientists at
-[Lambda Class](https://lambdaclass.com).
+LambdaClass.
