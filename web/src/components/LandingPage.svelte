@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { tPublic as t, publicI18n } from '../lib/i18n/store.svelte';
-  import { applyPageMeta, restorePageMeta } from '../lib/page-meta';
+  import { applyPageMeta, restorePageMeta, STABILEO_ORGANIZATION } from '../lib/page-meta';
+  import { publicUrl } from '../lib/i18n/public-routes';
   import LandingNav from './landing/LandingNav.svelte';
   import LandingHero from './landing/LandingHero.svelte';
   import LandingPricing from './landing/LandingPricing.svelte';
@@ -33,6 +34,29 @@
       description: t('landing.heroP'),
       locale: publicI18n.locale,
       path: '/',
+      // What the site is, for search engines: the site itself, who makes it, and the application
+      // (free to use, runs in the browser).
+      graph: [
+        {
+          '@type': 'WebSite',
+          '@id': 'https://stabileo.com/#website',
+          name: 'Stabileo',
+          url: 'https://stabileo.com/',
+          inLanguage: publicI18n.locale,
+          publisher: { '@id': STABILEO_ORGANIZATION['@id'] },
+        },
+        STABILEO_ORGANIZATION,
+        {
+          '@type': 'SoftwareApplication',
+          name: 'Stabileo',
+          description: t('landing.heroP'),
+          url: publicUrl('/', publicI18n.locale),
+          applicationCategory: 'EngineeringApplication',
+          operatingSystem: 'Web browser',
+          inLanguage: ['es', 'en', 'pt'],
+          publisher: { '@id': STABILEO_ORGANIZATION['@id'] },
+        },
+      ],
     });
   }
 

@@ -414,14 +414,23 @@ test.describe('@smoke blog', () => {
     await boot(page, `/es/blog/${SLUG}`);
 
     const raw = await page.locator('script[type="application/ld+json"]').textContent();
-    const data = JSON.parse(raw!);
-    expect(data['@type']).toBe('BlogPosting');
+    const graph = JSON.parse(raw!)['@graph'] as Array<Record<string, any>>;
+    const data = graph.find((n) => n['@type'] === 'BlogPosting')!;
     expect(data.inLanguage).toBe('es');
     expect(data.datePublished).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(data.dateModified).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(data.author.map((a: { name: string }) => a.name)).toContain('Bautista Chesta');
     // It must claim the address it is actually served at, in this language.
     expect(data.url).toBe(`https://stabileo.com/es/blog/${SLUG}/`);
     expect(data.mainEntityOfPage['@id']).toBe(data.url);
+    // A breadcrumb from the home page through the blog to the post.
+    const crumbs = graph.find((n) => n['@type'] === 'BreadcrumbList')!;
+    expect(crumbs.itemListElement.map((i: { item: string }) => i.item)).toEqual([
+      'https://stabileo.com/es/', 'https://stabileo.com/es/blog/', data.url,
+    ]);
+    // Open Graph calls it an article, with its date.
+    await expect(page.locator('meta[property="og:type"]')).toHaveAttribute('content', 'article');
+    await expect(page.locator('meta[property="article:published_time"]')).toHaveAttribute('content', data.datePublished);
   });
 
   test('the index is not an article, and the post is not the homepage', async ({ page }) => {
@@ -429,7 +438,10 @@ test.describe('@smoke blog', () => {
     // exercise: structured data on a page that is not an article, and a
     // canonical that hands a post's credit to the front page.
     await boot(page, '/es/blog');
-    await expect(page.locator('script[type="application/ld+json"]')).toHaveCount(0);
+    // The index states itself as the blog, not as an article.
+    const index = JSON.parse((await page.locator('script[type="application/ld+json"]').textContent())!)['@graph'];
+    expect(index.map((n: { '@type': string }) => n['@type'])).toEqual(['Blog']);
+    await expect(page.locator('meta[property="og:type"]')).toHaveAttribute('content', 'website');
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
       'href',
       'https://stabileo.com/es/blog/',

@@ -70,6 +70,11 @@ export type Post = {
   /** ISO date (YYYY-MM-DD). Publication, not last edit. */
   date: string;
   /**
+   * ISO date of the last substantive edit, when there was one after publication: search engines
+   * read it as `dateModified` / `article:modified_time`, and the sitemap as the page's lastmod.
+   */
+  updated?: string;
+  /**
    * Where the post sits in the series, lowest first. NOT the date.
    *
    * The index used to sort newest-first, which is right for a blog that

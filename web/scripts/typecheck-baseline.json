@@ -1,5 +1,5 @@
 {
-	"total": 447,
+	"total": 445,
 	"entries": [
 		{
 			"file": "src/lib/ai/__tests__/build-model.test.ts",
@@ -918,12 +918,6 @@
 			"code": "TS2678",
 			"message": "Type '\"rollerY\"' is not comparable to type 'SupportType'.",
 			"count": 1
-		},
-		{
-			"file": "src/lib/engine/solver-service.ts",
-			"code": "TS2339",
-			"message": "Property 'curved' does not exist on type '{ id: number; nodes: [number, number, number, number]; materialId: number; thickness: number; }'.",
-			"count": 2
 		},
 		{
 			"file": "src/lib/engine/station-design-forces.ts",
