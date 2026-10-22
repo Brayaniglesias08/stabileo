@@ -138,6 +138,91 @@ function serveDist(port: number) {
  * crawler to ignore lastmod.
  */
 const POST_LASTMOD = new Map<string, string>();
+/** The blog index's description in each language, for its feed. */
+const BLOG_LEAD = new Map<string, string>();
+
+/** A post's publication day, for its feed entry and its card. */
+const POST_DATE = new Map<string, string>();
+
+/** What a captured post says about itself, read back from its own <head>: the feed and the card use it. */
+type PostHead = { path: string; locale: Locale; title: string; description: string };
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&#x27;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function xmlEscape(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function headMeta(head: string, attr: string, name: string): string | undefined {
+  const re = new RegExp(`<meta[^>]*${attr}="${name}"[^>]*content="([^"]*)"`);
+  return head.match(re)?.[1];
+}
+
+/**
+ * One RSS 2.0 feed per language, newest first, at /<locale>/blog/feed.xml. Pages on the blog
+ * advertise it with <link rel="alternate" type="application/rss+xml"> (src/lib/page-meta.ts).
+ */
+function feedXml(locale: Locale, posts: PostHead[]): string {
+  const items = posts
+    .filter((p) => p.locale === locale)
+    .sort((a, b) => (POST_DATE.get(b.path) ?? '').localeCompare(POST_DATE.get(a.path) ?? ''))
+    .map((p) => {
+      const url = `${ORIGIN}/${locale}${p.path}/`;
+      const date = new Date(`${POST_DATE.get(p.path) ?? TODAY}T12:00:00Z`).toUTCString();
+      return `    <item>\n      <title>${xmlEscape(p.title)}</title>\n      <link>${url}</link>\n      <guid isPermaLink="true">${url}</guid>\n      <pubDate>${date}</pubDate>\n      <description>${xmlEscape(p.description)}</description>\n    </item>`;
+    });
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n  <channel>\n    <title>Stabileo — Blog</title>\n    <link>${ORIGIN}/${locale}/blog/</link>\n    <atom:link href="${ORIGIN}/${locale}/blog/feed.xml" rel="self" type="application/rss+xml"/>\n    <description>${xmlEscape(BLOG_LEAD.get(locale) ?? 'Stabileo')}</description>\n    <language>${locale}</language>\n    <lastBuildDate>${new Date(`${TODAY}T12:00:00Z`).toUTCString()}</lastBuildDate>\n${items.join('\n')}\n  </channel>\n</rss>\n`;
+}
+
+/**
+ * A post's own social card, 1200×630, in the site's palette and type: the post's title, the
+ * blog's eyebrow and the date. One per language (dist/og/blog/<slug>.<locale>.png); the post's
+ * og:image and twitter:image point at it (postImageUrl in src/lib/page-meta.ts).
+ */
+async function renderPostCard(browser: Browser, base: string, post: PostHead, out: string) {
+  const day = POST_DATE.get(post.path) ?? TODAY;
+  const date = new Date(`${day}T12:00:00Z`).toLocaleDateString(post.locale, { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html = `<!doctype html><meta charset="utf-8"><style>
+    @font-face { font-family:'Space Grotesk'; src:url('${base}/fonts/space-grotesk-700.woff2') format('woff2'); font-weight:700; }
+    @font-face { font-family:'IBM Plex Sans'; src:url('${base}/fonts/ibm-plex-sans-400.woff2') format('woff2'); font-weight:400; }
+    @font-face { font-family:'IBM Plex Mono'; src:url('${base}/fonts/ibm-plex-mono-500.woff2') format('woff2'); font-weight:500; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { width:1200px; height:630px; background:#0c1620; color:#f4f7fa; font-family:'IBM Plex Sans',sans-serif; overflow:hidden; }
+    .card { width:1200px; height:630px; padding:72px 80px; display:flex; flex-direction:column; }
+    .eyebrow { display:flex; align-items:center; gap:16px; font-family:'IBM Plex Mono',monospace; font-size:20px; letter-spacing:.17em; text-transform:uppercase; color:#e5482a; }
+    .rule { width:52px; height:3px; background:#e5482a; }
+    h1 { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:60px; line-height:1.08; letter-spacing:-.03em; margin-top:30px; max-width:1000px;
+         display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; }
+    .foot { margin-top:auto; display:flex; align-items:center; gap:22px; font-family:'IBM Plex Mono',monospace; font-size:20px; letter-spacing:.11em; color:#8fa3b3; text-transform:uppercase; }
+    .logo { width:38px; height:38px; border-radius:5px; background:#e5482a; color:#fff; font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:24px; display:grid; place-items:center; }
+    .name { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:29px; color:#f4f7fa; letter-spacing:-.015em; text-transform:none; }
+    .dot { color:#e5482a; }
+  </style><div class="card">
+    <p class="eyebrow"><span class="rule"></span>Blog</p>
+    <h1>${esc(post.title)}</h1>
+    <div class="foot"><span class="logo">S</span><span class="name">Stabileo</span><span class="dot">&middot;</span><span>${esc(date)}</span><span class="dot">&middot;</span><span>stabileo.com</span></div>
+  </div>`;
+  const page = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 });
+  try {
+    // Same origin as the fonts: a card set on about:blank cannot load them from the build server,
+    // and falls back to the system faces.
+    await page.goto(`${base}/en/`, { waitUntil: 'domcontentloaded' });
+    await page.setContent(html, { waitUntil: 'load' });
+    await page.evaluate(() => document.fonts.ready);
+    await mkdir(dirname(out), { recursive: true });
+    await page.screenshot({ path: out });
+  } finally {
+    await page.close();
+  }
+}
 
 /** Every public route, without its language prefix. Posts are read from the bundle. */
 async function publicPaths(): Promise<string[]> {
@@ -149,8 +234,10 @@ async function publicPaths(): Promise<string[]> {
     const slug = post.match(/slug:\s*'([^']+)'/)?.[1];
     if (slug) {
       slugs.push(slug);
-      const day = post.match(/\bupdated:\s*'(\d{4}-\d{2}-\d{2})'/)?.[1] ?? post.match(/\bdate:\s*'(\d{4}-\d{2}-\d{2})'/)?.[1];
+      const published = post.match(/\bdate:\s*'(\d{4}-\d{2}-\d{2})'/)?.[1];
+      const day = post.match(/\bupdated:\s*'(\d{4}-\d{2}-\d{2})'/)?.[1] ?? published;
       if (day) POST_LASTMOD.set(`/blog/${slug}`, day);
+      if (published) POST_DATE.set(`/blog/${slug}`, published);
     }
   }
   if (slugs.length === 0) throw new Error('prerender: found no blog posts — the scan is broken');
@@ -255,6 +342,7 @@ async function main() {
   const browser = await chromium.launch();
   const paths = await publicPaths();
   const written: string[] = [];
+  const posts: PostHead[] = [];
 
   try {
     for (const locale of LOCALES) {
@@ -265,6 +353,16 @@ async function main() {
         await mkdir(dirname(out), { recursive: true });
         await writeFile(out, page(head, body, lang));
         written.push(href);
+        if (path === '/blog') {
+          const lead = headMeta(head, 'name', 'description');
+          if (lead) BLOG_LEAD.set(locale, decodeEntities(lead));
+        }
+        if (path.startsWith('/blog/')) {
+          const title = headMeta(head, 'property', 'og:title')?.replace(/ — Stabileo$/, '');
+          const description = headMeta(head, 'name', 'description');
+          if (!title || !description) throw new Error(`prerender: ${href} has no og:title or description to put in its feed entry`);
+          posts.push({ path, locale, title: decodeEntities(title), description: decodeEntities(description) });
+        }
       }
     }
 
@@ -299,6 +397,15 @@ async function main() {
         `\n</urlset>\n`,
     );
 
+    for (const locale of LOCALES) {
+      await mkdir(join(DIST, locale, 'blog'), { recursive: true });
+      await writeFile(join(DIST, locale, 'blog', 'feed.xml'), feedXml(locale, posts));
+    }
+    for (const post of posts) {
+      const slug = post.path.slice('/blog/'.length);
+      await renderPostCard(browser, base, post, join(DIST, 'og', 'blog', `${slug}.${post.locale}.png`));
+    }
+
     /*
      * The editor is not content and must not be indexed: its routes 404 for a
      * crawler anyway, and a rule saying so is cheaper than explaining later.
@@ -316,7 +423,7 @@ async function main() {
 
     console.log(`✅ prerendered ${written.length} pages`);
     for (const href of written) console.log(`   · ${href}`);
-    console.log('   · /sitemap.xml, /robots.txt');
+    console.log(`   · /sitemap.xml, /robots.txt, ${LOCALES.length} feeds, ${posts.length} post cards`);
   } finally {
     await browser.close();
     await stop();

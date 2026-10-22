@@ -61,6 +61,7 @@
 }
 
 .landing.blog .post-card {
+  position: relative;
   background: var(--card);
   border: 1px solid var(--card-hair);
   border-radius: var(--lp-radius);
@@ -137,8 +138,36 @@
   cursor: pointer;
 }
 
-.landing.blog .post-card-title:hover {
+/* The whole card is the link: the title's link is stretched over it (the "Read the post" link
+   stays on top for keyboard and screen-reader users). The title is underlined only when the card
+   is pointed at or focused, so the index does not read as a wall of underlined headings. */
+.landing.blog .post-card-title {
+  text-decoration: none;
+}
+
+.landing.blog .post-card-title::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--lp-radius);
+}
+
+.landing.blog .post-card:hover .post-card-title,
+.landing.blog .post-card:focus-within .post-card-title {
   color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  text-decoration-thickness: 2px;
+}
+
+.landing.blog .post-card .link-arrow {
+  position: relative;
+  z-index: 1;
+}
+
+.landing.blog .post-card:focus-within {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
 }
 
 .landing.blog .post-card--featured .post-card-title {
@@ -513,4 +542,99 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--accent-text);
+}
+
+
+/* ─── KEEP READING ───────────────────────────────────────────────────────── */
+
+.landing.blog .post-related {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+  padding-top: clamp(1.5rem, 3vw, 2rem);
+  border-top: 1px solid var(--hair);
+}
+
+.landing.blog .post-related-title {
+  margin: 0 0 1rem;
+  font-family: var(--lp-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+
+.landing.blog .post-related-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.85rem;
+}
+
+@media (min-width: 52rem) {
+  .landing.blog .post-related-list {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.landing.blog .post-related-list > li {
+  display: grid;
+}
+
+.landing.blog .post-card--compact {
+  padding: 1rem 1.15rem;
+  gap: 0.4rem;
+}
+
+.landing.blog .post-card--compact h3 {
+  margin: 0;
+}
+
+.landing.blog .post-card--compact .post-card-title {
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.landing.blog .post-pager {
+  margin-top: clamp(1.5rem, 3vw, 2rem);
+  display: grid;
+  gap: 0.85rem;
+}
+
+@media (min-width: 52rem) {
+  .landing.blog .post-pager {
+    grid-template-columns: 1fr 1fr;
+  }
+  .landing.blog .post-pager-older {
+    grid-column: 2;
+    text-align: right;
+  }
+}
+
+.landing.blog .post-pager-link {
+  display: grid;
+  gap: 0.3rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--hair);
+  border-radius: var(--lp-radius);
+  text-decoration: none;
+  color: var(--fg);
+}
+
+.landing.blog .post-pager-link:hover,
+.landing.blog .post-pager-link:focus-visible {
+  border-color: var(--accent-text);
+}
+
+.landing.blog .post-pager-dir {
+  font-family: var(--lp-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+
+.landing.blog .post-pager-title {
+  font-family: var(--lp-display);
+  font-size: 1.05rem;
+  line-height: 1.25;
 }

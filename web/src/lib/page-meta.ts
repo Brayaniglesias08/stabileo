@@ -27,8 +27,35 @@ const META_TAGS = [
 	['meta[property="og:description"]', 'content'],
 	['meta[property="og:locale"]', 'content'],
 	['meta[name="twitter:title"]', 'content'],
-	['meta[name="twitter:description"]', 'content']
+	['meta[name="twitter:description"]', 'content'],
+	['meta[property="og:image"]', 'content'],
+	['meta[property="og:image:alt"]', 'content'],
+	['meta[name="twitter:image"]', 'content'],
+	['meta[name="twitter:image:alt"]', 'content']
 ] as const;
+
+/** The site-wide card; a post has its own (rendered by scripts/prerender.ts). */
+const SITE_IMAGE = 'https://stabileo.com/og/stabileo-social.png';
+
+/** A post's own social card: its title on the site's card, one per language. */
+export function postImageUrl(slug: string, locale: PublicLocale): string {
+	return `https://stabileo.com/og/blog/${slug}.${locale}.png`;
+}
+
+const FEED = 'link[rel="alternate"][type="application/rss+xml"][data-page-meta]';
+
+/** A blog page advertises its language's feed, so a reader or an aggregator can follow it. */
+function setFeedLink(path: string, locale: PublicLocale) {
+	document.querySelector(FEED)?.remove();
+	if (!path.startsWith('/blog')) return;
+	const el = document.createElement('link');
+	el.setAttribute('rel', 'alternate');
+	el.setAttribute('type', 'application/rss+xml');
+	el.setAttribute('title', 'Stabileo — Blog');
+	el.setAttribute('href', `https://stabileo.com/${locale}/blog/feed.xml`);
+	el.setAttribute('data-page-meta', '');
+	document.head.appendChild(el);
+}
 
 const ALTERNATE = 'meta[property="og:locale:alternate"]';
 const HREFLANG = 'link[rel="alternate"][hreflang]';
@@ -58,6 +85,8 @@ export type ArticleMeta = {
 	locale: PublicLocale;
 	/** The breadcrumb's names for the home page and the blog, in the reader's language. */
 	crumbs?: { home: string; blog: string };
+	/** Absolute URL of the post's own social card. */
+	image?: string;
 };
 
 const ORG = { '@type': 'Organization', '@id': 'https://stabileo.com/#organization', name: 'Stabileo', url: 'https://stabileo.com', logo: 'https://stabileo.com/og/stabileo-social.png' };
@@ -78,7 +107,7 @@ function setStructuredData(article: ArticleMeta | undefined, graph: object[] | u
 			publisher: { '@id': ORG['@id'] },
 			mainEntityOfPage: { '@type': 'WebPage', '@id': article.url },
 			url: article.url,
-			image: 'https://stabileo.com/og/stabileo-social.png',
+			image: article.image ?? SITE_IMAGE,
 			...(article.keywords?.length ? { keywords: article.keywords.join(', ') } : {}),
 			isPartOf: { '@type': 'Blog', '@id': publicUrl('/blog', article.locale) }
 		});
@@ -256,6 +285,16 @@ export function applyPageMeta(meta: {
 	setMeta('meta[name="twitter:title"]', meta.title);
 	setMeta('meta[name="twitter:description"]', meta.description);
 	setLinks(meta.path, meta.locale);
+	setFeedLink(meta.path, meta.locale);
+	if (meta.article?.image) {
+		for (const sel of ['meta[property="og:image"]', 'meta[name="twitter:image"]']) setMeta(sel, meta.article.image);
+		for (const sel of ['meta[property="og:image:alt"]', 'meta[name="twitter:image:alt"]']) setMeta(sel, meta.article.headline);
+	} else if (original) {
+		// Back to the site's card (and its alt) on a page that has none of its own.
+		META_TAGS.forEach(([sel, attr], i) => {
+			if (/image/.test(sel) && original!.tags[i] !== null) document.querySelector(sel)?.setAttribute(attr, original!.tags[i]!);
+		});
+	}
 	setOgArticle(meta.article);
 	setStructuredData(meta.article, meta.graph);
 }
@@ -284,4 +323,5 @@ export function restorePageMeta() {
 	setHreflangs(original.hreflangs, canonical ?? document.head.lastElementChild);
 	setOgArticle(undefined);
 	setStructuredData(undefined, undefined);
+	document.querySelector(FEED)?.remove();
 }
