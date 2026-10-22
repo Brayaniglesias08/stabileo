@@ -161,10 +161,11 @@
           <p class="lead">{t('blog.empty')}</p>
         {:else}
           <ul class="post-cards">
-            {#each POSTS_NEWEST_FIRST as p (p.slug)}
+            {#each POSTS_NEWEST_FIRST as p, i (p.slug)}
               {@const b = p.i18n[publicI18n.locale]}
-              <li>
-                <article class="post-card" data-slug={p.slug}>
+              <li class:featured={i === 0}>
+                <article class="post-card" class:post-card--featured={i === 0} data-slug={p.slug}>
+                  {#if i === 0}<p class="post-card-kicker">{t('landing.blogLatestKicker')}</p>{/if}
                   <div class="post-card-meta">
                     <time datetime={p.date}>{formatPostDate(p.date, publicI18n.locale)}</time>
                     <span aria-hidden="true">·</span>
@@ -173,7 +174,10 @@
                   <h2>
                     <PublicLink to={`/blog/${p.slug}`} class="post-card-title">{b.title}</PublicLink>
                   </h2>
-                  <p>{b.excerpt}</p>
+                  <p class="post-card-excerpt">{b.excerpt}</p>
+                  <ul class="post-tags post-card-tags">
+                    {#each p.tagKeys as key}<li>{t(key)}</li>{/each}
+                  </ul>
                   <PublicLink to={`/blog/${p.slug}`} class="link-arrow">{t('blog.readMore')}</PublicLink>
                 </article>
               </li>
