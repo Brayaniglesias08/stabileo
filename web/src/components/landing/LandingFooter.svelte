@@ -25,6 +25,7 @@
         <a href={DOCS_HUB_URL} target="_blank" rel="noreferrer">{t('landing.footDocs')}</a>
         <a href={REPO_URL} target="_blank" rel="noreferrer">{t('landing.footRepo')}</a>
         <PublicLink to="/blog">{t('landing.footBlog')}</PublicLink>
+        <PublicLink to="/cirsoc">CIRSOC</PublicLink>
         <button onclick={() => enterApp()}>{t('landing.footLaunch')}</button>
       </nav>
 

@@ -391,7 +391,8 @@
   function isBlogRoute(pathname: string) {
     const { path } = publicRoute(pathname);
     // `/blog/` is covered by the prefix test; only the bare form needs naming.
-    return path === '/blog' || path.startsWith('/blog/');
+    // `/cirsoc` is a standing page rendered by the same component as the blog.
+    return path === '/blog' || path.startsWith('/blog/') || path === '/cirsoc';
   }
 
   /**

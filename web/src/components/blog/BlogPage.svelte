@@ -18,6 +18,7 @@
   import PublicLink from '../landing/PublicLink.svelte';
   import LandingFooter from '../landing/LandingFooter.svelte';
   import BlogBlocks from './BlogBlocks.svelte';
+  import { cirsocPage } from '../../lib/blog/pages/cirsoc';
   import '../landing/landing.css';
   import './blog.css';
 
@@ -32,6 +33,10 @@
    * and rendered the index under an address that promised a post — a page that
    * looks like it worked. It is a missing post, and it should say so.
    */
+  /** A standing page (not a post) at this path, if any. */
+  const standing = $derived(path.replace(/\/$/, '') === cirsocPage.path ? cirsocPage : undefined);
+  const standingBody = $derived(standing ? standing.i18n[publicI18n.locale] : undefined);
+
   const slug = $derived.by(() => {
     const m = path.match(/^\/blog\/(.+?)\/?$/);
     return m ? decodeURIComponent(m[1]) : null;
@@ -61,6 +66,52 @@
   let pageEl: HTMLDivElement | undefined = $state();
 
   $effect(() => {
+    if (standing && standingBody) {
+      const url = publicUrl(standing.path, publicI18n.locale);
+      applyPageMeta({
+        title: `${standingBody.title} — Stabileo`,
+        description: standingBody.description,
+        locale: publicI18n.locale,
+        path: standing.path,
+        // The page states what it is (a page about the app's CIRSOC checks), the app it is about,
+        // and its questions and answers with the same text the reader sees.
+        graph: [
+          {
+            '@type': 'WebPage',
+            '@id': url,
+            url,
+            name: standingBody.title,
+            description: standingBody.description,
+            inLanguage: publicI18n.locale,
+            dateModified: standing.updated,
+            about: { '@id': 'https://stabileo.com/#software' },
+            isPartOf: { '@id': 'https://stabileo.com/#website' },
+          },
+          {
+            '@type': 'SoftwareApplication',
+            '@id': 'https://stabileo.com/#software',
+            name: 'Stabileo',
+            url: publicUrl('/', publicI18n.locale),
+            applicationCategory: 'EngineeringApplication',
+            operatingSystem: 'Web browser',
+            isAccessibleForFree: true,
+            license: 'https://www.gnu.org/licenses/agpl-3.0.html',
+            featureList: standingBody.blocks
+              .filter((b) => b.k === 'table')
+              .flatMap((b) => (b.k === 'table' ? b.rows.map((r) => `${r[0]}: ${r[1]}`) : [])),
+          },
+          {
+            '@type': 'FAQPage',
+            mainEntity: standingBody.faq.map((f) => ({
+              '@type': 'Question',
+              name: f.q,
+              acceptedAnswer: { '@type': 'Answer', text: f.a },
+            })),
+          },
+        ],
+      });
+      return restorePageMeta;
+    }
     applyPageMeta({
       // The index used to be titled "Blog — Stabileo" in all three languages,
       // so the three pages were indistinguishable to a search engine by the
@@ -123,7 +174,36 @@
        and that reader needs the way back to the index more than anyone. -->
   <BlogNav inPost={!!slug} />
 
-  {#if slug && !post}
+  {#if standing && standingBody}
+    <article class="sec sec--ink post standing">
+      <div class="wrap post-wrap">
+        <p class="eyebrow">
+          <span class="eyebrow-rule" aria-hidden="true"></span>
+          <span class="eyebrow-label">{standingBody.eyebrow}</span>
+        </p>
+        <h1 class="display post-title">{standingBody.title}</h1>
+        <p class="post-excerpt">{standingBody.lead}</p>
+
+        <div class="standing-cta">
+          <button class="btn btn-primary" onclick={() => enterApp()}>{t('blog.openEditor')}</button>
+        </div>
+
+        <div class="post-body">
+          <BlogBlocks blocks={standingBody.blocks} />
+          <h2>{standingBody.faqTitle}</h2>
+          {#each standingBody.faq as f}
+            <h3>{f.q}</h3>
+            <p>{f.a}</p>
+          {/each}
+        </div>
+
+        <div class="post-foot">
+          <button class="btn btn-primary" onclick={() => enterApp()}>{t('blog.openEditor')}</button>
+          <PublicLink to="/blog" class="link-arrow">{t('blog.allPosts')}</PublicLink>
+        </div>
+      </div>
+    </article>
+  {:else if slug && !post}
     <section class="sec sec--ink blog-head">
       <div class="wrap">
         <h1 class="display">{t('blog.notFound')}</h1>

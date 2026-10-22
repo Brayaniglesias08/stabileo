@@ -241,7 +241,11 @@ async function publicPaths(): Promise<string[]> {
     }
   }
   if (slugs.length === 0) throw new Error('prerender: found no blog posts — the scan is broken');
-  return ['/', '/blog', ...slugs.map((s) => `/blog/${s}`)];
+  // Standing pages, with their last edit for the sitemap.
+  const cirsoc = await readFile(join(ROOT, 'src/lib/blog/pages/cirsoc.ts'), 'utf8');
+  const cirsocDay = cirsoc.match(/\bupdated:\s*'(\d{4}-\d{2}-\d{2})'/)?.[1];
+  if (cirsocDay) POST_LASTMOD.set('/cirsoc', cirsocDay);
+  return ['/', '/cirsoc', '/blog', ...slugs.map((s) => `/blog/${s}`)];
 }
 
 /**

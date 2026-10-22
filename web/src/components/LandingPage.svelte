@@ -30,8 +30,10 @@
    */
   function syncMetadata() {
     applyPageMeta({
-      title: `Stabileo — ${t('landing.heroH')}`,
-      description: t('landing.heroP'),
+      // What someone searching would type: "free structural analysis software", "in the browser",
+      // "CIRSOC". The hero's own line stays the page's heading.
+      title: t('landing.metaTitle'),
+      description: t('landing.metaDescription'),
       locale: publicI18n.locale,
       path: '/',
       // What the site is, for search engines: the site itself, who makes it, and the application
@@ -48,8 +50,9 @@
         STABILEO_ORGANIZATION,
         {
           '@type': 'SoftwareApplication',
+          '@id': 'https://stabileo.com/#software',
           name: 'Stabileo',
-          description: t('landing.heroP'),
+          description: t('landing.metaDescription'),
           url: publicUrl('/', publicI18n.locale),
           applicationCategory: 'EngineeringApplication',
           operatingSystem: 'Web browser',
