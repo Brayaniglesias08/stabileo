@@ -8735,6 +8735,7 @@ const en: Record<string, string> = {
   'wind.other.minimumCase': "Wind {dir}, open-building minimum (§2.1.5)",
   'wind.other.minimumOpen': "§2.1.5 minimum, wind {dir}: F = 0.75 kN/m² × Af = 0.75 × {af} m² = {f} kN, a load case of its own at the roof's nodes.",
   'wind.other.minimumOpenEnvelope': "§2.1.5 minimum, wind {dir}: F = 0.75 kN/m² × Af = 0.75 × {af} m² = {f} kN, a load case of its own at the roof's nodes. Af is the structure's whole vertical projection, which is never less than the real one; give Af to use the area of the roof, columns and bracing alone.",
+  'wind.other.minimumMissing': "No §2.1.5 minimum for wind {dir}: the structure has no height or width to project. Give Af.",
   'wind.other.areaX': "Af, wind along X (§2.1.5)",
   'wind.other.areaY': "Af, wind along Y (§2.1.5)",
   'wind.other.envelope': "whole projection",

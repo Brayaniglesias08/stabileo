@@ -8724,6 +8724,7 @@ const es: Record<string, string> = {
   'wind.other.minimumCase': "Viento {dir}, mínimo de edificio abierto (§2.1.5)",
   'wind.other.minimumOpen': "Mínimo del §2.1.5, viento {dir}: F = 0,75 kN/m² × Af = 0,75 × {af} m² = {f} kN, un estado de carga propio en los nudos de la cubierta.",
   'wind.other.minimumOpenEnvelope': "Mínimo del §2.1.5, viento {dir}: F = 0,75 kN/m² × Af = 0,75 × {af} m² = {f} kN, un estado de carga propio en los nudos de la cubierta. Af es toda la proyección vertical de la estructura, que nunca es menor que la real; indicá Af para usar solo el área de la cubierta, las columnas y los arriostramientos.",
+  'wind.other.minimumMissing': "Sin mínimo del §2.1.5 para viento {dir}: la estructura no tiene altura ni ancho que proyectar. Indicá Af.",
   'wind.other.areaX': "Af, viento según X (§2.1.5)",
   'wind.other.areaY': "Af, viento según Y (§2.1.5)",
   'wind.other.envelope': "toda la proyección",

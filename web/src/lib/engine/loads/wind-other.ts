@@ -154,9 +154,12 @@ export function otherStructureWind(i: {
     for (const d of i.directions) {
       const axis = d.endsWith('x') ? 'x' : 'y';
       const given = s.area?.[axis];
-      const envelope = (H - zBase) * extent(axis === 'x' ? 'y' : 'x');
+      // A frame modelled in one plane spans nothing across a wind along it: it takes the width
+      // its roof pressures take, the tributary width. It used to get Af = 0, and no minimum.
+      const across = extent(axis === 'x' ? 'y' : 'x');
+      const envelope = (H - zBase) * (across > 0.05 ? across : i.tributaryWidth);
       const af = given !== undefined && given > 0 ? given : envelope;
-      if (!(af > 0)) continue;
+      if (!(af > 0)) { notes.push(msg('wind.other.minimumMissing', { dir: dirLabel(d) })); continue; }
       const F = MIN_OPEN_KNM2 * af * (d.startsWith('-') ? -1 : 1);
       derivation.push(msg(given !== undefined && given > 0 ? 'wind.other.minimumOpen' : 'wind.other.minimumOpenEnvelope', { dir: dirLabel(d), af: round(af, 2), f: round(Math.abs(F), 1) }));
       cases.push({

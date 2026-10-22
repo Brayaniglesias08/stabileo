@@ -8081,6 +8081,7 @@ const pt: Translations = {
   'wind.other.minimumCase': "Vento {dir}, mínimo de edifício aberto (§2.1.5)",
   'wind.other.minimumOpen': "Mínimo do §2.1.5, vento {dir}: F = 0,75 kN/m² × Af = 0,75 × {af} m² = {f} kN, um caso de carga próprio nos nós da cobertura.",
   'wind.other.minimumOpenEnvelope': "Mínimo do §2.1.5, vento {dir}: F = 0,75 kN/m² × Af = 0,75 × {af} m² = {f} kN, um caso de carga próprio nos nós da cobertura. Af é toda a projeção vertical da estrutura, que nunca é menor que a real; informe Af para usar só a área da cobertura, dos pilares e dos contraventamentos.",
+  'wind.other.minimumMissing': "Sem mínimo do §2.1.5 para vento {dir}: a estrutura não tem altura nem largura para projetar. Informe Af.",
   'wind.other.areaX': "Af, vento segundo X (§2.1.5)",
   'wind.other.areaY': "Af, vento segundo Y (§2.1.5)",
   'wind.other.envelope': "toda a projeção",

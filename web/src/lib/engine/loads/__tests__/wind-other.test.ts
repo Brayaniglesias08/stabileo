@@ -212,4 +212,13 @@ describe('§2.1.5: the minimum wind force on an open building, for a free roof',
     expect(min[1]!.nodal.reduce((t, n) => t + n.fy, 0)).toBeCloseTo(0.75 * 50, 9);
     expect(out.derivation.map((m) => m.key).filter((k) => k.startsWith('wind.other.minimumOpen'))).toEqual(['wind.other.minimumOpen', 'wind.other.minimumOpenEnvelope']);
   });
+
+  it('a frame modelled in one plane takes the tributary width across a wind along it (Codex review)', () => {
+    // One frame in the XZ plane: every node at y = 0.
+    const frame = model([[0, 0, 4], [5, 0, 5], [10, 0, 4], [0, 0, 0], [10, 0, 0]], [[1, 2], [2, 3], [4, 1], [5, 3]]);
+    const out = otherStructureWind({ model: frame, structure: { kind: 'freeRoof', roof: 'pitched', blocked: false }, project: low(), directions: ['+x'], tributaryWidth: 3 });
+    const min = out.cases.filter((c) => c.nameKey === 'wind.other.minimumCase');
+    expect(min).toHaveLength(1);
+    expect(fx(min[0]!)).toBeCloseTo(0.75 * 5 * 3, 9);
+  });
 });
